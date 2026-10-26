@@ -1,0 +1,44 @@
+# ticketflow:begin form
+name: Technical Task
+description: Track engineering, testing, infrastructure, documentation or maintenance work.
+title: "[Task]: "
+labels:
+  - "Type: Task"
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What needs to be changed or completed, and why?
+    validations:
+      required: true
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Implementation Notes
+      description: Constraints, likely files or a proposed approach, when known.
+{{area_field}}
+{{priority_field}}
+{{effort_field}}
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: The checks that must pass before the issue is done.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies And Risks
+{{execution_field}}
+# ticketflow:end form

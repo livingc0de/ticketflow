@@ -11,26 +11,28 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 |---|---|---|---|
 | `schema_version` | integer, must equal the core's (`1`) | required | `config`, `sync` |
 | `repo` | `owner/name` | required | all scripts |
-| `default_branch` | branch name | required | `inherit`, `local-verify`, `pr-wait` |
-| `verify.mode` | `ci` or `local-first` | required | `pr-wait` (a draft in `local-first` is not CI-checked) |
-| `verify.install` | string (shell) | `""` | `local-verify` |
-| `verify.command` | non-empty string (shell) | required | `local-verify` |
-| `verify.timeout_min` | integer 1..360 | `45` | `local-verify` |
-| `gate.context` | string: the commit status that is the merge gate | `"ci/gate"` | `inherit`, `pr-wait`, `local-verify` |
-| `gate.check` | string: the Actions job (check run) behind the gate | `"Verify"` | `pr-wait` |
-| `gate.inherit` | boolean | `false` | `local-verify` (and CI: call `inherit.mjs`) |
+| `default_branch` | branch name | required | `inherit`, `local-verify`, `pr-wait`, `render` |
+| `verify.mode` | `ci` or `local-first` | required | `pr-wait` (a draft in `local-first` is not CI-checked), `render` |
+| `verify.install` | string (shell) | `""` | `local-verify`, `render` |
+| `verify.command` | non-empty string (shell) | required | `local-verify`, `render` |
+| `verify.timeout_min` | integer 1..360 | `45` | `local-verify`, `render` |
+| `gate.context` | string: the commit status that is the merge gate | `"ci/gate"` | `inherit`, `pr-wait`, `local-verify`, `render` |
+| `gate.check` | string: the Actions job (check run) behind the gate | `"Verify"` | `pr-wait`, `render` |
+| `gate.inherit` | boolean | `false` | `local-verify` (and CI: call `inherit.mjs`), `render` |
 | `gate.ci_files` | list of regexes | `[]` | `inherit` |
 | `docs_only.docs` | list of regexes: paths that are documentation | `[]` | `docs-only`, `inherit` |
 | `docs_only.code` | list of regexes: paths that are code even if they match `docs` | `[]` | `docs-only`, `inherit` |
 | `reviewers` | list of reviewer objects | `[]` | `pr-wait` |
-| `deploy_branch` | branch name or `null`; must differ from `default_branch` | `null` | `local-verify` |
+| `deploy_branch` | branch name or `null`; must differ from `default_branch` | `null` | `local-verify`, `render` |
 | `project` | project object, or `null` for none | `null` | `project`, `tracker-next` |
 | `agents` | unique list of `claude` / `codex`: the agents to generate stubs for | `[]` | `gen-stubs` |
 | `models` | `{ claude?, codex? }`, each `{ strong, standard, light }`; a value is a model id (`[\w.:/[\]-]+`) or `null` (inherit: the stub names no model). Every agent in `agents` needs all three classes | `{}` | `gen-stubs` |
-| `plans_dir` | repo-relative directory (no `..`, no leading `/`) where Technical plans are committed | `docs/plans` | skills |
+| `plans_dir` | repo-relative directory (no `..`, no leading `/`) where Technical plans are committed | `docs/plans` | skills, `render` |
 | `worktrees_dir` | repo-relative directory for ticket worktrees (gitignored by `init`) | `.claude/worktrees` | skills |
 | `live_verify_skill` | name of the repo's live-verification skill, or `null`; while `null` the `e2e-verifier` role gets no stub | `null` | `gen-stubs`, skills |
 | `deferred_checks_issue` | number of the issue that lists deferred checks, or `null` | `null` | skills |
+| `areas` | unique list of 1-44 character names (no commas, braces or control characters): the `Area:` labels and the issue forms' Area dropdown. `[]`: no Area | `[]` | `render`, skills |
+| `ci.push_paths` | `null`: the CI workflow has no push run; `[]`: it runs on every push to the default branch; a list of globs: only when one of them changes. Must be `null` or `[]` while `deploy_branch` is set (the deploy signal needs every push) | `null` | `render` |
 
 `gate.context` and `gate.check` must differ: the verdict is the commit status, and check runs are only read to
 detect a refused Actions run.
@@ -129,3 +131,28 @@ Canonical frontmatter is `key: value` lines only. Skills: `name` (the directory 
 `model_class`, `effort` (`low`, `medium`, `high`, `xhigh`), `tools` (`read-only` or `full`) and an optional `needs_config`
 (a config key that must not be `null`, otherwise the role gets no stub). A description starts with `Use when` and is at
 most 300 characters.
+
+## render
+
+`render <templates-dir> <target-repo> [--check] [--keep <path>]... [--propose <dir>]` writes the CI workflow, the issue forms,
+the PR template, the AGENTS block, the Claude settings, the Codex hook and rules, and `.ticketflow/custom/README.md` from
+`core/templates/`. `<templates-dir>` is `core/templates` in the ticketflow repo itself (the runtime is then `core/`) and any other
+directory for a user repo (the runtime is `.ticketflow/`).
+
+A managed block is delimited by `# ticketflow:begin <part>` and `# ticketflow:end <part>` (in Markdown: `<!-- ... -->`), each on its
+own line. Render replaces the block of a part and leaves every other byte of the file alone, so the text between and around the blocks
+(the `repo section`: your own CI steps, extra form fields, a top-level `env`) is yours. A file that exists without markers, or that
+lacks a part render now wants, is a **conflict**: nothing is written (exit 1) and the file is listed; `--propose <dir>` writes the
+suggested file for each conflict to `<dir>` (outside the target) to compare. A part that render no longer produces (the `deploy` job
+once `deploy_branch` is `null`) is removed. Settings and hook files are merged by entry: your own entries stay, ticketflow's are added
+(or, for the hook, replaced). `--keep <path>` leaves one rendered file alone (it is neither written nor checked). `--check` writes
+nothing and exits 1 on drift. Exit 2: config or template error.
+
+The install and verify steps are written into `ci.yml` only when the file is created (they are the repo section): later edits of
+`verify.install` or `verify.command` do not reach it, and `--check` does not flag that. `gate.context` and `gate.check` accept letters, digits,
+spaces and `. / : ( ) # + @ & -`; `verify.install` and `verify.command` accept no control character, lone CR, unicode line break (U+0085, U+2028, U+2029) or `${{`; an area is not `None` (issue forms reserve it) and has no surrounding spaces. A file with a
+CRLF marker line merges (the managed block is rewritten with LF). Invalid JSON in a settings or hooks file is a conflict.
+
+In the CI workflow the status `gate.context` is posted by the last step of the job named `gate.check`, on the head commit. The scope
+step sets `skip=true` and a `description` (see the gate description contract above) for a docs-only or inherited pull request; every
+step of the repo section must carry `if: steps.scope.outputs.skip != 'true'`, and a failed scope step means a full run.

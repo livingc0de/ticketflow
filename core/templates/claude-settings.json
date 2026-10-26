@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node {{runtime}}/scripts/issue.mjs *)",
+      "Bash(node {{runtime}}/scripts/project.mjs *)",
+      "Bash(node {{runtime}}/scripts/sub-issue.mjs *)",
+      "Bash(node {{runtime}}/scripts/tracker-next.mjs *)",
+      "Bash(node {{runtime}}/scripts/pr-wait.mjs *)",
+      "Bash(node {{runtime}}/scripts/local-verify.mjs *)",
+      "Bash(node {{runtime}}/scripts/merge.mjs *)",
+      "Bash(node {{runtime}}/scripts/gen-stubs.mjs *)"
+    ]
+  }
+}

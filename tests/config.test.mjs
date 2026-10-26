@@ -14,7 +14,7 @@ test('a minimal config loads, with defaults applied and deeply frozen', () => {
     assert.deepEqual(
         cfg,
         { schema_version: 1, repo: 'o/r', default_branch: 'main', verify: { mode: 'ci', install: '', command: 'npm test', timeout_min: 45 },
-            gate: { context: 'ci/gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, reviewers: [], deploy_branch: null, project: null, agents: [], models: {}, plans_dir: 'docs/plans', worktrees_dir: '.claude/worktrees', live_verify_skill: null, deferred_checks_issue: null })
+            gate: { context: 'ci/gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, reviewers: [], deploy_branch: null, project: null, agents: [], models: {}, plans_dir: 'docs/plans', worktrees_dir: '.claude/worktrees', live_verify_skill: null, deferred_checks_issue: null, areas: [], ci: { push_paths: null } })
     assert.ok(Object.isFrozen(cfg) && Object.isFrozen(cfg.verify) && Object.isFrozen(cfg.gate) && Object.isFrozen(cfg.gate.ci_files) && Object.isFrozen(cfg.reviewers))
     assert.throws(() => { 'use strict'; cfg.repo = 'x/y' }, TypeError)
 })
@@ -153,4 +153,30 @@ test('plans_dir and worktrees_dir are safe relative paths; live_verify_skill is 
     for (const k of ['plans_dir', 'worktrees_dir']) for (const v of ['', '/abs', '../x', 'a/../b', 'a//b', 'a/', '.', 'a b', 'a\nb', 3, null]) bad({ [k]: v }, new RegExp(k))
     for (const v of ['', 'Live', 'a b', 3]) bad({ live_verify_skill: v }, /live_verify_skill/)
     for (const v of [0, -1, 1.5, '3']) bad({ deferred_checks_issue: v }, /deferred_checks_issue/)
+})
+
+test('areas are unique labels of at most 44 characters; ci.push_paths is null, [] or globs, and unfiltered while deploy_branch is set', () => {
+    assert.deepEqual(validate(rawConfig({ areas: ['API & Data', 'Docs: "x"', 'a'.repeat(44)] })).areas.length, 3)
+    for (const a of [[''], ['a'.repeat(45)], ['a,b'], ['a\nb'], ['{{x}}'], [3], ['a', 'a']]) bad({ areas: a }, /areas/)
+    bad({ areas: 'x' }, /areas must be a list/)
+    for (const v of [null, [], ['package-lock.json', 'src/**']]) assert.deepEqual(validate(rawConfig({ ci: { push_paths: v } })).ci.push_paths, v)
+    for (const v of ['x', [''], [1], ['a\nb']]) bad({ ci: { push_paths: v } }, /ci\.push_paths/)
+    bad({ ci: { extra: 1 } }, /unknown key ci\.extra/)
+    bad({ deploy_branch: 'deploy', ci: { push_paths: ['x'] } }, /push_paths must be null or \[\]/)
+    validate(rawConfig({ deploy_branch: 'deploy', ci: { push_paths: [] } }))
+    validate(rawConfig({ deploy_branch: 'deploy' }))
+})
+
+test('values written into the CI workflow are refused when they could break out of their line or run an expression', () => {
+    for (const v of ['ci/gate\u0085env: {X: 1}', 'a\nb', 'a"b', '${{ secrets.X }}', 'a$b', 'a{b', 'a\u2028b', 'a`b']) { bad({ gate: { context: v } }, /gate\.context/); bad({ gate: { check: v } }, /gate\.check/) }
+    validate(rawConfig({ gate: { context: 'ci/gate (main) #1', check: 'Verify & Build' } }))
+    for (const v of ['npm test\r      - name: x', 'a\u0085b', 'a\u2028b', 'a\u0007b', 'echo ${{ secrets.X }}']) { bad({ verify: { command: v } }, /verify\.command/); bad({ verify: { install: v } }, /verify\.install/) }
+    validate(rawConfig({ verify: { command: 'npm ci\r\nnpm test\n\techo "a b" $HOME', install: 'a\tb' } }))
+    bad({ areas: ['None'] }, /areas/)
+})
+
+test('ci.push_paths, areas and gate names refuse expressions, line breaks and padding', () => {
+    for (const g of ['${{ github.token }}', 'a\u0085b', 'a b']) bad({ ci: { push_paths: [g] } }, /push_paths/)
+    for (const a of [' x', 'x ', ' None ', 'none', ' ', 'a\u0085b']) bad({ areas: [a] }, /areas/)
+    for (const g of [' Verify', 'Verify ', ' ']) bad({ gate: { check: g } }, /gate\.check/)
 })

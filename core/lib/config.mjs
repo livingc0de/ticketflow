@@ -50,6 +50,15 @@ const ref = (v, p) => {
 }
 // ponytail: a conservative relative path; no `..`, no leading slash, no control characters
 const dirPath = (v, p) => (typeof v === 'string' && /^[\w.-]+(\/[\w.-]+)*$/.test(v) && !v.split('/').some((s) => /^\.+$/.test(s)) ? v : fail(`${p} must be a relative directory path without ..`))
+const area = (v, p) => (typeof v === 'string' && v.length >= 1 && v.length <= 44 && v.trim() === v && !/[\u0000-\u001f\u007f\u0085\u2028\u2029,{}]/.test(v) && v.toLowerCase() !== 'none' ? v : fail(`${p} must be 1-44 characters without commas, braces or control characters`))
+const glob = (v, p) => (typeof v === 'string' && v !== '' && !/[\u0000-\u001f\u007f\u0085\u2028\u2029]|\$\{\{/.test(v) ? v : fail(`${p} must be a non-empty path glob`))
+// ponytail: a name that is written into a workflow file, a comment and a shell variable: a conservative charset, so no line break or `${{ }}` can get in
+const gateName = (v, p) => (typeof v === 'string' && /^[\w .\/:()#+@&-]+$/.test(v) && v.trim() === v ? v : fail(`${p} must be letters, digits, spaces and . / : ( ) # + @ & - only`))
+// a shell command is written into a `run: |` block: no lone CR, no unicode line break, no control character, and no `${{` (put those steps in the CI file's own section)
+const shellText = (v, p) => {
+    const s = text(v, p)
+    return /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u0085\u2028\u2029]|\r(?!\n)|\$\{\{/.test(s) ? fail(`${p} must not contain control characters, a lone CR, a unicode line break or \${{`) : s
+}
 const repo = (v, p) => (typeof v === 'string' && /^[\w.-]+\/[\w.-]+$/.test(v) && !v.split('/').some((s) => /^\.+$/.test(s)) ? v : fail(`${p} must be owner/name`))
 
 /** Parses an object against `shape` = { key: [parse, default | REQUIRED] }; an unknown key is an error. */
@@ -95,13 +104,13 @@ const parse = section({
     default_branch: [ref, REQUIRED],
     verify: [section({
         mode: [oneOf('ci', 'local-first'), REQUIRED],
-        install: [text, ''],
-        command: [str, REQUIRED],
+        install: [shellText, ''],
+        command: [(v, p) => shellText(str(v, p), p), REQUIRED],
         timeout_min: [int(1, 360), 45],
     }), REQUIRED],
     gate: [section({
-        context: [str, 'ci/gate'],
-        check: [str, 'Verify'],
+        context: [gateName, 'ci/gate'],
+        check: [gateName, 'Verify'],
         inherit: [bool, false],
         ci_files: [list(regex()), []],
     }), {}],
@@ -120,6 +129,8 @@ const parse = section({
     worktrees_dir: [dirPath, '.claude/worktrees'],
     live_verify_skill: [orNull((v, p) => (typeof v === 'string' && /^[a-z0-9-]+$/.test(v) ? v : fail(`${p} must be a skill name`))), null],
     deferred_checks_issue: [orNull(int(1)), null],
+    areas: [unique(list(area)), []],
+    ci: [section({ push_paths: [orNull(list(glob)), null] }), {}],
 })
 
 const deepFreeze = (v) => {
@@ -136,6 +147,7 @@ export function validate(raw) {
     const cfg = parse(raw, '')
     if (cfg.deploy_branch === cfg.default_branch) fail('deploy_branch must differ from default_branch')
     if (cfg.project?.number === 0 && cfg.project.title === null) fail('project.title is required while project.number is 0')
+    if (cfg.deploy_branch !== null && cfg.ci.push_paths?.length) fail('ci.push_paths must be null or [] while deploy_branch is set: the deploy signal needs every push')
     for (const a of cfg.agents) if (!cfg.models[a]) fail(`models.${a} is required while ${a} is in agents`)
     if (cfg.gate.context === cfg.gate.check) fail('gate.context must differ from gate.check')
     return deepFreeze(cfg)

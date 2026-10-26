@@ -1,0 +1,113 @@
+# ticketflow:begin header
+name: CI
+
+# The merge gate is the commit status {{gate_context_json}} on the pull request's head commit, posted by the last step of the job.
+# No job may carry that name: a check and a status with one name would both be required.
+# No `paths:` filter on pull_request: a required workflow that is filtered out stays pending forever. Whether a pull request
+# is docs-only is decided by the `scope` step.
+on:
+  pull_request:
+    branches: [{{default_branch_json}}]
+{{pr_types}}
+{{push_trigger}}
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+# ticketflow:end header
+
+# ticketflow:begin job
+jobs:
+  verify:
+    name: {{gate_check_json}}
+{{job_if}}
+    runs-on: ubuntu-24.04
+    timeout-minutes: {{timeout_min}}
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      # No token in .git/config: only the scope step and the last step get one, so no install script or test can post the gate itself.
+      # A pull request that edits the workflow or the runtime runs its own copy of the scope step with that token: review is the control.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2   # a pull request's test merge commit and its two parents
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Docs-only, or an update with the default branch that only brings in docs-only commits: skip the steps below.
+      # A failed step sets no output, which means a full run.
+      - name: Docs-only or inherited?
+        id: scope
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          [ "$(git rev-parse HEAD^2)" = "$HEAD_SHA" ]   # test merge commit: parent 1 = base, parent 2 = head
+          git diff -z --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+          if [ "$(node {{runtime}}/lib/docs-only.mjs < "$RUNNER_TEMP/changed")" = docs=true ]; then
+            printf 'skip=true\ndescription=actions #%s docs-only\n' "$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+{{scope_inherit}}
+          fi
+# ticketflow:end job
+
+      # Repo section: your own steps. Every step runs only when `steps.scope.outputs.skip != 'true'`; this is the contract
+      # with the scope step above and the gate step below.
+{{verify_steps}}
+
+# ticketflow:begin post-gate
+      # The head commit, never the test merge commit. always(): a timeout or a cancel posts a failure too.
+      - name: Post gate status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          STATE: ${{ job.status == 'success' && (steps.scope.outputs.skip != 'true' || steps.scope.outputs.description != '') && 'success' || 'failure' }}
+          DESC: ${{ job.status == 'success' && steps.scope.outputs.description || '' }}
+          CONTEXT: {{gate_context_json}}
+          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          for _ in 1 2 3; do
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$STATE" -f context="$CONTEXT" \
+              -f description="${DESC:-actions #$GITHUB_RUN_ID}" -f target_url="$URL" >/dev/null && exit 0
+            sleep 5
+          done
+          exit 1
+# ticketflow:end post-gate
+
+# ticketflow:begin deploy
+  # The deploy signal: fast-forwards {{deploy_branch_json}} to a default-branch commit whose gate passed. Never forced.
+  deploy:
+    name: Move the deploy branch
+    needs: verify
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/{{default_branch}}' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Advance the deploy branch
+        env:
+          DEPLOY_BRANCH: {{deploy_branch_json}}
+        run: |
+          if o=$(git push --porcelain origin "$GITHUB_SHA:refs/heads/$DEPLOY_BRANCH" 2>&1); then echo "$DEPLOY_BRANCH -> $GITHUB_SHA"
+          elif [[ $o == *'[rejected]'* ]]; then echo "$DEPLOY_BRANCH not moved: already past or diverged from $GITHUB_SHA"
+          else printf '%s\n' "$o" >&2; exit 1; fi
+# ticketflow:end deploy

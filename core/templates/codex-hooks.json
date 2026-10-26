@@ -1,1 +1,1 @@
-{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$(git rev-parse --show-toplevel)/.ticketflow/scripts/guard.mjs"}]}]}}
+{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$(git rev-parse --show-toplevel)/{{runtime}}/scripts/guard.mjs"}]}]}}
