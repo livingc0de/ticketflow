@@ -319,3 +319,26 @@ test('--once prints the reviewer lines for every outcome, a conflict included', 
     assert.equal(r.status, 1)
     assert.match(r.stdout, /^Review rb: pending$/m)
 })
+
+test('reviewers: a state comment (done_pattern) naming the head is done; the last match wins; other logins and unfinished states are ignored', () => {
+    const pattern = 'review-state:v1 (?=[^\\n]*"commit_sha":"(?<sha>[0-9a-f]{7,40})")(?=[^\\n]*"status":"(?:completed|failed)")'
+    const over = { reviewers: [{ name: 'rb', login: 'review-bot[bot]', done_pattern: pattern }] }
+    const state = (sha, status = 'completed', extra = {}) => `<!-- review-state:v1 {"security_review":{"status":null},"code_review":{"status":"${status}","commit_sha":"${sha}"},"x":1} -->`
+    const note = (body, min, user = 'review-bot[bot]', updated = min) => ({ user: { login: user }, created_at: ago(min), updated_at: ago(updated), body })
+    const run = (comments) => wait({ ...status('success', 'x'), 'issues/7/comments': comments }, undefined, over)
+    const done = run([note(state(HEAD), 5)])
+    assert.equal(done.status, 0)
+    assert.match(done.stdout, /^Review rb: done \(state aaaaaaa\)$/m)
+    assert.equal(run([note(state(HEAD.slice(0, 7)), 5)]).status, 0)   // a short sha is a prefix of the head
+    assert.equal(run([note(state(HEAD.slice(0, 6)), 5)]).status, 2)    // shorter than 7 does not match the pattern
+    for (const comments of [[note(state('b'.repeat(40)), 5)], [note(state(HEAD, 'running'), 5)], [note(state(HEAD), 5, 'someone')], [note('no state here', 5)], []]) {
+        const r = run(comments)
+        assert.equal(r.status, 2, JSON.stringify(comments))
+        assert.match(r.stdout, /^Review rb: pending$/m)
+    }
+    // the last match wins: a comment edited to a newer sha beats an older matching one, and an older sha edited last loses
+    assert.equal(run([note(state('b'.repeat(40)), 30, undefined, 2), note(state(HEAD), 10)]).status, 2)
+    assert.equal(run([note(state(HEAD), 30, undefined, 2), note(state('b'.repeat(40)), 10)]).status, 0)
+    assert.equal(run([note(`${state(HEAD)}\n${state('b'.repeat(40))}`, 5)]).status, 2)
+    assert.equal(run([note(`${state('b'.repeat(40))}\n${state(HEAD)}`, 5)]).status, 0)
+})

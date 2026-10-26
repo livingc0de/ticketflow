@@ -124,12 +124,16 @@ function pollReviewers(S) {
         const start = asked.length ? Math.max(...asked) : ms(S.created)
         const mine = (x) => x.user?.login === r.login
         const out = { r, start }
+        // a reviewer often edits one summary comment in place: the time that counts is its last update
+        const at = (c) => c.updated_at ?? c.created_at
         if (reviews.some((x) => mine(x) && x.commit_id === S.head)) return { ...out, state: 'done', text: `done (${S.head.slice(0, 7)})` }
         if (r.no_findings_reaction && reactions.some((x) => mine(x) && x.content === r.no_findings_reaction && ms(x.created_at) > headDate)) {
             return { ...out, state: 'done', text: `done (${r.no_findings_reaction} after head)` }
         }
-        // a reviewer often edits one summary comment in place: the time that counts is its last update
-        const at = (c) => c.updated_at ?? c.created_at
+        // the last match of done_pattern (bodies as currently edited, comments by last update) names the commit the reviewer finished
+        const all = r.done_pattern ? new RegExp(r.done_pattern.source, `${r.done_pattern.flags}g`) : null
+        const sha = all && comments.filter(mine).sort((a, b) => ms(at(a)) - ms(at(b))).flatMap((c) => [...(c.body ?? '').matchAll(all)]).at(-1)?.groups?.sha?.toLowerCase()
+        if (sha?.length >= 7 && S.head.startsWith(sha)) return { ...out, state: 'done', text: `done (state ${sha.slice(0, 7)})` }
         const gone = r.unavailable_pattern && comments.find((c) => mine(c) && ms(at(c)) > start && r.unavailable_pattern.test(c.body ?? ''))
         if (gone) return { ...out, state: 'unavailable', text: `unavailable since ${at(gone)}` }
         const quiet = Date.now() - Math.max(start, headDate)

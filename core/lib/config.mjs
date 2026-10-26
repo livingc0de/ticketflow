@@ -38,6 +38,11 @@ const regex = (flags = '') => (v, p) => {
     const source = str(v, p)
     try { return new RegExp(source, flags) } catch (e) { return fail(`${p} is not a valid regex: ${e.message}`) }
 }
+// ponytail: a source check, not a parse: a pattern that merely mentions `(?<sha>` in a character class would pass; pr-wait then finds no sha and the reviewer stays pending
+const donePattern = (v, p) => {
+    const re = regex()(v, p)
+    return /\(\?<sha>/.test(re.source) ? re : fail(`${p} must contain a named group (?<sha>...)`)
+}
 const ref = (v, p) => {
     // ponytail: a conservative subset of git ref names; no leading dash, so it can never be read as an option
     const ok = typeof v === 'string' && /^[\w][\w./-]*$/.test(v) && !/\.\.|\/\/|\/$|\.$|\.lock(\/|$)|\/\.|(^|\/)HEAD$/.test(v)
@@ -66,6 +71,7 @@ const reviewer = section({
     rereview_comment: [orNull(str), null],
     no_findings_reaction: [orNull(oneOf(...REACTIONS)), null],
     unavailable_pattern: [orNull(regex('i')), null],
+    done_pattern: [orNull(donePattern), null],
     stale_after_min: [orNull(int(1)), null],
 })
 

@@ -37,9 +37,22 @@ A reviewer object:
 | `rereview_comment` | string a re-review is requested with, or `null` | `null` |
 | `no_findings_reaction` | a GitHub reaction content (`+1`, `-1`, `laugh`, `confused`, `heart`, `hooray`, `rocket`, `eyes`) the account leaves when it has no findings, or `null` | `null` |
 | `unavailable_pattern` | regex (case-insensitive) matched against the account's issue comments to detect "out of quota", or `null` | `null` |
+| `done_pattern` | regex with a named group `sha`, or `null`. The reviewer is done when the **last** match across the account's issue comments (bodies as currently edited, ordered by last update) captures a `sha` of 7 or more hex characters that is a prefix of the head | `null` |
 | `stale_after_min` | integer minutes after which a silent reviewer no longer blocks, or `null` | `null` |
 
 Example login: `review-bot[bot]`.
+
+`done_pattern` is for a bot that posts no review when it has no findings, and instead keeps one summary comment
+that it edits in place, with a machine line such as
+`review-state:v1 {"code_review":{"commit_sha":"<40-hex>","status":"completed"}}` (key order not guaranteed).
+An order-independent pattern for that line (JSON string, so backslashes are doubled):
+
+```json
+{ "name": "bot", "login": "review-bot[bot]",
+  "done_pattern": "review-state:v1 (?=[^\\n]*\"commit_sha\":\"(?<sha>[0-9a-f]{7,40})\")(?=[^\\n]*\"status\":\"(?:completed|failed)\")" }
+```
+
+A state still `running`, or naming an older commit, does not match the head, so the reviewer stays pending.
 
 ## Built-in floors
 

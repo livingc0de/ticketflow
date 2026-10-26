@@ -26,7 +26,7 @@ test('a full config compiles its regexes and fills reviewer defaults', () => {
     }))
     assert.ok(cfg.gate.ci_files[0] instanceof RegExp && cfg.docs_only.docs[0].test('a.md'))
     assert.ok(cfg.reviewers[0].unavailable_pattern.test('Usage limit reached'))
-    assert.deepEqual(cfg.reviewers[1], { name: 'b2', login: 'b2', rereview_comment: null, no_findings_reaction: null, unavailable_pattern: null, stale_after_min: null })
+    assert.deepEqual(cfg.reviewers[1], { name: 'b2', login: 'b2', rereview_comment: null, no_findings_reaction: null, unavailable_pattern: null, done_pattern: null, stale_after_min: null })
     assert.equal(cfg.deploy_branch, 'deploy')
 })
 
@@ -72,6 +72,9 @@ test('a bad regex fails closed, in each place a regex is accepted', () => {
     bad({ docs_only: { docs: ['['] } }, /docs_only\.docs\[0\]/)
     bad({ docs_only: { code: ['*'] } }, /docs_only\.code\[0\]/)
     bad({ reviewers: [{ name: 'a', login: 'a', unavailable_pattern: '(' }] }, /unavailable_pattern/)
+    bad({ reviewers: [{ name: 'a', login: 'a', done_pattern: '(' }] }, /done_pattern/)
+    bad({ reviewers: [{ name: 'a', login: 'a', done_pattern: 'state (?<other>[0-9a-f]+)' }] }, /done_pattern must contain a named group \(\?<sha>/)
+    assert.equal(validate(rawConfig({ reviewers: [{ name: 'a', login: 'a', done_pattern: 'state (?<sha>[0-9a-f]{7,40})' }] })).reviewers[0].done_pattern.exec('state abcdef1').groups.sha, 'abcdef1')
 })
 
 test('the schema version must equal the core: older says run sync, newer says core older than config', () => {
