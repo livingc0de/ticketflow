@@ -19,6 +19,10 @@ test('on a release run the tag is v<VERSION>', { skip: process.env.GITHUB_REF_TY
     assert.equal(process.env.GITHUB_REF_NAME, `v${version}`)
 })
 
+test('on a release run CHANGELOG.md has a section for VERSION', { skip: process.env.GITHUB_REF_TYPE !== 'tag' }, () => {
+    assert.match(readFileSync(new URL('CHANGELOG.md', root), 'utf8'), new RegExp(`^## ${version.replaceAll('.', '\\.')}$`, 'm'))
+})
+
 test('the plugins expose only init and sync: root skills/ holds exactly those, and there is no agents, commands, hooks or templates directory', () => {
     assert.deepEqual(readdirSync(new URL('skills/', root)).sort(), ['init', 'sync'])
     for (const d of ['agents', 'commands', 'hooks', 'templates']) assert.ok(!existsSync(new URL(`${d}/`, root)), d)

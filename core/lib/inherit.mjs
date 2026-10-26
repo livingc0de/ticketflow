@@ -12,6 +12,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -57,7 +58,8 @@ export function inherit(api, cfg, pr, head) {
     return { root }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+const isMain = () => { try { return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href } catch { return false } }   // realpath: a symlinked path must still run
+if (isMain()) {
     let cfg, pr, head
     try {
         const { values, positionals } = parseArgs({ options: { config: { type: 'string' } }, allowPositionals: true, strict: true })

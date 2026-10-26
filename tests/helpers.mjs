@@ -52,7 +52,8 @@ export const FAIL = { __fail: true }
  *    or a whole `{ errors: [...] }` response (which makes gh exit 1, like the real one).
  *  - `pr merge`, `pr update-branch`: accepted unless the fixture fails.
  *  - `statuses write` (a status write) and `pr comment`: accepted unless the fixture fails.
- * Values: JSON; `seq(a, b)` (served in turn, the last one repeats); `{ __pages: [p1, p2] }` (for `--paginate --slurp`);
+ * `gh --version` prints `map['--version']` (default `gh version 2.60.0 (2026-01-01)`).
+ * Values: JSON; `{ __raw: '...' }` (printed verbatim, for `gh api -i`); `seq(a, b)` (served in turn, the last one repeats); `{ __pages: [p1, p2] }` (for `--paginate --slurp`);
  * `{ __status: 404, __stderr: '...' }` or `FAIL` (gh exits 1; `(HTTP n)` is appended like gh does). `gh pr comment` saves stdin.
  * Every call is logged with its argv and stdin. Returns { env, calls(), log(), comments() }.
  */
@@ -81,7 +82,8 @@ const serve = (key) => {
     return v
 }
 const valued = ['-f', '-F', '-X', '--method', '--jq', '-q', '-H', '--input', '--repo', '--match-head-commit']
-if (args[0] === 'api') {
+if (args[0] === '--version') console.log(map['--version'] ?? 'gh version 2.60.0 (2026-01-01)')
+else if (args[0] === 'api') {
     const path = args.slice(1).find((a, i) => !a.startsWith('-') && !valued.includes(args[i]))
     const given = args.findIndex((a) => a === '-X' || a === '--method')
     const method = given >= 0 ? args[given + 1] : args.includes('-f') || args.includes('-F') || args.includes('--input') ? 'POST' : 'GET'
@@ -100,7 +102,7 @@ if (args[0] === 'api') {
         v = serve(method + ' ' + path) ?? serve(method + ' ' + bare)
         if (v === undefined) { if (method === 'POST' && /\\/statuses\\//.test(path)) { serve('statuses write'); v = {} } else die('unexpected ' + method + ' ' + path) }
     }
-    console.log(JSON.stringify(args.includes('--slurp') ? (v?.__pages ?? [v]) : v))
+    console.log(v?.__raw !== undefined ? v.__raw : JSON.stringify(args.includes('--slurp') ? (v?.__pages ?? [v]) : v))
 } else if (args[0] === 'pr' && args[1] === 'comment') {
     serve('pr comment')
     const n = readdirSync(state).filter((f) => f.startsWith('comment-')).length + 1

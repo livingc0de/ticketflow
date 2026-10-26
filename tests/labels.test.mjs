@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fakeGh, tempDir, writeConfig } from './helpers.mjs'
 
@@ -10,12 +10,13 @@ const R = 'repos/o/r'
 const WANTED = [{ name: 'Type: Bug', color: 'D73A4A', description: 'Broken' }, { name: 'Effort: S', color: 'bfdadc', description: '' }]
 const live = (name, color, description = '') => ({ name, color, description })
 
-function run(args, map, wanted = WANTED) {
+function run(args, map, wanted = WANTED, { over, custom } = {}) {
     const dir = tempDir('labels-')
+    if (custom !== undefined) { mkdirSync(join(dir, 'custom')); writeFileSync(join(dir, 'custom', 'labels.json'), typeof custom === 'string' ? custom : JSON.stringify(custom)) }
     const file = join(dir, 'labels.json')
     writeFileSync(file, typeof wanted === 'string' ? wanted : JSON.stringify(wanted))
     const gh = fakeGh(dir, map)
-    const r = spawnSync(process.execPath, [script, 'sync', file, ...args, '--config', writeConfig(dir)], { encoding: 'utf8', env: gh.env })
+    const r = spawnSync(process.execPath, [script, 'sync', file, ...args, '--config', writeConfig(dir, over)], { encoding: 'utf8', env: gh.env })
     const writes = gh.log().filter((c) => /-X (POST|PATCH|DELETE)/.test(c.args.join(' '))).map((c) => `${c.args[2]} ${c.args[3].replace(`${R}/`, '')}${c.stdin ? ` ${c.stdin}` : ''}`)
     return { ...r, writes, calls: gh.calls() }
 }
@@ -70,4 +71,17 @@ test('an invalid file exits 2 with zero calls', () => {
 test('the shipped core/templates/labels.json is valid', () => {
     const r = run([], { ...labelsAt([[]]), [`POST ${R}/labels`]: {} }, readFileSync(new URL('../core/templates/labels.json', import.meta.url), 'utf8'))
     assert.equal(r.status, 0, r.stderr)
+})
+
+test('areas become Area: labels, created when missing and never updated; custom/labels.json is added; a duplicate name exits 2 with zero calls', () => {
+    const map = { ...labelsAt([[live('Type: Bug', 'd73a4a', 'Broken'), live('Effort: S', 'bfdadc'), live('Area: Api', '000000', 'mine')]]), [`POST ${R}/labels`]: {} }
+    const r = run([], map, WANTED, { over: { areas: ['Api', 'Docs'] }, custom: [{ name: 'Mine', color: 'ABCDEF', description: 'x' }] })
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(r.writes, ['POST labels {"name":"Area: Docs","color":"c5def5","description":"Area of the product"}', 'POST labels {"name":"Mine","color":"abcdef","description":"x"}'])
+    for (const [custom, over] of [[[{ name: 'type: bug', color: 'ffffff' }], undefined], [[{ name: 'Area: api', color: 'ffffff' }], { areas: ['Api'] }], ['{', undefined], [[{ name: 'x', color: 'zz' }], undefined]]) {
+        const bad = run([], {}, WANTED, { over, custom })
+        assert.equal(bad.status, 2, JSON.stringify(custom)); assert.deepEqual(bad.calls, [])
+    }
+    assert.deepEqual(run(['--dry-run'], labelsAt([[live('Type: Bug', 'd73a4a', 'Broken'), live('Effort: S', 'bfdadc')]]), WANTED, { over: { areas: ['Api'] } }).writes, [])
+    assert.equal(run(['--dry-run'], labelsAt([[live('Type: Bug', 'd73a4a', 'Broken'), live('Effort: S', 'bfdadc')]]), WANTED, { over: { areas: ['Api'] } }).status, 1)
 })

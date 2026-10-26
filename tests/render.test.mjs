@@ -183,7 +183,7 @@ test('claude settings: union with existing first, foreign entries and deny untou
 
 test('the Claude allow rules are relative to the working directory: no pattern that a path prefix can slip a command into', () => {
     const allow = JSON.parse(renderAll(A).get('.claude/settings.json')).permissions.allow
-    assert.equal(allow.length, 8)
+    assert.equal(allow.length, 9)
     assert.ok(allow.every((r) => r.startsWith('Bash(node .ticketflow/scripts/')))
 })
 
@@ -275,11 +275,11 @@ test('render.mjs writes every file, then --check is clean and a second run write
 
 test('render.mjs: a file without markers is a conflict, exit 1 with nothing written; --propose writes outside the target, a directory inside it exits 2', () => {
     const t = repo()
-    t.put('AGENTS.md', '# My rules\n\nstay\n'); t.put('.github/workflows/ci.yml', 'name: mine\n'); t.put('.claude/CLAUDE.md', '@AGENTS.md\n')
+    t.put('AGENTS.md', '# My rules\n\nstay\n'); t.put('.github/workflows/ci.yml', 'name: mine\n'); t.put('.claude/CLAUDE.md', '@AGENTS.md\n'); t.put('.claude/settings.json', '{"permissions":{"deny":["Bash(rm *)"]}}')
     const out = tempDir('proposal-')
     const r = t.run('--propose', out)
     assert.equal(r.status, 1, r.stderr)
-    assert.match(r.stdout, /conflict: AGENTS\.md/); assert.match(r.stdout, /conflict: \.github\/workflows\/ci\.yml/); assert.match(r.stdout, /note: .*already imports AGENTS\.md/)
+    assert.match(r.stdout, /conflict: AGENTS\.md/); assert.match(r.stdout, /conflict: \.github\/workflows\/ci\.yml/); assert.match(r.stdout, /note: .*already imports AGENTS\.md/); assert.match(r.stdout, /probably broken/); assert.match(r.stdout, /note: \.claude\/settings\.json: permissions\.deny has 1 rule/)
     assert.equal(t.read('AGENTS.md'), '# My rules\n\nstay\n')
     assert.ok(!t.has('.github/PULL_REQUEST_TEMPLATE.md') && !t.has('.codex/hooks.json'), 'nothing is written on a conflict')
     assert.match(readFileSync(join(out, 'AGENTS.md'), 'utf8'), /^# My rules\n\n<!-- ticketflow:begin agents -->[\s\S]*stay\n$/)
@@ -332,4 +332,37 @@ test('render.mjs: custom/README.md is written once and never overwritten; the ru
     u.put('.codex/rules/ticketflow.rules', 'prefix_rule(pattern=["x"], decision="allow")\n')
     const r = u.run()
     assert.equal(r.status, 1); assert.match(r.stdout, /conflict: \.codex\/rules\/ticketflow\.rules/)
+})
+
+test('render.mjs records the settings entries it owns in the manifest, keeps the manifest\'s other keys, and --check flags a stale record', () => {
+    const t = repo()
+    t.put('.ticketflow/manifest.json', JSON.stringify({ manifest_version: 1, version: '1.2.3', held: ['x/y'] }))
+    const r = t.run()
+    assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /wrote \.ticketflow\/manifest\.json/)
+    const m = JSON.parse(t.read('.ticketflow/manifest.json'))
+    assert.deepEqual([m.version, m.held], ['1.2.3', ['x/y']])
+    assert.equal(m.claude_settings.allow.length, 9); assert.deepEqual(m.claude_settings.ask, JSON.parse(t.read('.claude/settings.json')).permissions.ask)
+    const bytes = t.read('.ticketflow/manifest.json')
+    assert.equal(t.run('--check').status, 0)
+    assert.doesNotMatch(t.run().stdout, /manifest/); assert.equal(t.read('.ticketflow/manifest.json'), bytes)
+    // a record that no longer matches: --check reports it, a run repairs it
+    t.put('.ticketflow/manifest.json', JSON.stringify({ ...m, claude_settings: { allow: ['Bash(old)'], ask: [] } }))
+    const stale = t.run('--check')
+    assert.equal(stale.status, 1); assert.match(stale.stdout, /out of date: \.ticketflow\/manifest\.json \(claude_settings\)/)
+    assert.equal(t.run().status, 0)
+    assert.equal(t.read('.ticketflow/manifest.json'), bytes)
+    // the entry the manifest called ours and ticketflow no longer renders leaves settings.json; a foreign one stays
+    const settings = JSON.parse(t.read('.claude/settings.json'))
+    settings.permissions.allow.push('Bash(old)', 'Bash(mine)')
+    t.put('.claude/settings.json', JSON.stringify(settings))
+    t.put('.ticketflow/manifest.json', JSON.stringify({ ...m, claude_settings: { ...m.claude_settings, allow: [...m.claude_settings.allow, 'Bash(old)'] } }))
+    assert.equal(t.run().status, 0)
+    const after = JSON.parse(t.read('.claude/settings.json')).permissions.allow
+    assert.ok(after.includes('Bash(mine)') && !after.includes('Bash(old)'))
+    // a kept settings file leaves the record alone; a bad manifest is a config error
+    t.put('.ticketflow/manifest.json', JSON.stringify({ manifest_version: 1 }))
+    assert.equal(t.run('--keep', '.claude/settings.json').status, 0)
+    assert.equal(JSON.parse(t.read('.ticketflow/manifest.json')).claude_settings, undefined)
+    t.put('.ticketflow/manifest.json', '{"manifest_version":1,"bogus":1}')
+    assert.equal(t.run().status, 2)
 })

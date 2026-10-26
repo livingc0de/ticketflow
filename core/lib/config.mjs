@@ -6,8 +6,9 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 export class ConfigError extends Error {
     name = 'ConfigError'
@@ -130,6 +131,7 @@ const parse = section({
     live_verify_skill: [orNull((v, p) => (typeof v === 'string' && /^[a-z0-9-]+$/.test(v) ? v : fail(`${p} must be a skill name`))), null],
     deferred_checks_issue: [orNull(int(1)), null],
     areas: [unique(list(area)), []],
+    practices: [unique(list((v, p) => (typeof v === 'string' && /^[a-z0-9-]+$/.test(v) ? v : fail(`${p} must be a practice name`)))), []],
     ci: [section({ push_paths: [orNull(list(glob)), null] }), {}],
 })
 
@@ -183,4 +185,39 @@ export function loadConfig(path) {
     let raw
     try { raw = JSON.parse(text) } catch (e) { return fail(`config ${path} is not valid JSON: ${e.message}`) }
     return validate(raw)
+}
+
+/**
+ * CLI, run from the cloned ticketflow by init and sync.
+ *   config.mjs validate <file>             prints "config valid"; exit 2 with the error otherwise
+ *   config.mjs migrate <file> [--write]    prints "already at schema_version N", or the migrated JSON; --write replaces the file, only after
+ *                                          the result validates. Exit 2 on any error, the file untouched.
+ */
+function isMain() {   // realpath: a symlinked path (macOS /var) must still run; a stdin or eval script has no path
+    try { return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href } catch { return false }
+}
+if (isMain()) {
+    try {
+        const [cmd, file, flag, ...more] = process.argv.slice(2)
+        if (!['validate', 'migrate'].includes(cmd) || !file || more.length || (flag !== undefined && !(cmd === 'migrate' && flag === '--write'))) throw new Error('usage: config validate <file> | migrate <file> [--write]')
+        if (cmd === 'validate') {
+            loadConfig(file)
+            console.log('config valid')
+        } else {
+            let raw
+            try { raw = JSON.parse(readFileSync(file, 'utf8')) } catch (e) { fail(`cannot read config ${file}: ${e.code ?? e.message}`) }
+            const next = migrate(raw)
+            validate(next)
+            if (next === raw) console.log(`already at schema_version ${SCHEMA_VERSION}`)
+            else if (flag) {
+                const tmp = `${file}.tmp`
+                writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n')
+                renameSync(tmp, file)
+                console.log(`migrated ${file} to schema_version ${SCHEMA_VERSION}`)
+            } else console.log(JSON.stringify(next, null, 2))
+        }
+    } catch (e) {
+        console.error(`config: ${e.message}`)
+        process.exit(2)
+    }
 }

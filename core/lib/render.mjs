@@ -159,7 +159,9 @@ export function mergeManaged(existing, rendered, omit = []) {
 
 /** Where a managed block goes in a Markdown file that has none: after the first H1 (`h1`) or at the top (`top`). */
 export function proposeInsert(existing, block, where) {
-    const note = where === 'top' && /^@(?:\.\.\/)?AGENTS\.md[ \t]*$/m.test(existing) ? 'the file already imports AGENTS.md: remove that line, the block imports it' : undefined
+    const note = where === 'top' && /^@(?:\.\.\/)?AGENTS\.md[ \t]*$/m.test(existing)
+        ? `the file already imports AGENTS.md: remove that line, the block imports it${/^@AGENTS\.md[ \t]*$/m.test(existing) ? ' (as written it points at .claude/AGENTS.md, which is most likely missing: the import is probably broken)' : ''}`
+        : undefined
     const lines = existing.split(/(?<=\n)/)
     const h1 = where === 'h1' ? lines.findIndex((l) => /^# /.test(l)) : -1
     const at = h1 + 1
@@ -220,7 +222,7 @@ export function mergeCodexHooks(existing, entry, runtimeRel) {
 
 /**
  * One template to one file. `existing` is the file's text or null. `ctx`: { cfg, vars, runtimeRel, owned }.
- * Returns { text, notes } or { conflict, proposal } (`proposal` is the text ticketflow would suggest instead).
+ * Returns { text, notes, owns? } or { conflict, proposal } (`proposal` is the text ticketflow would suggest instead).
  */
 export function renderFile(file, tpl, existing, { cfg, vars, runtimeRel, owned = {} }) {
     const rendered = dropParts(fill(tpl, vars), omittedParts(cfg))
@@ -232,10 +234,10 @@ export function renderFile(file, tpl, existing, { cfg, vars, runtimeRel, owned =
             return { conflict: r.conflict, proposal: file.propose && !parseBlocks(existing).some((s) => s.part) ? proposeInsert(existing, blocks, file.propose) : { text: rendered } }
         }
         case 'settings': {
-            const want = JSON.parse(rendered).permissions
-            const merge = (text) => mergeClaudeSettings(text, { allow: want.allow, ask: claudeAsk(cfg, { scriptsDir: `${runtimeRel}/scripts` }) }, owned)
+            const want = { allow: JSON.parse(rendered).permissions.allow, ask: claudeAsk(cfg, { scriptsDir: `${runtimeRel}/scripts` }) }
+            const merge = (text) => mergeClaudeSettings(text, want, owned)
             const r = merge(existing)
-            return r.conflict ? { ...r, proposal: merge(null) } : r
+            return r.conflict ? { ...r, proposal: merge(null) } : { ...r, owns: want }   // `owns`: what the manifest records as ticketflow's
         }
         case 'hooks': {
             const merge = (text) => mergeCodexHooks(text, JSON.parse(rendered).hooks.PreToolUse[0], runtimeRel)

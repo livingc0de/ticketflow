@@ -15,5 +15,6 @@
   "live_verify_skill": null,
   "deferred_checks_issue": null,
   "areas": [],
+  "practices": [],
   "ci": { "push_paths": null }
 }

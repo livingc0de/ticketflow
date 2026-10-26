@@ -8,3 +8,4 @@ This folder is yours: `sync` never touches it. A file here adds to and overrides
 - `ticket-planner.md`: the ticket-planner role (the guides to read, your planning rules).
 - `pr-reviewer.md`: the pr-reviewer role (your review lenses).
 - `e2e-verifier.md`: the e2e-verifier role (your accounts and viewports).
+- `labels.json`: labels your repo uses beyond ticketflow's (same format as `.ticketflow/templates/labels.json`); `labels sync` adds them.

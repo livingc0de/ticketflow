@@ -32,6 +32,7 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `live_verify_skill` | name of the repo's live-verification skill, or `null`; while `null` the `e2e-verifier` role gets no stub | `null` | `gen-stubs`, skills |
 | `deferred_checks_issue` | number of the issue that lists deferred checks, or `null` | `null` | skills |
 | `areas` | unique list of 1-44 character names (no commas, braces or control characters): the `Area:` labels and the issue forms' Area dropdown. `[]`: no Area | `[]` | `render`, skills |
+| `practices` | unique list of practice names (`^[a-z0-9-]+$`): the optional practices copied to `.ticketflow/practices/` and wired into the stubs and templates | `[]` | `runtime`, `gen-stubs`, `render` |
 | `ci.push_paths` | `null`: the CI workflow has no push run; `[]`: it runs on every push to the default branch; a list of globs: only when one of them changes. Must be `null` or `[]` while `deploy_branch` is set (the deploy signal needs every push) | `null` | `render` |
 
 `gate.context` and `gate.check` must differ: the verdict is the commit status, and check runs are only read to
@@ -75,6 +76,26 @@ A project object (the GitHub Project, Projects v2, that tracks the repo's issues
 `project setup` does not edit the config: after it creates a project, put the printed number in `project.number`.
 `project add`, `project status` and `tracker-next` need `number` above `0`.
 
+## Manifest, runtime and doctor
+
+`.ticketflow/manifest.json` records an install. `runtime.mjs` owns `version`, `source` (`url`, `tag`, `commit`), `files` (the sha256
+of every copied runtime file, CRLF read as LF) and `held`; `render.mjs` owns `claude_settings` (the `allow` and `ask` entries
+ticketflow added, so a later render can remove one it no longer wants). The file is deterministic: sorted keys and paths, no timestamps.
+In the ticketflow repo itself (runtime in `core/`) it holds `manifest_version` and `claude_settings` only. Stubs and rendered
+files are not hashed: `gen-stubs --check` and `render --check` cover them.
+
+`runtime.mjs <source-clone> <target-repo> [--keep <path>]... [--dry-run]` copies `core/` and the enabled `practices/<n>/` into
+`.ticketflow/`, except `config.json`, `manifest.json` and `custom/`, which are the repo's. It writes nothing and exits 1 when a file
+the manifest lists was edited, or a file in `.ticketflow/` is untracked, unless that file is already byte-identical to the new one
+or is named with `--keep` (recorded in `held`, never written or removed). Exit 2: a bad source, target, config or manifest.
+
+`doctor.mjs [--preflight | --local] [--config f]` only reads. `--preflight` checks the tools (git, gh 2.48 or newer with the `repo`,
+`project` and `workflow` scopes, node 22 or newer, `timeout`) and the repo in the current directory; `--local` adds the config, the
+runtime against the manifest, the stubs, the templates, the guard and the gitignore without any GitHub call; the full run also
+dry-runs labels, the project and branch protection. Exit 1 when a check failed, 2 on usage.
+
+`config.mjs validate <file>` and `config.mjs migrate <file> [--write]` check and migrate a config (`--write` only after the result validates).
+
 ## Built-in floors
 
 The config can add to these, never remove them.
@@ -104,7 +125,7 @@ Only the first and third forms count as a full run to inherit from.
 
 ## Prerequisites
 
-`gh` 2.48 or newer (`--paginate --slurp`), `git`, Node 22 or newer, and `timeout` (coreutils; on macOS
+`gh` 2.48 or newer (`--paginate --slurp`) with the `repo`, `project` and `workflow` scopes, `git`, Node 22 or newer, and `timeout` (coreutils; on macOS
 `brew install coreutils`) for `local-verify`.
 
 ## local-verify

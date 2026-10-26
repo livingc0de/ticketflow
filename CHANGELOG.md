@@ -11,3 +11,5 @@
 - Core: `gen-stubs`, the Claude and Codex adapters, the plugin manifests, `agents` and `models` config keys, a manifest version check (WP6). Templates moved to `core/templates/`.
 - Core: the `ticket-planner`, `pr-reviewer` and `e2e-verifier` roles, the Claude, Codex and generic action maps, the `implement-ticket` and `create-ticket` skills, the `plans_dir`, `worktrees_dir`, `live_verify_skill` and `deferred_checks_issue` config keys (WP7, WP8).
 - Core: `render`, the CI workflow, issue form, PR template, AGENTS block, settings, hook and rules templates, the `areas` and `ci.push_paths` config keys (WP9).
+- Core: `runtime` (copies the runtime into a repo), `doctor` (read-only health check), the runtime manifest (`manifest.mjs`), `config validate` and `config migrate`, the `practices` config key, Area and custom labels in `labels`, the manifest record of the Claude settings entries in `render` (WP10).
+- `START.md` and the `init` and `sync` skills.

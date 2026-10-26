@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 /**
- * Brings the repo's labels to a list: creates the missing, updates colour, description and name case. Other labels are listed
+ * Brings the repo's labels to a list: creates the missing, updates colour, description and name case. The list is the file, an
+ * `Area: <a>` label for each `areas` entry of the config (created when missing, never updated: the repo may have recoloured it) and
+ * `custom/labels.json` next to the config when it exists (same format). A name twice in that list is an error. Other labels are listed
  * with whether any issue or PR uses them and are deleted only with `--prune`, and only at zero use.
  *
  * Usage: labels.mjs sync <labels.json> [--prune] [--dry-run] [--config f]
  * Exit: 0 = in sync (or done), 1 = `--dry-run` found a create or update pending, 2 = usage, bad file, config or API error.
  */
 
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { cli, main } from '../lib/cli.mjs'
 import { GhError, api } from '../lib/gh.mjs'
 
-const { values, positionals: [, file], cfg } = cli(import.meta.url, 'labels', 'sync <labels.json> [--prune] [--dry-run] [--config f]', { prune: { type: 'boolean' }, 'dry-run': { type: 'boolean' } }, (p) => p[0] === 'sync' && p.length === 2)
+const { positionals: [, file], cfg, configFile, values } = cli(import.meta.url, 'labels', 'sync <labels.json> [--prune] [--dry-run] [--config f]', { prune: { type: 'boolean' }, 'dry-run': { type: 'boolean' } }, (p) => p[0] === 'sync' && p.length === 2)
 const R = `repos/${cfg.repo}`
 const dry = values['dry-run'] === true
 const lower = (s) => s.toLowerCase()
@@ -34,8 +37,21 @@ function load(path) {
     })
 }
 
+const AREA = { color: 'c5def5', description: 'Area of the product' }
+/** The file, the Area labels and custom/labels.json, validated together before any call. */
+function wantedLabels() {
+    const custom = join(dirname(configFile), 'custom', 'labels.json')
+    const all = [...load(file), ...cfg.areas.map((a) => ({ name: `Area: ${a}`, ...AREA, createOnly: true })), ...(existsSync(custom) ? load(custom) : [])]
+    const seen = new Set()
+    for (const l of all) {
+        if (seen.has(lower(l.name))) throw new Error(`duplicate label "${l.name}" (names compare ignoring case)`)
+        seen.add(lower(l.name))
+    }
+    return all
+}
+
 main('labels', () => {
-    const wanted = load(file)
+    const wanted = wantedLabels()
     const live = api(`${R}/labels?per_page=100`, { paginate: true })
     const byName = new Map(live.map((l) => [lower(l.name), l]))
     const wantedNames = new Set(wanted.map((w) => lower(w.name)))
@@ -49,8 +65,8 @@ main('labels', () => {
     const writes = []
     for (const w of wanted) {
         const have = byName.get(lower(w.name))
-        if (!have) writes.push(['create', w.name, 'POST', `${R}/labels`, w])
-        else if (have.name !== w.name || lower(have.color) !== w.color || (have.description ?? '') !== w.description) {
+        if (!have) writes.push(['create', w.name, 'POST', `${R}/labels`, { name: w.name, color: w.color, description: w.description }])
+        else if (!w.createOnly && (have.name !== w.name || lower(have.color) !== w.color || (have.description ?? '') !== w.description)) {
             writes.push(['update', have.name === w.name ? w.name : `${have.name} -> ${w.name}`, 'PATCH', `${R}/labels/${encodeURIComponent(have.name)}`, { new_name: w.name, color: w.color, description: w.description }])
         }
     }

@@ -8,7 +8,8 @@
       "Bash(node {{runtime}}/scripts/pr-wait.mjs *)",
       "Bash(node {{runtime}}/scripts/local-verify.mjs *)",
       "Bash(node {{runtime}}/scripts/merge.mjs *)",
-      "Bash(node {{runtime}}/scripts/gen-stubs.mjs *)"
+      "Bash(node {{runtime}}/scripts/gen-stubs.mjs *)",
+      "Bash(node {{runtime}}/scripts/doctor.mjs *)"
     ]
   }
 }

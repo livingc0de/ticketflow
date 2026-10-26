@@ -15,6 +15,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { parseArgs } from 'node:util'
 import { main } from '../lib/cli.mjs'
 import { loadConfig } from '../lib/config.mjs'
+import { readManifest, writeManifest } from '../lib/manifest.mjs'
 import { FILES, renderFile, templateVars } from '../lib/render.mjs'
 
 const usage = 'usage: render <templates-dir> <target-repo> [--check] [--keep <path>]... [--propose <dir>]'
@@ -33,8 +34,7 @@ main('render', () => {
     const runtimeRel = templates === join(target, 'core', 'templates') ? 'core' : '.ticketflow'
     const cfg = loadConfig(join(target, '.ticketflow', 'config.json'))
     const vars = templateVars(cfg, { runtimeRel })
-    let owned = {}
-    try { owned = JSON.parse(readFileSync(join(target, '.ticketflow', 'manifest.json'), 'utf8')).claude_settings ?? {} } catch { /* no manifest yet */ }
+    const owned = readManifest(target)?.claude_settings ?? {}
 
     // compute everything first
     const results = FILES.filter((f) => !keep.has(f.dest)).map((f) => {
@@ -53,16 +53,23 @@ main('render', () => {
             console.log(`  proposed: ${join(propose, r.f.dest)}`)
         }
     }
+    for (const r of results) for (const n of r.notes ?? []) console.log(`note: ${r.f.dest}: ${n}`)   // foreign deny rules are reported even while a conflict stops the run
     if (conflicts.length) return 1
-    for (const r of results) for (const n of r.notes) console.log(`note: ${r.f.dest}: ${n}`)
     const changed = results.filter((r) => r.text !== r.existing)
+    const owns = results.find((r) => r.owns)?.owns   // the settings entries the manifest must record; undefined when the settings file is kept
+    const stale = owns !== undefined && JSON.stringify(owned) !== JSON.stringify(owns)
     if (values.check) {
         for (const r of changed) console.log(`out of date: ${r.f.dest}`)
-        return changed.length ? 1 : 0
+        if (stale) console.log('out of date: .ticketflow/manifest.json (claude_settings)')
+        return changed.length || stale ? 1 : 0
     }
     for (const r of changed) {
         mkdirSync(dirname(join(target, r.f.dest)), { recursive: true })
         writeFileSync(join(target, r.f.dest), r.text)
         console.log(`wrote ${r.f.dest}`)
+    }
+    if (stale) {
+        writeManifest(target, { claude_settings: owns })
+        console.log('wrote .ticketflow/manifest.json (claude_settings)')
     }
 })

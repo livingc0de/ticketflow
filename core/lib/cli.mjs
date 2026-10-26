@@ -13,7 +13,8 @@ export function cli(meta, name, usage, options, valid) {
     try {
         const { values, positionals } = parseArgs({ options: { ...options, config: { type: 'string' } }, allowPositionals: true })
         if (!valid(positionals, values)) throw new Error(`usage: ${name} ${usage}`)
-        return { values, positionals, cfg: loadConfig(values.config ?? configPath(dirname(fileURLToPath(meta)))) }
+        const configFile = values.config ?? configPath(dirname(fileURLToPath(meta)))
+        return { values, positionals, cfg: loadConfig(configFile), configFile }
     } catch (e) {
         console.error(`${name}: ${e.message}`)
         process.exit(2)

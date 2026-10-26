@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { parseCanonical } from '../core/lib/stubs.mjs'
 
 const core = new URL('../core/', import.meta.url).pathname
 const ls = (dir) => (existsSync(join(core, dir)) ? readdirSync(join(core, dir)) : [])
@@ -44,5 +45,44 @@ test('line budgets', () => {
     for (const { path, max } of [...prose, ...maps]) {
         const lines = text(path).replace(/\n$/, '').split('\n').length
         assert.ok(lines <= max, `${path}: ${lines} lines, at most ${max}`)
+    }
+})
+
+// ---- the front door: START.md and the root skills (init, sync), which the plugins expose
+const root = new URL('../', import.meta.url).pathname
+const rootText = (p) => readFileSync(join(root, p), 'utf8')
+const FRONT = { 'START.md': 40, 'skills/init/SKILL.md': 80, 'skills/init/interview.md': 80, 'skills/init/new-repo.md': 40, 'skills/init/existing-repo.md': 80, 'skills/init/github.md': 60, 'skills/init/checks.md': 50, 'skills/sync/SKILL.md': 70 }
+
+test('the front door files exist and stay within their line budgets', () => {
+    for (const [path, max] of Object.entries(FRONT)) {
+        const lines = rootText(path).replace(/\n$/, '').split('\n').length
+        assert.ok(lines <= max, `${path}: ${lines} lines, at most ${max}`)
+    }
+    for (const n of ['init', 'sync']) assert.deepEqual(readdirSync(join(root, 'skills', n)).filter((f) => `skills/${n}/${f}` in FRONT).length, readdirSync(join(root, 'skills', n)).length, `skills/${n} holds only budgeted files`)
+})
+
+test('the init and sync skills parse as skills: name is the directory, a "Use when" description of at most 300 characters', () => {
+    for (const n of ['init', 'sync']) assert.equal(parseCanonical(rootText(`skills/${n}/SKILL.md`), `skills/${n}/SKILL.md`).name, n)
+})
+
+test('the front door names actions, never one agent\'s tools, and no gh form that a script covers', () => {
+    const tools = /spawn_agent|subagent_type|TodoWrite|TaskCreate|run_in_background|AskUserQuestion|update_plan|Agent tool|Skill tool|Plan Mode/
+    const covered = /gh issue view|gh project |sub_issues|gh pr merge|\/statuses\/|updateProjectV2|gh api [^\n]*issues\/(\d+|<[^>]*>|\$)|gh label/
+    for (const path of Object.keys(FRONT)) { assert.doesNotMatch(rootText(path), tools, path); assert.doesNotMatch(rootText(path), covered, path) }
+})
+
+test('every script and lib the front door names exists', () => {
+    for (const path of Object.keys(FRONT)) {
+        for (const [, kind, name] of rootText(path).matchAll(/(?:core|\.ticketflow)\/(scripts|lib)\/([\w-]+\.mjs)/g)) assert.ok(existsSync(join(core, kind, name)), `${path}: ${kind}/${name}`)
+    }
+})
+
+test('every part file of init is referenced by its SKILL.md and exists; START.md names both skills; both skills hand over to the clone\'s own copy', () => {
+    const skill = rootText('skills/init/SKILL.md')
+    for (const f of readdirSync(join(root, 'skills/init')).filter((x) => x !== 'SKILL.md')) assert.ok(skill.includes(`\`${f}\``), `skills/init/SKILL.md does not reference ${f}`)
+    for (const [, f] of skill.matchAll(/`([\w-]+\.md)`/g)) assert.ok(existsSync(join(root, 'skills/init', f)), f)
+    for (const n of ['init', 'sync']) {
+        assert.ok(rootText('START.md').includes(`skills/${n}/SKILL.md`), `START.md names skills/${n}/SKILL.md`)
+        assert.match(rootText(`skills/${n}/SKILL.md`), new RegExp(`Read \`<TF>/skills/${n}/SKILL\\.md\` and continue there from section 1`), n)
     }
 })

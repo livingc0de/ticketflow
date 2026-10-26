@@ -8,7 +8,7 @@
  * A config error exits non-zero with nothing on stdout, which callers read as "run everything".
  */
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -21,7 +21,8 @@ export const docsOnly = (paths, cfg) => {
     return paths.length > 0 && paths.every((p) => cfg.docs_only.docs.some((r) => r.test(p)) && !code.some((r) => r.test(p)) && !CONTROL.test(p))
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+const isMain = () => { try { return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href } catch { return false } }   // realpath: a symlinked path must still run
+if (isMain()) {
     try {
         const { values } = parseArgs({ options: { config: { type: 'string' } }, strict: true })
         const cfg = loadConfig(values.config ?? configPath(dirname(fileURLToPath(import.meta.url))))

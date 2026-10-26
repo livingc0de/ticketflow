@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { ConfigError, SCHEMA_VERSION, configPath, loadConfig, migrate, validate } from '../core/lib/config.mjs'
@@ -14,7 +14,7 @@ test('a minimal config loads, with defaults applied and deeply frozen', () => {
     assert.deepEqual(
         cfg,
         { schema_version: 1, repo: 'o/r', default_branch: 'main', verify: { mode: 'ci', install: '', command: 'npm test', timeout_min: 45 },
-            gate: { context: 'ci/gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, reviewers: [], deploy_branch: null, project: null, agents: [], models: {}, plans_dir: 'docs/plans', worktrees_dir: '.claude/worktrees', live_verify_skill: null, deferred_checks_issue: null, areas: [], ci: { push_paths: null } })
+            gate: { context: 'ci/gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, reviewers: [], deploy_branch: null, project: null, agents: [], models: {}, plans_dir: 'docs/plans', worktrees_dir: '.claude/worktrees', live_verify_skill: null, deferred_checks_issue: null, areas: [], practices: [], ci: { push_paths: null } })
     assert.ok(Object.isFrozen(cfg) && Object.isFrozen(cfg.verify) && Object.isFrozen(cfg.gate) && Object.isFrozen(cfg.gate.ci_files) && Object.isFrozen(cfg.reviewers))
     assert.throws(() => { 'use strict'; cfg.repo = 'x/y' }, TypeError)
 })
@@ -179,4 +179,57 @@ test('ci.push_paths, areas and gate names refuse expressions, line breaks and pa
     for (const g of ['${{ github.token }}', 'a\u0085b', 'a b']) bad({ ci: { push_paths: [g] } }, /push_paths/)
     for (const a of [' x', 'x ', ' None ', 'none', ' ', 'a\u0085b']) bad({ areas: [a] }, /areas/)
     for (const g of [' Verify', 'Verify ', ' ']) bad({ gate: { check: g } }, /gate\.check/)
+})
+
+test('practices is a unique list of practice names, default []', () => {
+    assert.deepEqual(validate(rawConfig({ practices: ['i18n', 'live-verify'] })).practices, ['i18n', 'live-verify'])
+    for (const v of [[''], ['I18n'], ['a b'], ['../x'], [3], ['a', 'a']]) bad({ practices: v }, /practices/)
+    bad({ practices: 'x' }, /practices must be a list/)
+})
+
+const cli = (...args) => spawnSync(process.execPath, [new URL('../core/lib/config.mjs', import.meta.url).pathname, ...args], { encoding: 'utf8' })
+
+test('config.mjs validate: ok exits 0 and prints config valid; a bad key exits 2 naming the key', () => {
+    const dir = tempDir()
+    const ok = cli('validate', writeConfig(dir))
+    assert.equal(ok.status, 0, ok.stderr); assert.equal(ok.stdout, 'config valid\n')
+    const file = join(dir, 'bad.json')
+    writeFileSync(file, JSON.stringify({ ...BASE_CONFIG, bogus_key: 1 }))
+    const r = cli('validate', file)
+    assert.equal(r.status, 2); assert.match(r.stderr, /bogus_key/)
+    assert.equal(cli('validate', join(dir, 'missing.json')).status, 2)
+    assert.equal(cli('validate').status, 2); assert.equal(cli('frob', file).status, 2); assert.equal(cli('validate', file, '--write').status, 2)
+})
+
+test('config.mjs migrate: a current config is left byte for byte; a gap or a newer schema exits 2 and writes nothing', () => {
+    const dir = tempDir()
+    const file = join(dir, 'config.json')
+    const put = (obj) => writeFileSync(file, JSON.stringify(obj) + '\n')
+    put(BASE_CONFIG)
+    const before = readFileSync(file, 'utf8')
+    for (const flags of [[], ['--write']]) {
+        const r = cli('migrate', file, ...flags)
+        assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /already at schema_version 1/)
+        assert.equal(readFileSync(file, 'utf8'), before)
+    }
+    for (const version of [0, 2]) {
+        put({ ...BASE_CONFIG, schema_version: version })
+        const stale = readFileSync(file, 'utf8')
+        const r = cli('migrate', file, '--write')
+        assert.equal(r.status, 2, `schema_version ${version}`); assert.match(r.stderr, /schema_version/)
+        assert.equal(readFileSync(file, 'utf8'), stale)
+    }
+    writeFileSync(file, '{nope')
+    assert.equal(cli('migrate', file, '--write').status, 2)
+})
+
+test('the CLI also runs through a symlinked path (macOS temp directories are under /var, a symlink)', () => {
+    const dir = tempDir()
+    const link = join(dir, 'link')
+    symlinkSync(new URL('../core/lib', import.meta.url).pathname, link)
+    const bad = join(dir, 'bad.json')
+    writeFileSync(bad, JSON.stringify({ ...BASE_CONFIG, bogus_key: 1 }))
+    const r = spawnSync(process.execPath, [join(link, 'config.mjs'), 'validate', bad], { encoding: 'utf8' })
+    assert.equal(r.status, 2); assert.match(r.stderr, /bogus_key/)
+    assert.equal(spawnSync(process.execPath, [join(link, 'config.mjs'), 'validate', writeConfig(dir)], { encoding: 'utf8' }).stdout, 'config valid\n')
 })
