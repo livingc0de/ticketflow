@@ -78,6 +78,15 @@ const reviewer = section({
 const VIEWS = ['All Work', 'Initiatives', 'Open Decisions', 'P0/P1 Open']
 const unique = (parse) => (v, p) => { const out = parse(v, p); return new Set(out).size === out.length ? out : fail(`${p} has a duplicate`) }
 
+const AGENTS = ['claude', 'codex']
+const model = orNull((v, p) => (typeof v === 'string' && /^[\w.:/[\]-]+$/.test(v) ? v : fail(`${p} must be a model id`)))
+const modelClasses = section({ strong: [model, REQUIRED], standard: [model, REQUIRED], light: [model, REQUIRED] })
+/** `{ claude?, codex? }`, each with all three classes; `null` (inherit) is the only way to leave a model out. */
+const models = (v, p) => {
+    if (!isObject(v)) fail(`${p} must be an object`)
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, AGENTS.includes(k) ? modelClasses(x, `${p}.${k}`) : fail(`unknown key ${p}.${k}`)]))
+}
+
 const parse = section({
     schema_version: [int(0), REQUIRED],
     repo: [repo, REQUIRED],
@@ -103,6 +112,8 @@ const parse = section({
         title: [orNull(str), null],
         views: [unique(list(oneOf(...VIEWS))), []],
     })), null],
+    agents: [unique(list(oneOf(...AGENTS))), []],
+    models: [models, {}],
 })
 
 const deepFreeze = (v) => {
@@ -119,6 +130,7 @@ export function validate(raw) {
     const cfg = parse(raw, '')
     if (cfg.deploy_branch === cfg.default_branch) fail('deploy_branch must differ from default_branch')
     if (cfg.project?.number === 0 && cfg.project.title === null) fail('project.title is required while project.number is 0')
+    for (const a of cfg.agents) if (!cfg.models[a]) fail(`models.${a} is required while ${a} is in agents`)
     if (cfg.gate.context === cfg.gate.check) fail('gate.context must differ from gate.check')
     return deepFreeze(cfg)
 }

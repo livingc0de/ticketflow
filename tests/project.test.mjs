@@ -257,8 +257,8 @@ test('project.number 0, a missing project section and bad arguments exit 2 befor
     assert.equal(r.status, 2); assert.match(r.stderr, /no project section/); assert.deepEqual(gh.calls(), [])
 })
 
-test('every label used in a STANDARD view filter is in templates/labels.json', () => {
-    const labels = JSON.parse(readFileSync(new URL('../templates/labels.json', import.meta.url), 'utf8')).map((l) => l.name)
+test('every label used in a STANDARD view filter is in core/templates/labels.json', () => {
+    const labels = JSON.parse(readFileSync(new URL('../core/templates/labels.json', import.meta.url), 'utf8')).map((l) => l.name)
     const used = STANDARD.views.flatMap((v) => [...v.filter.matchAll(/label:("[^"]+"(?:,"[^"]+")*)/g)].flatMap((m) => m[1].split(',')).map((s) => s.replaceAll('"', '')))
     assert.ok(used.length >= 4)
     for (const name of used) assert.ok(labels.includes(name), name)

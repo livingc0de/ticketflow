@@ -67,7 +67,7 @@ test('an invalid file exits 2 with zero calls', () => {
     }
 })
 
-test('the shipped templates/labels.json is valid', () => {
-    const r = run([], { ...labelsAt([[]]), [`POST ${R}/labels`]: {} }, readFileSync(new URL('../templates/labels.json', import.meta.url), 'utf8'))
+test('the shipped core/templates/labels.json is valid', () => {
+    const r = run([], { ...labelsAt([[]]), [`POST ${R}/labels`]: {} }, readFileSync(new URL('../core/templates/labels.json', import.meta.url), 'utf8'))
     assert.equal(r.status, 0, r.stderr)
 })

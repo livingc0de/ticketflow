@@ -1,0 +1,33 @@
+{
+  "skill": { "target": ".agents/skills/{name}/SKILL.md", "format": "md", "body": "pointer" },
+  "role": { "target": ".codex/agents/{name}.toml", "format": "toml", "body": "pointer" },
+  "plugin": {
+    "manifest": {
+      "path": ".codex-plugin/plugin.json",
+      "json": {
+        "name": "ticketflow",
+        "version": "{version}",
+        "description": "An agent-neutral, ticket-driven delivery workflow for GitHub repos: set it up with init, update it with sync.",
+        "repository": "{repo_url}",
+        "license": "MIT",
+        "skills": "./skills/",
+        "interface": {
+          "displayName": "ticketflow",
+          "shortDescription": "Ticket-driven delivery workflow for GitHub repos",
+          "category": "Developer Tools",
+          "capabilities": ["Instructions"]
+        }
+      }
+    },
+    "marketplace": {
+      "path": ".agents/plugins/marketplace.json",
+      "json": {
+        "name": "ticketflow",
+        "interface": { "displayName": "ticketflow" },
+        "plugins": [
+          { "name": "ticketflow", "source": { "source": "url", "url": "./" }, "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" }, "category": "Developer Tools" }
+        ]
+      }
+    }
+  }
+}

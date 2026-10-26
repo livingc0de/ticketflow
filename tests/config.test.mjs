@@ -14,7 +14,7 @@ test('a minimal config loads, with defaults applied and deeply frozen', () => {
     assert.deepEqual(
         cfg,
         { schema_version: 1, repo: 'o/r', default_branch: 'main', verify: { mode: 'ci', install: '', command: 'npm test', timeout_min: 45 },
-            gate: { context: 'ci/gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, reviewers: [], deploy_branch: null, project: null })
+            gate: { context: 'ci/gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, reviewers: [], deploy_branch: null, project: null, agents: [], models: {} })
     assert.ok(Object.isFrozen(cfg) && Object.isFrozen(cfg.verify) && Object.isFrozen(cfg.gate) && Object.isFrozen(cfg.gate.ci_files) && Object.isFrozen(cfg.reviewers))
     assert.throws(() => { 'use strict'; cfg.repo = 'x/y' }, TypeError)
 })
@@ -129,4 +129,20 @@ test('project: owner and number are required, title is required while the number
     bad({ project: { owner: 'octo', number: 1, views: ['Roadmap'] } }, /project\.views\[0\] must be one of/)
     bad({ project: { owner: 'octo', number: 1, views: ['All Work', 'All Work'] } }, /duplicate/)
     bad({ project: { owner: 'octo', number: 1, extra: 1 } }, /unknown key project\.extra/)
+})
+
+test('agents are a unique list of known agents; each one needs a model per class (null inherits)', () => {
+    const M = { strong: 'opus', standard: 'sonnet', light: null }
+    const ok = validate(rawConfig({ agents: ['claude', 'codex'], models: { claude: M, codex: { strong: 'gpt-5.1-codex', standard: 'gpt-5:x[1m]', light: null } } }))
+    assert.deepEqual(ok.models.claude, M)
+    assert.deepEqual(validate(rawConfig({ agents: ['codex'], models: { codex: M } })).agents, ['codex'])
+    bad({ agents: ['claude', 'claude'] }, /agents has a duplicate/)
+    bad({ agents: ['gemini'] }, /agents\[0\] must be one of/)
+    bad({ agents: ['claude'] }, /models\.claude is required/)
+    bad({ agents: ['claude'], models: { codex: M } }, /models\.claude is required/)
+    bad({ models: { gemini: M } }, /unknown key models\.gemini/)
+    bad({ models: { claude: { strong: 'a', standard: 'b' } } }, /missing models\.claude\.light/)
+    bad({ models: { claude: { ...M, extra: 'x' } } }, /unknown key models\.claude\.extra/)
+    for (const m of ['', 'a b', 'a;b', 3, '$(x)']) bad({ models: { claude: { ...M, light: m } } }, /models\.claude\.light must be a model id/)
+    bad({ models: [] }, /models must be an object/)
 })

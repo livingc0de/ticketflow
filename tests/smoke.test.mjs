@@ -1,8 +1,25 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 
-test("VERSION is pinned semver X.Y.Z", () => {
-  const v = readFileSync(new URL("../VERSION", import.meta.url), "utf8").trim();
-  assert.match(v, /^\d+\.\d+\.\d+$/);
-});
+const root = new URL('..', import.meta.url)
+const version = readFileSync(new URL('VERSION', root), 'utf8').trim()
+const json = (p) => JSON.parse(readFileSync(new URL(p, root), 'utf8'))
+
+test('VERSION is pinned semver X.Y.Z', () => {
+    assert.match(version, /^\d+\.\d+\.\d+$/)
+})
+
+test('every plugin manifest that carries a version carries VERSION, and the two plugin files carry one', () => {
+    for (const p of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json']) assert.equal(json(p).version, version, p)
+    assert.equal(json('.claude-plugin/marketplace.json').plugins[0].version, version)
+})
+
+test('on a release run the tag is v<VERSION>', { skip: process.env.GITHUB_REF_TYPE !== 'tag' }, () => {
+    assert.equal(process.env.GITHUB_REF_NAME, `v${version}`)
+})
+
+test('the plugins expose only init and sync: root skills/ holds exactly those, and there is no agents, commands, hooks or templates directory', () => {
+    assert.deepEqual(readdirSync(new URL('skills/', root)).sort(), ['init', 'sync'])
+    for (const d of ['agents', 'commands', 'hooks', 'templates']) assert.ok(!existsSync(new URL(`${d}/`, root)), d)
+})

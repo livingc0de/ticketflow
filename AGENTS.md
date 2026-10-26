@@ -5,6 +5,7 @@
 
 ## Rules
 - Canonical files are the source. Generated stubs and manifests are never hand-edited: change the source and run the generator.
+- Generated files: run `node core/scripts/gen-stubs.mjs core .`.
 - Skills name actions ("dispatch the planner", "ask the user"), never one agent's tools.
 - Skill descriptions are "Use when..." triggers only, never a workflow summary.
 - Recurring procedures are tested scripts, not prose.

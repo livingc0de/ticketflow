@@ -1,0 +1,27 @@
+{
+  "skill": { "target": ".claude/skills/{name}/SKILL.md", "format": "md", "body": "pointer" },
+  "role": { "target": ".claude/agents/{name}.md", "format": "md", "body": "pointer", "tools": { "read-only": "Bash, Read, Grep, Glob, Skill", "full": null } },
+  "plugin": {
+    "manifest": {
+      "path": ".claude-plugin/plugin.json",
+      "json": {
+        "name": "ticketflow",
+        "version": "{version}",
+        "description": "An agent-neutral, ticket-driven delivery workflow for GitHub repos: set it up with init, update it with sync.",
+        "repository": "{repo_url}",
+        "license": "MIT",
+        "keywords": ["workflow", "github", "tickets", "pull-requests"]
+      }
+    },
+    "marketplace": {
+      "path": ".claude-plugin/marketplace.json",
+      "json": {
+        "name": "ticketflow",
+        "owner": { "name": "ticketflow" },
+        "plugins": [
+          { "name": "ticketflow", "source": "./", "version": "{version}", "description": "Set up and update the ticketflow workflow in a GitHub repo.", "category": "development" }
+        ]
+      }
+    }
+  }
+}

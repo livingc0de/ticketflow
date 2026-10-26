@@ -5,6 +5,7 @@ on:
     branches: [main]
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 concurrency:
@@ -25,7 +26,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Install actionlint
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/actionlint.tar.gz" https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz
+          echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Lint workflows
+        run: actionlint
       - run: npm test
+        env:
+          TICKETFLOW_REQUIRE_ACTIONLINT: '1'
+      - name: Generated files are in sync
+        run: node core/scripts/gen-stubs.mjs core . --check
       # The gate is a commit status, not a check: an agent can post a status on a
       # refused run, and a check plus a status with the same name would both be required.
       - name: Post gate status

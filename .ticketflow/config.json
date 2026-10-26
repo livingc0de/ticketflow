@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "repo": "livingc0de/ticketflow",
+  "default_branch": "main",
+  "verify": { "mode": "ci", "command": "npm test" },
+  "agents": ["claude", "codex"],
+  "models": {
+    "claude": { "strong": "opus", "standard": "sonnet", "light": "haiku" },
+    "codex": { "strong": null, "standard": null, "light": null }
+  }
+}
