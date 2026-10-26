@@ -1,0 +1,1 @@
+- Every endpoint: authenticated unless marked public, authorized in code, validated, rate-limited, errors as code + message key: `.ticketflow/practices/api-endpoints/SKILL.md`.

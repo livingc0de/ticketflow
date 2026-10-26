@@ -1,0 +1,1 @@
+- [ ] Schema change in the schema of record, applied SQL recorded; allow and deny paths tested as real roles

@@ -1,0 +1,1 @@
+- [ ] New configurable values are settings (default, validation, reader, applied to shared envs); no secrets in settings

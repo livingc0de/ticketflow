@@ -1,0 +1,1 @@
+- Screens reuse shared components and tokens only, handle every state, are accessible and work at desktop and mobile width: `.ticketflow/practices/ui-screens/SKILL.md`.

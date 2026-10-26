@@ -1,7 +1,7 @@
 /**
  * Generated stubs and plugin manifests. Pure: no file access, so the output is a function of its inputs.
  *
- * A canonical skill or role (`skills/<n>/SKILL.md`, `agents/<n>.md`) is the only source. For each agent in the config, `renderStubs`
+ * A canonical skill or role (`skills/<n>/SKILL.md`, `practices/<n>/SKILL.md`, `agents/<n>.md`) and a domain guide (`docs/agents/<n>.md`) are the only sources. For each agent in the config, `renderStubs`
  * writes a thin file in that agent's own format that points at it (or, with `body: "inline"`, carries it). Every string is validated,
  * then written through JSON.stringify, which is a valid string in both YAML and TOML.
  */
@@ -49,6 +49,22 @@ export function parseCanonical(text, path) {
     return { ...fm, body: m[2].replace(/^\n+/, '').replace(/\s+$/, '') + '\n' }
 }
 
+/**
+ * A domain guide (`docs/agents/<name>.md`): frontmatter that is only a `paths:` list of globs, then a body. `{ name, frontmatter, body }`;
+ * the frontmatter is returned verbatim, so the rule stub carries exactly what the guide says.
+ */
+export function parseGuide(text, path) {
+    const name = /^(?:.*\/)?([^/]+)\.md$/.exec(path)?.[1]
+    if (!name || !/^[a-z0-9-]+$/.test(name)) fail(`${path}: a guide name is lowercase letters, digits and dashes`)
+    const t = text.replaceAll('\r\n', '\n')
+    if (CONTROL.test(t)) fail(`${path}: control characters are not allowed`)
+    const m = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(t)
+    if (!m) return fail(`${path}: frontmatter missing`)
+    const [head, ...globs] = m[1].split('\n')
+    if (head !== 'paths:' || !globs.length || !globs.every((l) => /^ *- \S/.test(l))) fail(`${path}: the frontmatter must be a "paths:" list ("- <glob>" lines) and nothing else`)
+    return { name, frontmatter: m[1], body: m[2].replace(/^\n+/, '').replace(/\s+$/, '') + '\n' }
+}
+
 const note = (runtimeRel) => runtimeRel === '.ticketflow' ? ''
     : `In this repository the runtime lives in \`${runtimeRel}/\`: read every \`.ticketflow/<path>\` as \`${runtimeRel}/<path>\`, except \`.ticketflow/config.json\` and \`.ticketflow/custom/\`.\n\n`
 
@@ -63,18 +79,20 @@ export function target(template, name) {
 
 /**
  * Everything gen-stubs owns: a sorted Map of path to content. `skills` and `roles` are `parseCanonical` results plus `src`, the
- * canonical path relative to the runtime. `adapters` are the adapter objects for the agents in the config.
+ * canonical path relative to the runtime (`skills/<n>/SKILL.md`, or `practices/<n>/SKILL.md` for an enabled practice). `guides` are
+ * `parseGuide` results: an adapter with a `rule` target gets one rule file per guide. `adapters` are the adapter objects for the agents in the config.
  */
-export function renderStubs({ skills, roles, adapters, cfg, runtimeRel, version }) {
+export function renderStubs({ skills, roles, adapters, cfg, runtimeRel, version, guides = [] }) {
     const out = new Map()
     const by = (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
     const put = (path, content) => { if (out.has(path)) fail(`two stubs for ${path}`); out.set(path, content) }
     for (const a of adapters) {
         for (const s of [...skills].sort(by)) {
             const map = `Your action map: \`${runtimeRel}/agents-map/${a.name}.md\`.`
-            const text = note(runtimeRel) + (a.skill.body === 'inline' ? `${s.body}\n${map}\n` : `Read \`${runtimeRel}/skills/${s.name}/SKILL.md\` and follow it; it is the whole skill. ${map}\n`)
+            const text = note(runtimeRel) + (a.skill.body === 'inline' ? `${s.body}\n${map}\n` : `Read \`${runtimeRel}/${s.src}\` and follow it; it is the whole skill. ${map}\n`)
             put(target(a.skill.target, s.name), md([['name', s.name], ['description', s.description]], s.src, text))
         }
+        if (a.rule) for (const g of [...guides].sort(by)) put(target(a.rule, g.name), `---\n${g.frontmatter}\n---\n<!-- ${MARKER} from docs/agents/${g.name}.md. Do not edit: change the source, run gen-stubs. -->\n\n${g.body}`)
         for (const r of [...roles].sort(by)) {
             if (r.needs_config && (!Object.hasOwn(cfg, r.needs_config) ? fail(`${r.src}: needs_config ${r.needs_config} is not a config key`) : cfg[r.needs_config] == null)) continue
             const model = cfg.models[a.name]?.[r.model_class] ?? null
@@ -99,7 +117,8 @@ function md(fields, src, text, tools) {
     return `---\n${head.join('\n')}\n---\n<!-- ${MARKER} from ${src}. Do not edit: change the source, run gen-stubs. -->\n\n${text}`
 }
 
-const marked = (content) => new RegExp(`^(?:<!-- |# )${MARKER} from `, 'm').test(content)
+// the marker is the first line of a TOML stub, or the line right after the frontmatter of a Markdown one
+const marked = (path, content) => new RegExp(`^${path.endsWith('.toml') ? '# ' : '---\\n(?:(?!---\\n)[^\\n]*\\n)*?---\\n<!-- '}${MARKER} from `).test(content.replaceAll('\r\n', '\n'))
 
 /**
  * `expected` and `disk` are Maps of path to content (disk: every file under the adapters' stub paths). Returns what to write,
@@ -111,9 +130,9 @@ export function planWrites(expected, disk) {
     for (const [path, content] of expected) {
         if (!disk.has(path)) write.push(path)
         else if (disk.get(path) === content) continue
-        else if (marked(content) && !marked(disk.get(path))) conflicts.push(path)
+        else if (marked(path, content) && !marked(path, disk.get(path))) conflicts.push(path)
         else write.push(path)
     }
-    for (const [path, content] of disk) if (!expected.has(path) && marked(content)) remove.push(path)
+    for (const [path, content] of disk) if (!expected.has(path) && marked(path, content)) remove.push(path)
     return { write, remove, conflicts }
 }

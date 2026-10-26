@@ -22,6 +22,7 @@ Planning: <!-- copy the claim comment's line: planner, planned earlier (link) or
 Verification evidence:
 
 Deferred checks:
+{{practice_pr}}
 <!-- ticketflow:end head -->
 
 ## Change Impact

@@ -1,5 +1,6 @@
 {
   "skill": { "target": ".claude/skills/{name}/SKILL.md", "format": "md", "body": "pointer" },
+  "rule": ".claude/rules/{name}.md",
   "role": { "target": ".claude/agents/{name}.md", "format": "md", "body": "pointer", "tools": { "read-only": "Bash, Read, Grep, Glob, Skill", "full": null } },
   "plugin": {
     "manifest": {

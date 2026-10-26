@@ -1,0 +1,1 @@
+- No hardcoded user-facing text and no locale branches; every locale ships in the same PR: `.ticketflow/practices/i18n/SKILL.md`.

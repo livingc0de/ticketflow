@@ -33,7 +33,13 @@ main('render', () => {
     if (propose !== null && (real(propose) === real(target) || inside(real(target), real(propose)))) throw new Error('--propose must be a directory outside the target repo')
     const runtimeRel = templates === join(target, 'core', 'templates') ? 'core' : '.ticketflow'
     const cfg = loadConfig(join(target, '.ticketflow', 'config.json'))
-    const vars = templateVars(cfg, { runtimeRel })
+    const practices = cfg.practices.map((name) => {   // an enabled practice must be in the runtime: sync puts it there
+        const dir = join(target, runtimeRel, 'practices', name)
+        if (!existsSync(dir)) throw new Error(`practice ${name} is enabled but ${runtimeRel}/practices/${name} is missing: run sync`)
+        const read = (f) => (existsSync(join(dir, f)) ? readFileSync(join(dir, f), 'utf8') : null)
+        return { name, rules: read('agents-rules.md') ?? '', checks: read('pr-checklist.md') }
+    })
+    const vars = templateVars(cfg, { runtimeRel, practices })
     const owned = readManifest(target)?.claude_settings ?? {}
 
     // compute everything first

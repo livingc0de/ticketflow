@@ -1,0 +1,1 @@
+- Provider SDKs only inside their adapter (interface + mock per category); missing credentials fail closed in production: `.ticketflow/practices/provider-adapters/SKILL.md`.

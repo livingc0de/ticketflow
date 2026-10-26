@@ -10,4 +10,5 @@
 - Hand off in In Review; Done only when the owner asks.
 - Fix findings (reviews, CI, smoke checks) in the running ticket; only a big or unrelated problem gets its own issue.
 - The Review Guidelines of this file apply to every reviewer.
+{{practice_agents}}
 <!-- ticketflow:end agents -->

@@ -1,0 +1,2 @@
+- One schema of record; shared databases reach a schema change before code needs it. Deny by default; clients never write privileged columns: `.ticketflow/practices/database/SKILL.md`.
+- Live SQL runs in one transaction and is recorded in the PR; never reset or seed a shared database without the owner's OK.

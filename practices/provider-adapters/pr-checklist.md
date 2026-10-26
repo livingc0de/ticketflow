@@ -1,0 +1,1 @@
+- [ ] Provider code stays in its adapter; contract tests pass; live round trip recorded or missing key called out

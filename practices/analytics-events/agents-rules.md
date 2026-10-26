@@ -1,0 +1,1 @@
+- Declare an analytics event in the catalog before emitting it; track only with consent; no personal data in properties: `.ticketflow/practices/analytics-events/README.md`.

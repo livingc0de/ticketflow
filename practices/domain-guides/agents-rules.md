@@ -1,0 +1,1 @@
+- Before planning, changing or reviewing a file, read each `docs/agents/*.md` guide whose `paths` match it; a change updates its guide in the same PR.

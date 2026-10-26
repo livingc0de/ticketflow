@@ -1,0 +1,1 @@
+- Configurable values are runtime settings, never constants; secrets are never settings: `.ticketflow/practices/runtime-settings/SKILL.md`.

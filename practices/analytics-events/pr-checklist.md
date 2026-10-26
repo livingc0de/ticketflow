@@ -1,0 +1,1 @@
+- [ ] New analytics events are in the catalog, consent-gated, with no personal data in properties

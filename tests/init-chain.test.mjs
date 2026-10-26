@@ -61,3 +61,33 @@ test('runtime, gen-stubs and render give a repo that doctor --local accepts; a h
     r = doctor(dir)
     assert.equal(r.status, 0, r.stdout)
 })
+
+test('with practices: skills, rule stubs, AGENTS and PR lines appear; turning one off and syncing removes exactly what it added', () => {
+    const src = source(), dir = target({ practices: ['i18n', 'domain-guides', 'live-verify'], live_verify_skill: 'live-verify' })
+    put(dir, 'docs/agents/billing.md', '---\npaths:\n  - "src/billing/**"\n---\n# Billing\n\nInvariants.\n')
+    const steps = () => [[join(src, 'core/scripts/runtime.mjs'), src, '.'], ['.ticketflow/scripts/gen-stubs.mjs', '.ticketflow', '.'], ['.ticketflow/scripts/render.mjs', '.ticketflow/templates', '.']]
+    for (const args of steps()) { const r = node(dir, ...args); assert.equal(r.status, 0, `${args[0]}\n${r.stdout}${r.stderr}`) }
+    for (const p of ['.ticketflow/practices/i18n/SKILL.md', '.claude/skills/i18n/SKILL.md', '.agents/skills/live-verify/SKILL.md', '.claude/agents/e2e-verifier.md', '.claude/rules/billing.md']) assert.ok(existsSync(join(dir, p)), p)
+    assert.ok(!existsSync(join(dir, '.claude/skills/domain-guides')), 'domain-guides has no skill')
+    const agents = readFileSync(join(dir, 'AGENTS.md'), 'utf8')
+    assert.match(agents, /Enabled practices[\s\S]*\.ticketflow\/practices\/i18n\/SKILL\.md[\s\S]*read each `docs\/agents\/\*\.md` guide/)
+    assert.match(readFileSync(join(dir, '.github/PULL_REQUEST_TEMPLATE.md'), 'utf8'), /### Practice checks\n\n- \[ \] .*i18n/)
+    let r = doctor(dir)
+    assert.equal(r.status, 0, r.stdout); assert.match(r.stdout, /ok practices: i18n, domain-guides, live-verify/)
+
+    // enabling later is a config edit and a sync: the practice is not in the runtime yet, so everything says so
+    const cfgFile = join(dir, '.ticketflow/config.json')
+    const cfg = JSON.parse(readFileSync(cfgFile, 'utf8'))
+    writeFileSync(cfgFile, JSON.stringify({ ...cfg, practices: ['i18n', 'domain-guides', 'live-verify', 'database'] }))
+    r = doctor(dir)
+    assert.equal(r.status, 1); assert.match(r.stdout, /fail practices: database enabled in the config but not in \.ticketflow\/practices\/: run sync/)
+
+    // turning one off: runtime removes its folder, gen-stubs its stubs, render its lines
+    writeFileSync(cfgFile, JSON.stringify({ ...cfg, practices: ['live-verify'], live_verify_skill: 'live-verify' }))
+    for (const args of steps()) { const x = node(dir, ...args); assert.equal(x.status, 0, `${args[0]}\n${x.stdout}${x.stderr}`) }
+    for (const p of ['.ticketflow/practices/i18n', '.claude/skills/i18n', '.claude/rules/billing.md']) assert.ok(!existsSync(join(dir, p)), p)
+    assert.ok(existsSync(join(dir, '.claude/skills/live-verify/SKILL.md')) && existsSync(join(dir, 'docs/agents/billing.md')))
+    assert.doesNotMatch(readFileSync(join(dir, 'AGENTS.md'), 'utf8'), /i18n\/SKILL\.md/)
+    r = doctor(dir)
+    assert.equal(r.status, 0, r.stdout)
+})

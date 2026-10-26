@@ -1,0 +1,1 @@
+- [ ] Live-verified at desktop and mobile width (assertions, screenshots), or deferred with the reason

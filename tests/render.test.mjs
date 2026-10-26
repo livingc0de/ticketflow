@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { claudeAsk } from '../core/lib/guard.mjs'
 import { validate } from '../core/lib/config.mjs'
@@ -365,4 +365,46 @@ test('render.mjs records the settings entries it owns in the manifest, keeps the
     assert.equal(JSON.parse(t.read('.ticketflow/manifest.json')).claude_settings, undefined)
     t.put('.ticketflow/manifest.json', '{"manifest_version":1,"bogus":1}')
     assert.equal(t.run().status, 2)
+})
+
+// ---- optional practices
+const PRACTICES_ROOT = new URL('../practices/', import.meta.url).pathname
+const withPractices = (names) => {
+    const t = repo({ practices: names })
+    for (const n of names) for (const f of readdirSync(join(PRACTICES_ROOT, n))) t.put(`.ticketflow/practices/${n}/${f}`, readFileSync(join(PRACTICES_ROOT, n, f), 'utf8'))
+    return t
+}
+const lineOf = (n, f) => readFileSync(join(PRACTICES_ROOT, n, f), 'utf8').trimEnd()
+
+test('practices: the AGENTS block and the PR template get exactly the enabled practices\' lines; none enabled is byte-identical to the template without the placeholders', () => {
+    const t = withPractices(['i18n', 'database', 'deploy-gating'])
+    const r = t.run()
+    assert.equal(r.status, 0, r.stderr)
+    const agents = t.read('AGENTS.md'), pr = t.read('.github/PULL_REQUEST_TEMPLATE.md')
+    assert.ok(agents.includes('Enabled practices (procedures in `.ticketflow/practices/`):\n\n' + [lineOf('i18n', 'agents-rules.md'), lineOf('database', 'agents-rules.md'), lineOf('deploy-gating', 'agents-rules.md')].join('\n') + '\n<!-- ticketflow:end agents -->'))
+    assert.ok(pr.includes('### Practice checks\n\n' + [lineOf('i18n', 'pr-checklist.md'), lineOf('database', 'pr-checklist.md')].join('\n') + '\n<!-- ticketflow:end head -->'), 'deploy-gating has no PR line')
+    assert.equal(t.run('--check').status, 0)
+    assert.doesNotMatch(t.run().stdout, /wrote/)   // merging twice is idempotent
+    const none = repo()
+    assert.equal(none.run().status, 0)
+    for (const [dest, src] of [['AGENTS.md', 'AGENTS-block.md'], ['.github/PULL_REQUEST_TEMPLATE.md', 'PULL_REQUEST_TEMPLATE.md']]) {
+        const cfg = config({ agents: ['claude'], models: MODELS })
+        assert.equal(none.read(dest), fill(tpl(src).replace(/\{\{practice_(agents|pr)\}\}\n/, ''), templateVars(cfg, { runtimeRel: '.ticketflow' })), dest)
+    }
+    // a practice turned off again leaves the block as it was
+    writeFileSync(join(t.dir, '.ticketflow/config.json'), JSON.stringify(rawConfig({ agents: ['claude'], models: MODELS })))
+    assert.equal(t.run().status, 0)
+    assert.equal(t.read('AGENTS.md'), none.read('AGENTS.md'))
+})
+
+test('practices: an enabled practice that is not in the runtime exits 2 before any write; a malformed snippet is an error', () => {
+    const missing = repo({ practices: ['i18n'] })
+    const r = missing.run()
+    assert.equal(r.status, 2); assert.match(r.stderr, /practice i18n is enabled but .*missing: run sync/); assert.ok(!missing.has('AGENTS.md'))
+    const bad = withPractices(['i18n'])
+    bad.put('.ticketflow/practices/i18n/agents-rules.md', 'not a bullet\n')
+    assert.equal(bad.run().status, 2)
+    bad.put('.ticketflow/practices/i18n/agents-rules.md', '- ok\n<!-- ticketflow:end agents -->\n')
+    assert.equal(bad.run().status, 2)
+    assert.ok(!bad.has('AGENTS.md'))
 })

@@ -1,0 +1,1 @@
+- Deploy only CI-green commits from a clean build, never from a working tree or with local env files: `.ticketflow/practices/deploy-gating/README.md`.

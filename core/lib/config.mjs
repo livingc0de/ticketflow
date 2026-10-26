@@ -91,6 +91,8 @@ const VIEWS = ['All Work', 'Initiatives', 'Open Decisions', 'P0/P1 Open']
 const unique = (parse) => (v, p) => { const out = parse(v, p); return new Set(out).size === out.length ? out : fail(`${p} has a duplicate`) }
 
 const AGENTS = ['claude', 'codex']
+/** The optional practices shipped in `practices/`: a config enables them by name. */
+export const PRACTICES = Object.freeze(['live-verify', 'runtime-settings', 'i18n', 'database', 'provider-adapters', 'api-endpoints', 'ui-screens', 'domain-guides', 'deploy-gating', 'analytics-events'])
 const model = orNull((v, p) => (typeof v === 'string' && /^[\w.:/[\]-]+$/.test(v) ? v : fail(`${p} must be a model id`)))
 const modelClasses = section({ strong: [model, REQUIRED], standard: [model, REQUIRED], light: [model, REQUIRED] })
 /** `{ claude?, codex? }`, each with all three classes; `null` (inherit) is the only way to leave a model out. */
@@ -131,7 +133,7 @@ const parse = section({
     live_verify_skill: [orNull((v, p) => (typeof v === 'string' && /^[a-z0-9-]+$/.test(v) ? v : fail(`${p} must be a skill name`))), null],
     deferred_checks_issue: [orNull(int(1)), null],
     areas: [unique(list(area)), []],
-    practices: [unique(list((v, p) => (typeof v === 'string' && /^[a-z0-9-]+$/.test(v) ? v : fail(`${p} must be a practice name`)))), []],
+    practices: [unique(list(oneOf(...PRACTICES))), []],
     ci: [section({ push_paths: [orNull(list(glob)), null] }), {}],
 })
 

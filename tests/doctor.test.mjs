@@ -212,3 +212,14 @@ test('--config is passed to the children that take it, and a guard script withou
     const r = t.run('--local')
     assert.equal(r.status, 1); has(r, /^fail guard: scripts\/guard\.mjs is missing or not executable/m)
 })
+
+test('practices: a missing folder fails, live-verify without live_verify_skill warns', () => {
+    const t = setup({ cfg: { practices: ['i18n'] } })
+    const r = t.run('--local')
+    assert.equal(r.status, 1); has(r, /^fail practices: i18n enabled in the config but not in \.ticketflow\/practices\/: run sync$/m)
+    const w = setup({ cfg: { practices: ['live-verify'] } })
+    w.put('.ticketflow/practices/live-verify/README.md', 'x\n')
+    writeManifest(w.dir, { files: Object.fromEntries(runtimeFiles(w.dir).map((p) => [p, hashFile(join(w.dir, p))])) })
+    const v = w.run('--local')
+    assert.equal(v.status, 0, v.out); has(v, /^warn practices: live-verify is enabled but live_verify_skill is null/m)
+})

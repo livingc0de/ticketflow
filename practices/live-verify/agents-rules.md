@@ -1,0 +1,1 @@
+- Prove UI, flow and permission changes in the running app before claiming them (desktop and mobile width, assertions, throwaway data, real roles): `.ticketflow/practices/live-verify/SKILL.md`.

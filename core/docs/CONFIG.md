@@ -32,7 +32,7 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `live_verify_skill` | name of the repo's live-verification skill, or `null`; while `null` the `e2e-verifier` role gets no stub | `null` | `gen-stubs`, skills |
 | `deferred_checks_issue` | number of the issue that lists deferred checks, or `null` | `null` | skills |
 | `areas` | unique list of 1-44 character names (no commas, braces or control characters): the `Area:` labels and the issue forms' Area dropdown. `[]`: no Area | `[]` | `render`, skills |
-| `practices` | unique list of practice names (`^[a-z0-9-]+$`): the optional practices copied to `.ticketflow/practices/` and wired into the stubs and templates | `[]` | `runtime`, `gen-stubs`, `render` |
+| `practices` | unique list of names from `live-verify`, `runtime-settings`, `i18n`, `database`, `provider-adapters`, `api-endpoints`, `ui-screens`, `domain-guides`, `deploy-gating`, `analytics-events`: the optional practices copied to `.ticketflow/practices/` and wired into the stubs, the AGENTS block and the PR template | `[]` | `runtime`, `gen-stubs`, `render`, `doctor` |
 | `ci.push_paths` | `null`: the CI workflow has no push run; `[]`: it runs on every push to the default branch; a list of globs: only when one of them changes. Must be `null` or `[]` while `deploy_branch` is set (the deploy signal needs every push) | `null` | `render` |
 
 `gate.context` and `gate.check` must differ: the verdict is the commit status, and check runs are only read to

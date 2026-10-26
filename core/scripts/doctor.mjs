@@ -12,7 +12,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { accessSync, constants } from 'node:fs'
+import { accessSync, constants, existsSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -134,6 +134,13 @@ if (!values.preflight) {
     })
 
     // ---- generated files
+    need('practices', () => {
+        if (!cfg.practices.length) return say('skip', 'practices', 'none enabled')
+        const dirs = cfg.practices.filter((n) => !existsSync(join(root, rtRel, 'practices', n)))
+        if (dirs.length) say('fail', 'practices', `${dirs.join(', ')} enabled in the config but not in ${rtRel}/practices/: run sync`)
+        else if (cfg.practices.includes('live-verify') && cfg.live_verify_skill === null) say('warn', 'practices', 'live-verify is enabled but live_verify_skill is null: the e2e-verifier role gets no stub (set it to "live-verify")')
+        else say('ok', 'practices', cfg.practices.join(', '))
+    })
     need('stubs', () => child('stubs', 'gen-stubs.mjs', [rtRel, '.', '--check'], plain('in sync', 'out of date or in conflict: run gen-stubs')))
     need('templates', () => {
         let held = []

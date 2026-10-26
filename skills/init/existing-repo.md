@@ -8,6 +8,8 @@ Work on the branch `chore/ticketflow-init`. Nothing is overwritten that ticketfl
 
 1. Move its repo-specific content to `.ticketflow/custom/<name>.md` (draft it, show it, write it on a yes). That file adds to and overrides the ticketflow skill or role.
 2. `git rm` the old file, then run gen-stubs again.
+3. A conflict on a real `.claude/rules/<name>.md` (a `domain-guides` rule): merge its content into `docs/agents/<name>.md` (with a `paths:` list), `git rm` the rule file, run gen-stubs again.
+4. A conflict on a symlink (for example `.claude/rules/<name>.md` pointing at `docs/agents/<name>.md`): show it, delete the link on a yes (the guide itself stays), run gen-stubs again.
 
 **render exits 1** (a file exists without ticketflow markers, or lacks a part ticketflow now writes):
 

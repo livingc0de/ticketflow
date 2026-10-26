@@ -31,7 +31,7 @@ With the **installed** runtime run `node .ticketflow/scripts/doctor.mjs --local`
 
 ## 4. Migrate the config
 
-`node <TF>/core/lib/config.mjs migrate .ticketflow/config.json --write`. A question the notes added goes through `<TF>/skills/init/interview.md`. To enable a practice later, edit `practices` in the config here.
+`node <TF>/core/lib/config.mjs migrate .ticketflow/config.json --write`. A question the notes added goes through `<TF>/skills/init/interview.md`. To enable a practice later, edit `practices` in the config here (for `live-verify` also set `live_verify_skill` to `live-verify`).
 
 ## 5. Update
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { ConfigError, SCHEMA_VERSION, configPath, loadConfig, migrate, validate } from '../core/lib/config.mjs'
+import { ConfigError, PRACTICES, SCHEMA_VERSION, configPath, loadConfig, migrate, validate } from '../core/lib/config.mjs'
 import { BASE_CONFIG, rawConfig, tempDir, writeConfig } from './helpers.mjs'
 
 const bad = (over, re) => assert.throws(() => validate(rawConfig(over)), (e) => e instanceof ConfigError && re.test(e.message), JSON.stringify(over))
@@ -232,4 +232,10 @@ test('the CLI also runs through a symlinked path (macOS temp directories are und
     const r = spawnSync(process.execPath, [join(link, 'config.mjs'), 'validate', bad], { encoding: 'utf8' })
     assert.equal(r.status, 2); assert.match(r.stderr, /bogus_key/)
     assert.equal(spawnSync(process.execPath, [join(link, 'config.mjs'), 'validate', writeConfig(dir)], { encoding: 'utf8' }).stdout, 'config valid\n')
+})
+
+test('practices only accepts the shipped practice names', () => {
+    assert.equal(PRACTICES.length, 10); assert.ok(Object.isFrozen(PRACTICES))
+    assert.deepEqual(validate(rawConfig({ practices: [...PRACTICES] })).practices, [...PRACTICES])
+    bad({ practices: ['nope'] }, /practices\[0\] must be one of live-verify/)
 })

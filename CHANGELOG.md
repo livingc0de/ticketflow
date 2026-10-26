@@ -13,3 +13,4 @@
 - Core: `render`, the CI workflow, issue form, PR template, AGENTS block, settings, hook and rules templates, the `areas` and `ci.push_paths` config keys (WP9).
 - Core: `runtime` (copies the runtime into a repo), `doctor` (read-only health check), the runtime manifest (`manifest.mjs`), `config validate` and `config migrate`, the `practices` config key, Area and custom labels in `labels`, the manifest record of the Claude settings entries in `render` (WP10).
 - `START.md` and the `init` and `sync` skills.
+- Practices: ten optional practices under `practices/` (live-verify, runtime-settings, i18n, database, provider-adapters, api-endpoints, ui-screens, domain-guides, deploy-gating, analytics-events), the `PRACTICES` list, practice skills and domain-guide rule files in `gen-stubs` (a symlink at a stub path is a conflict), practice lines in the AGENTS block and the PR template, a `practices` check in `doctor` (WP10b).

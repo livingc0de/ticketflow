@@ -1,0 +1,1 @@
+- [ ] New endpoints: auth, authorization, validation, rate limit and error shape each tested

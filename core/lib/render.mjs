@@ -58,8 +58,17 @@ function runBlock(cmd, indent) {
 
 const dropdown = (id, label, options) => `  - type: dropdown\n    id: ${id}\n    attributes:\n      label: ${label}\n      options:\n${options.map((o) => `        - ${q(o)}`).join('\n')}\n    validations:\n      required: true`
 
-/** The values of every placeholder, from a validated config. `runtimeRel` is `.ticketflow`, or `core` in the ticketflow repo. */
-export function templateVars(cfg, { runtimeRel }) {
+/** The non-empty lines of a practice snippet file; each must start with `prefix` and carry no marker, so a snippet cannot break the managed block. */
+function snippet(text, prefix, at) {
+    const out = text.replaceAll('\r\n', '\n').split('\n').filter((l) => l.trim() !== '')
+    for (const l of out) if (!l.startsWith(prefix) || l.length === prefix.length || /ticketflow:(begin|end)/.test(l)) fail(`${at}: every line must start with "${prefix}" and have text`)
+    return out
+}
+
+/** The values of every placeholder, from a validated config. `runtimeRel` is `.ticketflow`, or `core` in the ticketflow repo. `practices`: `[{ name, rules, checks }]` (the file texts, `checks` null when absent) of the enabled practices. */
+export function templateVars(cfg, { runtimeRel, practices = [] }) {
+    const rules = practices.flatMap((p) => snippet(p.rules, '- ', `practice ${p.name} agents-rules.md`))
+    const checks = practices.flatMap((p) => (p.checks === null ? [] : snippet(p.checks, '- [ ] ', `practice ${p.name} pr-checklist.md`)))
     const local = cfg.verify.mode === 'local-first'
     const unfiltered = cfg.ci.push_paths !== null && cfg.ci.push_paths.length === 0 || cfg.deploy_branch !== null
     const push = cfg.ci.push_paths === null && cfg.deploy_branch === null ? ''
@@ -95,6 +104,8 @@ export function templateVars(cfg, { runtimeRel }) {
         priority_field: dropdown('priority', 'Priority', ['P0 Critical', 'P1 High', 'P2 Medium', 'P3 Low']),
         effort_field: dropdown('effort', 'Effort', ['XS', 'S', 'M', 'L', 'XL']),
         execution_field: execution,
+        practice_agents: rules.length ? `\nEnabled practices (procedures in \`${runtimeRel}/practices/\`):\n\n${rules.join('\n')}` : '',
+        practice_pr: checks.length ? `\n### Practice checks\n\n${checks.join('\n')}` : '',
         codex_rules: codexRules(cfg, { scriptsDir: `${runtimeRel}/scripts` }).replace(/\n$/, ''),
     }
 }

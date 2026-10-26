@@ -1,0 +1,1 @@
+- [ ] User-facing text goes through i18n, in every locale
