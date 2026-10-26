@@ -5,3 +5,4 @@
 - Repository skeleton.
 - Core: config loader and validator, docs-only and inherit helpers (WP1).
 - Core: `pr-wait` (WP2).
+- Core: `issue`, `project`, `sub-issue`, `tracker-next` and `labels` scripts, the `project` config section, `templates/labels.json` (WP4).

@@ -69,6 +69,9 @@ const reviewer = section({
     stale_after_min: [orNull(int(1)), null],
 })
 
+const VIEWS = ['All Work', 'Initiatives', 'Open Decisions', 'P0/P1 Open']
+const unique = (parse) => (v, p) => { const out = parse(v, p); return new Set(out).size === out.length ? out : fail(`${p} has a duplicate`) }
+
 const parse = section({
     schema_version: [int(0), REQUIRED],
     repo: [repo, REQUIRED],
@@ -88,6 +91,12 @@ const parse = section({
     docs_only: [section({ docs: [list(regex()), []], code: [list(regex()), []] }), {}],
     reviewers: [list(reviewer), []],
     deploy_branch: [orNull(ref), null],
+    project: [orNull(section({
+        owner: [str, REQUIRED],
+        number: [int(0), REQUIRED],
+        title: [orNull(str), null],
+        views: [unique(list(oneOf(...VIEWS))), []],
+    })), null],
 })
 
 const deepFreeze = (v) => {
@@ -103,6 +112,7 @@ export function validate(raw) {
     }
     const cfg = parse(raw, '')
     if (cfg.deploy_branch === cfg.default_branch) fail('deploy_branch must differ from default_branch')
+    if (cfg.project?.number === 0 && cfg.project.title === null) fail('project.title is required while project.number is 0')
     if (cfg.gate.context === cfg.gate.check) fail('gate.context must differ from gate.check')
     return deepFreeze(cfg)
 }
