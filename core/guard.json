@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "forms": [
+    {
+      "id": "raw-merge",
+      "reason": "gh pr merge skips the checks the merge script makes (gate on the exact head, up to date, review gate). Use {scripts_dir}/merge.mjs <pr>.",
+      "claude_ask": ["gh pr merge", "gh pr merge *"],
+      "codex_prompt": [
+        ["gh", "pr", "merge"]
+      ],
+      "hook_block": [],
+      "hook_check": [],
+      "examples": [
+        { "cmd": "gh pr merge 5 --admin", "claude": "ask", "codex": "prompt" },
+        { "cmd": "gh pr merge 5 --squash --match-head-commit abc1234", "claude": "ask", "codex": "prompt" },
+        { "cmd": "{scripts_dir}/merge.mjs 5", "claude": "pass", "codex": "pass" },
+        { "cmd": "gh pr view 5", "claude": "pass", "codex": "pass" }
+      ]
+    },
+    {
+      "id": "api-merge",
+      "reason": "Merging through the API skips the merge script's checks. Use {scripts_dir}/merge.mjs <pr>.",
+      "claude_ask": ["gh api *pulls/*/merge*", "gh api graphql *mergePullRequest*", "gh api graphql *enablePullRequestAutoMerge*"],
+      "codex_prompt": [],
+      "hook_block": ["^gh\\s+api\\b(?!\\s+graphql\\b)(?=.*\\bpulls/[^\\s/]+/merge\\b)(?=.*(?:{write}))", "^gh\\s+api\\s+graphql\\b.*\\b(?:mergePullRequest|enablePullRequestAutoMerge)\\b"],
+      "hook_check": [],
+      "examples": [
+        { "cmd": "gh api -X PUT repos/o/r/pulls/5/merge -f merge_method=squash", "claude": "ask", "codex": "block" },
+        { "cmd": "gh api repos/o/r/pulls/5/merge --method PUT", "claude": "ask", "codex": "block" },
+        { "cmd": "gh api graphql -f query='mutation { mergePullRequest(input:{pullRequestId:\"x\"}) { clientMutationId } }'", "claude": "ask", "codex": "block" },
+        { "cmd": "gh api graphql -f query='mutation { enablePullRequestAutoMerge(input:{pullRequestId:\"x\"}) { clientMutationId } }'", "claude": "ask", "codex": "block" },
+        { "cmd": "gh api repos/o/r/pulls/5", "claude": "pass", "codex": "pass" }
+      ]
+    },
+    {
+      "id": "gate-forgery",
+      "reason": "The gate status is posted only by CI or by {scripts_dir}/local-verify.mjs after a real run; a hand-posted status forges it.",
+      "claude_ask": ["gh api *statuses/*"],
+      "codex_prompt": [],
+      "hook_block": ["^gh\\s+api\\b(?!\\s+graphql\\b)(?=.*\\brepos/[^\\s/]+/[^\\s/]+/statuses/\\S+)(?=.*(?:{write}))"],
+      "hook_check": [],
+      "examples": [
+        { "cmd": "gh api repos/o/r/statuses/abcdef1234567 -f state=success -f context=ci/gate", "claude": "ask", "codex": "block" },
+        { "cmd": "gh api repos/o/r/commits/abcdef1234567/status", "claude": "pass", "codex": "pass" },
+        { "cmd": "gh api repos/o/r/issues/5/comments -f body=\"the statuses/abc rule\"", "claude": "ask", "codex": "pass" }
+      ]
+    },
+    {
+      "id": "push-default",
+      "reason": "Nothing is pushed to {default_branch} directly. Push a branch, open a pull request and merge it with {scripts_dir}/merge.mjs <pr>.",
+      "claude_ask": ["git push * {default_branch}", "git push * {default_branch} *", "git push *:{default_branch}", "git push *:{default_branch} *", "git push *+{default_branch}", "git push *+{default_branch} *", "git push *refs/heads/{default_branch}*", "git push *--mirror*", "git push *--all*"],
+      "codex_prompt": [
+        [
+          "git",
+          "push",
+          ["origin"],
+          ["{default_branch}", "HEAD:{default_branch}", "+{default_branch}", "{default_branch}:{default_branch}"]
+        ]
+      ],
+      "hook_block": ["^git\\s+(?:-\\S+\\s+)*push\\b(?=.*(?:\\s|[:+])(?:refs/heads/)?{default_branch}(?:\\s|$))", "^git\\s+(?:-\\S+\\s+)*push\\b.*\\s--(?:mirror|all)\\b"],
+      "hook_check": ["bare-push-on-default"],
+      "examples": [
+        { "cmd": "git push origin {default_branch}", "claude": "ask", "codex": "prompt" },
+        { "cmd": "git push origin HEAD:{default_branch}", "claude": "ask", "codex": "prompt" },
+        { "cmd": "git push origin +{default_branch}", "claude": "ask", "codex": "prompt" },
+        { "cmd": "git push -u origin {default_branch}", "claude": "ask", "codex": "block" },
+        { "cmd": "git push --force origin {default_branch}", "claude": "ask", "codex": "block" },
+        { "cmd": "git push origin feat:refs/heads/{default_branch}", "claude": "ask", "codex": "block" },
+        { "cmd": "git push --mirror origin", "claude": "ask", "codex": "block" },
+        { "cmd": "git push origin feat/x", "claude": "pass", "codex": "pass" },
+        { "cmd": "git push -u origin feat/{default_branch}-fix", "claude": "pass", "codex": "pass" },
+        { "cmd": "git commit -m \"git push origin {default_branch}\"", "claude": "pass", "codex": "pass" }
+      ]
+    },
+    {
+      "id": "protection-write",
+      "reason": "Branch protection and rulesets change only through {scripts_dir}/protect.mjs --apply, on the owner's request.",
+      "claude_ask": ["gh api *rulesets*", "gh api *branches/*/protection*", "gh api graphql *Ruleset*", "gh api graphql *BranchProtectionRule*", "*protect.mjs --apply*"],
+      "codex_prompt": [
+        ["{scripts_dir}/protect.mjs", "--apply"],
+        ["node", "{scripts_dir}/protect.mjs", "--apply"]
+      ],
+      "hook_block": ["^gh\\s+api\\b(?!\\s+graphql\\b)(?=.*\\b(?:rulesets|branches/[^\\s/]+/protection)\\b)(?=.*(?:{write}))", "^gh\\s+api\\s+graphql\\b.*\\b(?:create|update|delete)(?:RepositoryRuleset|BranchProtectionRule)\\b"],
+      "hook_check": [],
+      "examples": [
+        { "cmd": "gh api -X PUT repos/o/r/rulesets/12 --input ruleset.json", "claude": "ask", "codex": "block" },
+        { "cmd": "gh api repos/o/r/rulesets", "claude": "ask", "codex": "pass" },
+        { "cmd": "gh api -X DELETE repos/o/r/branches/main/protection", "claude": "ask", "codex": "block" },
+        { "cmd": "gh api graphql -f query='mutation { updateBranchProtectionRule(input:{}) { clientMutationId } }'", "claude": "ask", "codex": "block" },
+        { "cmd": "{scripts_dir}/protect.mjs --apply", "claude": "ask", "codex": "prompt" },
+        { "cmd": "node {scripts_dir}/protect.mjs --apply --migrate-classic", "claude": "ask", "codex": "prompt" },
+        { "cmd": "{scripts_dir}/protect.mjs", "claude": "pass", "codex": "pass" },
+        { "cmd": "gh api repos/o/r/issues/5/comments -f body=\"see rulesets and branches/main/protection\"", "claude": "ask", "codex": "pass" },
+        { "cmd": "gh api graphql -f query='query{repository(owner:\"o\",name:\"r\"){rulesets(first:5){nodes{name}}}}'", "claude": "ask", "codex": "pass" },
+        { "cmd": "gh pr comment 5 --body-file - <<'EOF'\ngit push -u origin {default_branch}\nEOF", "claude": "pass", "codex": "pass" }
+      ]
+    }
+  ]
+}

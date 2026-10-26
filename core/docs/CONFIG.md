@@ -24,6 +24,7 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `docs_only.code` | list of regexes: paths that are code even if they match `docs` | `[]` | `docs-only`, `inherit` |
 | `reviewers` | list of reviewer objects | `[]` | `pr-wait` |
 | `deploy_branch` | branch name or `null`; must differ from `default_branch` | `null` | `local-verify` |
+| `project` | project object, or `null` for none | `null` | `project`, `tracker-next` |
 
 `gate.context` and `gate.check` must differ: the verdict is the commit status, and check runs are only read to
 detect a refused Actions run.
@@ -53,6 +54,18 @@ An order-independent pattern for that line (JSON string, so backslashes are doub
 ```
 
 A state still `running`, or naming an older commit, does not match the head, so the reviewer stays pending.
+
+A project object (the GitHub Project, Projects v2, that tracks the repo's issues):
+
+| Key | Type | Default |
+|---|---|---|
+| `owner` | login of the user or organization that owns the project | required |
+| `number` | integer, the project number; `0` means not created yet (`project setup` creates it) | required |
+| `title` | string; required while `number` is `0` (setup finds or creates the project with exactly this title) | `null` |
+| `views` | the optional views to create, a unique subset of `All Work`, `Initiatives`, `Open Decisions`, `P0/P1 Open` | `[]` |
+
+`project setup` does not edit the config: after it creates a project, put the printed number in `project.number`.
+`project add`, `project status` and `tracker-next` need `number` above `0`.
 
 ## Built-in floors
 

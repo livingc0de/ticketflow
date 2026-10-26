@@ -14,7 +14,7 @@ test('a minimal config loads, with defaults applied and deeply frozen', () => {
     assert.deepEqual(
         cfg,
         { schema_version: 1, repo: 'o/r', default_branch: 'main', verify: { mode: 'ci', install: '', command: 'npm test', timeout_min: 45 },
-            gate: { context: 'ci/gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, reviewers: [], deploy_branch: null })
+            gate: { context: 'ci/gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, reviewers: [], deploy_branch: null, project: null })
     assert.ok(Object.isFrozen(cfg) && Object.isFrozen(cfg.verify) && Object.isFrozen(cfg.gate) && Object.isFrozen(cfg.gate.ci_files) && Object.isFrozen(cfg.reviewers))
     assert.throws(() => { 'use strict'; cfg.repo = 'x/y' }, TypeError)
 })
@@ -116,4 +116,17 @@ test('configPath is .ticketflow/config.json in the git toplevel, from any subdir
     const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8' }).stdout.trim()
     assert.equal(configPath(join(dir, 'a', 'b')), join(top, '.ticketflow', 'config.json'))
     assert.throws(() => configPath(tempDir('nogit-')), ConfigError)
+})
+
+test('project: owner and number are required, title is required while the number is 0, views are a unique subset', () => {
+    const ok = validate(rawConfig({ project: { owner: 'octo', number: 3 } }))
+    assert.deepEqual(ok.project, { owner: 'octo', number: 3, title: null, views: [] })
+    assert.deepEqual(validate(rawConfig({ project: { owner: 'octo', number: 0, title: 't', views: ['All Work', 'P0/P1 Open'] } })).project.views, ['All Work', 'P0/P1 Open'])
+    bad({ project: { owner: 'octo', number: 0 } }, /project\.title is required/)
+    bad({ project: { owner: 'octo' } }, /missing project\.number/)
+    bad({ project: { number: 1 } }, /missing project\.owner/)
+    bad({ project: { owner: 'octo', number: -1 } }, /project\.number must be an integer/)
+    bad({ project: { owner: 'octo', number: 1, views: ['Roadmap'] } }, /project\.views\[0\] must be one of/)
+    bad({ project: { owner: 'octo', number: 1, views: ['All Work', 'All Work'] } }, /duplicate/)
+    bad({ project: { owner: 'octo', number: 1, extra: 1 } }, /unknown key project\.extra/)
 })
