@@ -46,8 +46,8 @@ export const FAIL = { __fail: true }
 /**
  * A fake `gh` on PATH, serving fixture files only.
  *  - `gh api <path>`: `map[path]` (a path with a query string is tried whole, then without it); `--paginate --slurp` wraps it in `[...]`.
- *    A value may be `seq(...)` or `FAIL`; an unknown path fails like a 404. A write (`-f`, `-X`) to `.../statuses/...` is accepted.
- *  - `gh pr comment`: stdin is saved (see `comments()`); prints a comment URL.
+ *    A value may be `seq(...)` or `FAIL`; an unknown path fails like a 404. A write (`-f`, `-X`) to `.../statuses/...` is accepted, unless `map['statuses write']` is FAIL.
+ *  - `gh pr comment`: fails when `map['pr comment']` is FAIL; stdin is saved (see `comments()`); prints a comment URL.
  *  - `gh pr update-branch`: accepted, unless `map['pr update-branch']` is FAIL.
  * Every call is logged. Returns { env, calls(), comments() }.
  */
@@ -78,11 +78,12 @@ if (args[0] === 'api') {
     const path = args.slice(1).find((a, i) => !a.startsWith('-') && !['-f', '-F', '-X', '--method', '--jq', '-q', '-H', '--input'].includes(args[i]))
     const given = args.findIndex((a) => a === '-X' || a === '--method')
     const write = (given >= 0 ? args[given + 1] !== 'GET' : args.includes('-f') || args.includes('-F') || args.includes('--input'))
-    if (write) { if (/\\/statuses\\//.test(path)) { console.log('{}'); process.exit(0) } die('unexpected write to ' + path) }
+    if (write) { if (/\\/statuses\\//.test(path)) { serve('statuses write'); console.log('{}'); process.exit(0) } die('unexpected write to ' + path) }
     const v = serve(path) ?? serve(path.split('?')[0])
     if (v === undefined) die('HTTP 404 (no fixture) ' + path)
     console.log(JSON.stringify(args.includes('--slurp') ? [v] : v))
 } else if (args[0] === 'pr' && args[1] === 'comment') {
+    serve('pr comment')
     const n = readdirSync(state).filter((f) => f.startsWith('comment-')).length + 1
     writeFileSync(state + '/comment-' + n, readFileSync(0, 'utf8'))
     console.log('https://github.com/o/r/pull/' + args[2] + '#issuecomment-' + n)

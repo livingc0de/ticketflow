@@ -12,7 +12,7 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `schema_version` | integer, must equal the core's (`1`) | required | `config`, `sync` |
 | `repo` | `owner/name` | required | all scripts |
 | `default_branch` | branch name | required | `inherit`, `local-verify`, `pr-wait` |
-| `verify.mode` | `ci` or `local-first` | required | `pr-wait` (a draft in `local-first` is not CI-checked), `local-verify` |
+| `verify.mode` | `ci` or `local-first` | required | `pr-wait` (a draft in `local-first` is not CI-checked) |
 | `verify.install` | string (shell) | `""` | `local-verify` |
 | `verify.command` | non-empty string (shell) | required | `local-verify` |
 | `verify.timeout_min` | integer 1..360 | `45` | `local-verify` |
@@ -67,3 +67,18 @@ Whatever posts the gate status writes one of these descriptions; `inherit` and `
 - `inherited <sha7>: only docs-only <default_branch> changes merged in`: the result of the full run at `<sha7>`.
 
 Only the first and third forms count as a full run to inherit from.
+
+## Prerequisites
+
+`gh` 2.48 or newer (`--paginate --slurp`), `git`, Node 22 or newer, and `timeout` (coreutils; on macOS
+`brew install coreutils`) for `local-verify`.
+
+## local-verify
+
+`local-verify <pr | sha>` refuses to run (exit 3) unless the ticketflow runtime in the checkout (scripts, lib and
+`.ticketflow/config.json`, untracked files included) equals `origin/<default_branch>`, so a pull request cannot
+widen or neuter its own fallback. That holds only when you run the default branch's copy of the script. The
+verify runs the code under test as you, with your `HOME` (git credentials, SSH keys) and a shared `.git`: it is a
+clean environment, not a sandbox, so run only branches you would run anyway. A failed run is posted as a `failure`
+status; a timeout posts nothing. A passing default-branch commit moves `deploy_branch` with a plain push (never
+forced; a push rejected as non-fast-forward leaves the branch where it is, any other push error exits 1).
