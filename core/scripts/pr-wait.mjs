@@ -84,7 +84,7 @@ function pollCi(S) {
         return 'green'
     }
     // A red that got a runner posted its own failure: a later refused re-run never makes it replaceable.
-    if ((g?.state === 'failure' || g?.state === 'error') && !g.description?.startsWith('local ')) { S.why = 'the gate failed'; return 'red' }
+    if ((g?.state === 'failure' || g?.state === 'error') && !g.description?.startsWith('Local ')) { S.why = 'the gate failed'; return 'red' }
 
     S.why = 'Actions has not refused the run'
     const runs = api(`${R}/commits/${S.head}/check-runs?check_name=${encodeURIComponent(cfg.gate.check)}&app_id=${ACTIONS_APP_ID}`).check_runs

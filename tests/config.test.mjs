@@ -14,7 +14,7 @@ test('a minimal config loads, with defaults applied and deeply frozen', () => {
     assert.deepEqual(
         cfg,
         { schema_version: 1, repo: 'o/r', default_branch: 'main', verify: { mode: 'ci', install: '', command: 'npm test', timeout_min: 45 },
-            gate: { context: 'ci/gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, reviewers: [], deploy_branch: null, project: null, agents: [], models: {}, plans_dir: 'docs/plans', worktrees_dir: '.claude/worktrees', live_verify_skill: null, deferred_checks_issue: null, areas: [], practices: [], ci: { push_paths: null } })
+            gate: { context: 'CI / Gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, reviewers: [], deploy_branch: null, project: null, agents: [], models: {}, plans_dir: 'docs/plans', worktrees_dir: '.claude/worktrees', live_verify_skill: null, deferred_checks_issue: null, areas: [], practices: [], ci: { push_paths: null } })
     assert.ok(Object.isFrozen(cfg) && Object.isFrozen(cfg.verify) && Object.isFrozen(cfg.gate) && Object.isFrozen(cfg.gate.ci_files) && Object.isFrozen(cfg.reviewers))
     assert.throws(() => { 'use strict'; cfg.repo = 'x/y' }, TypeError)
 })
@@ -168,8 +168,8 @@ test('areas are unique labels of at most 44 characters; ci.push_paths is null, [
 })
 
 test('values written into the CI workflow are refused when they could break out of their line or run an expression', () => {
-    for (const v of ['ci/gate\u0085env: {X: 1}', 'a\nb', 'a"b', '${{ secrets.X }}', 'a$b', 'a{b', 'a\u2028b', 'a`b']) { bad({ gate: { context: v } }, /gate\.context/); bad({ gate: { check: v } }, /gate\.check/) }
-    validate(rawConfig({ gate: { context: 'ci/gate (main) #1', check: 'Verify & Build' } }))
+    for (const v of ['CI / Gate\u0085env: {X: 1}', 'a\nb', 'a"b', '${{ secrets.X }}', 'a$b', 'a{b', 'a\u2028b', 'a`b']) { bad({ gate: { context: v } }, /gate\.context/); bad({ gate: { check: v } }, /gate\.check/) }
+    validate(rawConfig({ gate: { context: 'CI / Gate (main) #1', check: 'Verify & Build' } }))
     for (const v of ['npm test\r      - name: x', 'a\u0085b', 'a\u2028b', 'a\u0007b', 'echo ${{ secrets.X }}']) { bad({ verify: { command: v } }, /verify\.command/); bad({ verify: { install: v } }, /verify\.install/) }
     validate(rawConfig({ verify: { command: 'npm ci\r\nnpm test\n\techo "a b" $HOME', install: 'a\tb' } }))
     bad({ areas: ['None'] }, /areas/)

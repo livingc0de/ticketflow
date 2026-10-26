@@ -141,14 +141,14 @@ test('success: one comment and one status with exact args, the worktree is creat
     const [s] = h.statuses()
     assert.equal(h.statuses().length, 1)
     assert.equal(s.path, `repos/o/r/statuses/${h.head}`)
-    assert.equal(s.state, 'success'); assert.equal(s.context, 'ci/gate')
-    assert.match(s.description, /^local \S+ \S+ node \d+\./)
+    assert.equal(s.state, 'success'); assert.equal(s.context, 'CI / Gate')
+    assert.match(s.description, /^Local run on \S+ \(\S+, Node \d+\./)
     assert.ok(s.description.length <= 140)
     assert.equal(s.target_url, 'https://github.com/o/r/pull/7#issuecomment-1')
     const commentCall = h.gh.calls().find((c) => c[0] === 'pr' && c[1] === 'comment')
     assert.deepEqual(commentCall, ['pr', 'comment', '7', '-R', 'o/r', '--body-file', '-'])
     assert.equal(h.gh.comments().length, 1)
-    assert.match(h.gh.comments()[0], new RegExp(`^ci/gate for ${h.head.slice(0, 7)}: \\*\\*success\\*\\* \\(local `))
+    assert.match(h.gh.comments()[0], new RegExp(`^### CI / Gate: Passed\\n\\nCommit ${h.head.slice(0, 7)}, \\*\\*success\\*\\*\\. Local run on `))
     const log = h.gitLog()
     const add = log.findIndex((l) => /worktree add -q --detach \S+ /.test(l) && l.endsWith(h.head))
     assert.ok(add > 0)
@@ -209,14 +209,14 @@ test('a timeout posts nothing and the worktree is removed', () => {
     assert.ok(!existsSync(`${h.home}/.cache/ticketflow-verify/o__r/${h.head.slice(0, 12)}`))
 })
 
-test('a docs-only head posts docs-only (local <host>) without running anything; the diff runs against origin/<default> and the head', () => {
+test('a docs-only head posts "Local check on <host>, docs only" without running anything; the diff runs against origin/<default> and the head', () => {
     const h = setup({ prFiles: { 'docs/a.md': 'x', 'NOTES.md': 'y' } })
     const r = h.run()
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(h.runlog(), [])
     assert.ok(!h.gitLog().some((l) => l.includes('worktree add')))
-    assert.match(h.statuses()[0].description, /^docs-only \(local \S+\)$/)
-    assert.match(h.gh.comments()[0], /\*\*success\*\* \(docs-only \(local /)
+    assert.match(h.statuses()[0].description, /^Local check on \S+, docs only$/)
+    assert.match(h.gh.comments()[0], /\*\*success\*\*\. Local check on /)
     assert.ok(h.gitLog().some((l) => l.endsWith(`diff -z --no-renames --name-only refs/remotes/origin/main ${h.head}`)), h.gitLog().join('\n'))
 })
 
@@ -226,7 +226,7 @@ test('a code, mixed, empty or unreadable diff, or a floor path, runs the full ve
         const h = setup({ prFiles })
         assert.equal(h.run().status, 0)
         assert.equal(h.runlog().length, 2, JSON.stringify(prFiles))
-        assert.match(h.statuses()[0].description, /^local /)
+        assert.match(h.statuses()[0].description, /^Local run on /)
     }
     const u = setup({ prFiles: { 'docs/a.md': 'x' } })
     u.set('fail-diff-z', 128)
@@ -244,7 +244,7 @@ test('a docs-only head still goes through the recheck', () => {
 const inheritFixtures = (branch = 'main', files = [{ filename: 'docs/a.md' }]) => ({ head }) => ({
     [`repos/o/r/git/ref/heads/${branch}`]: { object: { sha: M } },
     [`repos/o/r/commits/${head}`]: { parents: [{ sha: R }, { sha: M }] },
-    [`repos/o/r/commits/${R}/status`]: { statuses: [{ context: 'ci/gate', state: 'success', description: 'local host1 x86_64 node 24.0.0' }] },
+    [`repos/o/r/commits/${R}/status`]: { statuses: [{ context: 'CI / Gate', state: 'success', description: 'Local run on host1 (x86_64, Node 24.0.0)' }] },
     [`repos/o/r/compare/${R}...${head}`]: { status: 'ahead', behind_by: 0, files },
     [`repos/o/r/compare/${R}...${M}`]: { ahead_by: 1, commits: [{ sha: C }] },
     [`repos/o/r/commits/${C}`]: { files: [{ filename: 'docs/b.md' }] },
@@ -254,14 +254,14 @@ const inheritFixtures = (branch = 'main', files = [{ filename: 'docs/a.md' }]) =
 test('inherited: its description, no command, no worktree; it wins over docs-only; gate.inherit false reads nothing', () => {
     const h = setup({ config: { gate: { inherit: true } }, fixtures: inheritFixtures(), prFiles: { 'docs/a.md': 'x' } })
     assert.equal(h.run().status, 0)
-    assert.equal(h.statuses()[0].description, 'inherited 1111111: only docs-only main changes merged in')
+    assert.equal(h.statuses()[0].description, 'Inherited from 1111111: only docs merged from main')
     assert.deepEqual(h.runlog(), [])
     assert.ok(!h.gitLog().some((l) => l.includes('worktree add')))
-    assert.match(h.gh.comments()[0], /\(inherited 1111111: only docs-only main changes merged in; inherited, no verify run\)/)
+    assert.match(h.gh.comments()[0], /\. Inherited from 1111111: only docs merged from main; inherited, no verify run\./)
     const off = setup({ fixtures: inheritFixtures(), prFiles: { 'docs/a.md': 'x' } })
     off.run()
     assert.ok(!off.gh.calls().some((c) => /git\/ref\/heads/.test(c[1] ?? '')))
-    assert.match(off.statuses()[0].description, /^docs-only /)
+    assert.match(off.statuses()[0].description, /^Local check on /)
 })
 
 test('an inherit throw or a "no" falls through to the full run', () => {
@@ -279,7 +279,7 @@ test('descriptions are cut at 140 characters', () => {
     assert.equal(h.run().status, 0)
     const d = h.statuses()[0].description
     assert.equal(d.length, 140)
-    assert.match(d, /^inherited 1111111: only docs-only b+/)
+    assert.match(d, /^Inherited from 1111111: only docs merged from b+/)
 })
 
 test('a non-digit or malformed target is refused (2) before any call', () => {
@@ -391,7 +391,7 @@ test('the runtime check fails closed on untracked runtime files and on a git err
     const l = setup({ prFiles: { 'docs/a.md': 'x' } })
     l.g('tag', 'origin/main', l.head)   // would make `origin/main` the PR head itself: an empty, "not docs-only" diff
     assert.equal(l.run().status, 0)
-    assert.match(l.statuses()[0].description, /^docs-only /)
+    assert.match(l.statuses()[0].description, /^Local check on /)
     assert.ok(l.gitLog().some((x) => x.includes('refs/remotes/origin/main')))
 })
 
@@ -410,7 +410,7 @@ test('sha mode never takes the docs-only shortcut, even when the commits after i
     const r = h.run(h.runtimeSha)
     assert.equal(r.status, 0, r.stderr)
     assert.equal(h.runlog().length, 2)
-    assert.match(h.statuses()[0].description, /^local /)
+    assert.match(h.statuses()[0].description, /^Local run on /)
 })
 
 test('a docs-only diff that fails after printing part of the list is a full run', () => {

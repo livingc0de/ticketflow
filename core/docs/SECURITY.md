@@ -27,19 +27,19 @@ The standard ruleset has one bypass actor: the repository admin role (`actor_typ
 to the default branch directly.
 
 Probed on 2026-10-26 with gh 2.102.0 on a private, user-owned repository (squash only, ruleset with `deletion`, `non_fast_forward`,
-`pull_request` and strict `ci/gate`, no `ci/gate` posted unless a row says so). Each cell is the result of one attempt on a fresh
-one-commit pull request. "refused" means GitHub or gh refused and nothing changed.
+`pull_request` and strict `CI / Gate`, no `CI / Gate` posted unless a row says so). Each cell is the result of one attempt on a fresh
+one-commit pull request. "refused" means GitHub or gh refused and nothing changed. The probes used the previous default gate context (lowercase, two words joined by a slash); it is written `CI / Gate` in this table, and the quoted GitHub messages are paraphrased accordingly.
 
 | Attempt | `always` | `pull_request` (standard) | no bypass actor |
 |---|---|---|---|
 | `gh pr view --json mergeStateStatus` | BLOCKED | BLOCKED (UNKNOWN for a moment after the PR is created) | BLOCKED |
 | `gh pr merge --squash` | refused by gh: "base branch policy prohibits the merge" | refused when the state is known; **merged** when sent before GitHub had computed the state | refused (same message) |
-| API merge (`PUT pulls/N/merge`, squash) | **merged** | **merged** | refused (405, "Required status check ci/gate is expected") |
+| API merge (`PUT pulls/N/merge`, squash) | **merged** | **merged** | refused (405, "Required status check CI / Gate is expected") |
 | `gh pr merge --squash --admin` | **merged** | **merged** | refused ("Repository rule violations found") |
 | `git push origin HEAD:main` | **accepted** (the push output lists the bypassed rule) | refused ("push declined due to repository rule violations") | refused (same) |
 | `git push --force origin <older commit>:main` | **accepted** (forced update) | refused (same) | refused (same) |
-| `ci/gate` failure posted, `gh pr merge --squash` | refused | refused | not run |
-| `ci/gate` failure posted, API merge | **merged** | **merged** | refused (405, "ci/gate is failing") |
+| `CI / Gate` failure posted, `gh pr merge --squash` | refused | refused | not run |
+| `CI / Gate` failure posted, API merge | **merged** | **merged** | refused (405, "CI / Gate is failing") |
 
 Other facts from the same run:
 
@@ -50,7 +50,7 @@ Other facts from the same run:
   the classic protection (`GET branches/<b>/protection` then returns 404). GitHub adds parameters of its own to a stored ruleset, so
   the read-back compares only what `protect` sets.
 - A merge method other than squash is refused by the repository setting (405, "Merge commits are not allowed").
-- `merge.mjs` refused with `ci/gate` missing, refused with the gate green but no reviewer and no `--review-basis`, and merged once
+- `merge.mjs` refused with `CI / Gate` missing, refused with the gate green but no reviewer and no `--review-basis`, and merged once
   the gate was `success` on the head and a comment naming the head's first 7 characters was passed as the basis.
 
 What this means: `pull_request` closes direct pushes and force pushes for everyone, agents included, because GitHub enforces it.

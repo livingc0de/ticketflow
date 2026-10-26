@@ -15,10 +15,10 @@ const admin = (bypass_mode = 'pull_request') => ({ actor_id: 5, actor_type: 'Rep
 const old = (over = {}) => ({
     id: 11, name: 'main', target: 'branch', source_type: 'Repository', enforcement: 'active', current_user_can_bypass: 'always',
     conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
-    rules: [{ type: 'deletion' }, { type: 'non_fast_forward' }, { type: 'pull_request', parameters: { ...standardPr, allowed_merge_methods: ['merge', 'squash', 'rebase'] } }, standardChecks('ci/gate')],
+    rules: [{ type: 'deletion' }, { type: 'non_fast_forward' }, { type: 'pull_request', parameters: { ...standardPr, allowed_merge_methods: ['merge', 'squash', 'rebase'] } }, standardChecks('CI / Gate')],
     bypass_actors: [admin('always')], ...over,
 })
-const standardRuleset = (over = {}) => ({ ...old(), rules: [{ type: 'deletion' }, { type: 'non_fast_forward' }, { type: 'pull_request', parameters: standardPr }, standardChecks('ci/gate')], bypass_actors: [admin()], current_user_can_bypass: CAN_BYPASS, ...over })
+const standardRuleset = (over = {}) => ({ ...old(), rules: [{ type: 'deletion' }, { type: 'non_fast_forward' }, { type: 'pull_request', parameters: standardPr }, standardChecks('CI / Gate')], bypass_actors: [admin()], current_user_can_bypass: CAN_BYPASS, ...over })
 
 function run(args, map, over) {
     const dir = tempDir('protect-')
@@ -67,7 +67,7 @@ test('an extra rule, an extra context, stricter approvals and an extra bypass ac
     const put = r.writes.find((w) => w.call === 'PUT rulesets/11').body
     assert.deepEqual(put.rules.map((x) => x.type).sort(), ['creation', 'deletion', 'non_fast_forward', 'pull_request', 'required_status_checks'])
     assert.equal(put.rules.find((x) => x.type === 'pull_request').parameters.required_approving_review_count, 2)
-    assert.deepEqual(put.rules.find((x) => x.type === 'required_status_checks').parameters.required_status_checks.map((c) => c.context), ['lint', 'ci/gate'])
+    assert.deepEqual(put.rules.find((x) => x.type === 'required_status_checks').parameters.required_status_checks.map((c) => c.context), ['lint', 'CI / Gate'])
     assert.deepEqual(put.bypass_actors, [{ actor_id: 99, actor_type: 'Team', bypass_mode: 'always' }, admin()])
     assert.equal(put.name, 'main')
     assert.match(r.stderr, /kept other rules.*creation/); assert.match(r.stderr, /kept 1 other bypass/)
@@ -100,7 +100,7 @@ test('--apply: current ruleset printed, then settings, ruleset, read-back, with 
 })
 
 test('a read-back that differs, or a bypass the admin does not have, exits 1 and keeps the classic protection', () => {
-    const classic = { required_status_checks: { contexts: ['ci/gate'] }, enforce_admins: { enabled: false } }
+    const classic = { required_status_checks: { contexts: ['CI / Gate'] }, enforce_admins: { enabled: false } }
     const base = { ...listed(old()), [`PATCH ${R}`]: {}, [`PUT ${R}/rulesets/11`]: { id: 11 }, [`${R}/branches/main/protection`]: classic, [R]: seq(repo(), repo({ ...SETTINGS })) }
     const differs = run(['--apply', '--migrate-classic'], { ...base, [`${R}/rulesets/11`]: seq(old(), old()) })
     assert.equal(differs.status, 1); assert.match(differs.stderr, /read-back differs/)
@@ -116,12 +116,12 @@ test('classic protection is kept without the flag; with it, the contexts join th
     assert.equal(kept.status, 0, kept.stderr)
     assert.match(kept.stderr, /classic branch protection .* stays/)
     assert.ok(!kept.sequence.some((s) => s.startsWith('DELETE')))
-    const migrated = ['lint', 'build', 'ci/gate']
+    const migrated = ['lint', 'build', 'CI / Gate']
     const after = standardRuleset({ rules: [{ type: 'deletion' }, { type: 'non_fast_forward' }, { type: 'pull_request', parameters: standardPr }, standardChecks(...migrated)] })
     const r = run(['--apply', '--migrate-classic'], { ...map, [`${R}/rulesets/11`]: seq(old(), after), [R]: seq(repo(), repo({ ...SETTINGS })) })
     assert.equal(r.status, 0, r.stderr + r.stdout)
     const put = r.writes.find((w) => w.call === 'PUT rulesets/11').body
-    assert.deepEqual(put.rules.find((x) => x.type === 'required_status_checks').parameters.required_status_checks.map((c) => c.context), ['ci/gate', 'lint', 'build'])
+    assert.deepEqual(put.rules.find((x) => x.type === 'required_status_checks').parameters.required_status_checks.map((c) => c.context), ['CI / Gate', 'lint', 'build'])
     assert.equal(r.sequence.at(-1), 'DELETE branches/main/protection')
     assert.ok(r.sequence.lastIndexOf('GET rulesets/11') < r.sequence.indexOf('DELETE branches/main/protection'))
 })
@@ -202,11 +202,11 @@ test('classic: code owner reviews block; an app-bound check keeps its app; admin
     const blocked = run(['--apply', '--migrate-classic'], { ...listed(old()), [`${R}/branches/main/protection`]: { required_pull_request_reviews: { require_code_owner_reviews: true } } })
     assert.equal(blocked.status, 1); assert.match(blocked.stderr, /code owner reviews/)
     const classic = { required_status_checks: { contexts: ['lint', 'build'], checks: [{ context: 'lint', app_id: 123 }, { context: 'build', app_id: null }] }, enforce_admins: { enabled: true } }
-    const after = standardRuleset({ rules: [{ type: 'deletion' }, { type: 'non_fast_forward' }, { type: 'pull_request', parameters: standardPr }, standardChecks('ci/gate', 'lint', 'build')] })
+    const after = standardRuleset({ rules: [{ type: 'deletion' }, { type: 'non_fast_forward' }, { type: 'pull_request', parameters: standardPr }, standardChecks('CI / Gate', 'lint', 'build')] })
     const r = run(['--apply', '--migrate-classic'], { ...listed(old()), [`PATCH ${R}`]: {}, [`PUT ${R}/rulesets/11`]: { id: 11 }, [`${R}/rulesets/11`]: seq(old(), after), [R]: seq(repo(), repo({ ...SETTINGS })), [`${R}/branches/main/protection`]: classic, [`DELETE ${R}/branches/main/protection`]: null })
     assert.equal(r.status, 0, r.stderr)
     const checks = r.writes.find((w) => w.call === 'PUT rulesets/11').body.rules.find((x) => x.type === 'required_status_checks').parameters.required_status_checks
-    assert.deepEqual(checks, [{ context: 'ci/gate' }, { context: 'lint', integration_id: 123 }, { context: 'build' }])
+    assert.deepEqual(checks, [{ context: 'CI / Gate' }, { context: 'lint', integration_id: 123 }, { context: 'build' }])
     assert.match(r.stderr, /applies to admins/)
     assert.ok(r.stdout.indexOf('rollback: PUT repos/o/r/branches/main/protection') > 0)
 })

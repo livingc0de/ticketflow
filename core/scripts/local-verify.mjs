@@ -128,10 +128,10 @@ function main() {
     }
     if (!desc && isPr) {
         const d = git('diff', '-z', '--no-renames', '--name-only', origin, sha)
-        if (d.status === 0 && docsOnly(d.stdout.split('\0').filter(Boolean), cfg)) { desc = `docs-only (local ${host})`; how = `${desc}; no verify run` }
+        if (d.status === 0 && docsOnly(d.stdout.split('\0').filter(Boolean), cfg)) { desc = `Local check on ${host}, docs only`; how = `${desc}; no verify run` }
     }
     if (!desc) {
-        desc = `local ${host} ${machine()} node ${process.versions.node}`
+        desc = `Local run on ${host} (${machine()}, Node ${process.versions.node})`
         how = `${desc}, verify command on the exact head, Actions refused the job`
         ;({ state, log } = fullRun(sha))
     }
@@ -149,7 +149,7 @@ function main() {
     let url = ''
     if (isPr) {
         const tail = log ? readFileSync(log, 'utf8').trimEnd().split('\n').slice(-25).join('\n') : ''
-        const body = `${cfg.gate.context} for ${sha.slice(0, 7)}: **${state}** (${how})\n${state === 'success' ? '' : `\n\`\`\`\n${tail}\n\`\`\`\n`}`
+        const body = `### ${cfg.gate.context}: ${state === 'success' ? 'Passed' : 'Failed'}\n\nCommit ${sha.slice(0, 7)}, **${state}**. ${how}.\n${state === 'success' ? '' : `\n\`\`\`\n${tail}\n\`\`\`\n`}`
         const c = run('gh', ['pr', 'comment', target, '-R', cfg.repo, '--body-file', '-'], { input: body })
         if (c.status !== 0) stop(1, `cannot post the comment; nothing posted${where}`)
         url = c.stdout.trim()

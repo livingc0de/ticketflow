@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path'
 import { claudeAsk } from '../core/lib/guard.mjs'
 import { validate } from '../core/lib/config.mjs'
 import { FILES, RenderError, dropParts, fill, mergeClaudeSettings, mergeCodexHooks, mergeManaged, omittedParts, parseBlocks, proposeInsert, renderFile, templateVars } from '../core/lib/render.mjs'
-import { config, rawConfig, tempDir } from './helpers.mjs'
+import { config, fakeGh, rawConfig, tempDir } from './helpers.mjs'
 
 const TEMPLATES = new URL('../core/templates/', import.meta.url).pathname
 const script = new URL('../core/scripts/render.mjs', import.meta.url).pathname
@@ -69,11 +69,11 @@ test('ci.yml: job name = gate.check, status context = gate.context, no job named
         const text = renderAll(over).get('.github/workflows/ci.yml')
         const names = [...text.matchAll(/^ {4}name: (.*)$/gm)].map((m) => JSON.parse(m[1].startsWith('"') ? m[1] : JSON.stringify(m[1])))
         assert.ok(names.includes(cfg.gate.check))
-        assert.ok(!names.includes(cfg.gate.context) && !/^ {2}[\w-]+:\n(?: {4}.*\n)*? {4}name: "?ci\/gate/m.test(text))
+        assert.ok(!names.includes(cfg.gate.context) && !/^ {2}[\w-]+:\n(?: {4}.*\n)*? {4}name: "?CI \/ Gate/m.test(text))
         assert.ok(text.includes(`CONTEXT: ${JSON.stringify(cfg.gate.context)}`))
         const pr = /^ {2}pull_request:\n((?: {4}.*\n)+)/m.exec(text)[1]
         assert.doesNotMatch(pr, /paths/)
-        assert.doesNotMatch(text, /name: .*\n(?: {4}.*\n)*? {4}steps:\n(?:.*\n)*?.*context=ci\/gate/)
+        assert.doesNotMatch(text, /name: .*\n(?: {4}.*\n)*? {4}steps:\n(?:.*\n)*?.*context=CI \/ Gate/)
     }
 })
 
@@ -94,8 +94,8 @@ test('ci.yml: the inherit step only with gate.inherit; descriptions follow the g
     const a = renderAll(A).get('.github/workflows/ci.yml'), b = renderAll(B).get('.github/workflows/ci.yml')
     assert.match(a, /node \.ticketflow\/lib\/inherit\.mjs "\$PR" "\$HEAD_SHA"/); assert.doesNotMatch(b, /inherit\.mjs/)
     for (const t of [a, b]) {
-        assert.ok(t.includes('description=actions #%s docs-only'))   // `actions #<run> docs-only`
-        assert.ok(t.includes('${DESC:-actions #$GITHUB_RUN_ID}'))    // `actions #<run>`
+        assert.ok(t.includes('description=Actions run #%s, docs only'))   // `Actions run #<run>, docs only`
+        assert.ok(t.includes('${DESC:-Actions run #$GITHUB_RUN_ID}'))    // `Actions run #<run>`
         assert.match(t, /node \.ticketflow\/lib\/docs-only\.mjs/)
         assert.match(t, /statuses write|statuses: write/)
     }
@@ -407,4 +407,23 @@ test('practices: an enabled practice that is not in the runtime exits 2 before a
     bad.put('.ticketflow/practices/i18n/agents-rules.md', '- ok\n<!-- ticketflow:end agents -->\n')
     assert.equal(bad.run().status, 2)
     assert.ok(!bad.has('AGENTS.md'))
+})
+
+test('the default gate context "CI / Gate" has spaces and a slash: the rendered post-gate step passes it as one argument, and the inherit pattern matches the real description', () => {
+    const ci = renderAll(A).get('.github/workflows/ci.yml')
+    assert.match(ci, /CONTEXT: "CI \/ Gate"/)
+    const step = ci.slice(ci.indexOf('- name: Post Gate Status'))
+    const script = /run: \|\n((?: {10}.*\n?)+)/.exec(step)[1].replace(/^ {10}/gm, '')
+    const dir = tempDir('gate-')
+    const gh = fakeGh(dir, {})
+    const env = { ...gh.env, GH_TOKEN: 'x', GITHUB_REPOSITORY: 'o/r', GITHUB_RUN_ID: '77', SHA: 'abc1234', STATE: 'success', DESC: '', CONTEXT: JSON.parse(/CONTEXT: (".*")/.exec(ci)[1]), URL: 'https://example.invalid/run' }
+    const r = spawnSync('bash', ['-c', script], { env, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    const post = gh.calls().find((c) => c[0] === 'api')
+    assert.deepEqual(post, ['api', 'repos/o/r/statuses/abc1234', '-f', 'state=success', '-f', 'context=CI / Gate', '-f', 'description=Actions run #77', '-f', 'target_url=https://example.invalid/run'])
+    // the scope step's inherit test accepts exactly what inherit.mjs prints and nothing that merely starts like it
+    const pattern = /elif d=\$\(node [^\n]*\) && (\[\[ \$d =~ [^\n]* \]\]); then/.exec(ci)[1]
+    const accepts = (d) => spawnSync('bash', ['-c', `d=${JSON.stringify(d)}; ${pattern}`]).status === 0
+    assert.ok(accepts('description=Inherited from abc1234: only docs merged from main'))
+    assert.ok(!accepts('description=Inherited from abc: x') && !accepts('description=inherited from abc1234: x') && !accepts('description=Actions run #1'))
 })

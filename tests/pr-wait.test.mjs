@@ -11,7 +11,7 @@ const BILLING = 'The job was not started because recent account payments have fa
 const ago = (minutes) => new Date(Date.now() - minutes * 60_000).toISOString()
 const BOT = { name: 'rb', login: 'review-bot[bot]', rereview_comment: '/review', no_findings_reaction: '+1', unavailable_pattern: 'usage limit', stale_after_min: null }
 
-const status = (state, description, target_url = 'u') => ({ [`commits/${HEAD}/status`]: { statuses: [{ context: 'other', state: 'failure', description: 'x' }, { context: 'ci/gate', state, description, target_url }] } })
+const status = (state, description, target_url = 'u') => ({ [`commits/${HEAD}/status`]: { statuses: [{ context: 'other', state: 'failure', description: 'x' }, { context: 'CI / Gate', state, description, target_url }] } })
 const runs = (...rs) => ({ [`commits/${HEAD}/check-runs`]: { check_runs: rs } })
 const run = (id, st, conclusion = null) => ({ id, status: st, conclusion })
 const job = (id, extra) => ({ [`actions/jobs/${id}`]: extra })
@@ -46,7 +46,7 @@ test('a job refused for billing (no runner, no steps, the billing annotation) al
     assert.equal(r.status, 3)
     assert.match(r.stdout, /^Fallback: allowed \(refused for billing: .*spending limit/m)
     assert.match(r.stdout, /^Verify: 5 completed failure$/m)
-    assert.match(r.stdout, /^ci\/gate: none$/m)
+    assert.match(r.stdout, /^CI \/ Gate: none$/m)
     assert.match(r.stdout, /^PR #7 head aaaaaaa draft=false$/m)
 })
 
@@ -83,22 +83,22 @@ test('a job queued 21 minutes allows the fallback with the run to cancel, 19 min
 })
 
 test('a final gate status ends the wait and is printed; success, failure and error give 0, 1, 1', () => {
-    const r = wait({ ...runs(run(5, 'in_progress')), ...status('success', 'actions #1') })
+    const r = wait({ ...runs(run(5, 'in_progress')), ...status('success', 'Actions run #1') })
     assert.equal(r.status, 0)
-    assert.match(r.stdout, /^ci\/gate: success actions #1 u$/m)
-    assert.equal(code(status('failure', 'actions #1')), 1)
-    assert.equal(code(status('error', 'actions #1')), 1)
+    assert.match(r.stdout, /^CI \/ Gate: success Actions run #1 u$/m)
+    assert.equal(code(status('failure', 'Actions run #1')), 1)
+    assert.equal(code(status('error', 'Actions run #1')), 1)
     assert.equal(code(status('failure', 'whatever')), 1)
 })
 
 test('a verdict beats a refused run; a red that got a runner is never replaceable; a local failure is', () => {
     assert.equal(code({ ...refused(), ...status('success', 'x') }), 0)
-    assert.equal(code({ ...refused(), ...status('failure', 'actions #9') }), 1)
+    assert.equal(code({ ...refused(), ...status('failure', 'Actions run #9') }), 1)
     assert.equal(code({ ...refused(), ...status('failure', 'x') }), 1)
-    const local = wait({ ...refused(), ...status('failure', 'local host1 x86_64 node 24.0.0') })
+    const local = wait({ ...refused(), ...status('failure', 'Local run on host1 (x86_64, Node 24.0.0)') })
     assert.equal(local.status, 3)
-    assert.equal(code({ ...status('failure', 'local host1 x86_64 node 24.0.0'), ...runs(run(5, 'in_progress')), ...job(5, { runner_id: 1, steps: [{}], created_at: ago(1) }) }), 2)
-    assert.equal(code({ ...status('pending', 'actions #3'), ...refused() }), 3)
+    assert.equal(code({ ...status('failure', 'Local run on host1 (x86_64, Node 24.0.0)'), ...runs(run(5, 'in_progress')), ...job(5, { runner_id: 1, steps: [{}], created_at: ago(1) }) }), 2)
+    assert.equal(code({ ...status('pending', 'Actions run #3'), ...refused() }), 3)
 })
 
 test('runner_id null counts as no runner; the newest run wins over an older refusal', () => {
@@ -123,7 +123,7 @@ test('an API error is pending; a status-read error with a refused run is 2, neve
     assert.equal(code(noStatus), 2)
     const once = wait(noStatus, ['7', '--once'])
     assert.equal(once.status, 2); notAllowed(once)
-    assert.equal(code({ ...refused(), ...status('failure', 'actions #8') }), 1)
+    assert.equal(code({ ...refused(), ...status('failure', 'Actions run #8') }), 1)
     assert.equal(code({ ...runs(run(1, 'completed', 'failure')), 'actions/jobs/1': FAIL }), 2)
     assert.equal(code({ ...runs(run(1, 'completed', 'failure')), ...job(1, { runner_id: 0, steps: [] }), 'check-runs/1/annotations': FAIL }), 2)
 })
@@ -155,7 +155,7 @@ test('--once: the exit code comes from CI only; green says not allowed, refused 
     assert.doesNotMatch(ciOnly.stdout, /Review/)
     assert.equal(code(refused(), ['7', '--once']), 3)
     assert.equal(code({ ...runs(run(1, 'in_progress')), ...job(1, { runner_id: 5, steps: [{}], created_at: ago(1) }) }, ['7', '--once']), 2)
-    assert.equal(code(status('failure', 'actions #1'), ['7', '--once'], withBot), 1)
+    assert.equal(code(status('failure', 'Actions run #1'), ['7', '--once'], withBot), 1)
 })
 
 test('reviewers: a review of the head, or the configured reaction after the head, is done; none configured prints so', () => {
@@ -228,10 +228,10 @@ test('two reviewers, one pending: exit 2; red with a pending reviewer waits for 
     assert.equal(r.status, 2)
     assert.match(r.stdout, /^Review rb: done/m)
     assert.match(r.stdout, /^Review other: pending$/m)
-    const red = wait(status('failure', 'actions #1'), undefined, withBot)
+    const red = wait(status('failure', 'Actions run #1'), undefined, withBot)
     assert.equal(red.status, 1)
     assert.match(red.stdout, /^TIMEOUT after 0m$/m)
-    assert.equal(code({ ...status('failure', 'actions #1'), 'pulls/7/reviews': [{ user: { login: 'review-bot[bot]' }, commit_id: HEAD }] }, undefined, withBot), 1)
+    assert.equal(code({ ...status('failure', 'Actions run #1'), 'pulls/7/reviews': [{ user: { login: 'review-bot[bot]' }, commit_id: HEAD }] }, undefined, withBot), 1)
 })
 
 test('a failed reviewer read keeps a green PR pending, never done', () => {
@@ -253,7 +253,7 @@ test('--ci-only makes no reviewer reads; a sha makes no PR, review or reaction c
 })
 
 test('sha mode: the same outcomes, and a cancelled run is superseded (exit 2 with the hint)', () => {
-    assert.equal(code(status('failure', 'actions #1'), [HEAD, '--timeout-min', '0']), 1)
+    assert.equal(code(status('failure', 'Actions run #1'), [HEAD, '--timeout-min', '0']), 1)
     assert.equal(code(refused(), [HEAD, '--timeout-min', '0']), 3)
     const cancelled = wait({ ...runs(run(1, 'completed', 'cancelled')), ...job(1, { runner_id: null, steps: [], created_at: ago(3600), run_id: 9 }) }, [HEAD, '--timeout-min', '0'])
     assert.equal(cancelled.status, 2)
@@ -274,9 +274,9 @@ test('usage errors exit 2 with no gh call', () => {
 
 test('a custom gate.context and gate.check reach the API paths and the output', () => {
     const over = { gate: { context: 'my/gate', check: 'Build job' } }
-    const r = wait({ [`commits/${HEAD}/status`]: { statuses: [{ context: 'my/gate', state: 'success', description: 'actions #1' }, { context: 'ci/gate', state: 'failure', description: 'x' }] } }, undefined, over)
+    const r = wait({ [`commits/${HEAD}/status`]: { statuses: [{ context: 'my/gate', state: 'success', description: 'Actions run #1' }, { context: 'CI / Gate', state: 'failure', description: 'x' }] } }, undefined, over)
     assert.equal(r.status, 0)
-    assert.match(r.stdout, /^my\/gate: success actions #1$/m)
+    assert.match(r.stdout, /^my\/gate: success Actions run #1$/m)
     const q = wait(runs(), undefined, over)
     assert.ok(q.calls.some((c) => c.includes('check-runs?check_name=Build%20job&app_id=15368')), q.calls.join('\n'))
 })

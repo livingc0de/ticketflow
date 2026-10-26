@@ -112,7 +112,7 @@ const parse = section({
         timeout_min: [int(1, 360), 45],
     }), REQUIRED],
     gate: [section({
-        context: [gateName, 'ci/gate'],
+        context: [gateName, 'CI / Gate'],
         check: [gateName, 'Verify'],
         inherit: [bool, false],
         ci_files: [list(regex()), []],

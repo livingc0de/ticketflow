@@ -16,7 +16,7 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `verify.install` | string (shell) | `""` | `local-verify`, `render` |
 | `verify.command` | non-empty string (shell) | required | `local-verify`, `render` |
 | `verify.timeout_min` | integer 1..360 | `45` | `local-verify`, `render` |
-| `gate.context` | string: the commit status that is the merge gate | `"ci/gate"` | `inherit`, `pr-wait`, `local-verify`, `render` |
+| `gate.context` | string: the commit status that is the merge gate | `"CI / Gate"` | `inherit`, `pr-wait`, `local-verify`, `render` |
 | `gate.check` | string: the Actions job (check run) behind the gate | `"Verify"` | `pr-wait`, `render` |
 | `gate.inherit` | boolean | `false` | `local-verify` (and CI: call `inherit.mjs`), `render` |
 | `gate.ci_files` | list of regexes | `[]` | `inherit` |
@@ -114,14 +114,16 @@ and throws on a gap.
 
 Whatever posts the gate status writes one of these descriptions; `inherit` and `pr-wait` read them.
 
-- `actions #<run id>`: a full run by Actions. A failure with this description is final.
-- `actions #<run id> docs-only`: Actions, docs-only diff.
-- `local <host> <arch> node <version>`: a full local run. A failure with this description can be re-run locally
-  while Actions still refuses the job.
-- `docs-only (local <host>)`: local, docs-only diff.
-- `inherited <sha7>: only docs-only <default_branch> changes merged in`: the result of the full run at `<sha7>`.
+- `Actions run #<run id>`: a full run by Actions. A failure with this description is final.
+- `Actions run #<run id>, docs only`: Actions, docs-only diff.
+- `Local run on <host> (<arch>, Node <version>)`: a full local run. A failure with a description that starts with `Local ` can be
+  re-run locally while Actions still refuses the job.
+- `Local check on <host>, docs only`: local, docs-only diff.
+- `Inherited from <sha7>: only docs merged from <default_branch>`: the result of the full run at `<sha7>`.
 
-Only the first and third forms count as a full run to inherit from.
+Only the first and third forms count as a full run to inherit from. The text is capitalized and short (GitHub shows at most 140
+characters) because people read it next to the check. An unrecognized description is safe: `inherit` finds no full run and the pull
+request gets a normal one, and `pr-wait` reads a failure with it as final (red), never as a candidate for the local fallback.
 
 ## Prerequisites
 

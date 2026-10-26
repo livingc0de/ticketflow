@@ -74,7 +74,7 @@ export function templateVars(cfg, { runtimeRel, practices = [] }) {
     const push = cfg.ci.push_paths === null && cfg.deploy_branch === null ? ''
         : `  push:\n    branches: [${q(cfg.default_branch)}]${unfiltered ? '' : `\n    paths: [${cfg.ci.push_paths.map(q).join(', ')}]`}`
     const step = (name, cmd) => `      - name: ${q(name)}\n        if: steps.scope.outputs.skip != 'true'\n${runBlock(cmd, 8)}`
-    const steps = [cfg.verify.install.trim() === '' ? null : step('Install', cfg.verify.install), step('Verify', cfg.verify.command)].filter(Boolean).join('\n\n')
+    const steps = [cfg.verify.install.trim() === '' ? null : step('Install Dependencies', cfg.verify.install), step('Verify', cfg.verify.command)].filter(Boolean).join('\n\n')
     const execution = `  - type: textarea
     id: execution
     attributes:
@@ -97,7 +97,7 @@ export function templateVars(cfg, { runtimeRel, practices = [] }) {
         push_trigger: push,
         job_if: local ? `    if: \${{ !github.event.pull_request.draft && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/${cfg.default_branch}') }}` : '',
         scope_inherit: cfg.gate.inherit
-            ? `          elif d=$(node ${runtimeRel}/lib/inherit.mjs "$PR" "$HEAD_SHA") && [[ $d =~ ^description=inherited\\ [0-9a-f]{7}:\\  ]]; then\n            printf 'skip=true\\n%s\\n' "$d" >> "$GITHUB_OUTPUT"`
+            ? `          elif d=$(node ${runtimeRel}/lib/inherit.mjs "$PR" "$HEAD_SHA") && [[ $d =~ ^description=Inherited\\ from\\ [0-9a-f]{7}:\\  ]]; then\n            printf 'skip=true\\n%s\\n' "$d" >> "$GITHUB_OUTPUT"`
             : '',
         verify_steps: steps,
         area_field: cfg.areas.length ? dropdown('area', 'Area', cfg.areas) : '',

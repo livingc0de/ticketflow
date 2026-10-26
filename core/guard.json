@@ -40,7 +40,7 @@
       "hook_block": ["^gh\\s+api\\b(?!\\s+graphql\\b)(?=.*\\brepos/[^\\s/]+/[^\\s/]+/statuses/\\S+)(?=.*(?:{write}))"],
       "hook_check": [],
       "examples": [
-        { "cmd": "gh api repos/o/r/statuses/abcdef1234567 -f state=success -f context=ci/gate", "claude": "ask", "codex": "block" },
+        { "cmd": "gh api repos/o/r/statuses/abcdef1234567 -f state=success -f context=\"CI / Gate\"", "claude": "ask", "codex": "block" },
         { "cmd": "gh api repos/o/r/commits/abcdef1234567/status", "claude": "pass", "codex": "pass" },
         { "cmd": "gh api repos/o/r/issues/5/comments -f body=\"the statuses/abc rule\"", "claude": "ask", "codex": "pass" }
       ]

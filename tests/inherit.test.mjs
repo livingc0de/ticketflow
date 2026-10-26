@@ -7,8 +7,8 @@ import { FAIL, config, fakeGh, seq as cliSeq, tempDir, writeConfig } from './hel
 const script = new URL('../core/lib/inherit.mjs', import.meta.url).pathname
 const sha = (c) => c.repeat(40)
 const [R, M, H2, C, P] = [sha('1'), sha('2'), sha('3'), sha('4'), sha('5')]
-const FULL = 'local host1 x86_64 node 24.0.0'
-const status = (state, desc, context = 'ci/gate') => ({ statuses: [{ context, state, description: desc }] })
+const FULL = 'Local run on host1 (x86_64, Node 24.0.0)'
+const status = (state, desc, context = 'CI / Gate') => ({ statuses: [{ context, state, description: desc }] })
 const files = (...names) => names.map((filename) => (typeof filename === 'string' ? { filename } : filename))
 const DOC = 'docs/a.md', CODE = 'apps/web/src/a.ts'
 const OPTS = { docs_only: {
@@ -43,7 +43,7 @@ const run = (over, c = cfg) => {
 const yes = (over, c) => assert.deepEqual(run(over, c), { root: R })
 const no = (over, why, c) => { const r = run(over, c); assert.equal(r.root, undefined); assert.match(r.no, why) }
 const seq = (...values) => { let i = 0; return () => values[Math.min(i++, values.length - 1)] }
-const INH = 'inherited 1111111: only docs-only main changes merged in'
+const INH = 'Inherited from 1111111: only docs merged from main'
 
 test('one merge of a docs-only main commit into a green head inherits, with the exact description', () => {
     yes()
@@ -59,12 +59,12 @@ test('a chain names the root, not the previous inherited head', () => {
 })
 
 test('no full-run success to inherit: failure, pending, missing, docs-only, unknown, chain root not full', () => {
-    for (const s of [status('failure', FULL), status('pending', 'actions #9'), { statuses: [] }, status('success', 'actions #9 docs-only'),
-        status('success', 'docs-only (host1)'), status('success', 'docs-only (local host1)'), status('success', 'whatever'),
+    for (const s of [status('failure', FULL), status('pending', 'Actions run #9'), { statuses: [] }, status('success', 'Actions run #9, docs only'),
+        status('success', 'Docs only (host1)'), status('success', 'Local check on host1, docs only'), status('success', 'whatever'),
         status('success', FULL, 'other/context')]) no({ [`commits/${R}/status`]: s }, /no full-run/)
     const viaP = { [`commits/${H2}`]: { parents: [{ sha: P }, { sha: M }] }, [`commits/${P}/status`]: status('success', INH), 'commits/1111111': { sha: R } }
-    for (const s of [status('failure', FULL), status('success', 'actions #9 docs-only'), status('success', 'docs-only (local host1)')]) no({ ...viaP, [`commits/${R}/status`]: s }, /no full-run/)
-    no({ ...viaP, [`commits/${P}/status`]: status('success', 'inherited 1111111: something else') }, /no full-run/)
+    for (const s of [status('failure', FULL), status('success', 'Actions run #9, docs only'), status('success', 'Local check on host1, docs only')]) no({ ...viaP, [`commits/${R}/status`]: s }, /no full-run/)
+    no({ ...viaP, [`commits/${P}/status`]: status('success', 'Inherited from 1111111: something else') }, /no full-run/)
 })
 
 test('the root must be an ancestor and H2 one merge of the current main', () => {
@@ -123,20 +123,20 @@ test('another default branch: the base, the ref and the description follow the c
     const t = { 'pulls/7': { base: { ref: 'trunk' }, head: { sha: H2 } }, 'git/ref/heads/trunk': { object: { sha: M } } }
     no({}, /not the head of a pull request into trunk/, trunk)   // base is main
     yes(t, trunk)
-    assert.equal(description(trunk, R), 'inherited 1111111: only docs-only trunk changes merged in')
+    assert.equal(description(trunk, R), 'Inherited from 1111111: only docs merged from trunk')
     no({ ...t, [`commits/${C}`]: { files: files(CODE) } }, /trunk commit 4444444 is not docs-only/, trunk)
 })
 
 test('a custom gate.context is the status that is read and the chain is matched against this branch', () => {
     const c = config({ ...OPTS, gate: { context: 'my/gate' } })
-    no({}, /no full-run/, c)   // the fixture's status is ci/gate
+    no({}, /no full-run/, c)   // the fixture's status is CI / Gate
     yes({ [`commits/${R}/status`]: status('success', FULL, 'my/gate') }, c)
 })
 
 test('a chain whose description names another branch is not a full run', () => {
     const viaP = { [`commits/${H2}`]: { parents: [{ sha: P }, { sha: M }] }, 'commits/1111111': { sha: R } }
-    no({ ...viaP, [`commits/${P}/status`]: status('success', 'inherited 1111111: only docs-only trunk changes merged in') }, /no full-run/)
-    no({ ...viaP, [`commits/${P}/status`]: status('success', 'inherited 1111111: only docs-only main changes merged in!') }, /no full-run/)
+    no({ ...viaP, [`commits/${P}/status`]: status('success', 'Inherited from 1111111: only docs merged from trunk') }, /no full-run/)
+    no({ ...viaP, [`commits/${P}/status`]: status('success', 'Inherited from 1111111: only docs merged from main!') }, /no full-run/)
 })
 
 test('a failed read throws, so nothing is inherited', () => {

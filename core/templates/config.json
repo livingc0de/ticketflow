@@ -3,7 +3,7 @@
   "repo": "owner/name",
   "default_branch": "main",
   "verify": { "mode": "ci", "install": "", "command": "npm test", "timeout_min": 45 },
-  "gate": { "context": "ci/gate", "check": "Verify", "inherit": false, "ci_files": [] },
+  "gate": { "context": "CI / Gate", "check": "Verify", "inherit": false, "ci_files": [] },
   "docs_only": { "docs": [], "code": [] },
   "reviewers": [],
   "deploy_branch": null,

@@ -21,9 +21,10 @@ import { docsOnly } from './docs-only.mjs'
 
 const CAP = 300       // the compare and commit APIs list at most 300 files and cut silently: a list that long is code
 const MAX_MAIN = 20   // ponytail: more incoming default-branch commits is a normal run
-const FULL_RUN = /^(actions #\d+|local \S.*)$/   // a real run: Actions or a local verify; never a docs-only or inherited one
+// a real run: Actions or a local verify; never a docs-only or inherited one. An unrecognized description is never inherited from (a normal run).
+const FULL_RUN = /^(Actions run #\d+|Local run on \S.*)$/
 
-export const description = (cfg, sha) => `inherited ${sha.slice(0, 7)}: only docs-only ${cfg.default_branch} changes merged in`
+export const description = (cfg, sha) => `Inherited from ${sha.slice(0, 7)}: only docs merged from ${cfg.default_branch}`
 
 const names = (files) => files.flatMap((f) => (f.previous_filename ? [f.filename, f.previous_filename] : [f.filename]))
 
@@ -43,7 +44,7 @@ export function inherit(api, cfg, pr, head) {
     if (parents.length !== 2 || parents[1] !== main) return { no: `not one merge of the current ${base} into the previous head` }
 
     let root = parents[0], g = gate(root)
-    const m = g?.state === 'success' && /^inherited ([0-9a-f]{7}): /.exec(g.description)
+    const m = g?.state === 'success' && /^Inherited from ([0-9a-f]{7}): /.exec(g.description)
     if (m && g.description === description(cfg, m[1])) { root = get(`commits/${m[1]}`).sha; g = gate(root) }   // a short sha resolves; an ambiguous one is a 422 and throws
     if (g?.state !== 'success' || !FULL_RUN.test(g.description)) return { no: 'no full-run gate success to inherit' }
 

@@ -10,7 +10,7 @@ const HEAD = 'abcdef1234567890abcdef1234567890abcdef12'
 const OLD = '1'.repeat(40)
 const ago = (m) => new Date(Date.now() - m * 60_000).toISOString()
 const pull = (over = {}) => ({ state: 'open', draft: false, base: { ref: 'main' }, head: { sha: HEAD }, merged: false, mergeable: true, mergeable_state: 'blocked', created_at: ago(60), ...over })
-const status = (state, sha = HEAD) => ({ sha, statuses: [{ context: 'other', state: 'failure' }, ...(state ? [{ context: 'ci/gate', state }] : [])] })
+const status = (state, sha = HEAD) => ({ sha, statuses: [{ context: 'other', state: 'failure' }, ...(state ? [{ context: 'CI / Gate', state }] : [])] })
 const BOT = { name: 'rb', login: 'review-bot[bot]', unavailable_pattern: 'usage limit' }
 const MERGED = pull({ merged: true, merge_commit_sha: 'f'.repeat(40) })
 
@@ -38,9 +38,9 @@ test('merges with the exact argv and reports the squash commit', () => {
 })
 
 test('each unmet gate exits 1 and never calls pr merge', () => {
-    refused(run({ gate: status(null) }), /ci\/gate is missing/)
-    refused(run({ gate: status('pending') }), /ci\/gate is pending/)
-    refused(run({ gate: status('failure') }), /ci\/gate is failure/)
+    refused(run({ gate: status(null) }), /CI \/ Gate is missing/)
+    refused(run({ gate: status('pending') }), /CI \/ Gate is pending/)
+    refused(run({ gate: status('failure') }), /CI \/ Gate is failure/)
     refused(run({ gate: status('success', OLD) }), /missing|exact head/)   // green on an older sha only
     refused(run({ behind: 2 }), /behind by 2\): gh pr update-branch 5 --repo o\/r/)
     refused(run({ pulls: pull({ draft: true }) }), /draft/)
