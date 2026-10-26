@@ -35,8 +35,8 @@ test('exact output for one skill and one role, for claude and codex', () => {
     const r = run(t)
     assert.equal(r.status, 0, r.stderr)
     assert.equal(t.read('.claude/skills/demo/SKILL.md'),
-        `---\nname: "demo"\ndescription: "Use when a demo is needed."\n---\n${MARK('skills/demo/SKILL.md')}\n\nRead \`.ticketflow/skills/demo/SKILL.md\` and follow it; it is the whole skill.\n`)
-    assert.equal(t.read('.agents/skills/demo/SKILL.md'), t.read('.claude/skills/demo/SKILL.md'))
+        `---\nname: "demo"\ndescription: "Use when a demo is needed."\n---\n${MARK('skills/demo/SKILL.md')}\n\nRead \`.ticketflow/skills/demo/SKILL.md\` and follow it; it is the whole skill. Your action map: \`.ticketflow/agents-map/claude.md\`.\n`)
+    assert.equal(t.read('.agents/skills/demo/SKILL.md'), t.read('.claude/skills/demo/SKILL.md').replace('agents-map/claude.md', 'agents-map/codex.md'))
     assert.equal(t.read('.claude/agents/judge.md'),
         `---\nname: "judge"\ndescription: "Use when a judgement is needed."\nmodel: "opus"\neffort: "high"\ntools: Bash, Read, Grep, Glob, Skill\n---\n${MARK('agents/judge.md')}\n\nYou are the \`judge\` role. Read \`.ticketflow/agents/judge.md\` and follow it; it is your full instruction. Your action map: \`.ticketflow/agents-map/claude.md\`.\n`)
     assert.equal(t.read('.codex/agents/judge.toml'),
@@ -174,7 +174,7 @@ test('inline body mode: the TOML string parses back to the canonical body exactl
     assert.equal(value, `${body}\nYour action map: \`.ticketflow/agents-map/codex.md\`.\n`)
     const claude = { ...adapter('claude'), role: { ...adapter('claude').role, body: 'inline' }, skill: { ...adapter('claude').skill, body: 'inline' } }
     const md = renderStubs({ skills: [{ ...parseCanonical(SKILL, 'skills/demo/SKILL.md'), src: 'skills/demo/SKILL.md' }], roles: [parsed], adapters: [claude], cfg: config(AGENTS), runtimeRel: '.ticketflow' })
-    assert.ok(md.get('.claude/skills/demo/SKILL.md').endsWith('\n# Demo\n\nDo the demo.\n'))
+    assert.ok(md.get('.claude/skills/demo/SKILL.md').endsWith('\n# Demo\n\nDo the demo.\n\nYour action map: `.ticketflow/agents-map/claude.md`.\n'))
     assert.ok(md.get('.claude/agents/judge.md').includes(body))
 })
 

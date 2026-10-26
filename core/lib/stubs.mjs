@@ -71,7 +71,8 @@ export function renderStubs({ skills, roles, adapters, cfg, runtimeRel, version 
     const put = (path, content) => { if (out.has(path)) fail(`two stubs for ${path}`); out.set(path, content) }
     for (const a of adapters) {
         for (const s of [...skills].sort(by)) {
-            const text = note(runtimeRel) + (a.skill.body === 'inline' ? s.body : `Read \`${runtimeRel}/skills/${s.name}/SKILL.md\` and follow it; it is the whole skill.\n`)
+            const map = `Your action map: \`${runtimeRel}/agents-map/${a.name}.md\`.`
+            const text = note(runtimeRel) + (a.skill.body === 'inline' ? `${s.body}\n${map}\n` : `Read \`${runtimeRel}/skills/${s.name}/SKILL.md\` and follow it; it is the whole skill. ${map}\n`)
             put(target(a.skill.target, s.name), md([['name', s.name], ['description', s.description]], s.src, text))
         }
         for (const r of [...roles].sort(by)) {

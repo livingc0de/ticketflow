@@ -27,6 +27,10 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `project` | project object, or `null` for none | `null` | `project`, `tracker-next` |
 | `agents` | unique list of `claude` / `codex`: the agents to generate stubs for | `[]` | `gen-stubs` |
 | `models` | `{ claude?, codex? }`, each `{ strong, standard, light }`; a value is a model id (`[\w.:/[\]-]+`) or `null` (inherit: the stub names no model). Every agent in `agents` needs all three classes | `{}` | `gen-stubs` |
+| `plans_dir` | repo-relative directory (no `..`, no leading `/`) where Technical plans are committed | `docs/plans` | skills |
+| `worktrees_dir` | repo-relative directory for ticket worktrees (gitignored by `init`) | `.claude/worktrees` | skills |
+| `live_verify_skill` | name of the repo's live-verification skill, or `null`; while `null` the `e2e-verifier` role gets no stub | `null` | `gen-stubs`, skills |
+| `deferred_checks_issue` | number of the issue that lists deferred checks, or `null` | `null` | skills |
 
 `gate.context` and `gate.check` must differ: the verdict is the commit status, and check runs are only read to
 detect a refused Actions run.

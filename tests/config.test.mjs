@@ -14,7 +14,7 @@ test('a minimal config loads, with defaults applied and deeply frozen', () => {
     assert.deepEqual(
         cfg,
         { schema_version: 1, repo: 'o/r', default_branch: 'main', verify: { mode: 'ci', install: '', command: 'npm test', timeout_min: 45 },
-            gate: { context: 'ci/gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, reviewers: [], deploy_branch: null, project: null, agents: [], models: {} })
+            gate: { context: 'ci/gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, reviewers: [], deploy_branch: null, project: null, agents: [], models: {}, plans_dir: 'docs/plans', worktrees_dir: '.claude/worktrees', live_verify_skill: null, deferred_checks_issue: null })
     assert.ok(Object.isFrozen(cfg) && Object.isFrozen(cfg.verify) && Object.isFrozen(cfg.gate) && Object.isFrozen(cfg.gate.ci_files) && Object.isFrozen(cfg.reviewers))
     assert.throws(() => { 'use strict'; cfg.repo = 'x/y' }, TypeError)
 })
@@ -145,4 +145,12 @@ test('agents are a unique list of known agents; each one needs a model per class
     bad({ models: { claude: { ...M, extra: 'x' } } }, /unknown key models\.claude\.extra/)
     for (const m of ['', 'a b', 'a;b', 3, '$(x)']) bad({ models: { claude: { ...M, light: m } } }, /models\.claude\.light must be a model id/)
     bad({ models: [] }, /models must be an object/)
+})
+
+test('plans_dir and worktrees_dir are safe relative paths; live_verify_skill is a skill name; deferred_checks_issue a positive integer', () => {
+    const ok = validate(rawConfig({ plans_dir: 'plans', worktrees_dir: 'tmp/wt.1', live_verify_skill: 'browser-check', deferred_checks_issue: 7 }))
+    assert.deepEqual([ok.plans_dir, ok.worktrees_dir, ok.live_verify_skill, ok.deferred_checks_issue], ['plans', 'tmp/wt.1', 'browser-check', 7])
+    for (const k of ['plans_dir', 'worktrees_dir']) for (const v of ['', '/abs', '../x', 'a/../b', 'a//b', 'a/', '.', 'a b', 'a\nb', 3, null]) bad({ [k]: v }, new RegExp(k))
+    for (const v of ['', 'Live', 'a b', 3]) bad({ live_verify_skill: v }, /live_verify_skill/)
+    for (const v of [0, -1, 1.5, '3']) bad({ deferred_checks_issue: v }, /deferred_checks_issue/)
 })

@@ -48,6 +48,8 @@ const ref = (v, p) => {
     const ok = typeof v === 'string' && /^[\w][\w./-]*$/.test(v) && !/\.\.|\/\/|\/$|\.$|\.lock(\/|$)|\/\.|(^|\/)HEAD$/.test(v)
     return ok ? v : fail(`${p} must be a branch name`)
 }
+// ponytail: a conservative relative path; no `..`, no leading slash, no control characters
+const dirPath = (v, p) => (typeof v === 'string' && /^[\w.-]+(\/[\w.-]+)*$/.test(v) && !v.split('/').some((s) => /^\.+$/.test(s)) ? v : fail(`${p} must be a relative directory path without ..`))
 const repo = (v, p) => (typeof v === 'string' && /^[\w.-]+\/[\w.-]+$/.test(v) && !v.split('/').some((s) => /^\.+$/.test(s)) ? v : fail(`${p} must be owner/name`))
 
 /** Parses an object against `shape` = { key: [parse, default | REQUIRED] }; an unknown key is an error. */
@@ -114,6 +116,10 @@ const parse = section({
     })), null],
     agents: [unique(list(oneOf(...AGENTS))), []],
     models: [models, {}],
+    plans_dir: [dirPath, 'docs/plans'],
+    worktrees_dir: [dirPath, '.claude/worktrees'],
+    live_verify_skill: [orNull((v, p) => (typeof v === 'string' && /^[a-z0-9-]+$/.test(v) ? v : fail(`${p} must be a skill name`))), null],
+    deferred_checks_issue: [orNull(int(1)), null],
 })
 
 const deepFreeze = (v) => {
