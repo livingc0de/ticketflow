@@ -9,7 +9,8 @@
       "Bash(node core/scripts/local-verify.mjs *)",
       "Bash(node core/scripts/merge.mjs *)",
       "Bash(node core/scripts/gen-stubs.mjs *)",
-      "Bash(node core/scripts/doctor.mjs *)"
+      "Bash(node core/scripts/doctor.mjs *)",
+      "Bash(node core/scripts/thread.mjs *)"
     ],
     "ask": [
       "Bash(gh pr merge)",

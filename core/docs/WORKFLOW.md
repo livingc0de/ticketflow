@@ -78,14 +78,18 @@ is unavailable or silent. Its effort follows the tier (the skill sets it). It po
 comment, never approves, never edits. A fix to behaviour, tests, config or SQL gets one more pass; a trivial fix does not.
 External reviewers and the stand-in rules: [REVIEWERS.md](REVIEWERS.md).
 
-Wait once, in the background (`pr-wait`), batch every finding into one push, and fix or reject each with a reason. A related small
+Wait once, in the background (`pr-wait`), batch every finding into one push, and fix or reject each with a reason; reply to and resolve
+each review thread with `thread.mjs`. A related small
 problem found along the way is fixed in the same pull request and listed as "Also fixed"; only a big or unrelated one gets its own issue.
 
 ## Merge
 
 `merge <PR>` is the only way. It requires, on the exact head: the pull request open, not a draft, based on the default branch; the
-gate status `success`; the head contains the default branch; the review gate done (a reviewer's answer, or a `--review-basis`
-comment naming the head's first 7 characters when `pr-wait` printed `standin needed` or `none configured`). It merges (squash, else rebase, else a merge commit, as the repo allows) with
+gate status `success`; the head contains the default branch; no unresolved review thread (any author); the review gate done and not
+`changes requested` (a reviewer's answer, or a `--review-basis` comment `Review basis for <sha7>: ...` that links a `ready to merge`
+`pr-reviewer` review of this PR, or says `owner approved`, when `pr-wait` printed `standin needed` or `none configured`); and the last
+`pr-reviewer` review of the head saying exactly `ready to merge` (owner, member or collaborator accounts only). What that proves, what
+stays convention and what cannot be verified: [REVIEWERS.md](REVIEWERS.md). It merges (squash, else rebase, else a merge commit, as the repo allows) with
 `--match-head-commit`. When the gates pass, merge without asking, except when the only review was an inline `pr-reviewer`
 (no sub-agents): ask the owner. Never `--admin`, never `--auto`; see [SECURITY.md](SECURITY.md).
 
