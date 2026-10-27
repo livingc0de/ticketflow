@@ -57,15 +57,34 @@ test('prose without a comment prefix, an untracked file and a binary file are ig
     assert.equal(r.stdout, 'No shortcuts.\n')
 })
 
+test('a marker word in prose, a bullet, bold text or a string literal is not a marker; an indented block-comment line and an ini comment are', () => {
+    const dir = repo({
+        'notes.md': `A decision; ${SC} x, y\n* ${SC} a bullet, y\n**${SC}** bold, y\n`,
+        'a.js': `const s = '// ${SC} a, b'\nconst t = "# ${SC} c, d"\nconst u = \`// ${SC} e, f\`\nrun("x") // ${SC} real one, but add a trigger\n`,
+        'b.ini': `; ${SC} fixed list, make it a glob if it grows\n`,
+        'c.js': `/**\n  * ${SC} indented line, revisit\n */\n`,
+    })
+    const r = debt(dir)
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(r.stdout, 'a.js:4 real one; revisit: but add a trigger\nb.ini:1 fixed list; revisit: make it a glob if it grows\nc.js:2 indented line; revisit: revisit\n3 shortcuts, 0 without a trigger\n')
+})
+
+test('a non-ASCII path and a path with ":12:" in it are printed verbatim and split right', () => {
+    const dir = repo({ 'ä.js': `// ${SC} a, b\n`, 'x:12:y.py': `# ${SC} c, d\n` })
+    const r = debt(dir)
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(r.stdout, 'x:12:y.py:1 c; revisit: d\nä.js:1 a; revisit: b\n2 shortcuts, 0 without a trigger\n')
+})
+
 test('paths limit the scan', () => {
     const dir = repo({ 'src/a.js': `// ${SC} a, b\n`, 'lib/b.js': `// ${SC} c, d\n` })
     assert.equal(debt(dir, 'src').stdout, 'src/a.js:1 a; revisit: b\n1 shortcuts, 0 without a trigger\n')
 })
 
-test('outside a git checkout, or with a path git rejects, or an unknown option: exit 2 and nothing on stdout', () => {
+test('outside a git checkout, with a path that is outside or does not exist, or an unknown option: exit 2 and nothing on stdout', () => {
     const plain = tempDir('debt-plain-')
     writeFileSync(join(plain, 'a.js'), `// ${SC} a, b\n`)
-    for (const [cwd, args] of [[plain, []], [repo({ 'a.js': 'x\n' }), ['../outside']], [repo({ 'a.js': 'x\n' }), ['--bogus']]]) {
+    for (const [cwd, args] of [[plain, []], [repo({ 'a.js': 'x\n' }), ['../outside']], [repo({ 'a.js': 'x\n' }), ['srcc']], [repo({ 'a.js': 'x\n' }), ['--bogus']]]) {
         const r = debt(cwd, ...args)
         assert.equal(r.status, 2, `${args}: ${r.stdout}${r.stderr}`)
         assert.equal(r.stdout, '')
