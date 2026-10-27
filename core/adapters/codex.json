@@ -12,7 +12,7 @@
         "license": "MIT",
         "skills": "./skills/",
         "interface": {
-          "displayName": "ticketflow",
+          "displayName": "TicketFlow",
           "shortDescription": "Ticket-driven delivery workflow for GitHub repos",
           "category": "Developer Tools",
           "capabilities": ["Instructions"]
@@ -23,7 +23,7 @@
       "path": ".agents/plugins/marketplace.json",
       "json": {
         "name": "ticketflow",
-        "interface": { "displayName": "ticketflow" },
+        "interface": { "displayName": "TicketFlow" },
         "plugins": [
           { "name": "ticketflow", "source": { "source": "url", "url": "./" }, "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" }, "category": "Developer Tools" }
         ]

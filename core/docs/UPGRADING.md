@@ -1,6 +1,9 @@
 # Upgrading
 
-ticketflow changes your repo only when you ask: `init` once, then `sync` for each release you choose. The ticketflow repo's tags are
+TicketFlow never changes under your feet. Your repo keeps a pinned copy of one release, and moves to a newer one only when you ask
+for it, through a pull request you review like any other.
+
+TicketFlow changes your repo only when you ask: `init` once, then `sync` for each release you choose. The TicketFlow repo's tags are
 the releases; `VERSION` is the version source.
 
 ## What is copied, and what is yours
@@ -12,9 +15,9 @@ files ([CONFIG.md](CONFIG.md)). Your extensions are never touched ([EXTENDING.md
 ## The manifest
 
 `.ticketflow/manifest.json` records an install. `runtime.mjs` owns `version`, `source` (`url`, `tag`, `commit`), `files` (the sha256 of
-every copied runtime file, CRLF read as LF) and `held`; `render.mjs` owns `claude_settings` (the `allow` and `ask` entries ticketflow
+every copied runtime file, CRLF read as LF) and `held`; `render.mjs` owns `claude_settings` (the `allow` and `ask` entries TicketFlow
 added, so a later render can remove one it no longer wants). The file is deterministic: sorted keys and paths, no timestamps. Stubs and
-rendered files are not hashed: `gen-stubs --check` and `render --check` cover them. In the ticketflow repo itself (runtime in `core/`)
+rendered files are not hashed: `gen-stubs --check` and `render --check` cover them. In the TicketFlow repo itself (runtime in `core/`)
 it holds only `manifest_version` and `claude_settings`.
 
 ## Held files

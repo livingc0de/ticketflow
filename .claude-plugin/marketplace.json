@@ -8,7 +8,7 @@
       "name": "ticketflow",
       "source": "./",
       "version": "0.1.0",
-      "description": "Set up and update the ticketflow workflow in a GitHub repo.",
+      "description": "Set up and update the TicketFlow workflow in a GitHub repo.",
       "category": "development"
     }
   ]

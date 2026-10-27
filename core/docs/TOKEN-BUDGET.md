@@ -1,6 +1,6 @@
 # Token budget
 
-Agents pay for every token that is loaded, so ticketflow keeps the always-loaded text small and puts detail in files read on demand.
+Every word an agent loads costs time and money, and crowds out the code it should be thinking about. So TicketFlow keeps the always-loaded text small and puts detail in files read on demand.
 
 ## What is always loaded
 
@@ -30,4 +30,4 @@ Agents pay for every token that is loaded, so ticketflow keeps the always-loaded
 - In Claude Code, `/context` shows what a session loaded.
 - The **Run line** on every ticket's summary comment records tier, models, review rounds, CI runs and whether the fallback ran, so a
   trend (more rounds, more reruns, skipped plans that grew) shows in the tickets themselves.
-- Usage per ticket comes from your agent's own usage tooling; ticketflow ships no counter.
+- Usage per ticket comes from your agent's own usage tooling; TicketFlow ships no counter.

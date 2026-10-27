@@ -1,6 +1,6 @@
-# ticketflow: start here
+# TicketFlow: start here
 
-ticketflow is an agent-neutral, ticket-driven delivery workflow for GitHub repos: ticket, plan, implement, verify, review, merge, handoff.
+TicketFlow is an agent-neutral, ticket-driven delivery workflow for GitHub repos: ticket, plan, implement, verify, review, merge, handoff.
 It is installed into a repo as a `.ticketflow/` folder with thin stubs for Claude Code and Codex, and updated only when the owner chooses.
 
 ## Before you start

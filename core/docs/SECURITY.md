@@ -1,6 +1,9 @@
 # Security model
 
-What stops an agent from merging or pushing without the checks, what does not, and what was measured.
+Agents act with your GitHub credentials, so it matters what they can and cannot do on their own. This page is honest about it:
+what stops an agent from merging or pushing past the checks, what does not, and what was measured on real repositories. The short
+version: branch protection does the hard enforcing, the scripts refuse unsafe actions, and a guard asks you before any command
+that could bypass them.
 
 ## Threat model
 
