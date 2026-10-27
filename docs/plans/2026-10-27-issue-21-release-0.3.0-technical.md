@@ -344,6 +344,10 @@ No migrations; each adopting repo changes only through its sync PR. Owner action
 token; optionally set the native caps (never written by agents); edit any copied done_pattern; re-post the basis on PRs in flight at
 upgrade. Live S1 probe on a throwaway repo needs a second reviewer account or bot (owner action): deferred, recorded on #22.
 
+## Open decisions
+
+None: D1-D3 were decided by the owner on 2026-10-27 (see the top of this file).
+
 ## Risks
 
 Merge-gate strictness may stall merges until threads are resolved (intended; every refusal prints the next action). Rollback = revert the
