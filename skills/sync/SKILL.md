@@ -5,7 +5,7 @@ description: Use when asked to update, upgrade or re-sync ticketflow in a reposi
 
 # Update ticketflow in a repository
 
-Rules: START.md's rules apply, and so do the rules of `skills/init/SKILL.md` (run from the repo root, `<TF>` written out in full, exit 2 means stop, no bypass). **No change reaches the default branch, and no GitHub setting (labels, Project, protection) changes, until the owner merges.**
+Rules: START.md's rules apply, and so do the rules of `skills/init/SKILL.md` (run from the repo root, `<TF>` written out in full, exit 2 means stop, no bypass). **No change reaches the default branch, and no GitHub setting (labels, Project, protection) changes, until the owner merges** (one exception: a gate rename, step 6).
 
 ## 0. Fetch and hand over
 
@@ -43,7 +43,7 @@ Exit 1: resolve as `<TF>/skills/init/existing-repo.md` section Conflicts says, t
 
 ## 6. Check
 
-Run `node .ticketflow/scripts/doctor.mjs`. Fix local failures. GitHub lines (labels, project, protection) go under "After merge" in the PR; never apply them now.
+Run `node .ticketflow/scripts/doctor.mjs`. Fix local failures. GitHub lines (labels, project, protection) go under "After merge" in the PR; never apply them now. One exception: a renamed `gate.context` follows `.ticketflow/docs/CI-GATE.md` ("Renaming the gate context"), whose protection step can come before the merge.
 
 ## 7. Open the pull request
 

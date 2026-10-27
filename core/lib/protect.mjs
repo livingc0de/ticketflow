@@ -45,10 +45,11 @@ const sameActor = (a) => a.actor_type === actor.actor_type && a.actor_id === act
 /**
  * The ruleset body that brings `existing` (a full ruleset from the API, or null) to the standard without weakening it:
  * rules of other types are kept; approvals and other pull request parameters that are stricter are kept (only the merge
- * methods are forced); the required contexts are the union of the existing ones, `extraContexts` and the gate; other bypass
- * actors are kept. Returns { body, warnings }.
+ * methods are forced); the required contexts are the union of the existing ones, `extraContexts` and the gate, minus `drop` (the
+ * one context the caller asked to replace, never the gate); other bypass actors are kept. Returns { body, warnings }.
  */
-export function desiredRuleset(existing, cfg, extraContexts = []) {
+export function desiredRuleset(existing, cfg, extraContexts = [], drop = null) {
+    if (drop === cfg.gate.context) throw new Error('the gate context cannot be dropped')
     const warnings = []
     const rules = (existing?.rules ?? []).map((r) => structuredClone({ type: r.type, ...(r.parameters ? { parameters: r.parameters } : {}) }))
     const ensure = (type, fix) => {
@@ -60,8 +61,8 @@ export function desiredRuleset(existing, cfg, extraContexts = []) {
     ensure('non_fast_forward')
     ensure('pull_request', (r) => { r.parameters = { ...PULL_REQUEST_DEFAULTS, ...r.parameters, allowed_merge_methods: ['squash'] } })
     ensure('required_status_checks', (r) => {
-        const checks = r.parameters?.required_status_checks ?? []
-        for (const check of [{ context: cfg.gate.context }, ...extraContexts]) if (!checks.some((c) => c.context === check.context)) checks.push(check)
+        const checks = (r.parameters?.required_status_checks ?? []).filter((c) => c.context !== drop)   // by name: an app-bound copy goes too
+        for (const check of [{ context: cfg.gate.context }, ...extraContexts]) if (check.context !== drop && !checks.some((c) => c.context === check.context)) checks.push(check)
         r.parameters = { do_not_enforce_on_create: false, ...r.parameters, strict_required_status_checks_policy: true, required_status_checks: checks }
     })
     const standard = ['deletion', 'non_fast_forward', 'pull_request', 'required_status_checks']

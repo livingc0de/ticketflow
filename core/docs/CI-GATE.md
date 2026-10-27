@@ -66,6 +66,21 @@ clean worktree of the exact, up-to-date head and posts the result as the status 
   non-fast-forward leaves the branch where it is; any other push error exits 1. The workflow's `Advance Deploy Branch` job does the
   same when Actions runs. `ci.push_paths` must be `null` or `[]` while `deploy_branch` is set.
 
+## Renaming the gate context
+
+Without a flag, `protect` only ever adds required contexts. To move an existing repository from an old context to `gate.context`,
+change `gate.context` on a branch (or sync to a release that renames it), render, and open the pull request. Then, on the owner's yes:
+
+- **CI runs the job:** its gate is posted under the new name, which the ruleset does not require yet. From that branch's checkout run
+  `protect.mjs --apply --replace-context <old>`, then merge with `merge.mjs` right after.
+- **Actions refuses the job:** the local fallback runs the default branch's runtime, so it posts the old name. Merge first with
+  `merge.mjs` from the default branch's checkout, then, right after, pull it and run `protect.mjs --apply --replace-context <old>` there.
+
+Show the plan first (the same command without `--apply`: `[<old>] -> [<new>]`). Add `--migrate-classic` when a classic protection
+requires `<old>`; `--apply` refuses without it, since it would still block every pull request. Undo: `--replace-context <new>` after
+setting `gate.context` back. Other open pull requests post the new name once they update. `<old>` must not be `gate.context`, and
+an org-level ruleset is never touched.
+
 ## Security notes
 
 - The workflow checks out with `persist-credentials: false`; only the scope step and the last step get a token, so no install script

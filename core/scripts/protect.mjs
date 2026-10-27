@@ -2,16 +2,19 @@
 /**
  * Protection of the default branch: compares the repo with the standard ruleset (plan mode) or brings it there.
  *
- * Usage: protect.mjs [--apply [--migrate-classic]] [--config f]      (this exact order, so one prefix rule can match `--apply`)
+ * Usage: protect.mjs [--apply [--migrate-classic]] [--replace-context <old>] [--config f]   (this exact order, so one prefix rule can match `--apply`)
  *
  * Plan mode prints one line per difference (`path: current -> desired`). `--apply` first prints the current ruleset (a rollback is a
  * copy-paste), patches the repo settings, creates or updates the ruleset, then reads back: the difference must be empty and
  * `current_user_can_bypass` must be the expected one, otherwise exit 1. Existing protection is never weakened (see core/lib/protect.mjs).
  * Classic branch protection is kept, with a warning; `--migrate-classic` adds its required contexts to the ruleset and deletes it,
  * but only after the read-back passed, and not at all when it has a setting a ruleset here does not take over.
+ * `--replace-context <old>` drops `<old>` from the required contexts in the same run (never automatically; never the gate itself); a
+ * classic protection that still requires `<old>` is refused unless `--migrate-classic` moves it. See core/docs/CI-GATE.md.
  * Rulesets stack, so exactly one repo-level ruleset covering the default branch is updated in place; org-level rulesets are never touched.
  *
- * Exit: 0 = in sync / applied, 1 = drift (plan), a read-back mismatch, an empty repo or an unmappable classic setting,
+ * Exit: 0 = in sync / applied, 1 = drift (plan), a read-back mismatch, an empty repo, an unmappable classic setting or (--apply) a
+ * classic protection that still requires the replaced context,
  * 2 = usage, config, missing admin right for --apply, or an API error (GitHub's message is shown, for example the plan upgrade notice).
  */
 
@@ -20,8 +23,20 @@ import { GhError, api } from '../lib/gh.mjs'
 import { CAN_BYPASS, classicBlockers, classicContexts, desiredRuleset, diff, relation, SETTINGS } from '../lib/protect.mjs'
 
 const ORDER = ['', '--apply', '--apply --migrate-classic']
-const raw = process.argv.slice(2).filter((a, i, all) => a !== '--config' && all[i - 1] !== '--config' && !a.startsWith('--config=')).join(' ')
-const { values, cfg } = cli(import.meta.url, 'protect', '[--apply [--migrate-classic]] [--config f]', { apply: { type: 'boolean' }, 'migrate-classic': { type: 'boolean' } }, (p) => p.length === 0 && ORDER.includes(raw))
+// The arguments before --config, which must come last: so `--config f --apply` cannot slip past the order (and the prefix rules).
+const argv = process.argv.slice(2)
+const at = argv.findIndex((a) => a === '--config' || a.startsWith('--config='))
+const configLast = at < 0 || (argv[at] === '--config' ? at === argv.length - 2 : at === argv.length - 1)
+const raw = (at < 0 ? argv : argv.slice(0, at)).join(' ')
+const ordered = (v) => configLast && (v['replace-context'] === undefined ? ORDER.includes(raw)
+    : v['replace-context'] !== '' && ORDER.some((o) => raw === `${o} --replace-context ${v['replace-context']}`.trim()))
+const { values, cfg } = cli(import.meta.url, 'protect', '[--apply [--migrate-classic]] [--replace-context <old>] [--config f]',
+    { apply: { type: 'boolean' }, 'migrate-classic': { type: 'boolean' }, 'replace-context': { type: 'string' } }, (p, v) => p.length === 0 && ordered(v))
+const drop = values['replace-context'] ?? null
+if (drop === cfg.gate.context) {
+    console.error(`protect: --replace-context "${drop}" is gate.context: nothing would replace it`)
+    process.exit(2)
+}
 const R = `repos/${cfg.repo}`
 const branch = cfg.default_branch
 const notFound = (fn) => { try { return fn() } catch (e) { if (e instanceof GhError && e.http === 404) return null; throw e } }
@@ -52,6 +67,14 @@ main('protect', () => {
     const existing = touching[0]?.x ?? null
     const classic = notFound(() => api(`${R}/branches/${branch}/protection`))
     const migrate = values['migrate-classic'] === true
+    const classicRequires = classic ? classicContexts(classic).some((c) => c.context === drop) : false
+    if (drop && !migrate && classicRequires) {
+        const m = `classic protection on ${branch} also requires "${drop}": add --migrate-classic (--apply --migrate-classic --replace-context ${drop}), or remove it there by hand`
+        if (values.apply) { console.error(`protect: ${m}; nothing changed`); return 1 }
+        warn(m)   // plan mode still shows the plan
+    }
+    const ruleRequires = (existing?.rules ?? []).some((r) => r.type === 'required_status_checks' && (r.parameters?.required_status_checks ?? []).some((c) => c.context === drop))
+    if (drop && !ruleRequires && !classicRequires) warn(`"${drop}" is not required by a repo ruleset or classic protection; nothing to replace (an org-level ruleset is not changed here)`)
     if (migrate) {
         const blockers = classicBlockers(classic ?? {})
         if (blockers.length) {
@@ -59,7 +82,7 @@ main('protect', () => {
             return 1
         }
     }
-    const { body, warnings } = desiredRuleset(existing, cfg, migrate && classic ? classicContexts(classic) : [])
+    const { body, warnings } = desiredRuleset(existing, cfg, migrate && classic ? classicContexts(classic) : [], drop)
     for (const w of warnings) warn(w)
     if (classic?.enforce_admins?.enabled && migrate) warn('the classic protection applies to admins; the ruleset has the admin bypass, so admins can merge past the checks afterwards')
     if (classic && !migrate) warn(`classic branch protection on ${branch} stays and still applies; ${values.apply ? 'add' : 'run with'} --apply --migrate-classic to move it into the ruleset`)

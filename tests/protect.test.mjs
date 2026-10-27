@@ -218,3 +218,57 @@ test('a new ruleset passes the read-back when GitHub returns the conditions keys
     const changed = run([], { [R]: repo({ ...SETTINGS }), ...listed(standardRuleset({ conditions: { ref_name: { include: ['~DEFAULT_BRANCH', 'refs/heads/x'], exclude: [] } } })) })
     assert.equal(changed.status, 2)   // it is now broad
 })
+
+const ctxs = (body) => body.rules.find((x) => x.type === 'required_status_checks').parameters.required_status_checks.map((c) => c.context)
+const withChecks = (...c) => old({ rules: [{ type: 'deletion' }, { type: 'non_fast_forward' }, { type: 'pull_request', parameters: standardPr }, standardChecks(...c)], bypass_actors: [admin()], current_user_can_bypass: CAN_BYPASS })
+const applyMap = (before, after) => ({ ...listed(before), [`PATCH ${R}`]: {}, [`PUT ${R}/rulesets/11`]: { id: 11 }, [`${R}/rulesets/11`]: seq(before, after), [R]: seq(repo({ ...SETTINGS }), repo({ ...SETTINGS })) })
+
+test('--replace-context: the plan shows the drop with zero writes; --apply ends with exactly gate.context; other contexts are kept', () => {
+    const plan = run(['--replace-context', 'ci/gate'], { [R]: repo({ ...SETTINGS }), ...listed(withChecks('ci/gate')) })
+    assert.equal(plan.status, 1); assert.match(plan.stdout, /required_status_checks: \["ci\/gate"\] -> \["CI \/ Gate"\]/); assert.deepEqual(plan.writes, [])
+    const r = run(['--apply', '--replace-context', 'ci/gate'], applyMap(withChecks('ci/gate'), standardRuleset()))
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(ctxs(r.writes.find((w) => w.call === 'PUT rulesets/11').body), ['CI / Gate'])
+    const kept = run(['--apply', '--replace-context', 'CI / Old'], applyMap(withChecks('lint', 'CI / Old'), withChecks('lint', 'CI / Gate')))
+    assert.equal(kept.status, 0, kept.stderr)
+    assert.deepEqual(ctxs(kept.writes.find((w) => w.call === 'PUT rulesets/11').body), ['lint', 'CI / Gate'])
+})
+
+test('--replace-context: a read-back that still requires <old> exits 1; without the flag nothing is removed', () => {
+    const left = run(['--apply', '--replace-context', 'ci/gate'], applyMap(withChecks('ci/gate'), withChecks('CI / Gate', 'ci/gate')))
+    assert.equal(left.status, 1); assert.match(left.stderr, /read-back differs/)
+    const plain = run(['--apply'], applyMap(withChecks('ci/gate'), withChecks('ci/gate', 'CI / Gate')))
+    assert.equal(plain.status, 0, plain.stderr)
+    assert.deepEqual(ctxs(plain.writes.find((w) => w.call === 'PUT rulesets/11').body), ['ci/gate', 'CI / Gate'])
+})
+
+test('--replace-context refusals exit 2 before any call: the gate itself, a misplaced, empty, missing, repeated or = flag, --config not last', () => {
+    for (const a of [['--replace-context', 'CI / Gate'], ['--replace-context', 'x', '--apply'], ['--replace-context', ''], ['--replace-context'],
+        ['--apply', '--replace-context', 'a', '--replace-context', 'b'], ['--replace-context=x'], ['--config', 'x', '--apply'], ['--migrate-classic', '--replace-context', 'x']]) {
+        const r = run(a, {})
+        assert.equal(r.status, 2, a.join(' ')); assert.deepEqual(r.calls, [], a.join(' '))
+    }
+    const ok = run(['--apply', '--migrate-classic', '--replace-context', 'ci/gate'], {})
+    assert.doesNotMatch(ok.stderr, /usage:/); assert.ok(ok.calls.length > 0)
+})
+
+test('--replace-context with classic protection: refused without --migrate-classic (zero writes); with it the classic <old> is dropped too', () => {
+    const classic = { required_status_checks: { strict: true, contexts: ['ci/gate', 'lint'] }, required_pull_request_reviews: { required_approving_review_count: 0 }, enforce_admins: { enabled: false } }
+    const refused = run(['--apply', '--replace-context', 'ci/gate'], { ...listed(withChecks('ci/gate')), [`${R}/branches/main/protection`]: classic })
+    assert.equal(refused.status, 1); assert.deepEqual(refused.writes, []); assert.match(refused.stderr, /also requires "ci\/gate"/)
+    const plan = run(['--replace-context', 'ci/gate'], { ...listed(withChecks('ci/gate')), [`${R}/branches/main/protection`]: classic })
+    assert.equal(plan.status, 1); assert.deepEqual(plan.writes, []); assert.match(plan.stderr, /also requires "ci\/gate"/); assert.match(plan.stdout, /-> \["CI \/ Gate"\]/)
+    const map = { ...applyMap(withChecks('ci/gate'), withChecks('CI / Gate', 'lint')), [`${R}/branches/main/protection`]: classic, [`DELETE ${R}/branches/main/protection`]: null }
+    const r = run(['--apply', '--migrate-classic', '--replace-context', 'ci/gate'], map)
+    assert.equal(r.status, 0, r.stderr + r.stdout)
+    assert.deepEqual(ctxs(r.writes.find((w) => w.call === 'PUT rulesets/11').body), ['CI / Gate', 'lint'])
+    assert.ok(r.sequence.lastIndexOf('GET rulesets/11') < r.sequence.indexOf('DELETE branches/main/protection'))
+})
+
+test('--replace-context is idempotent: a synced body is unchanged, and a not-required <old> warns and exits 0', () => {
+    const { body } = desiredRuleset(null, config())
+    assert.deepEqual(desiredRuleset({ ...body, id: 1 }, config(), [], 'ci/gate').body, body)
+    assert.throws(() => desiredRuleset(null, config(), [], 'CI / Gate'), /gate/)
+    const synced = run(['--replace-context', 'ci/gate'], { [R]: repo({ ...SETTINGS }), ...listed(standardRuleset()) })
+    assert.equal(synced.status, 0, synced.stdout + synced.stderr); assert.match(synced.stderr, /"ci\/gate" is not required by a repo ruleset or classic protection; nothing to replace/)
+})
