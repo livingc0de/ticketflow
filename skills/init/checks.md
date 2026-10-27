@@ -9,7 +9,6 @@
 3. Manual steps, as they apply (suggest them, never do them for the user):
    - Codex: trust the project and `.codex/hooks.json` through `/hooks` (again after any sync that changes it), and consider enabling `multi_agent` under `[features]` in the user config.
    - Claude Code: restart the session, so the new skills and agents load.
-   - The `ponytail` and `superpowers` companions: give their install route for each agent; never write into user-level configuration.
    - `timeout` missing: install coreutils.
    - Protection skipped: say why and how to do it later.
 4. Remove the clone `<TF>` and any `--propose` directory you created. `local-verify` keeps its logs under `~/.cache/ticketflow-verify/`; leave them unless the user asks.
