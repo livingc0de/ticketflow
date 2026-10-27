@@ -334,8 +334,8 @@ test('a symlinked docs/agents is refused; a hand-written file that merely mentio
 
 test('relinkGuide rewrites relative links from docs/agents/ to the rule folder; URLs, anchors and absolute paths stay', () => {
     const rule = '.claude/rules/billing.md'
-    const body = '[a](../diagrams/x.md) [b](./y.md#sec) ![i](../img/p.png) [t](../x.md "Title") [c](https://e.x/z.md) [d](#here) [e](/abs.md) [f](mailto:a@b.c) [r](../../.claude/rules/)\n[ref]: ../x.md "T"\n  [web]: https://e.x\n'
-    assert.equal(relinkGuide(body, rule), '[a](../../docs/diagrams/x.md) [b](../../docs/agents/y.md#sec) ![i](../../docs/img/p.png) [t](../../docs/x.md "Title") [c](https://e.x/z.md) [d](#here) [e](/abs.md) [f](mailto:a@b.c) [r](.)\n[ref]: ../../docs/x.md "T"\n  [web]: https://e.x\n')
+    const body = '[a](../diagrams/x.md) [b](./y.md#sec) ![i](../img/p.png) [t](../x.md "Title") [c](https://e.x/z.md) [d](#here) [e](/abs.md) [f](mailto:a@b.c) [r](../../.claude/rules/)\n[ref]: ../x.md "T"\n  [web]: https://e.x\n[^1]: see the ledger\n[g](<../x.md>)\n'
+    assert.equal(relinkGuide(body, rule), '[a](../../docs/diagrams/x.md) [b](../../docs/agents/y.md#sec) ![i](../../docs/img/p.png) [t](../../docs/x.md "Title") [c](https://e.x/z.md) [d](#here) [e](/abs.md) [f](mailto:a@b.c) [r](.)\n[ref]: ../../docs/x.md "T"\n  [web]: https://e.x\n[^1]: see the ledger\n[g](<../x.md>)\n')
 })
 
 test('domain-guides: a guide link is rewritten in the rendered rule stub', () => {

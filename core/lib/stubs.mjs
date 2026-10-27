@@ -86,10 +86,10 @@ export function target(template, name) {
  */
 export function relinkGuide(body, rulePath) {
     const rel = (path) => posix.relative(posix.dirname(rulePath), posix.join('docs/agents', path)) || '.'
-    const local = '(?![a-z][\\w+.-]*:|#|/)'
+    const local = '(?![a-z][\\w+.-]*:|#|/|<)'
     return body
         .replace(new RegExp(`\\]\\(${local}([^)\\s#]+)`, 'gi'), (_, path) => `](${rel(path)}`)
-        .replace(new RegExp(`^( {0,3}\\[[^\\]]+\\]:[ \\t]*)${local}([^\\s#]+)`, 'gim'), (_, lead, path) => lead + rel(path))
+        .replace(new RegExp(`^( {0,3}\\[(?!\\^)[^\\]]+\\]:[ \\t]*)${local}([^\\s#]+)`, 'gim'), (_, lead, path) => lead + rel(path))
 }
 
 /**
