@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFil
 import { dirname, join } from 'node:path'
 import { claudeAsk } from '../core/lib/guard.mjs'
 import { validate } from '../core/lib/config.mjs'
-import { FILES, RenderError, dropParts, fill, verifyRuns, mergeClaudeSettings, mergeCodexHooks, mergeManaged, omittedParts, parseBlocks, proposeInsert, renderFile, templateVars } from '../core/lib/render.mjs'
+import { FILES, RenderError, dropParts, fill, mergeClaudeSettings, mergeCodexHooks, mergeManaged, omittedParts, parseBlocks, proposeInsert, renderFile, templateVars, verifyRuns } from '../core/lib/render.mjs'
 import { config, fakeGh, rawConfig, tempDir } from './helpers.mjs'
 
 const TEMPLATES = new URL('../core/templates/', import.meta.url).pathname
@@ -448,4 +448,5 @@ test('verifyRuns counts the verify command as consecutive lines: inline, quoted,
     // a shared first line is not a second run of the command
     assert.equal(verifyRuns('- run: |\n    set -euo pipefail\n    npm test\n- run: |\n    set -euo pipefail\n    npm run lint\n', 'set -euo pipefail\nnpm test'), 1)
     assert.equal(verifyRuns('- run: npm test\n\n', '  \n '), 0)
+    assert.equal(verifyRuns('- run: |\n    # lint first\n    npm test\n', '# lint first\nnpm test'), 1)
 })

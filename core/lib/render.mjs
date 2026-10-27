@@ -113,10 +113,10 @@ export function templateVars(cfg, { runtimeRel, practices = [] }) {
 
 /**
  * How many times a workflow runs the verify command: its non-blank lines, in order, as consecutive lines of the file (inline
- * `run: <cmd>`, quoted or not, or inside a `run: |` / `run: >` block). Blank and comment lines are skipped; an empty command counts 0.
+ * `run: <cmd>`, quoted or not, or inside a `run: |` / `run: >` block). Blank and comment lines are skipped on both sides; an empty command counts 0.
  */
 export function verifyRuns(text, command) {
-    const cmd = command.split('\n').map((l) => l.trim()).filter(Boolean)
+    const cmd = command.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'))
     if (!cmd.length) return 0
     const unquote = (l) => (/^(["']).*\1$/.test(l) ? l.slice(1, -1) : l)
     const lines = text.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#')).map((l) => unquote(l.replace(/^(-\s*)?run:\s*/, '')))
