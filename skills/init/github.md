@@ -4,7 +4,7 @@ Every write comes after a shown dry run and a yes. Run the scripts of the instal
 
 ## Labels
 
-1. `node .ticketflow/scripts/labels.mjs sync .ticketflow/templates/labels.json --dry-run` and show it. The list is ticketflow's labels, one `Area:` label per config area and `custom/labels.json` if present.
+1. `node .ticketflow/scripts/labels.mjs sync .ticketflow/templates/labels.json --dry-run` and show it (a dry run exits 1 when changes are pending; that is not a failure, exit 2 is). The list is ticketflow's labels, one `Area:` label per config area and `custom/labels.json` if present.
 2. On a yes, the same command without `--dry-run`.
 3. `--prune` removes unused labels the list does not name: only on a separate yes to the shown list.
 

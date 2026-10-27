@@ -48,4 +48,4 @@ Blockers are only: an unmet criterion, a security or data issue, a broken invari
 
 ## Report to the caller (at most 10 lines)
 
-The verdict, the review URL (`gh pr view <PR> --json reviews --jq '.reviews[-1].url'`), the head sha7, and one line per blocker or should-fix (in stand-in mode, nits too). Anything that needs an owner decision.
+The verdict, the review URL (`gh api repos/<repo>/pulls/<PR>/reviews --jq '.[-1].html_url'`; it can lag a few seconds after posting: retry once), the head sha7, and one line per blocker or should-fix (in stand-in mode, nits too). Anything that needs an owner decision.

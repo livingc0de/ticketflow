@@ -10,7 +10,7 @@ In this repository the runtime lives in `core/`: read every `.ticketflow/<path>`
 
 Read `.ticketflow/custom/create-ticket.md` first if it exists: it adds to and overrides this file. Read `.ticketflow/config.json` once. Actions follow the action map your stub names (`.ticketflow/agents-map/generic.md` without one). Descriptions stay short and stable, with no emojis; Markdown goes through a heredoc; nothing ever uses a closing keyword.
 
-1. **Search first** for a duplicate: `gh search issues --repo <repo> "<words>" --state all` (`<repo>` is `repo` in the config). Link related issues instead of repeating them.
+1. **Search first** for a duplicate: `gh search issues --repo <repo> "<words>"` (open and closed by default) (`<repo>` is `repo` in the config). Link related issues instead of repeating them.
 2. **One issue is one shippable unit** that one PR can complete. Anything bigger becomes a `Type: Initiative` tracker with children.
 3. **Body**, short style, in this order (omit a section only if it is truly empty), Title Case title:
    - Goal (the outcome), Today (verified behaviour with `path:line` and how it was verified, only if you saw it);

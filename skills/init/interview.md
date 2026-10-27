@@ -4,9 +4,9 @@ Start from `<TF>/core/templates/config.json` and write the result to `.ticketflo
 
 | Config row | How to detect or recommend |
 |---|---|
-| `repo`, `default_branch` | `gh repo view --json nameWithOwner,defaultBranchRef`. No question |
+| `repo`, `default_branch` | `gh repo view --json nameWithOwner,defaultBranchRef`; an empty new repo returns an empty branch name: use the local `git init -b` branch (`main`). No question |
 | `agents` | `.claude/` or CLAUDE.md: claude; `.codex/` or `.agents/`: codex; plus yourself |
-| `models` | Claude: opus, sonnet, haiku; Codex: all null (inherit) |
+| `models` | Claude `{strong: opus, standard: sonnet, light: haiku}`; Codex `{strong: null, standard: null, light: null}` (inherit) |
 | `verify.install` | from the lockfile: `npm ci`, `pnpm install --frozen-lockfile` or `yarn install --immutable` |
 | `verify.command` | in order: the `verify` script, the `test` script, a Makefile target, `pytest`, `cargo test`, `go test ./...` |
 | `verify.mode` | `ci`; `local-first` when CI is slow, costly or needs local services (then `timeout_min` 45) |

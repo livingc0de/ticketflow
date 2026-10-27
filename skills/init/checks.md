@@ -12,4 +12,4 @@
    - The `ponytail` and `superpowers` companions: give their install route for each agent; never write into user-level configuration.
    - `timeout` missing: install coreutils.
    - Protection skipped: say why and how to do it later.
-4. Remove the clone `<TF>` and any `--propose` directory you created.
+4. Remove the clone `<TF>` and any `--propose` directory you created. `local-verify` keeps its logs under `~/.cache/ticketflow-verify/`; leave them unless the user asks.
