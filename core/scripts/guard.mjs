@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /**
- * The Codex PreToolUse hook (and its self-test). Reads the hook input as JSON on stdin.
+ * The PreToolUse hook (and its self-test). Reads the hook input as JSON on stdin.
  *
- * Usage: guard.mjs                 exit 0 = allow, exit 2 = block (the reason is on stderr)
- *        guard.mjs --self-test     checks every example of guard.json against the hook; exit 1 on a mismatch
- *        both take [--config f]
+ * Usage: guard.mjs                    the Codex hook: exit 0 = allow, exit 2 = block (the reason is on stderr)
+ *        guard.mjs --format <tool>    the same decision in the hook protocol of cursor, gemini, copilot or antigravity (see FORMATS in lib/guard.mjs)
+ *        guard.mjs --self-test        checks every example of guard.json against the hook; exit 1 on a mismatch
+ *        all take [--config f]
  *
- * Fails closed: malformed input, a Bash call without a command or an unloadable guard.json block (exit 2). An unloadable config
+ * Fails closed in every format: malformed input, a shell call without a command, an unknown format or an unloadable guard.json
+ * answer with the format's deny and exit 2. An unloadable config
  * falls back to the default branch names main and master, with a warning: it stays strict and never blocks every shell call.
  * This is a speed bump for forms with no legitimate agent use, not a security boundary: see core/docs/SECURITY.md.
  */
@@ -17,11 +19,14 @@ import { dirname, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { configPath, loadConfig } from '../lib/config.mjs'
-import { hookDecision, loadGuard } from '../lib/guard.mjs'
+import { FORMATS, hookDecision, loadGuard } from '../lib/guard.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 let values
-try { ({ values } = parseArgs({ options: { 'self-test': { type: 'boolean' }, config: { type: 'string' } } })) } catch (e) { console.error(`guard: ${e.message}`); process.exit(2) }
+try { ({ values } = parseArgs({ options: { 'self-test': { type: 'boolean' }, config: { type: 'string' }, format: { type: 'string' } } })) } catch (e) { console.error(`guard: ${e.message}`); process.exit(2) }
+
+const format = values.format ?? 'codex'
+if (!Object.hasOwn(FORMATS, format)) { console.error(`guard: unknown format ${format} (one of ${Object.keys(FORMATS).join(', ')})`); process.exit(2) }
 
 let configs, scriptsDir = '.ticketflow/scripts'
 try {
@@ -36,7 +41,9 @@ try {   // `core/scripts` in ticketflow itself, `.ticketflow/scripts` in a user 
     scriptsDir = relative(top, here)
 } catch { /* keep the default */ }
 
-const decide = (input, cwd) => configs.map((cfg) => hookDecision(input, cfg, { cwd, scriptsDir })).find((d) => d.block) ?? { block: false }
+const decide = (input, cwd) => { const ds = configs.map((cfg) => hookDecision(input, cfg, { cwd, scriptsDir })); return ds.find((d) => d.block) ?? ds.find((d) => d.ask) ?? { block: false } }
+const emit = ({ stdout, stderr, code }) => { process.stdout.write(stdout); process.stderr.write(stderr); process.exitCode = code }
+const deny = (reason) => emit({ ...FORMATS[format].output({ block: true, reason }), code: 2 })   // an error always exits 2: the one code every tool treats as a block
 
 try {
     if (values['self-test']) {
@@ -52,11 +59,12 @@ try {
     } else {
         let input
         try { input = JSON.parse(readFileSync(0, 'utf8')) } catch { /* handled below */ }
-        if (input === null || typeof input !== 'object' || Array.isArray(input)) { console.error('guard: blocked: the hook input is not a JSON object'); process.exit(2) }
-        const d = decide(input, input?.cwd ?? process.cwd())
-        if (d.block) { console.error(`guard: blocked: ${d.reason}`); process.exit(2) }
+        if (input === null || typeof input !== 'object' || Array.isArray(input)) deny('the hook input is not a JSON object')
+        else {
+            const call = FORMATS[format].input(input)
+            emit(FORMATS[format].output(decide(call, call.cwd ?? process.cwd())))
+        }
     }
 } catch (e) {
-    console.error(`guard: blocked: ${e.message}`)   // any failure blocks: a hook only blocks on exit 2
-    process.exit(2)
+    deny(e.message)   // any failure blocks: a hook only blocks on exit 2
 }

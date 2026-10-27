@@ -1,0 +1,1 @@
+{"version":1,"hooks":{"beforeShellExecution":[{"command":"node {{runtime}}/scripts/guard.mjs --format cursor","matcher":"gh|git|protect","timeout":30,"failClosed":true}]}}

@@ -1,0 +1,1 @@
+{"ticketflow-guard":{"PreToolUse":[{"matcher":"run_command","hooks":[{"type":"command","command":"node \"$(git rev-parse --show-toplevel)/{{runtime}}/scripts/guard.mjs\" --format antigravity","timeout":30}]}]}}

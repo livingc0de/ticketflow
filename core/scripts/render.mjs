@@ -46,7 +46,8 @@ main('render', () => {
     const results = filesFor(cfg).filter((f) => !keep.has(f.dest)).map((f) => {
         const path = join(target, f.dest)
         const existing = existsSync(path) ? readFileSync(path, 'utf8') : null
-        return { f, existing, ...renderFile(f, readFileSync(join(templates, f.src), 'utf8'), existing, { cfg, vars, runtimeRel, owned }) }
+        const alt = f.alt && existsSync(join(target, f.alt)) ? readFileSync(join(target, f.alt), 'utf8') : null   // a sibling file the tool reads too
+        return { f, existing, ...renderFile(f, readFileSync(join(templates, f.src), 'utf8'), existing, { cfg, vars, runtimeRel, owned, alt }) }
     })
     for (const k of keep) console.log(`kept: ${k}`)
     const conflicts = results.filter((r) => r.conflict)

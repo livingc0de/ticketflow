@@ -1,11 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { claudeAsk } from '../core/lib/guard.mjs'
+import { askPatterns, claudeAsk } from '../core/lib/guard.mjs'
 import { validate } from '../core/lib/config.mjs'
-import { FILES, RenderError, filesFor, dropParts, fill, mergeClaudeSettings, runsOn, mergeCodexHooks, mergeManaged, omittedParts, parseBlocks, proposeInsert, renderFile, templateVars, verifyRuns } from '../core/lib/render.mjs'
+import { FILES, RenderError, filesFor, dropParts, fill, mergeClaudeSettings, runsOn, mergeCodexHooks, mergeHooks, mergeKeys, mergeManaged, mergeOpencodeAsk, omittedParts, parseBlocks, proposeInsert, renderFile, templateVars, verifyRuns } from '../core/lib/render.mjs'
 import { config, fakeGh, rawConfig, tempDir } from './helpers.mjs'
 
 const TEMPLATES = new URL('../core/templates/', import.meta.url).pathname
@@ -507,4 +507,113 @@ test('an unmarked GEMINI.md is a conflict with a proposal that puts the block at
     assert.equal(t.read('GEMINI.md'), '# My Gemini notes\n\nstay\n')
     assert.equal(readFileSync(join(out, 'GEMINI.md'), 'utf8'), '<!-- ticketflow:begin gemini -->\n@./AGENTS.md\n<!-- ticketflow:end gemini -->\n\n# My Gemini notes\n\nstay\n')
     assert.ok(!t.has('AGENTS.md'))
+})
+
+// ---- the guard's hook-config files for Cursor, Gemini CLI, Copilot, Antigravity and OpenCode (#31)
+const ALL = Object.fromEntries(['cursor', 'gemini', 'opencode', 'antigravity', 'copilot'].map((a) => [a, { strong: null, standard: null, light: null }]))
+const NEW_FILES = { cursor: '.cursor/hooks.json', gemini: '.gemini/settings.json', copilot: '.github/hooks/ticketflow-guard.json', antigravity: '.agents/hooks.json', opencode: 'opencode.json' }
+
+test('each hook-config file is written only with its agent, with the exact content; a second run and --check are clean', () => {
+    for (const [agent, dest] of Object.entries(NEW_FILES)) {
+        const t = repo({ agents: [agent], models: { [agent]: ALL[agent] } })
+        assert.equal(t.run().status, 0, agent)
+        for (const [other, p] of Object.entries(NEW_FILES)) assert.equal(t.has(p), other === agent, `${agent}: ${p}`)
+        assert.equal(t.run('--check').status, 0, agent)
+        assert.doesNotMatch(t.run().stdout, /wrote/, agent)
+        assert.ok(!t.has('GEMINI.md') || agent === 'gemini')
+    }
+    const rt = '.ticketflow'
+    const read = (agent) => repo({ agents: [agent], models: { [agent]: ALL[agent] } })
+    const c = read('cursor'); c.run()
+    assert.equal(c.read('.cursor/hooks.json'), JSON.stringify({ version: 1, hooks: { beforeShellExecution: [{ command: `node ${rt}/scripts/guard.mjs --format cursor`, matcher: 'gh|git|protect', timeout: 30, failClosed: true }] } }, null, 2) + '\n')
+    const g = read('gemini'); g.run()
+    assert.equal(g.read('.gemini/settings.json'), JSON.stringify({ hooks: { BeforeTool: [{ matcher: 'run_shell_command', hooks: [{ name: 'ticketflow-guard', type: 'command', command: `node "$GEMINI_PROJECT_DIR/${rt}/scripts/guard.mjs" --format gemini`, timeout: 30000 }] }] } }, null, 2) + '\n')
+    const p = read('copilot'); p.run()
+    assert.equal(p.read('.github/hooks/ticketflow-guard.json'), JSON.stringify({ version: 1, hooks: { PreToolUse: [{ type: 'command', matcher: 'Bash', command: `node ${rt}/scripts/guard.mjs --format copilot`, cwd: '.', timeoutSec: 30 }] } }, null, 2) + '\n')
+    const a = read('antigravity'); a.run()
+    assert.equal(a.read('.agents/hooks.json'), JSON.stringify({ 'ticketflow-guard': { PreToolUse: [{ matcher: 'run_command', hooks: [{ type: 'command', command: `node "$(git rev-parse --show-toplevel)/${rt}/scripts/guard.mjs" --format antigravity`, timeout: 30 }] }] } }, null, 2) + '\n')
+    const o = read('opencode'); o.run()
+    const oc = JSON.parse(o.read('opencode.json'))
+    assert.equal(oc.$schema, 'https://opencode.ai/config.json')
+    assert.deepEqual(Object.values(oc.permission.bash), Array(Object.keys(oc.permission.bash).length).fill('ask'))
+    assert.deepEqual(Object.keys(oc.permission.bash), askPatterns(config({ agents: ['opencode'], models: { opencode: ALL.opencode } }), { scriptsDir: '.ticketflow/scripts' }))
+})
+
+test('a claude+codex install renders none of the new files, and its .codex/hooks.json is byte-identical to the Codex template', () => {
+    const t = repo({ agents: ['claude', 'codex'], models: { ...MODELS, codex: ALL.cursor } })
+    assert.equal(t.run().status, 0)
+    for (const p of [...Object.values(NEW_FILES), 'GEMINI.md']) assert.ok(!t.has(p), p)
+    assert.equal(t.read('.codex/hooks.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: '$(git rev-parse --show-toplevel)/.ticketflow/scripts/guard.mjs' }] }] } }, null, 2) + '\n')
+})
+
+test('a hooks file keeps foreign entries, other events and keys; replaces a stale own entry (flat or grouped) in place; is idempotent; adds version only when missing', () => {
+    const cursor = JSON.parse(tpl('cursor-hooks.json').replaceAll('{{runtime}}', '.ticketflow'))
+    const entry = cursor.hooks.beforeShellExecution[0]
+    const foreign = { command: './mine.sh' }
+    const first = mergeHooks(JSON.stringify({ version: 2, other: 1, hooks: { beforeShellExecution: [foreign], stop: [{ command: 'x' }] } }), cursor, '.ticketflow')
+    const o = JSON.parse(first.text)
+    assert.deepEqual(o.hooks.beforeShellExecution, [foreign, entry]); assert.equal(o.version, 2); assert.equal(o.other, 1); assert.deepEqual(o.hooks.stop, [{ command: 'x' }])
+    assert.equal(mergeHooks(first.text, cursor, '.ticketflow').text, first.text)
+    assert.equal(JSON.parse(mergeHooks('{"hooks":{}}', cursor, '.ticketflow').text).version, 1)
+    const stale = { command: 'node core/scripts/guard.mjs --format cursor', failClosed: false }
+    assert.deepEqual(JSON.parse(mergeHooks(JSON.stringify({ hooks: { beforeShellExecution: [stale, foreign] } }), cursor, 'core').text).hooks.beforeShellExecution, [entry, foreign])   // replaced at its own place
+    // Gemini's grouped shape: ours leaves its group, the foreign hook of the group stays
+    const gemini = JSON.parse(tpl('gemini-settings.json').replaceAll('{{runtime}}', '.ticketflow'))
+    const group = { matcher: 'run_shell_command', hooks: [{ type: 'command', command: 'node "$GEMINI_PROJECT_DIR/.ticketflow/scripts/guard.mjs" --format gemini', timeout: 1 }, { type: 'command', command: '/x/keep.sh' }] }
+    const merged = JSON.parse(mergeHooks(JSON.stringify({ theme: 'dark', hooks: { BeforeTool: [group], AfterTool: [1] } }), gemini, '.ticketflow').text)
+    assert.deepEqual(merged.hooks.BeforeTool, [gemini.hooks.BeforeTool[0], { matcher: 'run_shell_command', hooks: [{ type: 'command', command: '/x/keep.sh' }] }])
+    assert.equal(merged.theme, 'dark'); assert.deepEqual(merged.hooks.AfterTool, [1])
+    for (const bad of ['{nope', '[]', '{"hooks":[]}', '{"hooks":{"beforeShellExecution":{}}}']) assert.ok(mergeHooks(bad, cursor, '.ticketflow').conflict, bad)
+    assert.deepEqual(mergeHooks(null, cursor, '.ticketflow').text, JSON.stringify(cursor, null, 2) + '\n')
+})
+
+test('keys: only the template\'s own key is replaced; foreign hooks stay; invalid JSON is a conflict', () => {
+    const tmpl = JSON.parse(tpl('antigravity-hooks.json').replaceAll('{{runtime}}', '.ticketflow'))
+    const mine = { linter: { PostToolUse: [{ matcher: 'run_command', hooks: [{ command: './lint.sh' }] }] } }
+    const r = mergeKeys(JSON.stringify({ ...mine, 'ticketflow-guard': { stale: true } }), tmpl)
+    assert.deepEqual(JSON.parse(r.text), { ...mine, ...tmpl }); assert.deepEqual(Object.keys(JSON.parse(r.text)), ['linter', 'ticketflow-guard'])
+    assert.equal(mergeKeys(r.text, tmpl).text, r.text)
+    assert.ok(mergeKeys('{nope', tmpl).conflict); assert.ok(mergeKeys('[]', tmpl).conflict)
+    assert.deepEqual(JSON.parse(mergeKeys(null, tmpl).text), tmpl)
+})
+
+test('opencode: V1 permission.bash gets ask keys (a deny is kept, an allow is changed with a note), V2 permissions get ask rules, both idempotent', () => {
+    const base = { $schema: 'https://opencode.ai/config.json' }
+    const pats = ['gh pr merge', 'gh pr merge *', 'git push * main']
+    const v1 = mergeOpencodeAsk(JSON.stringify({ theme: 'x', permission: { edit: 'deny', bash: { '*': 'allow', 'git push * main': 'deny', 'gh pr merge': 'allow' } } }), pats, base)
+    const o = JSON.parse(v1.text)
+    assert.deepEqual(o.permission.bash, { '*': 'allow', 'git push * main': 'deny', 'gh pr merge': 'ask', 'gh pr merge *': 'ask' })
+    assert.equal(o.theme, 'x'); assert.equal(o.permission.edit, 'deny')
+    assert.deepEqual(v1.notes, ['permission.bash["gh pr merge"] was "allow", now "ask"'])
+    assert.equal(mergeOpencodeAsk(v1.text, pats, base).text, v1.text)
+    const str = JSON.parse(mergeOpencodeAsk(JSON.stringify({ permission: { bash: 'allow' } }), pats, base).text)
+    assert.deepEqual(str.permission.bash, { '*': 'allow', 'gh pr merge': 'ask', 'gh pr merge *': 'ask', 'git push * main': 'ask' })
+    const v2 = mergeOpencodeAsk(JSON.stringify({ permissions: [{ action: 'shell', resource: '*', effect: 'allow' }, { action: 'shell', resource: 'gh pr merge', effect: 'ask' }, { action: 'shell', resource: 'git push * main', effect: 'deny' }] }), pats, base)
+    assert.deepEqual(JSON.parse(v2.text).permissions.slice(3), [{ action: 'shell', resource: 'gh pr merge *', effect: 'ask' }])
+    assert.equal(mergeOpencodeAsk(v2.text, pats, base).text, v2.text)
+    assert.deepEqual(JSON.parse(mergeOpencodeAsk(null, pats, base).text), { ...base, permission: { bash: { 'gh pr merge': 'ask', 'gh pr merge *': 'ask', 'git push * main': 'ask' } } })
+    for (const bad of ['{nope', '[]', '{"permissions":{}}', '{"permission":[]}', '{"permission":{"bash":[]}}']) assert.ok(mergeOpencodeAsk(bad, pats, base).conflict, bad)
+})
+
+test('existing user config files: invalid JSON and an opencode.jsonc are conflicts with a proposal; nothing is written; a valid file is merged, foreign keys kept', () => {
+    const t = repo({ agents: ['cursor', 'gemini', 'copilot', 'antigravity', 'opencode'], models: ALL })
+    t.put('.cursor/hooks.json', '{nope'); t.put('.gemini/settings.json', '[]'); t.put('.agents/hooks.json', '{"linter":{}}'); t.put('opencode.jsonc', '// mine\n{}')
+    t.put('.github/hooks/ticketflow-guard.json', '{"version":1,"hooks":{"PreToolUse":[{"type":"command","command":"./mine.sh"}]}}')
+    const out = tempDir('proposal-')
+    const r = t.run('--propose', out)
+    assert.equal(r.status, 1, r.stderr)
+    for (const p of ['.cursor/hooks.json', '.gemini/settings.json', 'opencode.json']) assert.match(r.stdout, new RegExp(`conflict: ${p.replaceAll('.', '\\.')}`), p)
+    assert.match(r.stdout, /opencode\.jsonc exists/)
+    assert.doesNotMatch(r.stdout, /conflict: \.agents\/hooks\.json/)
+    assert.equal(t.read('.cursor/hooks.json'), '{nope'); assert.ok(!t.has('opencode.json') && !t.has('GEMINI.md'))
+    assert.equal(JSON.parse(readFileSync(join(out, '.cursor/hooks.json'), 'utf8')).hooks.beforeShellExecution.length, 1)
+    assert.ok(JSON.parse(readFileSync(join(out, 'opencode.json'), 'utf8')).permission.bash['gh pr merge'] === 'ask')
+    // without the bad files: the valid ones are merged and kept
+    for (const p of ['.cursor/hooks.json', '.gemini/settings.json']) t.put(p, '{"keep":1}')
+    rmSync(join(t.dir, 'opencode.jsonc'))
+    assert.equal(t.run().status, 0)
+    assert.equal(JSON.parse(t.read('.cursor/hooks.json')).keep, 1); assert.equal(JSON.parse(t.read('.gemini/settings.json')).keep, 1)
+    assert.deepEqual(Object.keys(JSON.parse(t.read('.agents/hooks.json'))), ['linter', 'ticketflow-guard'])
+    assert.equal(JSON.parse(t.read('.github/hooks/ticketflow-guard.json')).hooks.PreToolUse.length, 2)
+    assert.equal(t.run('--check').status, 0)
 })

@@ -1,0 +1,1 @@
+{"version":1,"hooks":{"PreToolUse":[{"type":"command","matcher":"Bash","command":"node {{runtime}}/scripts/guard.mjs --format copilot","cwd":".","timeoutSec":30}]}}

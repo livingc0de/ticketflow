@@ -9,7 +9,7 @@
  * YAML string too; the other values are validated by the config (branch names, paths) or built here.
  */
 
-import { claudeAsk, codexRules } from './guard.mjs'
+import { askPatterns, claudeAsk, codexRules } from './guard.mjs'
 
 export class RenderError extends Error {
     name = 'RenderError'
@@ -17,8 +17,8 @@ export class RenderError extends Error {
 const fail = (m) => { throw new RenderError(m) }
 
 /**
- * Where each template goes. `kind`: blocks (managed blocks merged into the file), settings and hooks (JSON merged by key),
- * owned (the whole file is ticketflow's), once (written when missing, never touched again). `propose`: where a managed block is
+ * Where each template goes. `kind`: blocks (managed blocks merged into the file), settings, hooks, keys and opencode (JSON merged into
+ * the repo's own file, see the merge functions), owned (the whole file is ticketflow's), once (written when missing, never touched again). `propose`: where a managed block is
  * suggested when the existing file has no markers. `agent`: rendered only while that agent is in the config (the entries without it
  * are rendered for every install, as they always were).
  */
@@ -32,6 +32,11 @@ export const FILES = [
     { src: 'GEMINI.md', dest: 'GEMINI.md', kind: 'blocks', propose: 'top', agent: 'gemini' },
     { src: 'claude-settings.json', dest: '.claude/settings.json', kind: 'settings' },
     { src: 'codex-hooks.json', dest: '.codex/hooks.json', kind: 'hooks' },
+    { src: 'cursor-hooks.json', dest: '.cursor/hooks.json', kind: 'hooks', agent: 'cursor' },
+    { src: 'gemini-settings.json', dest: '.gemini/settings.json', kind: 'hooks', agent: 'gemini' },
+    { src: 'copilot-hooks.json', dest: '.github/hooks/ticketflow-guard.json', kind: 'hooks', agent: 'copilot' },
+    { src: 'antigravity-hooks.json', dest: '.agents/hooks.json', kind: 'keys', agent: 'antigravity' },
+    { src: 'opencode.json', dest: 'opencode.json', kind: 'opencode', agent: 'opencode', alt: 'opencode.jsonc' },
     { src: 'codex.rules', dest: '.codex/rules/ticketflow.rules', kind: 'owned' },
     { src: 'custom-README.md', dest: '.ticketflow/custom/README.md', kind: 'once' },
 ]
@@ -228,26 +233,73 @@ export function mergeClaudeSettings(existing, { allow, ask }, owned = {}) {
     return { text: same ? existing : json(next), notes }
 }
 
-/** Codex hooks: ticketflow's PreToolUse entry (its command runs scripts/guard.mjs) is added or replaced, once. */
-export function mergeCodexHooks(existing, entry, runtimeRel) {
+/**
+ * A hooks file (Codex, Cursor, Gemini CLI, Copilot): ticketflow's guard entry is added or replaced, once. `template` is the rendered
+ * template: its `hooks` has one event, whose first entry is ours (its command runs scripts/guard.mjs); other top-level keys of the
+ * template (a `version`) are added only when the file lacks them. Ours is matched by command, as a flat entry or inside a group's `hooks`.
+ */
+export function mergeHooks(existing, template, runtimeRel) {
+    const event = Object.keys(template.hooks)[0], entry = template.hooks[event][0]
     const obj = existing === null ? {} : parseJson(existing)
     if (obj === undefined) return { conflict: 'the hooks file is not valid JSON' }
-    const pre = obj?.hooks?.PreToolUse ?? []
-    if (!isObject(obj) || (obj.hooks !== undefined && !isObject(obj.hooks)) || !Array.isArray(pre)) return { conflict: 'the hooks file is not shaped like { hooks: { PreToolUse: [...] } }' }
+    const list = obj?.hooks?.[event] ?? []
+    if (!isObject(obj) || (obj.hooks !== undefined && !isObject(obj.hooks)) || !Array.isArray(list)) return { conflict: `the hooks file is not shaped like { hooks: { ${event}: [...] } }` }
     const ours = (h) => typeof h?.command === 'string' && [`.ticketflow/scripts/guard.mjs`, `${runtimeRel}/scripts/guard.mjs`].some((p) => h.command.includes(p))
     let at = -1
     const rest = []
-    for (const group of pre) {
-        const hooks = Array.isArray(group?.hooks) ? group.hooks : null
-        if (hooks?.some(ours)) {
+    for (const item of list) {
+        const hooks = Array.isArray(item?.hooks) ? item.hooks : null
+        if (ours(item) || hooks?.some(ours)) {
             if (at < 0) at = rest.length
-            const kept = hooks.filter((h) => !ours(h))
-            if (kept.length) rest.push({ ...group, hooks: kept })
-        } else rest.push(group)
+            const kept = hooks?.filter((h) => !ours(h)) ?? []
+            if (kept.length) rest.push({ ...item, hooks: kept })
+        } else rest.push(item)
     }
     rest.splice(at < 0 ? rest.length : at, 0, entry)
-    const next = { ...obj, hooks: { ...obj.hooks, PreToolUse: rest } }
+    const extra = Object.fromEntries(Object.entries(template).filter(([k]) => k !== 'hooks' && !Object.hasOwn(obj, k)))
+    const next = { ...extra, ...obj, hooks: { ...obj.hooks, [event]: rest } }
     return { text: existing !== null && JSON.stringify(next) === JSON.stringify(obj) ? existing : json(next), notes: [] }
+}
+
+/** Codex hooks: the one PreToolUse entry. */
+export const mergeCodexHooks = (existing, entry, runtimeRel) => mergeHooks(existing, { hooks: { PreToolUse: [entry] } }, runtimeRel)
+
+/** A JSON file of named entries (Antigravity `hooks.json`): the template's top-level keys replace the same keys, every other key is kept. */
+export function mergeKeys(existing, template) {
+    const obj = existing === null ? {} : parseJson(existing)
+    if (!isObject(obj)) return { conflict: obj === undefined ? 'the file is not valid JSON' : 'the file is not a JSON object' }
+    const next = { ...obj, ...template }
+    return { text: existing !== null && JSON.stringify(next) === JSON.stringify(obj) ? existing : json(next), notes: [] }
+}
+
+/**
+ * OpenCode asks before the bypass forms (it has no hook command): `patterns` become ask rules, in `permissions` when the file already
+ * uses the V2 array, else in the V1 `permission.bash` map (V2 reads it too). An existing deny for a pattern is kept, never weakened.
+ * ponytail: a pattern the guard drops later stays an ask rule; remove it by hand.
+ */
+export function mergeOpencodeAsk(existing, patterns, base) {
+    const obj = existing === null ? { ...base } : parseJson(existing)
+    if (!isObject(obj)) return { conflict: obj === undefined ? 'the file is not valid JSON' : 'the file is not a JSON object' }
+    const notes = []
+    let next
+    if (obj.permissions !== undefined) {
+        if (!Array.isArray(obj.permissions)) return { conflict: 'permissions is not a list' }
+        const known = (p) => obj.permissions.some((r) => r?.action === 'shell' && r.resource === p && ['ask', 'deny'].includes(r.effect))
+        const add = patterns.filter((p) => !known(p)).map((resource) => ({ action: 'shell', resource, effect: 'ask' }))
+        next = add.length ? { ...obj, permissions: [...obj.permissions, ...add] } : obj
+    } else {
+        const perm = typeof obj.permission === 'string' ? { '*': obj.permission } : obj.permission ?? {}
+        const bash = typeof perm.bash === 'string' ? { '*': perm.bash } : perm.bash ?? {}
+        if (!isObject(perm) || !isObject(bash)) return { conflict: 'permission (or permission.bash) is not an object' }
+        const merged = { ...bash }
+        for (const p of patterns) {
+            if (merged[p] === 'deny') continue
+            if (merged[p] !== undefined && merged[p] !== 'ask') notes.push(`permission.bash[${JSON.stringify(p)}] was ${JSON.stringify(merged[p])}, now "ask"`)
+            merged[p] = 'ask'
+        }
+        next = { ...obj, permission: { ...perm, bash: merged } }
+    }
+    return { text: existing !== null && JSON.stringify(next) === JSON.stringify(obj) ? existing : json(next), notes }
 }
 
 /**
@@ -265,7 +317,7 @@ export function runsOn(existing, part) {
  * One template to one file. `existing` is the file's text or null. `ctx`: { cfg, vars, runtimeRel, owned }.
  * Returns { text, notes, owns? } or { conflict, proposal } (`proposal` is the text ticketflow would suggest instead).
  */
-export function renderFile(file, tpl, existing, { cfg, vars, runtimeRel, owned = {} }) {
+export function renderFile(file, tpl, existing, { cfg, vars, runtimeRel, owned = {}, alt = null }) {
     const job = file.src === 'ci.yml' ? runsOn(existing, 'job') ?? '    runs-on: ubuntu-latest' : null
     const all = file.src === 'ci.yml' ? { ...vars, runs_on_job: job, runs_on_deploy: runsOn(existing, 'deploy') ?? job } : vars   // a new deploy job runs where the job runs
     const rendered = dropParts(fill(tpl, all), omittedParts(cfg))
@@ -282,9 +334,12 @@ export function renderFile(file, tpl, existing, { cfg, vars, runtimeRel, owned =
             const r = merge(existing)
             return r.conflict ? { ...r, proposal: merge(null) } : { ...r, owns: want }   // `owns`: what the manifest records as ticketflow's
         }
-        case 'hooks': {
-            const merge = (text) => mergeCodexHooks(text, JSON.parse(rendered).hooks.PreToolUse[0], runtimeRel)
+        case 'hooks': case 'keys': case 'opencode': {
+            const template = JSON.parse(rendered)
+            const merge = (text) => file.kind === 'hooks' ? mergeHooks(text, template, runtimeRel) : file.kind === 'keys' ? mergeKeys(text, template)
+                : mergeOpencodeAsk(text, askPatterns(cfg, { scriptsDir: `${runtimeRel}/scripts` }), template)
             const r = merge(existing)
+            if (alt !== null) return { conflict: `${file.alt} exists and has comments or trailing commas ticketflow cannot merge: add the proposed ask rules to it by hand and hold ${file.dest} (render --keep ${file.dest})`, proposal: r.conflict ? merge(null) : r }   // OpenCode reads both files
             return r.conflict ? { ...r, proposal: merge(null) } : r
         }
         case 'owned':
