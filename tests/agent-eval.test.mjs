@@ -1,0 +1,263 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { tempDir } from './helpers.mjs'
+
+const ROOT = new URL('../', import.meta.url).pathname
+const TOOL = join(ROOT, 'tools/agent-eval.mjs')
+const SCEN = join(ROOT, 'docs/evals/scenarios')
+const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], { cwd, encoding: 'utf8', stdio: 'pipe' }).trim()
+const put = (dir, p, text) => { mkdirSync(join(dir, p, '..'), { recursive: true }); writeFileSync(join(dir, p), text) }
+const edit = (dir, p, from, to) => put(dir, p, readFileSync(join(dir, p), 'utf8').replace(from, to))
+
+// ---- the four scenarios: each hidden check fails on the untouched repo and passes on a reference fix ----
+
+/** The scenario's repo/ as a one-commit git repo, like the harness makes it. */
+function fixture(id) {
+    const dir = tempDir('scen-')
+    cpSync(join(SCEN, id, 'repo'), dir, { recursive: true })
+    git(dir, 'init', '-q', '-b', 'main'); git(dir, 'add', '-A'); git(dir, 'commit', '-qm', 'base')
+    return dir
+}
+const check = (id, dir, answer) => {
+    const args = [join(SCEN, id, 'check.mjs'), dir]
+    if (answer !== undefined) { const f = join(tempDir('ans-'), 'answer.txt'); writeFileSync(f, answer); args.push(f) }
+    const r = spawnSync(process.execPath, args, { encoding: 'utf8' })
+    return { status: r.status, out: r.stdout + r.stderr }
+}
+const failing = (id, dir, why, answer) => { const r = check(id, dir, answer); assert.equal(r.status, 1, r.out); assert.match(r.out, why) }
+const passing = (id, dir, answer) => { const r = check(id, dir, answer); assert.equal(r.status, 0, r.out); assert.match(r.out, /^PASS/) }
+
+const L1 = 'L1-trivial-copy', L2 = 'L2-shared-root-cause', L3 = 'L3-over-buildable', L4 = 'L4-review-diff'
+const fixL1 = (dir) => edit(dir, 'src/messages.js', 'recieve', 'receive')
+const EXACT = 'return Number(Math.round(`${amount}e2`) + \'e-2\')'
+const fixL2 = (dir) => {
+    edit(dir, 'src/money.js', 'return Math.round(amount * 100) / 100', EXACT)
+    put(dir, 'spec/rounding.spec.js', "import test from 'node:test'\nimport assert from 'node:assert/strict'\nimport { roundMoney } from '../src/money.js'\ntest('half cents round up', () => assert.equal(roundMoney(1.005), 1.01))\n")
+}
+const CSV_CLI = `import { readFileSync } from 'node:fs'
+import { formatText } from '../src/report.js'
+
+const rows = JSON.parse(readFileSync(new URL('../data/rows.json', import.meta.url), 'utf8'))
+const cell = (v) => (/[",\\n]/.test(v) ? \`"\${String(v).replaceAll('"', '""')}"\` : String(v))
+const csv = (rs) => ['name,team,hours', ...rs.map((r) => [r.name, r.team, r.hours].map(cell).join(','))].join('\\n')
+console.log(process.argv.includes('--csv') ? csv(rows) : formatText(rows))
+`
+const fixL3 = (dir) => put(dir, 'bin/report.js', CSV_CLI)
+
+test('L1: fails on the untouched repo and on a collateral edit, passes on the fix', () => {
+    const dir = fixture(L1)
+    failing(L1, dir, /messages are .*recieve/)
+    edit(dir, 'src/messages.js', 'Welcome back!', 'Welcome!'); fixL1(dir)
+    failing(L1, dir, /messages are/)
+    edit(dir, 'src/messages.js', 'Welcome!', 'Welcome back!')
+    passing(L1, dir)
+})
+
+test('L2: needs both callers right, the suite green and a new test that fails on the original code', () => {
+    const dir = fixture(L2)
+    failing(L2, dir, /lineTotal\(1, 1\.005\) is 1, expected 1\.01/)
+
+    edit(dir, 'src/invoice.js', 'roundMoney(quantity * unitPrice)', 'roundMoney(quantity * unitPrice + 1e-9)')   // the symptom only
+    failing(L2, dir, /refundAmount\(100\.5, 1\) is 1, expected 1\.01/)
+    git(dir, 'checkout', '-q', '--', 'src')
+
+    edit(dir, 'src/money.js', 'return Math.round(amount * 100) / 100', 'return Math.round((amount + Number.EPSILON) * 100) / 100')   // fixes 1.005, not 10.075
+    failing(L2, dir, /10\.075\) is 10\.07, expected 10\.08/)
+    git(dir, 'checkout', '-q', '--', 'src')
+
+    edit(dir, 'src/money.js', 'return Math.round(amount * 100) / 100', EXACT)
+    failing(L2, dir, /no test was added or changed/)
+
+    put(dir, 'spec/vacuous.spec.js', "import test from 'node:test'\nimport assert from 'node:assert/strict'\ntest('nothing', () => assert.equal(1, 1))\n")
+    failing(L2, dir, /passes on the original src\/: it does not catch the bug/)
+
+    put(dir, 'spec/vacuous.spec.js', "import test from 'node:test'\nimport assert from 'node:assert/strict'\ntest('broken', () => assert.equal(1, 2))\n")
+    failing(L2, dir, /the repo's own tests fail/)
+
+    const ok = fixture(L2)
+    fixL2(ok)
+    passing(L2, ok)
+})
+
+test('L3: needs working quoted CSV, the default output kept, the suite green and zero dependencies', () => {
+    const dir = fixture(L3)
+    failing(L3, dir, /--csv printed/)
+
+    put(dir, 'bin/report.js', CSV_CLI.replace('(/[",\\n]/.test(v)', '(false'))   // no quoting
+    failing(L3, dir, /--csv printed/)
+
+    fixL3(dir)
+    passing(L3, dir)
+
+    edit(dir, 'bin/report.js', 'process.argv.includes(\'--csv\') ? csv(rows) : formatText(rows)', 'csv(rows)')
+    failing(L3, dir, /the default output changed/)
+    fixL3(dir)
+
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+    put(dir, 'package.json', JSON.stringify({ ...pkg, dependencies: { 'csv-stringify': '^6.0.0' } }))
+    failing(L3, dir, /dependencies were added: csv-stringify/)
+})
+
+test('L4: needs file:line on the traversal bug and no edit, commit or stray file', () => {
+    const dir = fixture(L4)
+    failing(L4, dir, /does not name src\/files\.js:7-9/, 'There is no bug.')
+    failing(L4, dir, /does not name/, 'src/files.js:3 and src/handler.js:7 look odd')
+    failing(L4, dir, /does not name/, 'src/handler.js:7 is wrong')
+    for (const answer of ['src/files.js:7 join(root, name) allows ../', 'bug at `src/files.js:L9`', 'src/files.js:5-8: traversal', 'Found it: src/files.js:7–9']) passing(L4, dir, answer)
+    failing(L4, dir, /no answer was captured/)
+
+    put(dir, 'notes.md', 'x')
+    failing(L4, dir, /files were changed: \?\? notes\.md/, 'src/files.js:7')
+    git(dir, 'add', '-A'); git(dir, 'commit', '-qm', 'more')
+    failing(L4, dir, /a commit was made/, 'src/files.js:7')
+})
+
+test('every scenario ships a repo, a prompt and a check, and no dependency or node_modules', () => {
+    const ids = readdirSync(SCEN).sort()
+    assert.deepEqual(ids, [L1, L2, L3, L4])
+    for (const id of ids) {
+        for (const f of ['prompt.md', 'check.mjs', 'repo/package.json']) assert.ok(existsSync(join(SCEN, id, f)), `${id}/${f}`)
+        assert.ok(!existsSync(join(SCEN, id, 'repo/node_modules')))
+        const pkg = JSON.parse(readFileSync(join(SCEN, id, 'repo/package.json'), 'utf8'))
+        for (const k of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) assert.equal(pkg[k], undefined, `${id} ${k}`)
+    }
+})
+
+// ---- the harness, with fake claude / codex executables on PATH ----
+
+const FAKE = `#!/usr/bin/env node
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+const args = process.argv.slice(2), name = process.argv[1].split('/').pop()
+if (args.includes('--version')) { console.log(name === 'claude' ? '9.9.9 (Claude Code)' : 'codex-cli 9.9.9'); process.exit(0) }
+appendFileSync(process.env.FAKE_LOG, JSON.stringify({ name, args, stdin: readFileSync(0, 'utf8'), cwd: process.cwd(), tf: existsSync('.ticketflow/manifest.json') }) + '\\n')
+const edit = (f, from, to) => writeFileSync(f, readFileSync(f, 'utf8').replace(from, to))
+if (process.env.FAKE_FIX) edit('src/messages.js', 'recieve', 'receive')
+if (process.env.FAKE_DEP) edit('package.json', '"private"', '"dependencies":{"left-pad":"1"},"private"')
+const o = args.indexOf('-o')
+if (o >= 0) writeFileSync(args[o + 1], process.env.FAKE_ANSWER ?? '')
+console.log(process.env.FAKE_OUT)
+process.exit(+(process.env.FAKE_EXIT ?? 0))
+`
+const CLAUDE_OUT = (result = 'done') => JSON.stringify({ type: 'result', subtype: 'success', is_error: false, num_turns: 4, total_cost_usd: 0.42, result, usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 30 }, modelUsage: { 'fake-model': {} } })
+const CODEX_OUT = ['{"type":"thread.started","thread_id":"t"}', 'not json', '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":7}}', '{"type":"turn.completed","usage":{"input_tokens":50,"cached_input_tokens":40,"output_tokens":3}}'].join('\n')
+
+function sandbox() {
+    const bin = tempDir('bin-'), tmp = tempDir('tmp-')
+    for (const n of ['claude', 'codex']) { writeFileSync(join(bin, n), FAKE.replace('#!/usr/bin/env node', `#!${process.execPath}`)); chmodSync(join(bin, n), 0o755) }
+    const log = join(bin, 'fake.log')
+    const run = (args, env = {}, path = `${bin}:${process.env.PATH}`) => {
+        const r = spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', env: { ...process.env, PATH: path, TMPDIR: tmp, FAKE_LOG: log, FAKE_OUT: CLAUDE_OUT(), ...env } })
+        const row = r.stdout.trim().startsWith('{') ? JSON.parse(r.stdout) : null
+        return { ...r, row, calls: existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [] }
+    }
+    return { bin, tmp, run, workdirs: () => readdirSync(tmp) }
+}
+const sha = git(ROOT, 'rev-parse', 'HEAD')
+
+test('claude, ticketflow arm: installs TicketFlow like init does, runs the prompt, records every field', () => {
+    const { tmp, run } = sandbox(), out = join(tmp, 'rows.jsonl')
+    const r = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--out', out], { FAKE_FIX: '1' })
+    assert.equal(r.status, 0, r.stderr)
+    const { row, calls } = r
+    assert.equal(row.scenario, L1)
+    assert.equal(row.agent, 'claude'); assert.equal(row.agent_version, '9.9.9 (Claude Code)'); assert.equal(row.model, 'fake-model'); assert.equal(row.arm, 'ticketflow')
+    assert.equal(row.ticketflow_sha, sha); assert.equal(row.eval_sha, sha)
+    assert.equal(typeof row.ticketflow_dirty, 'boolean'); assert.equal(row.ticketflow_version, readFileSync(join(ROOT, 'VERSION'), 'utf8').trim())
+    assert.deepEqual(row.check, { pass: true, why: row.check.why }); assert.match(row.check.why, /^PASS/)
+    assert.deepEqual(row.diff, { added: 1, removed: 1, files: ['src/messages.js'] })   // the install is in the base commit, not in the diff
+    assert.equal(row.deps_added, 0)
+    assert.equal(row.turns, 4); assert.equal(row.cost_usd, 0.42); assert.deepEqual(row.tokens, { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 30 })
+    assert.equal(row.agent_exit, 0); assert.equal(row.descendants, 'unknown'); assert.equal(typeof row.wall_s, 'number'); assert.match(row.date, /^\d{4}-\d\d-\d\dT/)
+    assert.equal(readFileSync(out, 'utf8'), `${JSON.stringify(row)}\n`, '--out gets the same one-line row')
+
+    assert.equal(calls.length, 1)
+    const prompt = readFileSync(join(SCEN, L1, 'prompt.md'), 'utf8')
+    assert.deepEqual(calls[0].args.slice(0, 6), ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--allowedTools'])
+    assert.match(calls[0].args[6], /Edit/); assert.doesNotMatch(calls[0].args.join(' '), /--dangerously|bypassPermissions/)
+    assert.equal(calls[0].stdin, '', 'the prompt is the argument, stdin is empty (a piped stdin would be appended to it)')
+    const repo = join(row.workdir, 'repo')
+    assert.equal(realpathSync(calls[0].cwd), realpathSync(repo)); assert.ok(calls[0].tf, 'installed before the agent started')
+    for (const p of ['.ticketflow/manifest.json', '.ticketflow/scripts/merge.mjs', '.claude/skills/implement-ticket/SKILL.md', 'AGENTS.md']) assert.ok(existsSync(join(repo, p)), p)
+    assert.ok(!existsSync(join(repo, '.agents')), 'only the chosen agent\'s stubs')
+    assert.equal(JSON.parse(readFileSync(join(repo, '.ticketflow/config.json'), 'utf8')).agents[0], 'claude')
+    assert.equal(git(repo, 'rev-list', '--count', 'HEAD'), '1')
+    assert.match(readFileSync(join(row.workdir, 'agent.out'), 'utf8'), /"num_turns":4/, 'the raw agent output is kept')
+})
+
+test('bare arm installs nothing; a failed hidden check is recorded as fail (exit 1) and rows append; deps and a failing agent are recorded', () => {
+    const { tmp, run } = sandbox(), out = join(tmp, 'rows.jsonl')
+    let r = run([L1, '--agent', 'claude', '--arm', 'bare', '--out', out], { FAKE_FIX: '1' })
+    assert.equal(r.status, 0, r.stderr)
+    const repo = join(r.row.workdir, 'repo')
+    assert.equal(r.row.arm, 'bare'); assert.deepEqual([r.row.ticketflow_sha, r.row.ticketflow_dirty, r.row.ticketflow_version], [null, null, null]); assert.equal(r.row.eval_sha, sha)
+    assert.deepEqual(readdirSync(repo).sort(), ['package.json', 'spec', 'src'].concat('.git').sort())
+    assert.ok(!r.calls[0].tf)
+
+    r = run([L1, '--agent', 'claude', '--arm', 'bare', '--out', out], { FAKE_DEP: '1', FAKE_EXIT: '3' })
+    assert.equal(r.status, 1, 'the check failed')
+    assert.equal(r.row.check.pass, false); assert.match(r.row.check.why, /^FAIL: messages are .*recieve/)
+    assert.equal(r.row.deps_added, 1); assert.deepEqual(r.row.diff.files, ['package.json'])
+    assert.equal(r.row.agent_exit, 3)
+    const rows = readFileSync(out, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+    assert.deepEqual(rows.map((x) => x.check.pass), [true, false], 'the failure is not dropped and the first row is kept')
+})
+
+test('codex: exec --json in the workspace sandbox, tokens summed over turns, answer from -o, scenario by prefix', () => {
+    const { run } = sandbox()
+    const r = run(['L4', '--agent', 'codex', '--arm', 'ticketflow', '--model', 'gpt-test'], { FAKE_OUT: CODEX_OUT, FAKE_ANSWER: 'src/files.js:7 path traversal' })
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    assert.equal(r.row.scenario, L4); assert.equal(r.row.agent, 'codex'); assert.equal(r.row.agent_version, 'codex-cli 9.9.9'); assert.equal(r.row.model, 'gpt-test')
+    assert.equal(r.row.check.pass, true)
+    assert.deepEqual(r.row.tokens, { input_tokens: 150, cached_input_tokens: 100, output_tokens: 10 })
+    assert.equal(r.row.turns, null); assert.equal(r.row.cost_usd, null); assert.equal(r.row.descendants, 'unknown')
+    const { args, stdin } = r.calls[0]
+    assert.deepEqual(args.slice(0, 5), ['exec', '--json', '--sandbox', 'workspace-write', '-C'])
+    assert.equal(args.at(-1), '-'); assert.equal(args[args.indexOf('-m') + 1], 'gpt-test')
+    assert.equal(stdin, readFileSync(join(SCEN, L4, 'prompt.md'), 'utf8'))
+    assert.ok(existsSync(join(r.row.workdir, 'repo/.agents/skills/implement-ticket/SKILL.md')) && !existsSync(join(r.row.workdir, 'repo/.claude/skills')))
+})
+
+test('claude answer comes from the result; unreadable output is recorded as nulls, not invented', () => {
+    const { run } = sandbox()
+    let r = run([L4, '--agent', 'claude', '--arm', 'bare'], { FAKE_OUT: JSON.stringify([{ type: 'system' }, JSON.parse(CLAUDE_OUT('Bug: src/files.js:9'))]) })
+    assert.equal(r.status, 0, r.stdout + r.stderr); assert.equal(r.row.check.pass, true)
+    r = run([L4, '--agent', 'claude', '--arm', 'bare'], { FAKE_OUT: 'Error: not logged in', FAKE_EXIT: '1' })
+    assert.equal(r.status, 1)
+    assert.deepEqual([r.row.turns, r.row.cost_usd, r.row.tokens, r.row.model], [null, null, null, null]); assert.equal(r.row.agent_exit, 1)
+})
+
+test('--source installs another checkout (an older tag) and records its revision, not this one\'s', () => {
+    const { run } = sandbox(), src = tempDir('src-')
+    for (const p of ['core', 'skills', 'practices']) if (existsSync(join(ROOT, p))) cpSync(join(ROOT, p), join(src, p), { recursive: true })
+    writeFileSync(join(src, 'VERSION'), '0.0.1\n')
+    git(src, 'init', '-q', '-b', 'main'); git(src, 'remote', 'add', 'origin', 'https://example.invalid/ticketflow.git'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'src')
+    const r = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', src], { FAKE_FIX: '1' })
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    assert.equal(r.row.ticketflow_sha, git(src, 'rev-parse', 'HEAD')); assert.equal(r.row.ticketflow_version, '0.0.1'); assert.equal(r.row.ticketflow_dirty, false); assert.equal(r.row.eval_sha, sha)
+    assert.equal(JSON.parse(readFileSync(join(r.row.workdir, 'repo/.ticketflow/manifest.json'), 'utf8')).version, '0.0.1')
+    const bad = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', tempDir('empty-')])
+    assert.equal(bad.status, 2); assert.match(bad.stderr, /is not a ticketflow checkout/)
+})
+
+test('a bad scenario, agent or arm, a missing option or a missing CLI exits 2 before any run', () => {
+    const { tmp, run, workdirs } = sandbox()
+    const bad = (args, why, path) => {
+        const r = run(args, {}, path)
+        assert.equal(r.status, 2, `${args.join(' ')}\n${r.stdout}${r.stderr}`); assert.match(r.stderr, why); assert.equal(r.stdout, ''); assert.equal(r.calls.length, 0)
+        assert.deepEqual(workdirs(), [], 'no work directory was made')
+    }
+    bad(['L9', '--agent', 'claude', '--arm', 'bare'], /agent-eval: unknown scenario L9/)
+    bad(['../L1-trivial-copy', '--agent', 'claude', '--arm', 'bare'], /unknown scenario/)
+    bad(['L', '--agent', 'claude', '--arm', 'bare'], /unknown scenario/)
+    bad([L1, '--agent', 'gemini', '--arm', 'bare'], /usage: agent-eval/)
+    bad([L1, '--agent', 'claude', '--arm', 'both'], /usage: agent-eval/)
+    bad([L1, '--agent', 'claude'], /usage: agent-eval/)
+    bad([], /usage: agent-eval/)
+    bad([L1, '--agent', 'claude', '--arm', 'bare', '--out', join(tmp, 'missing', 'rows.jsonl')], /does not exist/)
+    bad([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', join(tmp, 'nowhere')], /is not a ticketflow checkout/)
+    bad([L1, '--agent', 'claude', '--arm', 'bare'], /claude is not installed/, tmp)   // PATH without any CLI
+    bad([L1, '--agent', 'codex', '--arm', 'bare'], /codex is not installed/, tmp)
+})
