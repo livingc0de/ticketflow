@@ -2,3 +2,5 @@ node_modules
 .DS_Store
 *.log
 .claude/worktrees/
+docs/plans/
+docs/maintainers/upstream-reviews/
