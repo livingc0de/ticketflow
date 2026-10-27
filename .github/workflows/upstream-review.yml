@@ -1,0 +1,49 @@
+name: Upstream Review
+
+# Maintainer-only. Monthly: report what the upstream projects TicketFlow learns from changed since the last recorded review
+# (docs/maintainers/upstream.json) in one open issue. Not part of the merge gate (CI / Gate is posted by ci.yml only).
+on:
+  schedule:
+    - cron: "17 6 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream-review
+
+jobs:
+  review:
+    name: Review
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set Up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      # Exit 0: nothing to do. Exit 1: changes, open or update the issue. Exit 2 (or anything else): the job fails.
+      - name: Review Upstreams
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          code=0
+          node tools/upstream-review.mjs > "$RUNNER_TEMP/report.txt" || code=$?
+          cat "$RUNNER_TEMP/report.txt"
+          [ "$code" = 1 ] || exit "$code"
+          { printf 'Follow `docs/maintainers/upstream-review.md`.\n\n```\n'; cat "$RUNNER_TEMP/report.txt"; printf '```\n'; } > "$RUNNER_TEMP/body.md"
+          n=$(gh issue list --state open --search '"Upstream Review Due" in:title' --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then
+            gh issue edit "$n" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh issue create --title "Upstream Review Due" --body-file "$RUNNER_TEMP/body.md"
+          fi

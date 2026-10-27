@@ -1,0 +1,19 @@
+{
+  "reviewed_on": "2026-10-27",
+  "upstreams": [
+    {
+      "repo": "obra/superpowers",
+      "branch": "main",
+      "sha": "2ce8aa15d05bd57213e6f746f953aafb7ded7a8b",
+      "tag": "v7.0.1",
+      "license": "MIT"
+    },
+    {
+      "repo": "dietrichgebert/ponytail",
+      "branch": "main",
+      "sha": "09c434ab73ca43761c5d8b0c5d341926c2fba710",
+      "tag": "v5.3.2",
+      "license": "MIT"
+    }
+  ]
+}
