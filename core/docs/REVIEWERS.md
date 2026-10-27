@@ -90,12 +90,15 @@ pass its id as `--review-basis`. It starts with `Review basis for <sha7>:` (the 
   used for the setup and update pull requests of `init` and `sync`. `merge` accepts it and says so in its output.
 
 Only accounts that GitHub reports as `OWNER`, `MEMBER` or `COLLABORATOR` count: the basis comment, the linked review and every
-`pr-reviewer` verdict. On a public repository anyone can comment or post a review, so an outsider's review can neither lift a
-`changes needed` nor serve as a basis (and cannot stop a merge either).
+`pr-reviewer` verdict. `MEMBER` is any member of the owning organization and `COLLABORATOR` includes collaborators with read-only
+access, so this keeps out outsiders, not every untrusted insider. On a public repository anyone can comment or post a review, so an
+outsider's review can neither lift a `changes needed` nor serve as a basis, and it does not set a verdict. An outsider's unresolved
+review thread still blocks the merge (any author counts).
 
 `merge` also looks at the `pr-reviewer` reviews of the head, whichever path got there (a `pr-reviewer` review is a submitted review of
-such an account with a `**Verdict:**` line, in any formatting of the rest). The last one must have exactly one verdict line, and its value
-must be exactly `ready to merge`: `changes needed`, the unfilled template `ready to merge | changes needed`, two verdict lines or
+such an account with a verdict line; the label may be spelled `**Verdict:**`, `**Verdict**:`, `Verdict:`, indented or in any case, so a
+`changes needed` is never missed). The last one must have exactly one verdict line, and only the exact line `**Verdict:** ready to merge`
+is ready: `changes needed`, the unfilled template `ready to merge | changes needed`, two verdict lines or
 anything else stops the merge. So `pr-reviewer` keeps its first line and its `Verdict` line exact. `pr-wait` and `merge` print and read
 the summary lines (`Review:`, `Unresolved threads:`) from text that includes GitHub content: `pr-wait` flattens that text to one line
 and `merge` accepts exactly one of each line.

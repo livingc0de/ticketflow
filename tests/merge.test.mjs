@@ -198,6 +198,18 @@ test('a pr-reviewer "changes needed" review of the head blocks even when the ext
     assert.equal(run({ reviews: [ext, review({ id: 78, state: 'DISMISSED', body: NEEDED }), review({ id: 79, state: 'PENDING', body: NEEDED })] }).status, 0)   // dismissed and pending reviews are no verdict
 })
 
+test('a changes-needed verdict is seen in any common spelling of the label; only the exact bold line is ready', () => {
+    for (const line of ['**Verdict**: changes needed', 'Verdict: changes needed', '   **Verdict:** changes needed', '\t**VERDICT:** changes needed', '__Verdict:__ changes needed', '**Verdict:**changes needed']) {
+        refused(run({ reviews: [ext, review({ body: `Reviewed head: ${SHA7}\n${line}` })] }), /changes needed/)
+    }
+    // a looser spelling of "ready" is a recognised verdict but never an accepted one
+    for (const line of ['Verdict: ready to merge', '**Verdict**: ready to merge', '  **Verdict:** ready to merge']) {
+        refused(run({ reviews: [ext, review({ body: `Reviewed head: ${SHA7}\n${line}` })] }), /pr-reviewer review/)
+        refused(withBasis(`${prefix} ${link()}`, linked(review({ body: `Reviewed head: ${SHA7}\n${line}` }))), /ready to merge/)
+    }
+    refused(run({ reviews: [ext, review({ body: `Reviewed head: ${SHA7}\n**Verdict:** ready to merge\nVerdict: changes needed` })] }), /pr-reviewer review/)
+})
+
 test('should-fix: a changes-needed review is seen whatever its formatting (blank first line, backticks or bold around the sha)', () => {
     for (const body of [`\nReviewed head: ${SHA7}\n**Verdict:** changes needed`, `Reviewed head: \`${SHA7}\`\n**Verdict:** changes needed`, `**Reviewed head:** ${SHA7}\n**Verdict:** changes needed`, '**Verdict:** changes needed']) {
         refused(run({ reviews: [ext, review({ body })] }), /changes needed/)
