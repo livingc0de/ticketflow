@@ -4,6 +4,17 @@
   "default_branch": "main",
   "verify": { "mode": "ci", "command": "npm test" },
   "project": { "owner": "livingc0de", "number": 7, "title": "ticketflow", "views": [] },
+  "reviewers": [
+    {
+      "name": "codex",
+      "login": "chatgpt-codex-connector[bot]",
+      "rereview_comment": "@codex review",
+      "no_findings_reaction": "+1",
+      "unavailable_pattern": "usage limit",
+      "done_pattern": "codex-review-state:v1 [^\\n]*\"code_review\":\\{(?=[^}]*\"commit_sha\":\"(?<sha>[0-9a-f]{7,40})\")(?=[^}]*\"status\":\"completed\")",
+      "stale_after_min": 30
+    }
+  ],
   "agents": ["claude", "codex"],
   "models": {
     "claude": { "strong": "opus", "standard": "sonnet", "light": "haiku" },
