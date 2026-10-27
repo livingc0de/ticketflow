@@ -130,9 +130,9 @@ main('queue', () => {
     // shortcut: ids, not names, so a renamed repo keeps its PRs; a PR list entry without ids (an old API shape) reads as a fork
     const listed100 = api(PULLS).filter((p) => p.head?.repo?.id != null && p.head.repo.id === p.base?.repo?.id)
         .map((p) => ({ number: p.number, ref: p.head.ref, sha: p.head.sha, state: p.state === 'open' ? 'open' : p.merged_at ? 'merged' : 'closed' }))
-    // one PR once: the REST entries (latest updated first), then the older cross-references they do not have
-    const inList = new Set(listed100.map((p) => p.number))
-    const pulls = [...listed100, ...crossReferenced([...all.values()].map((t) => t.node_id)).filter((p) => !inList.has(p.number))]
+    // one PR once (a PR can reference several tickets): the REST entries (latest updated first), then the older cross-references
+    const seen = new Set()
+    const pulls = [...listed100, ...crossReferenced([...all.values()].map((t) => t.node_id))].filter((p) => !seen.has(p.number) && seen.add(p.number))
     // open first, so the PR to resume is never cut from the line by older closed ones
     const prsOf = (n) => pulls.filter((p) => new RegExp(`(^|/)issue-${n}-`).test(p.ref ?? '')).sort((a, b) => (b.state === 'open') - (a.state === 'open'))
         .map((p) => ({ number: p.number, sha: String(p.sha).slice(0, 7), state: p.state }))

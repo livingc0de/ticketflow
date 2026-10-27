@@ -321,6 +321,12 @@ test('the open PR to resume is listed even behind three older closed cross-refer
     assert.match(line(xrefOnly, 11), /^#11 in-progress T11 \[pr: #41 open abcdef1\]/)
 })
 
+test('an older PR that cross-references two listed tickets is one PR, not a conflict', () => {
+    const r = run(['11', '12'], { issues: [issue(11), issue(12)], extra: pulls([xref(40, 'x/issue-11-a')], [xref(40, 'x/issue-11-a')]) })
+    assert.match(line(r, 11), /^#11 in-progress T11 \[pr: #40 open abcdef1\]$/)
+    assert.match(r.stdout, /\nnext: #12\n/)
+})
+
 test('more than 100 references, a missing node or nodes array, or a failed read exits 2 with empty stdout (never a guessed next)', () => {
     const over = { 'graphql TicketPulls': { nodes: [{ timelineItems: { totalCount: 101, nodes: [] } }] } }
     for (const extra of [over, { 'graphql TicketPulls': { nodes: [{ timelineItems: { totalCount: 1 } }] } }, { 'graphql TicketPulls': { nodes: [{ timelineItems: { totalCount: 'x', nodes: [] } }] } },
