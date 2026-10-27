@@ -48,8 +48,14 @@ test('every script, skill and role path a file names exists in core/', () => {
     }
 })
 
+const reliance = /superpowers|companion is installed|\b(when|if|where|once|unless)\b[^.\n]{0,40}\b(installed|available|present)\b/i
+
+test('the reliance pattern catches the variants and not a plain use of the word', () => {
+    for (const s of ['Use test-driven-development where installed.', 'Once installed, the TDD skill applies.', 'Use the debugging skill when available.', 'If the TDD plugin is present, use it.', 'Assumes the companion is installed.', 'still apply when installed']) assert.match(s, reliance, s)
+    for (const s of ['Checks that it is verified, then installed in the worktree.', 'The verified build was installed by the user.']) assert.doesNotMatch(s, reliance, s)
+})
+
 test('the core prose and practices rely on no external skill or plugin being installed', () => {
-    const reliance = /(when|if)[^.\n]{0,40}\binstalled\b|superpowers/i
     for (const { path } of prose) assert.doesNotMatch(text(path), reliance, path)
     for (const file of practiceFiles) assert.doesNotMatch(readFileSync(file, 'utf8'), reliance, file)
 })

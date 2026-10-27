@@ -26,7 +26,7 @@ move the issue on merge.
 
 ## Risk tiers
 
-A tier sets review depth and an effort floor, nothing else. Classify up when unsure; a ticket's recommendation can raise a tier,
+A tier sets review depth and verification, nothing else. Classify up when unsure; a ticket's recommendation can raise a tier,
 never lower it. The `implement-ticket` skill holds the full definitions; in short:
 
 - `low`: copy, docs or a config value in one file.
@@ -36,7 +36,7 @@ never lower it. The `implement-ticket` skill holds the full definitions; in shor
 - `critical`: `high` plus data exposure or loss, money movement, irreversible data operations, or production config.
 
 The implementer runs in the standard class at `high` by default; the strong class or `xhigh` only for genuinely hard reasoning, never
-because of the tier. The floor is `high` for the `high` tier and `xhigh` for `critical`.
+because of the tier.
 A skipped plan whose diff grows past its stated scope is re-tiered up.
 
 ## Planning

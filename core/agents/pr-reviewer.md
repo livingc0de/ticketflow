@@ -43,7 +43,7 @@ For every defect, look for the same class of defect across the whole change and 
 **Not checked:** what you could not verify, or none
 ```
 
-Blockers are only: an unmet criterion, a security or data issue, a broken invariant, or missing tests for non-trivial logic. Every blocker names a concrete input or condition that breaks and the smallest fix; judge load against the repo's expected use. Be terse, skip praise, do not restate the diff.
+Blockers are only: an unmet criterion, a security or data issue, a broken invariant, or missing tests for non-trivial logic. For a defect, a blocker names the concrete input or condition that breaks it and the smallest fix; judge load against the repo's expected use. Be terse, skip praise, do not restate the diff.
 
 **Stand-in mode** (the brief says a configured reviewer is unavailable or silent): your review is the review of record. List nits too, give every item a suggested fix, and mark "own ticket" only an item too big for the PR.
 
