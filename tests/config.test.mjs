@@ -14,7 +14,7 @@ test('a minimal config loads, with defaults applied and deeply frozen', () => {
     assert.deepEqual(
         cfg,
         { schema_version: 1, repo: 'o/r', default_branch: 'main', verify: { mode: 'ci', install: '', command: 'npm test', timeout_min: 45 },
-            gate: { context: 'CI / Gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, reviewers: [], deploy_branch: null, project: null, agents: [], models: {}, plans_dir: 'docs/plans', worktrees_dir: '.claude/worktrees', live_verify_skill: null, deferred_checks_issue: null, areas: [], practices: [], ci: { push_paths: null, node: '22' } })
+            gate: { context: 'CI / Gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, reviewers: [], deploy_branch: null, project: null, agents: [], models: {}, plans_dir: 'docs/plans', worktrees_dir: '.claude/worktrees', live_verify_skill: null, deferred_checks_issue: null, areas: [], practices: [], ci: { push_paths: null } })
     assert.ok(Object.isFrozen(cfg) && Object.isFrozen(cfg.verify) && Object.isFrozen(cfg.gate) && Object.isFrozen(cfg.gate.ci_files) && Object.isFrozen(cfg.reviewers))
     assert.throws(() => { 'use strict'; cfg.repo = 'x/y' }, TypeError)
 })
@@ -163,8 +163,7 @@ test('areas are unique labels of at most 44 characters; ci.push_paths is null, [
     for (const v of [null, [], ['package-lock.json', 'src/**']]) assert.deepEqual(validate(rawConfig({ ci: { push_paths: v } })).ci.push_paths, v)
     for (const v of ['x', [''], [1], ['a\nb']]) bad({ ci: { push_paths: v } }, /ci\.push_paths/)
     bad({ ci: { extra: 1 } }, /unknown key ci\.extra/)
-    for (const v of ['22', '24.4', '24.10.0']) assert.equal(validate(rawConfig({ ci: { node: v } })).ci.node, v)
-    for (const v of [22, '', 'lts/*', 'v22', '22.x', '22\n', '1.2.3.4']) bad({ ci: { node: v } }, /ci\.node must be a Node\.js version/)
+    bad({ ci: { node: '22' } }, /unknown key ci\.node/)
     bad({ deploy_branch: 'deploy', ci: { push_paths: ['x'] } }, /push_paths must be null or \[\]/)
     validate(rawConfig({ deploy_branch: 'deploy', ci: { push_paths: [] } }))
     validate(rawConfig({ deploy_branch: 'deploy' }))

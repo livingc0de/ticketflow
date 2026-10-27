@@ -40,11 +40,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 2   # a pull request's test merge commit and its two parents
 
-      - name: Set Up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: {{node_version_json}}
-
+      # TicketFlow's steps run on the runner's own Node.js (any 18 or newer): the repo section sets up whatever the project uses.
       # The agent stubs are generated from the runtime: a stale or hand-edited one fails the run, docs-only or not.
       - name: Check Agent Stubs
         run: node {{runtime}}/scripts/gen-stubs.mjs {{runtime}} . --check

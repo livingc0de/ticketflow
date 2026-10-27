@@ -30,7 +30,7 @@ try {
 }
 
 const rt = dirname(dirname(fileURLToPath(import.meta.url)))
-const GH_MIN = [2, 48, 0], NODE_MIN = 22, SCOPES = ['repo', 'project', 'workflow']
+const GH_MIN = [2, 48, 0], NODE_MIN = 18, SCOPES = ['repo', 'project', 'workflow']
 let failed = 0, warned = 0
 const say = (status, check, detail) => {
     if (status === 'fail') failed++
