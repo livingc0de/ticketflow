@@ -38,3 +38,6 @@
 - A new script or branch of logic comes with a test; `npm test` passes.
 - A skill description is a "Use when..." trigger, never a workflow summary.
 - Security, validation and data-loss protection are never cut.
+
+## Maintainer tasks
+- Reviewing new Superpowers and Ponytail releases: `docs/maintainers/upstream-review.md` (a maintainer-only tool in `tools/`, never shipped).
