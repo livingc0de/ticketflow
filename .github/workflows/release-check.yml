@@ -13,6 +13,7 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,6 +23,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+      # Keep the version and sha256 in sync with the same step in ci.yml.
       - name: Install Actionlint
         run: |
           curl -fsSL -o "$RUNNER_TEMP/actionlint.tar.gz" https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz

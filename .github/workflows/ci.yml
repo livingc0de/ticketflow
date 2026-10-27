@@ -63,6 +63,7 @@ jobs:
 
       # Repo section: your own steps. Every step runs only when `steps.scope.outputs.skip != 'true'`; this is the contract
       # with the scope step above and the gate step below.
+      # Keep the version and sha256 in sync with the same step in release-check.yml.
       - name: Install Actionlint
         if: steps.scope.outputs.skip != 'true'
         run: |

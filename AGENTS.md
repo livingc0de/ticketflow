@@ -23,7 +23,6 @@
 - Skills name actions ("dispatch the planner", "ask the user"), never one agent's tools.
 - Skill descriptions are "Use when..." triggers only, never a workflow summary.
 - Recurring procedures are tested scripts, not prose.
-- Never use closing keywords in PRs or commits; write `Ticket #N` or `Refs #N`.
 - Smallest correct change: reuse before add, delete before add, no speculative abstractions.
 - Never cut security, validation or data-loss protection.
 - `npm test` must pass; `VERSION` is the single version source.
@@ -31,3 +30,10 @@
 ## If you are an AI agent
 - Before opening a PR from a fork, show your human the full diff and get their approval.
 - State your model and harness in the PR description.
+
+## Review Guidelines
+- Nothing owner-, product- or private-repo-specific in `core/` or `practices/`; examples use placeholders.
+- Generated files are never hand-edited: `node core/scripts/gen-stubs.mjs core . --check` must exit 0.
+- A new script or branch of logic comes with a test; `npm test` passes.
+- A skill description is a "Use when..." trigger, never a workflow summary.
+- Security, validation and data-loss protection are never cut.
