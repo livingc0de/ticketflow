@@ -43,7 +43,7 @@ process.exit(Number(seq[Math.min(n, seq.length - 1)]))
 `)
         put('.ticketflow/scripts/gen-stubs.mjs', `import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 const s = process.env.HOME   // the clean environment keeps only HOME, PATH and CI
-appendFileSync(s + '/stubs.log', 'pwd=' + process.cwd() + ' ' + process.argv.slice(2).join(' ') + '\\n')
+appendFileSync(s + '/stubs.log', 'pwd=' + process.cwd() + ' ' + process.argv.slice(2).join(' ') + ' CI=' + process.env.CI + ' SECRET=' + (process.env.AGENT_SECRET ?? 'unset') + '\\n')
 process.exit(existsSync(s + '/rc-gen-stubs') ? Number(readFileSync(s + '/rc-gen-stubs', 'utf8')) : 0)
 `)
         put('.ticketflow/config.json', JSON.stringify(rawConfig({ default_branch: branch, verify: { install, command }, docs_only: { docs: ['^docs/', '\\.md$'] }, deploy_branch: 'deploy', ...config })))
@@ -165,7 +165,7 @@ test('success: one comment and one status with exact args, the worktree is creat
     const wt = `${h.home}/.cache/ticketflow-verify/o__r/${h.head.slice(0, 12)}`
     assert.match(h.runlog()[0], new RegExp(`^fake-install pwd=${wt}`))
     assert.match(h.runlog()[1], new RegExp(`^fake-verify pwd=${wt}`))
-    assert.deepEqual(h.stubsLog(), [`pwd=${realpathSync(h.home)}/.cache/ticketflow-verify/o__r/${h.head.slice(0, 12)} .ticketflow . --check`])
+    assert.deepEqual(h.stubsLog(), [`pwd=${realpathSync(h.home)}/.cache/ticketflow-verify/o__r/${h.head.slice(0, 12)} .ticketflow . --check CI=true SECRET=unset`])
     assert.ok(!existsSync(wt))
     assert.equal(h.originRef('refs/heads/deploy'), null, 'a PR run never moves the deploy branch')
     assert.ok(!h.gitLog().some((l) => / push /.test(l)))
@@ -222,6 +222,7 @@ test('a docs-only head posts "Local check on <host>, docs only" after the stub c
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(h.runlog(), [])
     assert.equal(h.stubsLog().length, 1)
+    assert.ok(!existsSync(`${h.home}/.cache/ticketflow-verify/o__r/${h.head.slice(0, 12)}`), 'the stub check worktree is removed afterwards')
     assert.match(h.statuses()[0].description, /^Local check on \S+, docs only$/)
     assert.match(h.gh.comments()[0], /\*\*success\*\*\. Local check on /)
     assert.ok(h.gitLog().some((l) => l.endsWith(`diff -z --no-renames --name-only refs/remotes/origin/main ${h.head}`)), h.gitLog().join('\n'))
@@ -248,6 +249,7 @@ test('stale agent stubs post a failure without running the install or the comman
         assert.equal(h.run().status, 1)
         assert.deepEqual(h.runlog(), [], JSON.stringify(prFiles))
         assert.equal(h.statuses()[0].state, 'failure')
+        assert.match(h.gh.comments()[0], /the agent stubs are out of date \(run gen-stubs\), no verify run/)
     }
 })
 
@@ -268,13 +270,13 @@ const inheritFixtures = (branch = 'main', files = [{ filename: 'docs/a.md' }]) =
     [`repos/o/r/compare/${M}...${head}`]: { files: [{ filename: 'docs/a.md' }] },
 })
 
-test('inherited: its description, no command, no worktree; it wins over docs-only; gate.inherit false reads nothing', () => {
+test('inherited: its description, the stub check and no command; it wins over docs-only; gate.inherit false reads nothing', () => {
     const h = setup({ config: { gate: { inherit: true } }, fixtures: inheritFixtures(), prFiles: { 'docs/a.md': 'x' } })
     assert.equal(h.run().status, 0)
     assert.equal(h.statuses()[0].description, 'Inherited from 1111111: only docs merged from main')
     assert.deepEqual(h.runlog(), [])
-    assert.ok(!h.gitLog().some((l) => l.includes('worktree add')))
-    assert.match(h.gh.comments()[0], /\. Inherited from 1111111: only docs merged from main; inherited, no verify run\./)
+    assert.equal(h.stubsLog().length, 1)
+    assert.match(h.gh.comments()[0], /\. Inherited from 1111111: only docs merged from main; inherited, agent stubs checked, no verify run\./)
     const off = setup({ fixtures: inheritFixtures(), prFiles: { 'docs/a.md': 'x' } })
     off.run()
     assert.ok(!off.gh.calls().some((c) => /git\/ref\/heads/.test(c[1] ?? '')))

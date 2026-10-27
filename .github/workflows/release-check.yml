@@ -22,7 +22,7 @@ jobs:
       - name: Set Up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: "22"
       # Keep the version and sha256 in sync with the same step in ci.yml.
       - name: Install Actionlint
         run: |

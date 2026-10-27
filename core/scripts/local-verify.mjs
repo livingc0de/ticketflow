@@ -44,6 +44,7 @@ try {
     process.exit(2)
 }
 const isPr = /^\d+$/.test(target)
+const rt = relative(root, dirname(realpathSync(here)))   // the runtime folder: .ticketflow, or core in the ticketflow repo
 const base = cfg.default_branch
 const origin = `refs/remotes/origin/${base}`   // fully qualified: a tag called origin/<branch> must not shadow it
 const host = hostname().split('.')[0]
@@ -57,7 +58,7 @@ const ghApi = (path) => {
 }
 const allowed = () => run(process.execPath, [join(here, 'pr-wait.mjs'), target, '--once', '--ci-only']).status === 3
 
-/** Checks the agent stubs and (unless `stubsOnly`) verifies in a clean worktree of `sha`; returns { state, log }. A timeout or a signal posts nothing. */
+/** Checks the agent stubs and (unless `stubsOnly`) verifies in a clean worktree of `sha`; returns { state, log, stale }. A timeout or a signal posts nothing. */
 function checkHead(sha, stubsOnly = false) {
     const wt = join(homedir(), '.cache', 'ticketflow-verify', cfg.repo.replace('/', '__'), sha.slice(0, 12))
     const log = `${wt}.log`
@@ -66,10 +67,11 @@ function checkHead(sha, stubsOnly = false) {
     if (git('worktree', 'add', '-q', '--detach', wt, sha).status !== 0) stop(1, 'cannot create the worktree; nothing posted')
     const fd = openSync(log, 'w')
     try {
-        // The agent stubs first, like the CI job: the head's own generator against the head's own runtime.
-        const rt = relative(realpathSync(root), dirname(realpathSync(here)))
+        // The agent stubs first, like the CI job: the checked-out generator against the checked-out runtime.
         const stubs = run(process.execPath, [join(rt, 'scripts', 'gen-stubs.mjs'), rt, '.', '--check'], { cwd: wt, env: { HOME: homedir(), PATH: process.env.PATH, CI: 'true' }, stdio: ['ignore', fd, fd] })
-        if (stubs.status !== 0 || stubsOnly) return { state: stubs.status === 0 ? 'success' : 'failure', log }
+        if (stubs.error || stubs.signal) stop(1, `the stub check did not finish (${stubs.error?.message ?? stubs.signal}); nothing posted (log: ${log})`)
+        if (stubs.status !== 0) return { state: 'failure', log, stale: true }
+        if (stubsOnly) return { state: 'success', log }
         const { install, command, timeout_min: min } = cfg.verify
         // A clean environment with CI=true: the caller's other variables stay out of the install scripts and tests of the code under test.
         const r = run('timeout', ['-k', '30', String(min * 60), 'bash', '-c', install ? `(${install}) && (${command})` : command], {
@@ -88,8 +90,7 @@ function checkHead(sha, stubsOnly = false) {
 function main() {
     // 1-3. Refuse to run a runtime that differs from the default branch's: a pull request must not widen or neuter its own fallback.
     if (git('fetch', '-q', 'origin', `+refs/heads/${base}:${origin}`).status !== 0) stop(1, `cannot fetch origin ${base}; nothing posted`)
-    const real = realpathSync(here)
-    const runtime = [relative(root, real), relative(root, join(real, '..', 'lib')), '.ticketflow/config.json']
+    const runtime = [join(rt, 'scripts'), join(rt, 'lib'), '.ticketflow/config.json']
     const diff = git('diff', '--quiet', origin, '--', ...runtime)
     const extra = git('ls-files', '--others', '--', ...runtime)   // `diff` ignores untracked files (ignored ones too, listed without --exclude-standard)
     if (extra.status === 0 && extra.stdout.trim()) diff.status = 1
@@ -123,25 +124,27 @@ function main() {
     } else if (git('merge-base', '--is-ancestor', sha, origin).status !== 0) stop(1, `${sha} is not on origin/${base}; nothing posted`)
 
     // 6. Decide the result: inherit, docs-only, or a full run (always, for a sha).
-    let desc, how, state = 'success', log = ''
+    let desc, how, state = 'success', log = '', stale = false
     if (isPr && cfg.gate.inherit) {
         try {
             const r = inherit(ghApi, cfg, target, sha)
-            if (r.root) { desc = inheritedDescription(cfg, r.root); how = `${desc}; inherited, no verify run` }
+            if (r.root) { desc = inheritedDescription(cfg, r.root); how = `${desc}; inherited, agent stubs checked, no verify run` }
         } catch { /* any doubt is a full run */ }
     }
+    if (desc) ({ state, log, stale } = checkHead(sha, true))   // inherited: the stubs are still checked, as in CI
     if (!desc && isPr) {
         const d = git('diff', '-z', '--no-renames', '--name-only', origin, sha)
         if (d.status === 0 && docsOnly(d.stdout.split('\0').filter(Boolean), cfg)) {
             desc = `Local check on ${host}, docs only`; how = `${desc}; agent stubs checked, no verify run`
-            ;({ state, log } = checkHead(sha, true))
+            ;({ state, log, stale } = checkHead(sha, true))
         }
     }
     if (!desc) {
         desc = `Local run on ${host} (${machine()}, Node ${process.versions.node})`
         how = `${desc}, verify command on the exact head, Actions refused the job`
-        ;({ state, log } = checkHead(sha))
+        ;({ state, log, stale } = checkHead(sha))
     }
+    if (stale) how = `${desc}; the agent stubs are out of date (run gen-stubs), no verify run`
 
     // 7. Recheck right before posting: the head is unchanged and the guard still says so.
     const where = log && ` (log: ${log})`
