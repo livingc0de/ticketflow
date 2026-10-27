@@ -16,7 +16,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Where it happened. Optional; edit the choices to match this repo's environments.
+      description: Where it happened (optional).
       options:
         - Production
         - Staging
