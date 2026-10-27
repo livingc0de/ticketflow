@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **CI:** `ci.node` defaults to `null`: the managed job follows the repo's own `.nvmrc`, `.node-version` or `package.json` (`engines.node`/`volta.node`), else Node 22; an explicit `ci.node` still wins (#16).
+- **CI:** `ci.node` defaults to `null`: the managed job follows the repo's own `.nvmrc`, `.node-version` or `package.json` (`volta.node`/`engines.node`) when it asks for Node 22 or newer (or `lts/*`, `node`, a `>=` range); an older or unreadable one keeps Node 22 and `render` says so; an explicit `ci.node` still wins (#16).
 - **Docs:** the README is a friendly guide (why, how it works, a ticket's journey, the processes, getting started, everyday use, FAQ); every reference doc opens with what it is for; the product is called TicketFlow in prose and plugin display names (#10).
 - **gen-stubs:** a domain guide copied into an agent's rules folder keeps its relative links working (#12).
 - **Codex:** skill and role stubs point at the canonical files, like the Claude ones, instead of carrying their text (#7).

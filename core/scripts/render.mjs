@@ -16,7 +16,7 @@ import { parseArgs } from 'node:util'
 import { main } from '../lib/cli.mjs'
 import { loadConfig } from '../lib/config.mjs'
 import { readManifest, writeManifest } from '../lib/manifest.mjs'
-import { FILES, nodeVersionFile, renderFile, templateVars } from '../lib/render.mjs'
+import { FILES, NODE_MIN, nodeVersionFile, renderFile, templateVars } from '../lib/render.mjs'
 
 const usage = 'usage: render <templates-dir> <target-repo> [--check] [--keep <path>]... [--propose <dir>]'
 const inside = (parent, child) => { const r = relative(parent, child); return r !== '' && r !== '..' && !r.startsWith('..' + sep) && !isAbsolute(r) }
@@ -40,7 +40,9 @@ main('render', () => {
         return { name, rules: read('agents-rules.md') ?? '', checks: read('pr-checklist.md') }
     })
     const read = (f) => (existsSync(join(target, f)) ? readFileSync(join(target, f), 'utf8') : null)
-    const vars = templateVars(cfg, { runtimeRel, practices, nodeVersionFile: nodeVersionFile(read) })
+    const node = cfg.ci.node === null ? nodeVersionFile(read) : { file: null, version: null }
+    if (node.version && !node.file) console.log(`note: ${node.version} is older than TicketFlow's Node.js ${NODE_MIN}: the managed CI job uses ${NODE_MIN} (set ci.node to choose)`)
+    const vars = templateVars(cfg, { runtimeRel, practices, nodeVersionFile: node.file })
     const owned = readManifest(target)?.claude_settings ?? {}
 
     // compute everything first

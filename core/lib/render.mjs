@@ -94,7 +94,7 @@ export function templateVars(cfg, { runtimeRel, practices = [], nodeVersionFile 
         gate_check_json: q(cfg.gate.check),
         timeout_min: String(cfg.verify.timeout_min),
         // explicit ci.node, else the repo's own version file, else TicketFlow's minimum
-        node_setup: `          ${cfg.ci.node !== null ? `node-version: ${q(cfg.ci.node)}` : nodeVersionFile ? `node-version-file: ${q(nodeVersionFile)}` : 'node-version: "22"'}`,
+        node_setup: `          ${cfg.ci.node !== null ? `node-version: ${q(cfg.ci.node)}` : nodeVersionFile ? `node-version-file: ${q(nodeVersionFile)}` : `node-version: "${NODE_MIN}"`}`,
         pr_types: local ? '    types: [opened, synchronize, reopened, ready_for_review]' : '',
         push_trigger: push,
         job_if: local ? `    if: \${{ !github.event.pull_request.draft && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/${cfg.default_branch}') }}` : '',
@@ -126,11 +126,26 @@ export function verifyRuns(text, command) {
     return n
 }
 
-/** The first Node.js version file setup-node can read that the repo has: `.nvmrc`, `.node-version`, or `package.json` with `engines.node` or `volta.node`. `read(path)` returns the file text or null. */
+export const NODE_MIN = 22   // TicketFlow's own scripts need it
+
+/** Does a declared Node.js version give TicketFlow's steps NODE_MIN or newer? Yes for a major >= NODE_MIN, an alias that means the
+ * newest (`node`, `latest`, `current`, `lts/*`) or an open `>=` range (setup-node picks the newest match); no for anything else. */
+const supported = (v) => {
+    const s = v.trim().toLowerCase()
+    if (/^(node|latest|current|lts\/\*)$/.test(s) || /^>=\s*v?\d/.test(s)) return true
+    const m = /^[v^~=]*(\d+)/.exec(s)
+    return m !== null && Number(m[1]) >= NODE_MIN
+}
+
+/** The repo's Node.js version file for setup-node: the first of `.nvmrc`, `.node-version` and `package.json` (`volta.node`, else
+ * `engines.node`) that declares a version. `{ file, version }`: `file` is null when there is none, or when it asks for a version TicketFlow
+ * cannot run on (then the job uses NODE_MIN and `version` says what the repo declared). `read(path)` returns the file text or null. */
 export function nodeVersionFile(read) {
-    for (const f of ['.nvmrc', '.node-version']) if (read(f)?.trim()) return f
-    try { const p = JSON.parse(read('package.json') ?? 'null'); if (p?.engines?.node || p?.volta?.node) return 'package.json' } catch { /* not JSON: no version there */ }
-    return null
+    let version = null, file = null
+    for (const f of ['.nvmrc', '.node-version']) { const t = read(f)?.trim().split(/\s/)[0]; if (t) { version = t; file = f; break } }
+    if (!file) { try { const p = JSON.parse(read('package.json') ?? 'null'); version = p?.volta?.node ?? p?.engines?.node ?? null; if (version) file = 'package.json' } catch { /* not JSON */ } }
+    if (!file) return { file: null, version: null }
+    return supported(String(version)) ? { file, version } : { file: null, version: `${file}: ${version}` }
 }
 
 /** Parts a config leaves out of the rendered file. */

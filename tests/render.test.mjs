@@ -104,11 +104,15 @@ test('ci.yml: without ci.node the job follows the repo\'s Node.js version file, 
     assert.match(withFile, /^ {10}node-version-file: "\.nvmrc"$/m); assert.doesNotMatch(withFile, /node-version:/)
     assert.match(renderAll({}).get(f.dest), /^ {10}node-version: "22"$/m)
     const files = (o) => (p) => o[p] ?? null
-    assert.equal(nodeVersionFile(files({ '.nvmrc': '20\n', '.node-version': '22' })), '.nvmrc')
-    assert.equal(nodeVersionFile(files({ '.nvmrc': '  \n', '.node-version': '22' })), '.node-version')
-    assert.equal(nodeVersionFile(files({ 'package.json': '{"engines":{"node":">=22"}}' })), 'package.json')
-    assert.equal(nodeVersionFile(files({ 'package.json': '{"volta":{"node":"22.1.0"}}' })), 'package.json')
-    for (const pkg of ['{"name":"x"}', 'not json', null]) assert.equal(nodeVersionFile(files({ 'package.json': pkg })), null)
+    const pick = (o) => nodeVersionFile(files(o))
+    assert.deepEqual(pick({ '.nvmrc': '22\n', '.node-version': '24' }), { file: '.nvmrc', version: '22' })
+    assert.deepEqual(pick({ '.nvmrc': '  \n', '.node-version': 'v24.1.0' }), { file: '.node-version', version: 'v24.1.0' })
+    for (const v of ['lts/*', 'node', '>=20.12.0', '^22', '24.x']) assert.equal(pick({ '.nvmrc': v }).file, '.nvmrc', v)
+    assert.deepEqual(pick({ 'package.json': '{"engines":{"node":">=20"}}' }), { file: 'package.json', version: '>=20' })
+    assert.deepEqual(pick({ 'package.json': '{"volta":{"node":"22.1.0"},"engines":{"node":"^18"}}' }), { file: 'package.json', version: '22.1.0' })
+    // too old or unreadable: the job keeps TicketFlow's minimum and render says why
+    for (const v of ['20', 'v18.19.0', '^20', '~20.1', 'lts/iron', '20.x']) assert.deepEqual(pick({ '.nvmrc': v }), { file: null, version: `.nvmrc: ${v}` }, v)
+    for (const pkg of ['{"name":"x"}', 'not json', null]) assert.deepEqual(pick({ 'package.json': pkg }), { file: null, version: null })
 })
 
 test('ci.yml: the inherit step only with gate.inherit; descriptions follow the gate contract; the runtime path follows runtimeRel', () => {
