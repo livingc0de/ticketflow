@@ -34,20 +34,25 @@ reviews, issue comments and reactions on the pull request.
 | `done_pattern` | regex with a named group `sha`, or `null` | `null` |
 | `stale_after_min` | integer minutes after which a silent reviewer no longer blocks, or `null` | `null` |
 
-A review round starts at the pull request's creation, or at the latest comment starting with `rereview_comment`. For each reviewer,
-in this order, the first that holds decides:
+A review round starts at the pull request's creation, or at the latest comment starting with `rereview_comment` by an `OWNER`,
+`MEMBER` or `COLLABORATOR` (on a public repository anyone can comment, and an outsider's comment must not restart the round). For
+each reviewer, in this order, the first that holds decides:
 
 1. **changes requested**: its **last** review on exactly the head commit (reviews that are dismissed or still pending do not count)
    is `CHANGES_REQUESTED`. A later review of the same head replaces it.
-2. **done**: its last such review is any other state (approved or commented); or it left `no_findings_reaction` after both the head
-   commit and the round start; or the **last** match of `done_pattern` across its issue comments (bodies as currently edited, ordered
-   by last update) captures a `sha` of 7 or more hex characters that is a prefix of the head.
-3. **unavailable**: a comment of the account since the round started matches `unavailable_pattern`.
-4. **silent**: `stale_after_min` minutes passed since the later of the round start and the head commit.
-5. otherwise **pending**.
+2. **approved**: its last such review is `APPROVED`.
+3. **commented**: its last such review is any other state (`COMMENTED`, or one this version does not know). A comment reports
+   findings, it does not accept them, even with no inline thread, so a stand-in decides. A review of the head always decides before
+   items 4 to 6: a later reaction or state comment does not turn it into done.
+4. **done**: with no review of the head, it left `no_findings_reaction` after both the head commit and the round start; or the **last** match of
+   `done_pattern` across its issue comments (bodies as currently edited, ordered by last update) captures a `sha` of 7 or more hex
+   characters that is a prefix of the head. Both must be a signal of *no findings*, never only of "finished".
+5. **unavailable**: a comment of the account since the round started matches `unavailable_pattern`.
+6. **silent**: `stale_after_min` minutes passed since the later of the round start and the head commit.
+7. otherwise **pending**.
 
 `pr-wait` prints one `Review:` line: `pending` while any reviewer is pending, else `changes requested (<names>)`, else `standin needed
-(<names>)` when some are unavailable or silent, else `done`. A reviewer who requested changes has answered, so the wait ends; `merge`
+(<names>)` when some are unavailable, silent or only commented, else `done`. A reviewer who requested changes has answered, so the wait ends; `merge`
 refuses until they review the new head or the owner dismisses the review. With no reviewers configured it prints `Review: none
 configured (pr-reviewer reviews)`.
 
@@ -57,17 +62,23 @@ means the read failed or the pull request has more than 100 threads. Answer and 
 `node .ticketflow/scripts/thread.mjs <PR> <thread-id>` (the reply on stdin: the fix commit, or the reason for rejecting it).
 
 `done_pattern` is for a bot that posts no review when it has no findings, and instead keeps one summary comment that it edits in
-place, with a machine line such as `review-state:v1 {"code_review":{"commit_sha":"<40-hex>","status":"completed"}}` (key order not
-guaranteed). An order-independent pattern for that line (a JSON string, so backslashes are doubled):
+place, with a machine line such as `review-state:v1 {"code_review":{"commit_sha":"<40-hex>","status":"completed","has_any_findings":false}}`
+(key order not guaranteed). It must match only a *clean* state: a finished run with findings is not an acceptance. An
+order-independent pattern for that line, with every condition scoped to the one object (`[^}]*`, so another object's key such as
+`security_review` cannot satisfy it; a JSON string, so backslashes are doubled):
 
 ```json
 { "name": "bot", "login": "review-bot[bot]",
-  "done_pattern": "review-state:v1 (?=[^\\n]*\"commit_sha\":\"(?<sha>[0-9a-f]{7,40})\")(?=[^\\n]*\"status\":\"completed\")" }
+  "done_pattern": "review-state:v1 [^\\n]*\"code_review\":\\{(?=[^}]*\"commit_sha\":\"(?<sha>[0-9a-f]{7,40})\")(?=[^}]*\"status\":\"completed\")(?=[^}]*\"has_any_findings\":false)" }
 ```
 
-A state still `running`, or naming an older commit, does not match the head, so the reviewer stays pending. Match `completed` only:
-a run that `failed` reviewed nothing. Put the failure wording in `unavailable_pattern` instead, so a stand-in takes over. (Before 0.3.0
-this example also accepted `failed`: remove `|failed` from a copy.)
+A state still `running`, naming an older commit, or reporting findings does not match the head, so the reviewer stays pending until
+it reviews or a stand-in takes over. Match `completed` only: a run that `failed` reviewed nothing. Put the failure wording in
+`unavailable_pattern` instead. (Before 0.3.0 this example also accepted `failed`: remove `|failed` from a copy. Copies that accept
+`completed` alone also accept a run with findings: add the `has_any_findings` condition.)
+
+GitHub keeps one reaction per account and content, so a reviewer cannot leave the same `no_findings_reaction` a second time: after a
+new push its old reaction is not "after the head", and a clean second round shows as a state comment or a review instead.
 
 ## Stand-in and review basis
 

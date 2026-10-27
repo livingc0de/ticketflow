@@ -11,7 +11,7 @@
       "rereview_comment": "@codex review",
       "no_findings_reaction": "+1",
       "unavailable_pattern": "usage limit",
-      "done_pattern": "codex-review-state:v1 [^\\n]*\"code_review\":\\{(?=[^}]*\"commit_sha\":\"(?<sha>[0-9a-f]{7,40})\")(?=[^}]*\"status\":\"completed\")",
+      "done_pattern": "codex-review-state:v1 [^\\n]*\"code_review\":\\{(?=[^}]*\"commit_sha\":\"(?<sha>[0-9a-f]{7,40})\")(?=[^}]*\"status\":\"completed\")(?=[^}]*\"has_any_findings\":false)",
       "stale_after_min": 30
     }
   ],
