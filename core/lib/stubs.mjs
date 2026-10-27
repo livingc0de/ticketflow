@@ -80,16 +80,23 @@ export function target(template, name) {
 }
 
 /**
+ * A guide's relative Markdown links, rewritten from `docs/agents/` to the folder of the rule file it is copied to: inline links and
+ * images (`](path#frag "title")`) and reference definitions (`[ref]: path`). URLs, anchors and absolute paths stay.
+ * ponytail: code spans and fences are not skipped; a link-shaped example in one is rewritten too.
+ */
+export function relinkGuide(body, rulePath) {
+    const rel = (path) => posix.relative(posix.dirname(rulePath), posix.join('docs/agents', path)) || '.'
+    const local = '(?![a-z][\\w+.-]*:|#|/)'
+    return body
+        .replace(new RegExp(`\\]\\(${local}([^)\\s#]+)`, 'gi'), (_, path) => `](${rel(path)}`)
+        .replace(new RegExp(`^( {0,3}\\[[^\\]]+\\]:[ \\t]*)${local}([^\\s#]+)`, 'gim'), (_, lead, path) => lead + rel(path))
+}
+
+/**
  * Everything gen-stubs owns: a sorted Map of path to content. `skills` and `roles` are `parseCanonical` results plus `src`, the
  * canonical path relative to the runtime (`skills/<n>/SKILL.md`, or `practices/<n>/SKILL.md` for an enabled practice). `guides` are
  * `parseGuide` results: an adapter with a `rule` target gets one rule file per guide. `adapters` are the adapter objects for the agents in the config.
  */
-/** A guide's relative Markdown links, rewritten from `docs/agents/` to the folder of the rule file it is copied to. */
-export function relinkGuide(body, rulePath) {
-    return body.replace(/\]\((?![a-z][\w+.-]*:|#|\/)([^)\s#]+)(#[^)\s]*)?\)/gi, (_, path, frag = '') =>
-        `](${posix.relative(posix.dirname(rulePath), posix.join('docs/agents', path)) || '.'}${frag})`)
-}
-
 export function renderStubs({ skills, roles, adapters, cfg, runtimeRel, version, guides = [] }) {
     const out = new Map()
     const by = (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
