@@ -65,8 +65,8 @@ function snippet(text, prefix, at) {
     return out
 }
 
-/** The values of every placeholder, from a validated config. `runtimeRel` is `.ticketflow`, or `core` in the ticketflow repo. `practices`: `[{ name, rules, checks }]` (the file texts, `checks` null when absent) of the enabled practices. */
-export function templateVars(cfg, { runtimeRel, practices = [] }) {
+/** The values of every placeholder, from a validated config. `runtimeRel` is `.ticketflow`, or `core` in the ticketflow repo. `practices`: `[{ name, rules, checks }]` (the file texts, `checks` null when absent) of the enabled practices. `nodeVersionFile`: the repo's Node.js version file (`nodeVersionFile` below), or null. */
+export function templateVars(cfg, { runtimeRel, practices = [], nodeVersionFile = null }) {
     const rules = practices.flatMap((p) => snippet(p.rules, '- ', `practice ${p.name} agents-rules.md`))
     const checks = practices.flatMap((p) => (p.checks === null ? [] : snippet(p.checks, '- [ ] ', `practice ${p.name} pr-checklist.md`)))
     const local = cfg.verify.mode === 'local-first'
@@ -93,7 +93,8 @@ export function templateVars(cfg, { runtimeRel, practices = [] }) {
         gate_context_json: q(cfg.gate.context),
         gate_check_json: q(cfg.gate.check),
         timeout_min: String(cfg.verify.timeout_min),
-        node_version_json: q(cfg.ci.node),
+        // explicit ci.node, else the repo's own version file, else TicketFlow's minimum
+        node_setup: `          ${cfg.ci.node !== null ? `node-version: ${q(cfg.ci.node)}` : nodeVersionFile ? `node-version-file: ${q(nodeVersionFile)}` : 'node-version: "22"'}`,
         pr_types: local ? '    types: [opened, synchronize, reopened, ready_for_review]' : '',
         push_trigger: push,
         job_if: local ? `    if: \${{ !github.event.pull_request.draft && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/${cfg.default_branch}') }}` : '',
@@ -123,6 +124,13 @@ export function verifyRuns(text, command) {
     let n = 0
     for (let i = 0; i + cmd.length <= lines.length; i++) if (cmd.every((c, k) => lines[i + k] === c)) n++
     return n
+}
+
+/** The first Node.js version file setup-node can read that the repo has: `.nvmrc`, `.node-version`, or `package.json` with `engines.node` or `volta.node`. `read(path)` returns the file text or null. */
+export function nodeVersionFile(read) {
+    for (const f of ['.nvmrc', '.node-version']) if (read(f)?.trim()) return f
+    try { const p = JSON.parse(read('package.json') ?? 'null'); if (p?.engines?.node || p?.volta?.node) return 'package.json' } catch { /* not JSON: no version there */ }
+    return null
 }
 
 /** Parts a config leaves out of the rendered file. */

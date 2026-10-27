@@ -43,7 +43,7 @@ jobs:
       - name: Set Up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: {{node_version_json}}
+{{node_setup}}
 
       # The agent stubs are generated from the runtime: a stale or hand-edited one fails the run, docs-only or not.
       - name: Check Agent Stubs

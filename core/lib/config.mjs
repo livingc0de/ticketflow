@@ -136,7 +136,7 @@ const parse = section({
     deferred_checks_issue: [orNull(int(1)), null],
     areas: [unique(list(area)), []],
     practices: [unique(list(oneOf(...PRACTICES))), []],
-    ci: [section({ push_paths: [orNull(list(glob)), null], node: [nodeVersion, '22'] }), {}],
+    ci: [section({ push_paths: [orNull(list(glob)), null], node: [orNull(nodeVersion), null] }), {}],
 })
 
 const deepFreeze = (v) => {

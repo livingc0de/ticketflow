@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFil
 import { dirname, join } from 'node:path'
 import { claudeAsk } from '../core/lib/guard.mjs'
 import { validate } from '../core/lib/config.mjs'
-import { FILES, RenderError, dropParts, fill, mergeClaudeSettings, mergeCodexHooks, mergeManaged, omittedParts, parseBlocks, proposeInsert, renderFile, templateVars, verifyRuns } from '../core/lib/render.mjs'
+import { FILES, RenderError, dropParts, fill, mergeClaudeSettings, nodeVersionFile, mergeCodexHooks, mergeManaged, omittedParts, parseBlocks, proposeInsert, renderFile, templateVars, verifyRuns } from '../core/lib/render.mjs'
 import { config, fakeGh, rawConfig, tempDir } from './helpers.mjs'
 
 const TEMPLATES = new URL('../core/templates/', import.meta.url).pathname
@@ -96,6 +96,19 @@ test('ci.yml: one Node.js setup at ci.node (quoted, default 22); the stub check 
     assert.equal(b.match(/setup-node@/g).length, 1); assert.match(b, /node-version: "24\.10"$/m)
     assert.match(a, /- name: Check Agent Stubs\n {8}run: node \.ticketflow\/scripts\/gen-stubs\.mjs \.ticketflow \. --check$/m)
     assert.match(renderAll(A, 'core').get('.github/workflows/ci.yml'), /run: node core\/scripts\/gen-stubs\.mjs core \. --check$/m)
+})
+
+test('ci.yml: without ci.node the job follows the repo\'s Node.js version file, else 22; nodeVersionFile finds .nvmrc, .node-version or package.json engines/volta', () => {
+    const f = FILES[0], cfg = config({})
+    const withFile = renderFile(f, tpl(f.src), null, { cfg, vars: templateVars(cfg, { runtimeRel: '.ticketflow', nodeVersionFile: '.nvmrc' }), runtimeRel: '.ticketflow' }).text
+    assert.match(withFile, /^ {10}node-version-file: "\.nvmrc"$/m); assert.doesNotMatch(withFile, /node-version:/)
+    assert.match(renderAll({}).get(f.dest), /^ {10}node-version: "22"$/m)
+    const files = (o) => (p) => o[p] ?? null
+    assert.equal(nodeVersionFile(files({ '.nvmrc': '20\n', '.node-version': '22' })), '.nvmrc')
+    assert.equal(nodeVersionFile(files({ '.nvmrc': '  \n', '.node-version': '22' })), '.node-version')
+    assert.equal(nodeVersionFile(files({ 'package.json': '{"engines":{"node":">=22"}}' })), 'package.json')
+    assert.equal(nodeVersionFile(files({ 'package.json': '{"volta":{"node":"22.1.0"}}' })), 'package.json')
+    for (const pkg of ['{"name":"x"}', 'not json', null]) assert.equal(nodeVersionFile(files({ 'package.json': pkg })), null)
 })
 
 test('ci.yml: the inherit step only with gate.inherit; descriptions follow the gate contract; the runtime path follows runtimeRel', () => {
