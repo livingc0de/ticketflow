@@ -6,6 +6,8 @@
  * then written through JSON.stringify, which is a valid string in both YAML and TOML.
  */
 
+import { posix } from 'node:path'
+
 export class StubError extends Error {
     name = 'StubError'
 }
@@ -78,6 +80,19 @@ export function target(template, name) {
 }
 
 /**
+ * A guide's relative Markdown links, rewritten from `docs/agents/` to the folder of the rule file it is copied to: inline links and
+ * images (`](path#frag "title")`) and reference definitions (`[ref]: path`). URLs, anchors and absolute paths stay.
+ * ponytail: code spans and fences are not skipped; a link-shaped example in one is rewritten too.
+ */
+export function relinkGuide(body, rulePath) {
+    const rel = (path) => posix.relative(posix.dirname(rulePath), posix.join('docs/agents', path)) || '.'
+    const local = '(?![a-z][\\w+.-]*:|#|/|<)'
+    return body
+        .replace(new RegExp(`\\]\\(${local}([^)\\s#]+)`, 'gi'), (_, path) => `](${rel(path)}`)
+        .replace(new RegExp(`^( {0,3}\\[(?!\\^)[^\\]]+\\]:[ \\t]*)${local}([^\\s#]+)`, 'gim'), (_, lead, path) => lead + rel(path))
+}
+
+/**
  * Everything gen-stubs owns: a sorted Map of path to content. `skills` and `roles` are `parseCanonical` results plus `src`, the
  * canonical path relative to the runtime (`skills/<n>/SKILL.md`, or `practices/<n>/SKILL.md` for an enabled practice). `guides` are
  * `parseGuide` results: an adapter with a `rule` target gets one rule file per guide. `adapters` are the adapter objects for the agents in the config.
@@ -92,7 +107,7 @@ export function renderStubs({ skills, roles, adapters, cfg, runtimeRel, version,
             const text = note(runtimeRel) + (a.skill.body === 'inline' ? `${s.body}\n${map}\n` : `Read \`${runtimeRel}/${s.src}\` and follow it; it is the whole skill. ${map}\n`)
             put(target(a.skill.target, s.name), md([['name', s.name], ['description', s.description]], s.src, text))
         }
-        if (a.rule) for (const g of [...guides].sort(by)) put(target(a.rule, g.name), `---\n${g.frontmatter}\n---\n<!-- ${MARKER} from docs/agents/${g.name}.md. Do not edit: change the source, run gen-stubs. -->\n\n${g.body}`)
+        if (a.rule) for (const g of [...guides].sort(by)) put(target(a.rule, g.name), `---\n${g.frontmatter}\n---\n<!-- ${MARKER} from docs/agents/${g.name}.md. Do not edit: change the source, run gen-stubs. -->\n\n${relinkGuide(g.body, target(a.rule, g.name))}`)
         for (const r of [...roles].sort(by)) {
             if (r.needs_config && (!Object.hasOwn(cfg, r.needs_config) ? fail(`${r.src}: needs_config ${r.needs_config} is not a config key`) : cfg[r.needs_config] == null)) continue
             const model = cfg.models[a.name]?.[r.model_class] ?? null
