@@ -20,7 +20,7 @@
 
 import { cli, main } from '../lib/cli.mjs'
 import { GhError, api, gql, isNumber } from '../lib/gh.mjs'
-import { DONE, anyTime, dependsOn, projectStatuses, ticketState } from '../lib/tracker.mjs'
+import { anyTime, dependsOn, projectStatuses, ticketState } from '../lib/tracker.mjs'
 
 const MAX = 50, PAGES = 10
 const { values, positionals, cfg } = cli(import.meta.url, 'queue', '(<N>... | --tracker <T> | --ready [--limit n]) [--config f]', { tracker: { type: 'string' }, ready: { type: 'boolean' }, limit: { type: 'string' } }, (p, v) => {
@@ -66,8 +66,13 @@ function readyTickets(limit) {
 }
 
 const oneLine = (s) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, 80)
+/** An issue of this repository; a transferred issue or a tracker child of another repository is an error (a number alone is not an identity). */
+const local = (i) => {
+    if (i.repository_url && !i.repository_url.toLowerCase().endsWith(`/${R}`.toLowerCase())) throw new Error(`#${i.number} is an issue of ${i.repository_url.replace(/^.*\/repos\//, '')}, not of ${cfg.repo}`)
+    return i
+}
 const issueOf = (n) => {
-    const i = api(`${R}/issues/${n}`)
+    const i = local(api(`${R}/issues/${n}`))
     if (i.pull_request) throw new Error(`#${n} is a pull request, not a ticket`)
     return i
 }
@@ -78,8 +83,7 @@ main('queue', () => {
         const t = issueOf(values.tracker)
         tickets = api(`${R}/issues/${values.tracker}/sub_issues`, { paginate: true })
         if (tickets.length > MAX) throw new Error(`the tracker has more than ${MAX} children`)
-        const foreign = tickets.find((c) => c.repository_url && !c.repository_url.toLowerCase().endsWith(`/${R}`.toLowerCase()))
-        if (foreign) throw new Error(`#${foreign.number} is an issue of ${foreign.repository_url.replace(/^.*\/repos\//, '')}, not of ${cfg.repo}: a number alone is not an identity here`)
+        tickets.forEach(local)
         any = anyTime(t.body)
         header = `Tracker #${values.tracker}: ${tickets.length} children`
     } else if (values.ready) {
@@ -99,9 +103,12 @@ main('queue', () => {
     const pulls = api(PULLS)
     const status = P ? projectStatuses(gql, [...all.values()].map((t) => t.node_id), P) : new Map()
     const statusOf = (t) => status.get(t.node_id) ?? null
-    const isDone = (t) => t.state === 'closed' || DONE.includes(statusOf(t))
-    // a fork's branch name is a stranger's data: only a PR whose head is in this repository (a deleted fork has none) is the ticket's
-    const prsOf = (n) => pulls.filter((p) => p.head?.repo?.full_name?.toLowerCase() === cfg.repo.toLowerCase() && new RegExp(`(^|/)issue-${n}-`).test(p.head.ref ?? '')).map((p) => ({ number: p.number, sha: String(p.head.sha).slice(0, 7), state: p.state === 'open' ? 'open' : p.merged_at ? 'merged' : 'closed' }))
+    // a fork's branch name is a stranger's data: only a PR whose head repo is its base repo (a deleted fork has none) is the ticket's
+    // shortcut: ids, not names, so a renamed repo keeps its PRs; a PR list entry without ids (an old API shape) reads as a fork
+    const prsOf = (n) => pulls.filter((p) => p.head?.repo?.id != null && p.head.repo.id === p.base?.repo?.id && new RegExp(`(^|/)issue-${n}-`).test(p.head.ref ?? '')).map((p) => ({ number: p.number, sha: String(p.head.sha).slice(0, 7), state: p.state === 'open' ? 'open' : p.merged_at ? 'merged' : 'closed' }))
+
+    // one definition of done for a listed ticket and for a dependency
+    const isDone = (t) => ticketState({ closed: t.state === 'closed', status: statusOf(t), prs: prsOf(t.number), project: !!P }) === 'done'
 
     const rows = tickets.map((t) => {
         const labels = t.labels.map((l) => l.name), prs = prsOf(t.number)

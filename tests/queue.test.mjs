@@ -7,7 +7,7 @@ const script = new URL('../core/scripts/queue.mjs', import.meta.url).pathname
 const R = 'repos/o/r'
 const PULLS = `${R}/pulls?state=all&per_page=100&sort=updated&direction=desc`
 const issue = (number, o = {}) => ({ number, state: 'open', title: `T${number}`, node_id: `N${number}`, body: '', labels: [], ...o })
-const pr = (number, branch, o = {}) => ({ number, state: 'open', merged_at: null, head: { ref: branch, sha: 'abcdef1234567890', repo: { full_name: 'o/r' } }, ...o })
+const pr = (number, branch, o = {}) => ({ number, state: 'open', merged_at: null, head: { ref: branch, sha: 'abcdef1234567890', repo: { id: 1, full_name: 'o/r' } }, base: { repo: { id: 1 } }, ...o })
 const item = (status, number = 7, login = 'octo') => ({ project: { number, owner: { login } }, fieldValueByName: status ? { name: status } : null })
 const node = (number, status) => ({ id: `N${number}`, projectItems: { nodes: status ? [item(status)] : [] } })
 
@@ -180,9 +180,9 @@ test('without a project the list and tracker modes still work (closed is the onl
 })
 
 test('only pull requests from this repository count: a fork PR (or a deleted fork) on a matching branch is ignored', () => {
-    const fork = (n, number) => pr(number, `x/issue-${n}-y`, { head: { ref: `x/issue-${n}-y`, sha: 'deadbeef00', repo: { full_name: 'stranger/r' } } })
+    const fork = (n, number) => pr(number, `x/issue-${n}-y`, { head: { ref: `x/issue-${n}-y`, sha: 'deadbeef00', repo: { id: 2, full_name: 'stranger/r' } } })
     const gone = pr(92, 'x/issue-11-z', { head: { ref: 'x/issue-11-z', sha: 'deadbeef00', repo: null } })
-    const r = run(['11', '12'], { issues: [issue(11), issue(12)], pulls: [fork(11, 90), fork(11, 91), gone, fork(12, 93), pr(94, 'a/issue-12-x', { head: { ref: 'a/issue-12-x', sha: 'abcdef1234', repo: { full_name: 'O/R' } } })] })
+    const r = run(['11', '12'], { issues: [issue(11), issue(12)], pulls: [fork(11, 90), fork(11, 91), gone, fork(12, 93), pr(94, 'a/issue-12-x', { head: { ref: 'a/issue-12-x', sha: 'abcdef1234', repo: { id: 1, full_name: 'O/R-renamed' } } })] })
     assert.match(line(r, 11), /^#11 ready T11$/)
     assert.match(line(r, 12), /^#12 in-progress T12 \[pr: #94 open abcdef1\]$/)
     assert.match(r.stdout, /\nnext: #11\n/)
@@ -221,4 +221,31 @@ test('Depends on: a list after the sentence counts, a ref of another repository 
 test('--ready: a ticket with more than 20 labels exits 2 (its Needs: label could be missed)', () => {
     const r = run(['--ready'], { extra: { 'graphql ReadyItems': page([ready(11, { moreLabels: true })]) } })
     assert.equal(r.status, 2); assert.equal(r.stdout, ''); assert.match(r.stderr, /labels/)
+})
+
+test('without a project a dependency whose PR merged is done too, listed or outside the list (chains continue)', () => {
+    const merged = (n) => pr(40 + n, `feat/issue-${n}-x`, { state: 'closed', merged_at: 'x' })
+    const chain = (body) => issue(12, { body })
+    let r = run(['11', '12'], { issues: [issue(11), chain('Depends on #11.')], project: null, pulls: [merged(11)] })
+    assert.match(line(r, 12), /^#12 ready T12$/)
+    assert.match(r.stdout, /\nnext: #12\n/)
+    r = run(['12'], { issues: [issue(11), chain('Depends on #11.')], project: null, pulls: [merged(11)] })   // #11 is outside the list
+    assert.match(line(r, 12), /^#12 ready T12$/)
+    r = run(['12'], { issues: [issue(11), chain('Depends on #11.')], pulls: [merged(11)] })   // with a project the handoff still has to happen
+    assert.match(line(r, 12), /^#12 waiting T12 \[after: #11\]$/)
+})
+
+test('Depends on: numbered list items and issue URLs count (another repository\'s URL is a cross-repo ref)', () => {
+    const body = (text) => ({ issues: [issue(11), issue(12), issue(13, { body: text })] })
+    let r = run(['11', '12', '13'], body('Depends on:\n1. #11\n2) #12\n'))
+    assert.match(line(r, 13), /^#13 waiting T13 \[after: #11, #12\]$/)
+    r = run(['11', '12', '13'], body('Depends on https://github.com/o/r/issues/11 and https://github.com/x/y/issues/4.'))
+    assert.match(line(r, 13), /^#13 waiting T13 \[after: #11, x\/y#4\]$/)
+})
+
+test('a transferred issue (its repository_url is another repository) is an error in a list and as a dependency', () => {
+    const moved = { ...issue(11), repository_url: 'https://api.github.com/repos/x/y' }
+    for (const r of [run(['11'], { issues: [moved] }), run(['12'], { issues: [issue(12, { body: 'Depends on #11.' }), moved] })]) {
+        assert.equal(r.status, 2); assert.equal(r.stdout, ''); assert.match(r.stderr, /x\/y/)
+    }
 })

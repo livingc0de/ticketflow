@@ -116,7 +116,7 @@ specialist). Parallel tickets only on request and only when independent (disjoin
 Fallbacks: a lead that cannot dispatch plans inline and reports `needs-review` once CI is green; the orchestrator then dispatches the
 `pr-reviewer` and a fresh lead continues the ticket. With no dispatch at all, one ticket is run and the run stops, and says so.
 Limits: the persistence lasts as long as the session; two orchestrators can claim one ticket within seconds, which shows afterwards
-as `conflict` in the queue. `queue.mjs` ceilings: tickets are matched to pull requests by branch name (`*/issue-<N>-*`, same repository only) among the 100 latest-updated pull requests; at most 50 tickets; at most 10 pages of Ready items. Without a Project a merged ticket shows `done`, because its handoff cannot be seen.
+as `conflict` in the queue. `queue.mjs` ceilings: tickets are matched to pull requests by branch name (`*/issue-<N>-*`, same repository only) among the 100 latest-updated pull requests; at most 50 tickets; at most 10 pages of Ready items. Without a Project a merged ticket shows `done`, because its handoff cannot be seen. Follow-up work on a ticket after its merge needs its own ticket: the old merged PR keeps the ticket `merged`. A `Depends on owner/other#N` ref of another repository keeps the ticket `waiting` until the owner edits it out of the ticket.
 
 ## Handoff and the Run line
 
