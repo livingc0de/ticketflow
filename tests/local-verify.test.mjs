@@ -43,6 +43,7 @@ process.exit(Number(seq[Math.min(n, seq.length - 1)]))
 `)
         put('.ticketflow/scripts/gen-stubs.mjs', `import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 const s = process.env.HOME   // the clean environment keeps only HOME, PATH and CI
+if (existsSync(s + '/kill-gen-stubs')) process.kill(process.pid, 'SIGKILL')
 appendFileSync(s + '/stubs.log', 'pwd=' + process.cwd() + ' ' + process.argv.slice(2).join(' ') + ' CI=' + process.env.CI + ' SECRET=' + (process.env.AGENT_SECRET ?? 'unset') + '\\n')
 process.exit(existsSync(s + '/rc-gen-stubs') ? Number(readFileSync(s + '/rc-gen-stubs', 'utf8')) : 0)
 `)
@@ -249,8 +250,23 @@ test('stale agent stubs post a failure without running the install or the comman
         assert.equal(h.run().status, 1)
         assert.deepEqual(h.runlog(), [], JSON.stringify(prFiles))
         assert.equal(h.statuses()[0].state, 'failure')
-        assert.match(h.gh.comments()[0], /the agent stubs are out of date \(run gen-stubs\), no verify run/)
+        assert.match(h.statuses()[0].description, /^Local check on \S+, agent stubs out of date$/)
+        assert.match(h.gh.comments()[0], /agent stubs out of date \(run gen-stubs\), no verify run/)
     }
+    const i = setup({ config: { gate: { inherit: true } }, fixtures: inheritFixtures(), prFiles: { 'docs/a.md': 'x' } })
+    writeFileSync(join(i.home, 'rc-gen-stubs'), '1')
+    assert.equal(i.run().status, 1)
+    assert.equal(i.statuses()[0].state, 'failure'); assert.match(i.statuses()[0].description, /agent stubs out of date$/)
+})
+
+test('a killed stub check posts nothing, exit 1, and the worktree is removed', () => {
+    const h = setup()
+    writeFileSync(join(h.home, 'kill-gen-stubs'), '')
+    const r = h.run()
+    assert.equal(r.status, 1); assert.match(r.stderr, /the stub check did not finish \(SIGKILL\)/)
+    noPost(h)
+    assert.deepEqual(h.runlog(), [])
+    assert.ok(!existsSync(`${h.home}/.cache/ticketflow-verify/o__r/${h.head.slice(0, 12)}`))
 })
 
 test('a docs-only head still goes through the recheck', () => {

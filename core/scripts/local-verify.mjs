@@ -144,7 +144,7 @@ function main() {
         how = `${desc}, verify command on the exact head, Actions refused the job`
         ;({ state, log, stale } = checkHead(sha))
     }
-    if (stale) how = `${desc}; the agent stubs are out of date (run gen-stubs), no verify run`
+    if (stale) { desc = `Local check on ${host}, agent stubs out of date`; how = `${desc} (run gen-stubs), no verify run` }
 
     // 7. Recheck right before posting: the head is unchanged and the guard still says so.
     const where = log && ` (log: ${log})`
