@@ -57,16 +57,18 @@ test('prose without a comment prefix, an untracked file and a binary file are ig
     assert.equal(r.stdout, 'No shortcuts.\n')
 })
 
-test('a marker word in prose, a bullet, bold text or a string literal is not a marker; an indented block-comment line and an ini comment are', () => {
+test('a marker word in prose, a bullet or bold text is not a marker; an indented block-comment line, an ini comment and a marker after an apostrophe are', () => {
     const dir = repo({
         'notes.md': `A decision; ${SC} x, y\n* ${SC} a bullet, y\n**${SC}** bold, y\n`,
-        'a.js': `const s = '// ${SC} a, b'\nconst t = "# ${SC} c, d"\nconst u = \`// ${SC} e, f\`\nrun("x") // ${SC} real one, but add a trigger\n`,
+        'a.js': `run("x") // ${SC} real one, but add a trigger\n`,
+        'a.py': `raise Error("can't read config")  # ${SC} one file, read the folder later\n`,
+        'a.rs': `fn n() -> &'static str { "x" } // ${SC} fixed name, configure it later\n`,
         'b.ini': `; ${SC} fixed list, make it a glob if it grows\n`,
         'c.js': `/**\n  * ${SC} indented line, revisit\n */\n`,
     })
     const r = debt(dir)
     assert.equal(r.status, 0, r.stderr)
-    assert.equal(r.stdout, 'a.js:4 real one; revisit: but add a trigger\nb.ini:1 fixed list; revisit: make it a glob if it grows\nc.js:2 indented line; revisit: revisit\n3 shortcuts, 0 without a trigger\n')
+    assert.equal(r.stdout, 'a.js:1 real one; revisit: but add a trigger\na.py:1 one file; revisit: read the folder later\na.rs:1 fixed name; revisit: configure it later\nb.ini:1 fixed list; revisit: make it a glob if it grows\nc.js:2 indented line; revisit: revisit\n5 shortcuts, 0 without a trigger\n')
 })
 
 test('a non-ASCII path and a path with ":12:" in it are printed verbatim and split right', () => {
@@ -76,18 +78,21 @@ test('a non-ASCII path and a path with ":12:" in it are printed verbatim and spl
     assert.equal(r.stdout, 'x:12:y.py:1 c; revisit: d\nä.js:1 a; revisit: b\n2 shortcuts, 0 without a trigger\n')
 })
 
-test('a user git config that forces colour in grep output does not change the rows', () => {
-    const dir = repo({ 'a.js': `// ${SC} one page, page it later\n` })
+test('a user git config that forces colour or column numbers in grep output does not change the rows', () => {
+    const dir = repo({ 'a.js': `// ${SC} one page, page it later\n`, 'b.js': `/**\n * ${SC} first page, paginate if needed\n */\n` })
     spawnSync('git', ['config', 'color.grep', 'always'], { cwd: dir })
     spawnSync('git', ['config', 'color.ui', 'always'], { cwd: dir })
+    spawnSync('git', ['config', 'grep.column', 'true'], { cwd: dir })
     const r = debt(dir)
     assert.equal(r.status, 0, r.stderr)
-    assert.equal(r.stdout, 'a.js:1 one page; revisit: page it later\n1 shortcuts, 0 without a trigger\n')
+    assert.equal(r.stdout, 'a.js:1 one page; revisit: page it later\nb.js:2 first page; revisit: paginate if needed\n2 shortcuts, 0 without a trigger\n')
 })
 
 test('paths limit the scan', () => {
     const dir = repo({ 'src/a.js': `// ${SC} a, b\n`, 'lib/b.js': `// ${SC} c, d\n` })
     assert.equal(debt(dir, 'src').stdout, 'src/a.js:1 a; revisit: b\n1 shortcuts, 0 without a trigger\n')
+    assert.equal(debt(dir, ':!lib').stdout, 'src/a.js:1 a; revisit: b\n1 shortcuts, 0 without a trigger\n')   // a git pathspec is not a file path
+    assert.equal(debt(dir, '*a.js').stdout, 'src/a.js:1 a; revisit: b\n1 shortcuts, 0 without a trigger\n')
 })
 
 test('outside a git checkout, with a path that is outside or does not exist, or an unknown option: exit 2 and nothing on stdout', () => {
@@ -99,4 +104,7 @@ test('outside a git checkout, with a path that is outside or does not exist, or 
         assert.equal(r.stdout, '')
         assert.match(r.stderr, /^debt: /)
     }
+    // a user config that lets git grep scan a plain directory does not turn "not a checkout" into a report
+    const env = { ...process.env, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'grep.fallbackToNoIndex', GIT_CONFIG_VALUE_0: 'true' }
+    assert.equal(spawnSync(process.execPath, [script], { cwd: plain, encoding: 'utf8', env }).status, 2)
 })
