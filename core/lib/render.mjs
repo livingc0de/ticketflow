@@ -23,7 +23,7 @@ const fail = (m) => { throw new RenderError(m) }
  */
 export const FILES = [
     { src: 'ci.yml', dest: '.github/workflows/ci.yml', kind: 'blocks' },
-    { src: 'ISSUE_TEMPLATE/config.yml', dest: '.github/ISSUE_TEMPLATE/config.yml', kind: 'blocks' },
+    { src: 'ISSUE_TEMPLATE/config.yml', dest: '.github/ISSUE_TEMPLATE/config.yml', kind: 'once' },   // a starting point: then the repo's
     ...['bug', 'feature', 'task', 'decision'].map((n) => ({ src: `ISSUE_TEMPLATE/${n}.yml`, dest: `.github/ISSUE_TEMPLATE/${n}.yml`, kind: 'blocks' })),
     { src: 'PULL_REQUEST_TEMPLATE.md', dest: '.github/PULL_REQUEST_TEMPLATE.md', kind: 'blocks' },
     { src: 'AGENTS-block.md', dest: 'AGENTS.md', kind: 'blocks', propose: 'h1' },
@@ -246,11 +246,24 @@ export function mergeCodexHooks(existing, entry, runtimeRel) {
 }
 
 /**
+ * The job-level `runs-on` entry of a managed block in the existing workflow, verbatim: the key line at the job's indent (4 spaces)
+ * and the lines under it, more-indented or a compact `- item` list at the key's indent. The runner is the repo's choice and is kept on
+ * every render. `null` when there is no file or no such block yet (render then uses the job's runner, or `ubuntu-latest`).
+ * ponytail: a blank line inside a multi-line value ends it; write the value without blank lines.
+ */
+export function runsOn(existing, part) {
+    const body = existing === null ? null : parseBlocks(existing.replaceAll('\r\n', '\n')).find((s) => s.part === part)?.body
+    return /^ {4}runs-on:.*(?:\n {4}(?: +\S|- ).*)*/m.exec(body ?? '')?.[0] ?? null
+}
+
+/**
  * One template to one file. `existing` is the file's text or null. `ctx`: { cfg, vars, runtimeRel, owned }.
  * Returns { text, notes, owns? } or { conflict, proposal } (`proposal` is the text ticketflow would suggest instead).
  */
 export function renderFile(file, tpl, existing, { cfg, vars, runtimeRel, owned = {} }) {
-    const rendered = dropParts(fill(tpl, vars), omittedParts(cfg))
+    const job = file.src === 'ci.yml' ? runsOn(existing, 'job') ?? '    runs-on: ubuntu-latest' : null
+    const all = file.src === 'ci.yml' ? { ...vars, runs_on_job: job, runs_on_deploy: runsOn(existing, 'deploy') ?? job } : vars   // a new deploy job runs where the job runs
+    const rendered = dropParts(fill(tpl, all), omittedParts(cfg))
     switch (file.kind) {
         case 'blocks': {
             const r = mergeManaged(existing, rendered, omittedParts(cfg))

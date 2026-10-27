@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFil
 import { dirname, join } from 'node:path'
 import { claudeAsk } from '../core/lib/guard.mjs'
 import { validate } from '../core/lib/config.mjs'
-import { FILES, RenderError, dropParts, fill, mergeClaudeSettings, mergeCodexHooks, mergeManaged, omittedParts, parseBlocks, proposeInsert, renderFile, templateVars, verifyRuns } from '../core/lib/render.mjs'
+import { FILES, RenderError, dropParts, fill, mergeClaudeSettings, runsOn, mergeCodexHooks, mergeManaged, omittedParts, parseBlocks, proposeInsert, renderFile, templateVars, verifyRuns } from '../core/lib/render.mjs'
 import { config, fakeGh, rawConfig, tempDir } from './helpers.mjs'
 
 const TEMPLATES = new URL('../core/templates/', import.meta.url).pathname
@@ -448,4 +448,35 @@ test('verifyRuns counts the verify command as consecutive lines: inline, quoted,
     assert.equal(verifyRuns('- run: |\n    set -euo pipefail\n    npm test\n- run: |\n    set -euo pipefail\n    npm run lint\n', 'set -euo pipefail\nnpm test'), 1)
     assert.equal(verifyRuns('- run: npm test\n\n', '  \n '), 0)
     assert.equal(verifyRuns('- run: |\n    # lint first\n    npm test\n', '# lint first\nnpm test'), 1)
+})
+
+test('ci.yml: runs-on is the repo\'s: ubuntu-latest on a fresh render, an existing list or mapping is kept byte for byte', () => {
+    const f = FILES[0], cfg = config(B), vars = templateVars(cfg, { runtimeRel: '.ticketflow' })
+    const fresh = renderFile(f, tpl(f.src), null, { cfg, vars, runtimeRel: '.ticketflow' }).text
+    assert.equal(fresh.match(/^ {4}runs-on: ubuntu-latest$/gm).length, 2)
+    const mine = fresh.replace('    runs-on: ubuntu-latest', '    runs-on: [self-hosted, linux]').replace(/(  deploy:[\s\S]*?)    runs-on: ubuntu-latest/, '$1    runs-on:\n      group: big-runners\n      labels: [arm64]')
+    const again = renderFile(f, tpl(f.src), mine, { cfg, vars, runtimeRel: '.ticketflow' })
+    assert.equal(again.conflict, undefined); assert.equal(again.text, mine)
+    assert.equal(runsOn(mine, 'deploy'), '    runs-on:\n      group: big-runners\n      labels: [arm64]')
+    assert.equal(runsOn(null, 'job'), null)
+    // a step's `with: runs-on:` deeper in the job is not the job's runner
+    assert.equal(runsOn('# ticketflow:begin job\njobs:\n  verify:\n    steps:\n      - uses: x\n        with:\n          runs-on: nope\n# ticketflow:end job\n', 'job'), null)
+    // a compact list (items at the key's indent) is kept too, and a deploy part added later runs where the job runs
+    const compact = fresh.replace('    runs-on: ubuntu-latest', '    runs-on:\n    - self-hosted\n    - linux')
+    assert.equal(renderFile(f, tpl(f.src), compact, { cfg, vars, runtimeRel: '.ticketflow' }).text, compact)
+    const cfgNo = config({ ...B, deploy_branch: undefined }), varsNo = templateVars(cfgNo, { runtimeRel: '.ticketflow' })
+    const noDeploy = renderFile(f, tpl(f.src), null, { cfg: cfgNo, vars: varsNo, runtimeRel: '.ticketflow' }).text.replace('    runs-on: ubuntu-latest', '    runs-on: [self-hosted]')
+    const added = renderFile(f, tpl(f.src), noDeploy, { cfg, vars, runtimeRel: '.ticketflow' })   // adding a part is a conflict: the proposal shows it
+    assert.equal(added.proposal.text.match(/^ {4}runs-on: \[self-hosted\]$/gm).length, 2)
+})
+
+test('templates leave the repo\'s choices alone: the issue chooser is written once, an optional Environment field, no screenshots line, merging without asking is the skill\'s', () => {
+    const f = FILES.find((x) => x.dest === '.github/ISSUE_TEMPLATE/config.yml'), cfg = config(A), vars = templateVars(cfg, { runtimeRel: '.ticketflow' })
+    assert.equal(f.kind, 'once')
+    const mine = 'blank_issues_enabled: true\ncontact_links:\n  - name: Support\n    url: https://example.com/help\n    about: Ask here\n'
+    assert.deepEqual(renderFile(f, tpl(f.src), mine, { cfg, vars, runtimeRel: '.ticketflow' }), { text: mine, notes: [] })
+    const files = renderAll(A)
+    assert.match(files.get('.github/ISSUE_TEMPLATE/bug.yml'), /id: environment\n[\s\S]*?required: false\n  - type: textarea\n    id: steps/)   // optional, with default choices
+    assert.doesNotMatch(files.get('.github/PULL_REQUEST_TEMPLATE.md'), /with screenshots/)
+    assert.doesNotMatch(files.get('AGENTS.md'), /without asking/)
 })

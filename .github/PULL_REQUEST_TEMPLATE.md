@@ -17,7 +17,7 @@ Planning: <!-- copy the claim comment's line: planner, planned earlier (link) or
 
 - [ ] The gate status is success on the head commit
 - [ ] Focused checks, listed below
-- [ ] Visible changes verified live, with screenshots
+- [ ] Visible changes verified live
 
 Verification evidence:
 

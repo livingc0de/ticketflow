@@ -16,13 +16,13 @@ body:
     id: environment
     attributes:
       label: Environment
+      description: Where it happened. Optional; edit the choices to match this repo's environments.
       options:
         - Production
         - Staging
-        - Local development
-        - Not sure
+        - Development
     validations:
-      required: true
+      required: false
   - type: textarea
     id: steps
     attributes:

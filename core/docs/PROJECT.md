@@ -24,7 +24,8 @@ Everything below is done through the API: `project.mjs`, `sub-issue.mjs`, `track
 **Done only on request.** An agent never sets Done or closes an issue on its own: when the owner asks, `project.mjs status <N> Done`,
 then `gh issue close <N>`. Pull requests say `Ticket #N`, never a closing keyword, so no workflow closes or moves an issue on merge.
 
-Two date fields exist too: Start Date and Target Date.
+Two date fields exist too, for the Roadmap: Start Date and Target Date. They are never required: no form, step or check asks for a
+date, and a same-named field the repo already has (of another type) is left alone.
 
 ## Views
 
@@ -54,10 +55,12 @@ Type, Priority, Effort and Area are labels, not project fields, so nothing is st
 - `Effort:` XS, S, M, L, XL (Bug, Feature and Task only; XL means split it).
 - `Needs:` Decision, Design, Legal, External, Reproduction: something blocks readiness.
 - Supporting: UX, Content, Security, Testing, Documentation, Technical Debt.
-- `Area: <name>` for each name in `areas` of the config (created when missing, never recoloured afterwards).
+- `Area: <name>` for each name in `areas` of the config.
 - Your own, in `.ticketflow/custom/labels.json` (same format).
 
-`labels.mjs sync <file> [--prune] [--dry-run]` creates the missing and fixes colour, description and case. It deletes other labels
+`labels.mjs sync <file> [--restyle] [--prune] [--dry-run]` creates the missing labels. A label the repo already has is the repo's: its colour,
+description and case are never changed, except for the entries of `custom/labels.json`, which are kept in line, and, on the owner's
+choice, `--restyle` (a dry run lists each differing label as `differs:`). It deletes other labels
 only with `--prune`, and only those no issue or pull request uses. The issue forms (feature, bug, task, decision) carry the Type label;
 the creator copies the Priority, Effort and Area answers from the body into labels.
 

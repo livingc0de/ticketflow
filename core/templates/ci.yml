@@ -25,7 +25,7 @@ jobs:
   verify:
     name: {{gate_check_json}}
 {{job_if}}
-    runs-on: ubuntu-24.04
+{{runs_on_job}}
     timeout-minutes: {{timeout_min}}
     permissions:
       contents: read
@@ -95,7 +95,7 @@ jobs:
     name: Advance Deploy Branch
     needs: verify
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/{{default_branch}}' }}
-    runs-on: ubuntu-24.04
+{{runs_on_deploy}}
     timeout-minutes: 5
     permissions:
       contents: write

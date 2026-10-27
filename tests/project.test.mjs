@@ -115,9 +115,11 @@ test('a repo that is not linked is linked; a disabled standard workflow is repor
     assert.deepEqual(plan(normalize(n), 'O/R').actions, [])   // the repo name compares ignoring case
 })
 
-test('a non-date Start Date field or a missing Status field is a PlanError', () => {
+test('a non-date Start Date field is the repo\'s (kept, noted, never required); a missing Status field is a PlanError', () => {
     const text = standardNode(); text.fields = nodes([...builtins(), statusField([opt('Todo')]), { id: 'x', name: 'Start Date', dataType: 'TEXT' }])
-    assert.throws(() => plan(normalize(text), 'o/r'), (e) => e instanceof PlanError && /Start Date.*TEXT/.test(e.message))
+    const { actions, notes } = plan(normalize(text), 'o/r')
+    assert.ok(!actions.some((a) => a.op === 'create-field' && a.name === 'Start Date'))
+    assert.ok(notes.some((n) => /field "Start Date" is TEXT, not DATE: kept as it is/.test(n)))
     assert.throws(() => plan(normalize(node({ fields: nodes(builtins()) })), 'o/r'), PlanError)
 })
 
@@ -165,10 +167,11 @@ test('a read-back that still differs exits 1 and lists what remains', () => {
     assert.match(r.stderr, /still to do after apply: set Status options/)
 })
 
-test('a text Start Date field and a missing project exit 2 with no writes', () => {
+test('a text Start Date field is left alone; a missing project exits 2 with no writes', () => {
     const text = node(); text.fields.nodes.push({ id: 'x', name: 'Start Date', dataType: 'TEXT' })
-    const a = setup(['setup'], [text])
-    assert.equal(a.status, 2); assert.match(a.stderr, /Start Date/); assert.deepEqual(a.writes, [])
+    const a = setup(['setup', '--dry-run'], [text])
+    assert.match(a.stdout + a.stderr, /Start Date" is TEXT, not DATE: kept as it is/); assert.deepEqual(a.writes, [])
+    assert.ok(!/create field Start Date/i.test(a.stdout))
     const b = setup(['setup'], [node()], { owner: { id: 'U1', projectV2: null } })
     assert.equal(b.status, 2); assert.match(b.stderr, /project octo\/7 not found/); assert.deepEqual(b.writes, [])
 })

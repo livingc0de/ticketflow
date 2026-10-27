@@ -91,6 +91,7 @@
         { "cmd": "node {scripts_dir}/protect.mjs --apply --migrate-classic", "claude": "ask", "codex": "prompt" },
         { "cmd": "node {scripts_dir}/protect.mjs --apply --replace-context ci/gate", "claude": "ask", "codex": "prompt" },
         { "cmd": "node {scripts_dir}/protect.mjs --apply --migrate-classic --replace-context ci/gate", "claude": "ask", "codex": "prompt" },
+        { "cmd": "node {scripts_dir}/protect.mjs --apply --squash-only --branch-settings", "claude": "ask", "codex": "prompt" },
         { "cmd": "node {scripts_dir}/protect.mjs --replace-context ci/gate", "claude": "pass", "codex": "pass" },
         { "cmd": "{scripts_dir}/protect.mjs", "claude": "pass", "codex": "pass" },
         { "cmd": "gh api repos/o/r/issues/5/comments -f body=\"see rulesets and branches/main/protection\"", "claude": "ask", "codex": "pass" },

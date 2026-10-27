@@ -23,12 +23,12 @@ function run(args, map, wanted = WANTED, { over, custom } = {}) {
 const labelsAt = (pages) => ({ [`${R}/labels?per_page=100`]: { __pages: pages } })
 const issues = (name, n) => ({ [`${R}/issues?labels=${encodeURIComponent(name)}&state=all&per_page=1`]: Array.from({ length: n }, () => ({ number: 1 })) })
 
-test('creates the missing label, updates a different colour or name case, and a second run writes nothing', () => {
-    const first = run([], { ...labelsAt([[live('type: bug', '000000', 'Broken')]]), [`POST ${R}/labels`]: {}, [`PATCH ${R}/labels/type%3A%20bug`]: {} })
+test('creates the missing label and never changes a core label the repo has; a custom label is kept in line; a second run writes nothing', () => {
+    const first = run([], { ...labelsAt([[live('type: bug', '000000', 'Mine'), live('mine', '000000')]]), [`POST ${R}/labels`]: {}, [`PATCH ${R}/labels/mine`]: {} }, WANTED, { custom: [{ name: 'Mine', color: 'aaaaaa', description: 'Ours' }] })
     assert.equal(first.status, 0, first.stderr)
     assert.deepEqual(first.writes, [
-        `PATCH labels/type%3A%20bug {"new_name":"Type: Bug","color":"d73a4a","description":"Broken"}`,
         `POST labels {"name":"Effort: S","color":"bfdadc","description":""}`,
+        `PATCH labels/mine {"new_name":"Mine","color":"aaaaaa","description":"Ours"}`,
     ])
     const synced = run([], labelsAt([[live('Type: Bug', 'D73A4A', 'Broken'), live('Effort: S', 'bfdadc', null)]]))   // the state after the first run
     assert.deepEqual(synced.writes, [])
@@ -48,11 +48,12 @@ test('--prune deletes only unused extras; a label in use and a label with a comm
 })
 
 test('--dry-run writes nothing and exits 1 while a create or update is pending, even with --prune', () => {
-    const map = { ...labelsAt([[live('Type: Bug', 'ffffff', 'Broken'), live('old', 'ffffff')]]), ...issues('old', 0) }
-    const r = run(['--dry-run', '--prune'], map)
+    const map = { ...labelsAt([[live('Type: Bug', 'ffffff', 'Broken'), live('Mine', 'ffffff'), live('old', 'ffffff')]]), ...issues('old', 0) }
+    const r = run(['--dry-run', '--prune'], map, WANTED, { custom: [{ name: 'Mine', color: 'aaaaaa' }] })
     assert.equal(r.status, 1)
     assert.deepEqual(r.writes, [])
-    assert.match(r.stdout, /would update Type: Bug/); assert.match(r.stdout, /would create Effort: S/); assert.match(r.stdout, /would delete old/)
+    assert.match(r.stdout, /would update Mine/); assert.match(r.stdout, /would create Effort: S/); assert.match(r.stdout, /would delete old/)
+    assert.doesNotMatch(r.stdout, /would update Type: Bug/)
     assert.equal(run(['--dry-run'], labelsAt([[live('Type: Bug', 'd73a4a', 'Broken'), live('Effort: S', 'bfdadc')]])).status, 0)
 })
 
@@ -84,4 +85,15 @@ test('areas become Area: labels, created when missing and never updated; custom/
     }
     assert.deepEqual(run(['--dry-run'], labelsAt([[live('Type: Bug', 'd73a4a', 'Broken'), live('Effort: S', 'bfdadc')]]), WANTED, { over: { areas: ['Api'] } }).writes, [])
     assert.equal(run(['--dry-run'], labelsAt([[live('Type: Bug', 'd73a4a', 'Broken'), live('Effort: S', 'bfdadc')]]), WANTED, { over: { areas: ['Api'] } }).status, 1)
+})
+
+test('a TicketFlow label the repo styled differently is listed as differs and kept; --restyle (the owner\'s choice) updates it', () => {
+    const map = { ...labelsAt([[live('type: bug', '000000', 'Mine'), live('Effort: S', 'bfdadc')]]), [`PATCH ${R}/labels/type%3A%20bug`]: {} }
+    const kept = run(['--dry-run'], map)
+    assert.equal(kept.status, 0, kept.stderr)   // nothing pending: a difference is not drift
+    assert.match(kept.stdout, /^differs: type: bug \(yours: #000000 "Mine"; TicketFlow: Type: Bug #d73a4a "Broken"\), kept$/m)
+    const restyled = run(['--restyle'], map)
+    assert.equal(restyled.status, 0, restyled.stderr)
+    assert.deepEqual(restyled.writes, [`PATCH labels/type%3A%20bug {"new_name":"Type: Bug","color":"d73a4a","description":"Broken"}`])
+    assert.equal(run(['--restyle', '--dry-run'], map).status, 1)
 })
