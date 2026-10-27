@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFil
 import { dirname, join } from 'node:path'
 import { claudeAsk } from '../core/lib/guard.mjs'
 import { validate } from '../core/lib/config.mjs'
-import { FILES, RenderError, dropParts, fill, mergeClaudeSettings, runsOn, mergeCodexHooks, mergeManaged, omittedParts, parseBlocks, proposeInsert, renderFile, templateVars, verifyRuns } from '../core/lib/render.mjs'
+import { FILES, RenderError, filesFor, dropParts, fill, mergeClaudeSettings, runsOn, mergeCodexHooks, mergeManaged, omittedParts, parseBlocks, proposeInsert, renderFile, templateVars, verifyRuns } from '../core/lib/render.mjs'
 import { config, fakeGh, rawConfig, tempDir } from './helpers.mjs'
 
 const TEMPLATES = new URL('../core/templates/', import.meta.url).pathname
@@ -22,7 +22,7 @@ const B = { verify: { mode: 'local-first', install: 'pnpm install --frozen-lockf
 function renderAll(over, runtimeRel = '.ticketflow') {
     const cfg = config(over)
     const vars = templateVars(cfg, { runtimeRel })
-    return new Map(FILES.map((f) => [f.dest, renderFile(f, tpl(f.src), null, { cfg, vars, runtimeRel }).text]))
+    return new Map(filesFor(cfg).map((f) => [f.dest, renderFile(f, tpl(f.src), null, { cfg, vars, runtimeRel }).text]))
 }
 
 test('fill: unknown and leftover placeholders throw, GitHub expressions stay, an empty whole-line value drops the line', () => {
@@ -36,7 +36,7 @@ test('fill: unknown and leftover placeholders throw, GitHub expressions stay, an
 for (const [name, over] of [['A', A], ['B', B]]) {
     test(`every template renders for parameter set ${name} with no placeholder left`, () => {
         const files = renderAll(over)
-        assert.equal(files.size, FILES.length)
+        assert.equal(files.size, filesFor(config(over)).length)
         for (const [dest, text] of files) assert.doesNotMatch(text, LEFT, dest)
         JSON.parse(files.get('.claude/settings.json')); JSON.parse(files.get('.codex/hooks.json'))
         for (const [dest, text] of files) if (dest.endsWith('.yml') || dest.endsWith('.md') || dest.endsWith('.rules')) assert.doesNotThrow(() => parseBlocks(text), dest)
@@ -271,7 +271,7 @@ test('render.mjs writes every file, then --check is clean and a second run write
     const t = repo()
     const r = t.run()
     assert.equal(r.status, 0, r.stderr)
-    for (const f of FILES) assert.ok(t.has(f.dest), f.dest)
+    for (const f of filesFor(config({ agents: ['claude'], models: MODELS }))) assert.ok(t.has(f.dest), f.dest)
     assert.equal(t.run('--check').status, 0)
     assert.doesNotMatch(t.run().stdout, /wrote/)
     t.put('.github/workflows/ci.yml', t.read('.github/workflows/ci.yml').replace('timeout-minutes: 45', 'timeout-minutes: 1'))
@@ -480,4 +480,31 @@ test('templates leave the repo\'s choices alone: the issue chooser is written on
     assert.match(files.get('.github/ISSUE_TEMPLATE/bug.yml'), /id: environment\n[\s\S]*?required: false\n  - type: textarea\n    id: steps/)   // optional, with default choices
     assert.doesNotMatch(files.get('.github/PULL_REQUEST_TEMPLATE.md'), /with screenshots/)
     assert.doesNotMatch(files.get('AGENTS.md'), /without asking/)
+})
+
+// ---- GEMINI.md (#31): rendered only while gemini is in the agents
+const GEMINI = { gemini: { strong: null, standard: null, light: null } }
+
+test('GEMINI.md is the managed @./AGENTS.md import, rendered only with gemini; claude and codex installs get none', () => {
+    const g = repo({ agents: ['gemini'], models: GEMINI })
+    assert.equal(g.run().status, 0)
+    assert.equal(g.read('GEMINI.md'), '<!-- ticketflow:begin gemini -->\n@./AGENTS.md\n<!-- ticketflow:end gemini -->\n')
+    assert.equal(g.run('--check').status, 0)
+    g.put('GEMINI.md', '# Mine\n\n' + g.read('GEMINI.md') + '\nmore of mine\n')
+    assert.equal(g.run().status, 0); assert.match(g.read('GEMINI.md'), /^# Mine\n\n<!-- ticketflow:begin gemini -->[\s\S]*more of mine\n$/)
+    const c = repo({ agents: ['claude', 'codex'], models: { ...MODELS, codex: GEMINI.gemini } })
+    assert.equal(c.run().status, 0)
+    assert.ok(!c.has('GEMINI.md'))
+    assert.deepEqual(filesFor(config({ agents: ['claude', 'codex'], models: { ...MODELS, codex: GEMINI.gemini } })).map((f) => f.dest), FILES.filter((f) => !f.agent).map((f) => f.dest))
+})
+
+test('an unmarked GEMINI.md is a conflict with a proposal that puts the block at the top; nothing is written', () => {
+    const t = repo({ agents: ['gemini'], models: GEMINI })
+    t.put('GEMINI.md', '# My Gemini notes\n\nstay\n')
+    const out = tempDir('proposal-')
+    const r = t.run('--propose', out)
+    assert.equal(r.status, 1, r.stderr); assert.match(r.stdout, /conflict: GEMINI\.md/)
+    assert.equal(t.read('GEMINI.md'), '# My Gemini notes\n\nstay\n')
+    assert.equal(readFileSync(join(out, 'GEMINI.md'), 'utf8'), '<!-- ticketflow:begin gemini -->\n@./AGENTS.md\n<!-- ticketflow:end gemini -->\n\n# My Gemini notes\n\nstay\n')
+    assert.ok(!t.has('AGENTS.md'))
 })

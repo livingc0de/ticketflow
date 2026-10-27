@@ -127,3 +127,7 @@ test('orchestrate-tickets: a coordinator with the Result contract, the budget fo
     assert.match(skill, /not dispatched again in this run/)
     assert.match(skill, /write nothing to GitHub/)
 })
+
+test('the ticketflow repo root has no plugin.json, hooks.json, rules/ or GEMINI.md: agents that scan the root would load them as their own', () => {
+    for (const f of ['plugin.json', 'hooks.json', 'rules', 'GEMINI.md']) assert.ok(!existsSync(join(root, f)), f)
+})

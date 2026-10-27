@@ -1,0 +1,14 @@
+{
+  "name": "ticketflow",
+  "owner": {
+    "name": "ticketflow"
+  },
+  "plugins": [
+    {
+      "name": "ticketflow",
+      "source": "./",
+      "version": "0.2.0",
+      "description": "Set up and update the TicketFlow workflow in a GitHub repo."
+    }
+  ]
+}

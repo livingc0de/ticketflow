@@ -1,0 +1,20 @@
+{
+  "skill": { "target": ".agents/skills/{name}/SKILL.md", "format": "md", "body": "pointer" },
+  "plugin": {
+    "manifest": {
+      "path": ".antigravity-plugin/plugin.json",
+      "json": {
+        "name": "ticketflow",
+        "displayName": "TicketFlow",
+        "version": "{version}",
+        "description": "An agent-neutral, ticket-driven delivery workflow for GitHub repos: set it up with init, update it with sync.",
+        "category": "Developer Tools",
+        "keywords": ["workflow", "github", "tickets", "pull-requests"],
+        "author": { "name": "ticketflow" },
+        "homepage": "{repo_url}",
+        "repository": "{repo_url}",
+        "license": "MIT"
+      }
+    }
+  }
+}

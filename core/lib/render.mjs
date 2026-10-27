@@ -19,7 +19,8 @@ const fail = (m) => { throw new RenderError(m) }
 /**
  * Where each template goes. `kind`: blocks (managed blocks merged into the file), settings and hooks (JSON merged by key),
  * owned (the whole file is ticketflow's), once (written when missing, never touched again). `propose`: where a managed block is
- * suggested when the existing file has no markers.
+ * suggested when the existing file has no markers. `agent`: rendered only while that agent is in the config (the entries without it
+ * are rendered for every install, as they always were).
  */
 export const FILES = [
     { src: 'ci.yml', dest: '.github/workflows/ci.yml', kind: 'blocks' },
@@ -28,11 +29,15 @@ export const FILES = [
     { src: 'PULL_REQUEST_TEMPLATE.md', dest: '.github/PULL_REQUEST_TEMPLATE.md', kind: 'blocks' },
     { src: 'AGENTS-block.md', dest: 'AGENTS.md', kind: 'blocks', propose: 'h1' },
     { src: 'CLAUDE.md', dest: '.claude/CLAUDE.md', kind: 'blocks', propose: 'top' },
+    { src: 'GEMINI.md', dest: 'GEMINI.md', kind: 'blocks', propose: 'top', agent: 'gemini' },
     { src: 'claude-settings.json', dest: '.claude/settings.json', kind: 'settings' },
     { src: 'codex-hooks.json', dest: '.codex/hooks.json', kind: 'hooks' },
     { src: 'codex.rules', dest: '.codex/rules/ticketflow.rules', kind: 'owned' },
     { src: 'custom-README.md', dest: '.ticketflow/custom/README.md', kind: 'once' },
 ]
+
+/** The files this config renders: every FILES entry without an `agent`, and those of the configured agents. */
+export const filesFor = (cfg) => FILES.filter((f) => !f.agent || cfg.agents.includes(f.agent))
 
 /** Fills `{{name}}`. A line that is only a placeholder is replaced by the value (several lines), or dropped when the value is empty. */
 export function fill(tpl, vars) {

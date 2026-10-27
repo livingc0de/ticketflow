@@ -1,0 +1,19 @@
+{
+  "name": "ticketflow",
+  "displayName": "TicketFlow",
+  "version": "0.2.0",
+  "description": "An agent-neutral, ticket-driven delivery workflow for GitHub repos: set it up with init, update it with sync.",
+  "category": "Developer Tools",
+  "keywords": [
+    "workflow",
+    "github",
+    "tickets",
+    "pull-requests"
+  ],
+  "author": {
+    "name": "ticketflow"
+  },
+  "homepage": "https://github.com/livingc0de/ticketflow",
+  "repository": "https://github.com/livingc0de/ticketflow",
+  "license": "MIT"
+}

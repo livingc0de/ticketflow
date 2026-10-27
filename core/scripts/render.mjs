@@ -16,7 +16,7 @@ import { parseArgs } from 'node:util'
 import { main } from '../lib/cli.mjs'
 import { loadConfig } from '../lib/config.mjs'
 import { readManifest, writeManifest } from '../lib/manifest.mjs'
-import { FILES, renderFile, templateVars } from '../lib/render.mjs'
+import { FILES, filesFor, renderFile, templateVars } from '../lib/render.mjs'
 
 const usage = 'usage: render <templates-dir> <target-repo> [--check] [--keep <path>]... [--propose <dir>]'
 const inside = (parent, child) => { const r = relative(parent, child); return r !== '' && r !== '..' && !r.startsWith('..' + sep) && !isAbsolute(r) }
@@ -43,7 +43,7 @@ main('render', () => {
     const owned = readManifest(target)?.claude_settings ?? {}
 
     // compute everything first
-    const results = FILES.filter((f) => !keep.has(f.dest)).map((f) => {
+    const results = filesFor(cfg).filter((f) => !keep.has(f.dest)).map((f) => {
         const path = join(target, f.dest)
         const existing = existsSync(path) ? readFileSync(path, 'utf8') : null
         return { f, existing, ...renderFile(f, readFileSync(join(templates, f.src), 'utf8'), existing, { cfg, vars, runtimeRel, owned }) }

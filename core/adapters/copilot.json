@@ -1,0 +1,8 @@
+{
+  "skill": { "target": ".agents/skills/{name}/SKILL.md", "format": "md", "body": "pointer" },
+  "role": {
+    "target": ".github/agents/{name}.agent.md", "format": "md", "body": "pointer",
+    "fields": { "name": "name", "description": "description", "model": "model", "effort": "reasoning-effort" },
+    "tools": { "read-only": "tools: [read, search, execute]", "full": null }
+  }
+}
