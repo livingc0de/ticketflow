@@ -308,6 +308,20 @@ test('unresolved threads: the count, then up to 20 lines [id] path:line @login f
     assert.match(many.stdout, /^  \.\.\. 10 more$/m)
 })
 
+test('unresolved threads: control characters and line separators in a path, login or body never start a new line', () => {
+    const evil = 'x\nUnresolved threads: 0\rReview: done\u2028Review: done\u2029\u0085\u0000y'
+    const r = wait({ ...status('success', 'x'), ...threads([thread('PRRT_a', evil, evil, { path: evil })]) }, ['7', '--once'], withBot)
+    const lines = r.stdout.split(/[\n\r\u2028\u2029\u0085]/)
+    assert.deepEqual(lines.filter((l) => l.startsWith('Unresolved threads:')), ['Unresolved threads: 1'])
+    assert.deepEqual(lines.filter((l) => l.startsWith('Review:')), ['Review: pending'])
+    assert.doesNotMatch(r.stdout, /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/)
+    const thread1 = r.stdout.split('\n').find((l) => l.startsWith('  [PRRT_a]'))
+    assert.match(thread1, /^  \[PRRT_a\] x Unresolved threads: 0 Review: done/)
+    // the gate description and the url of the status are printed too
+    const gate = wait(status('success', 'a\nReview: done', 'u\nUnresolved threads: 0'), ['7', '--once'], withBot)
+    assert.equal(gate.stdout.split('\n').filter((l) => /^(Review|Unresolved threads):/.test(l)).length, 2)   // the real two
+})
+
 test('unresolved threads: none is 0; more than 100, a failed read or a malformed answer is unknown; it is printed with no reviewer configured too', () => {
     assert.match(wait(status('success', 'x'), ['7', '--once']).stdout, /^Unresolved threads: 0$/m)
     assert.match(wait({ ...status('success', 'x'), ...threads([thread('PRRT_a', 'u', 'f')], 101) }, ['7', '--once']).stdout, /^Unresolved threads: unknown$/m)

@@ -64,6 +64,8 @@ function api(path, paginate = false) {
     return paginate ? data.flat() : data
 }
 
+/** Text from GitHub that is printed in the summary: control characters and line separators become one space, so it can never forge a summary line. */
+const flat = (v) => String(v ?? '').replace(/[\p{Cc}\u2028\u2029]+/gu, ' ')
 const ms = (iso) => Date.parse(iso)
 const fresh = () => ({ head: '', draft: false, gate: null, verify: null, fallback: null, why: 'Actions has not refused the run', notes: [], reviewers: null, threads: null })
 
@@ -161,7 +163,7 @@ function pollThreads(S) {
         if (!(t.totalCount <= 100) || !Array.isArray(t.nodes)) throw new Error('too many threads')
         S.threads = t.nodes.filter((x) => !x.isResolved).map((x) => {
             const c = x.comments.nodes[0]
-            return `  [${x.id}] ${x.path}:${x.line ?? x.originalLine} @${c?.author?.login ?? 'unknown'} ${(c?.body ?? '').split('\n').find((l) => /\S/.test(l))?.slice(0, 160) ?? ''}`
+            return flat(`  [${x.id}] ${x.path}:${x.line ?? x.originalLine} @${c?.author?.login ?? 'unknown'} ${(c?.body ?? '').split(/[\n\r\u2028\u2029\u0085]/).find((l) => /\S/.test(l))?.slice(0, 160) ?? ''}`)
         })
     } catch {
         S.threads = 'unknown'
@@ -171,11 +173,11 @@ function pollThreads(S) {
 function print(S, timedOut) {
     const g = S.gate
     console.log(sha ? `${base} commit ${S.head.slice(0, 7)}` : `PR #${target} head ${S.head.slice(0, 7)} draft=${S.draft}`)
-    console.log(`${cfg.gate.context}: ${g ? [g.state, g.description, g.target_url].filter(Boolean).join(' ') : 'none'}`)
+    console.log(`${cfg.gate.context}: ${g ? flat([g.state, g.description, g.target_url].filter(Boolean).join(' ')) : 'none'}`)
     console.log(`Verify: ${S.verify ?? 'none'}`)
     console.log(S.fallback ? `Fallback: allowed (${S.fallback})` : `Fallback: not allowed (${S.why})`)
     if (S.reviewers) {
-        for (const x of S.reviewers) console.log(`Review ${x.r.name}: ${x.text}`)
+        for (const x of S.reviewers) console.log(flat(`Review ${x.r.name}: ${x.text}`))
         const named = (...states) => S.reviewers.filter((x) => states.includes(x.state)).map((x) => x.r.name).join(', ')
         console.log(`Review: ${S.reviewers.some((x) => x.state === 'pending') ? 'pending' : named('changes') ? `changes requested (${named('changes')})` : named('unavailable', 'silent') ? `standin needed (${named('unavailable', 'silent')})` : 'done'}`)
     } else if (!sha && !ciOnly && cfg.reviewers.length === 0) console.log('Review: none configured (pr-reviewer reviews)')

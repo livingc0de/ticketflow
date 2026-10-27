@@ -31,6 +31,7 @@ test('a thread of another pull request, another repository or no thread at all e
         { 'graphql ThreadOf': node({ pullRequest: { number: 6, repository: { nameWithOwner: 'o/r' } } }) },
         { 'graphql ThreadOf': node({ pullRequest: { number: 5, repository: { nameWithOwner: 'x/r' } } }) },
         { 'graphql ThreadOf': { node: null } },
+        { 'graphql ThreadOf': { errors: [{ type: 'NOT_FOUND', message: "Could not resolve to a node with the global id of 'PRRT_kwDOAbc-123'" }] } },
         { 'graphql ThreadOf': { node: {} } },
     ]) {
         const r = thread({ fixtures })
@@ -63,6 +64,8 @@ test('a blank reply, a bad id or a bad pull request number exits 2 with no gh ca
 })
 
 test('a failed reply or resolve exits 2; a failed resolve after the reply leaves the reply in place', () => {
+    const lookup = thread({ fixtures: { 'graphql ThreadOf': { errors: [{ message: 'Resource not accessible' }] } } })   // any other read error stays exit 2
+    assert.equal(lookup.status, 2); assert.deepEqual(lookup.ops, ['ThreadOf'])
     const bad = { errors: [{ message: 'Resource not accessible' }] }
     const reply = thread({ fixtures: { 'graphql ReplyThread': bad } })
     assert.equal(reply.status, 2); assert.deepEqual(reply.ops, ['ThreadOf', 'ReplyThread'])

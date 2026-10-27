@@ -81,24 +81,37 @@ In both of the last two cases `merge` needs a basis, because no external reviewe
 pass its id as `--review-basis`. It starts with `Review basis for <sha7>:` (the first 7 characters of the head) and then has exactly one of:
 
 - a link to the `pr-reviewer` review: `Review basis for <sha7>: <why>, reviewed by pr-reviewer <review URL>; since then: <trivial fixes or none>`.
-  The URL is `.../pull/<PR>#pullrequestreview-<id>`. `merge` reads that review: its body must start `Reviewed head: <sha>` and contain
-  `**Verdict:** ready to merge`, and the commit it reviewed must be the head or an ancestor of it (a force-push needs a new review);
+  The URL is `.../pull/<PR>#pullrequestreview-<id>`. `merge` reads that review from the pull request's own list: it must be the
+  **newest** `pr-reviewer` review of the pull request (a later `changes needed` defeats an older `ready to merge`), submitted as
+  COMMENTED or APPROVED (not pending or dismissed), start with `Reviewed head: <sha>` where `<sha>` prefixes the commit it was posted
+  on (a review gathered before a force-push is refused), have exactly one `**Verdict:**` line whose value is exactly `ready to merge`,
+  and be on the head or an ancestor of it (a force-push needs a new review);
 - `owner approved` right after the colon (for example `Review basis for <sha7>: owner approved the setup PR`): the owner's decision,
   used for the setup and update pull requests of `init` and `sync`. `merge` accepts it and says so in its output.
 
-`merge` also refuses when the last `pr-reviewer` review of the head (a review that starts `Reviewed head:`) says
-`**Verdict:** changes needed`, whichever path got there. So `pr-reviewer` keeps its first line and its `Verdict` line exact.
+Only accounts that GitHub reports as `OWNER`, `MEMBER` or `COLLABORATOR` count: the basis comment, the linked review and every
+`pr-reviewer` verdict. On a public repository anyone can comment or post a review, so an outsider's review can neither lift a
+`changes needed` nor serve as a basis (and cannot stop a merge either).
+
+`merge` also looks at the `pr-reviewer` reviews of the head, whichever path got there (a `pr-reviewer` review is a submitted review of
+such an account with a `**Verdict:**` line, in any formatting of the rest). The last one must have exactly one verdict line, and its value
+must be exactly `ready to merge`: `changes needed`, the unfilled template `ready to merge | changes needed`, two verdict lines or
+anything else stops the merge. So `pr-reviewer` keeps its first line and its `Verdict` line exact. `pr-wait` and `merge` print and read
+the summary lines (`Review:`, `Unresolved threads:`) from text that includes GitHub content: `pr-wait` flattens that text to one line
+and `merge` accepts exactly one of each line.
 
 ## What is enforced
 
-| Rule | Enforced by | Notes |
+| Rule | Status | Notes |
 |---|---|---|
-| The gate status is `success` on the exact head, the branch is up to date | `merge` (and the ruleset) | |
-| No unresolved review thread, from any author; `unknown` refuses | `merge`, from `pr-wait` | Ceiling: 100 threads |
-| No configured reviewer has `CHANGES_REQUESTED` on the head | `merge`, from `pr-wait` | The reviewer's last review of the head wins |
-| The last `pr-reviewer` review of the head is not `changes needed` | `merge` | Any account's review that starts `Reviewed head:` |
-| A basis is a `ready to merge` review of this pull request on the head or an ancestor, or `owner approved` | `merge` | |
-| A reviewer ran, and was independent of the author | convention | The review and the basis are posted with the agent's own credentials: `merge` proves which review was named, not who wrote it |
+| The gate status is `success` on the exact head, the branch is up to date | enforced by `merge` (and the ruleset) | |
+| No unresolved review thread, from any author; `unknown` refuses | enforced by `merge`, from `pr-wait` | Ceiling: 100 threads |
+| No configured reviewer has `CHANGES_REQUESTED` on the head | enforced by `merge`, from `pr-wait` | The reviewer's last review of the head wins |
+| The last `pr-reviewer` review of the head says exactly `ready to merge` | enforced by `merge` | Reviews of OWNER, MEMBER or COLLABORATOR accounts only |
+| A basis is `owner approved`, or the newest `pr-reviewer` review: `ready to merge`, on the head or an ancestor | enforced by `merge` | The comment and the review must be of such an account |
+| A reviewer ran, and was independent of the author | **not verifiable** | The review and the basis are posted with the agent's own credentials: `merge` proves which review was named and what it says, not who wrote it |
+| `owner approved` really came from the owner | **not verifiable** | Anyone with the agent's credentials can post it |
+| A review was not edited afterwards by the account that wrote it | **not verifiable** | `merge` reads the body as it is now |
 | Findings are fixed and answered with a reason | convention | Only the threads are gated; a finding left in a review body is not |
 | The owner is asked before an inline (non-independent) review is the only one | convention | The skill and the action map say so |
 

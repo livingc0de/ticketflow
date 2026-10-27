@@ -88,7 +88,8 @@ problem found along the way is fixed in the same pull request and listed as "Als
 gate status `success`; the head contains the default branch; no unresolved review thread (any author); the review gate done and not
 `changes requested` (a reviewer's answer, or a `--review-basis` comment `Review basis for <sha7>: ...` that links a `ready to merge`
 `pr-reviewer` review of this PR, or says `owner approved`, when `pr-wait` printed `standin needed` or `none configured`); and the last
-`pr-reviewer` review of the head not `changes needed`. What that proves and what stays convention: [REVIEWERS.md](REVIEWERS.md). It merges (squash, else rebase, else a merge commit, as the repo allows) with
+`pr-reviewer` review of the head saying exactly `ready to merge` (owner, member or collaborator accounts only). What that proves, what
+stays convention and what cannot be verified: [REVIEWERS.md](REVIEWERS.md). It merges (squash, else rebase, else a merge commit, as the repo allows) with
 `--match-head-commit`. When the gates pass, merge without asking, except when the only review was an inline `pr-reviewer`
 (no sub-agents): ask the owner. Never `--admin`, never `--auto`; see [SECURITY.md](SECURITY.md).
 

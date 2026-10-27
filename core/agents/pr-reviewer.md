@@ -32,7 +32,7 @@ For every defect, look for the same class of defect across the whole change and 
 
 ## Post one review
 
-`gh pr review <PR> --comment --body-file -` with a heredoc. Always `--comment`: an author cannot approve their own PR. The first line names the reviewed head, `Reviewed head: <sha7>`. `merge` reads that first line and the `**Verdict:**` line: keep both exact. Then:
+`gh pr review <PR> --comment --body-file -` with a heredoc. Always `--comment`: an author cannot approve their own PR. The first line names the reviewed head, `Reviewed head: <sha7>`. `merge` reads that first line and the `**Verdict:**` line: keep both exact, and fill the verdict with exactly one of `ready to merge` or `changes needed`, never the template. Then:
 
 ```
 **Verdict:** ready to merge | changes needed
