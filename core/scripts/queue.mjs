@@ -88,8 +88,8 @@ function crossReferenced(ids) {
     for (let i = 0; i < ids.length; i += MAX) {
         const nodes = gql(XREFS, { ids: ids.slice(i, i + MAX) }).nodes
         if (!Array.isArray(nodes)) throw new GhError('GraphQL returned no nodes')
-        for (const n of nodes.filter(Boolean)) {
-            const t = n.timelineItems
+        for (const n of nodes) {
+            const t = n?.timelineItems   // a node that did not come back is an error too: its PRs would read as none
             if (!(t?.totalCount <= 100) || !Array.isArray(t.nodes)) throw new GhError('an issue has more than 100 cross-references, or they could not be read')
             for (const { source: p } of t.nodes) {
                 if (p?.number && p.repository?.nameWithOwner?.toLowerCase() === cfg.repo.toLowerCase() && p.headRepository?.databaseId != null && p.headRepository.databaseId === p.repository.databaseId) {

@@ -313,10 +313,10 @@ test('the same pull request in the REST list and in the cross-references is one 
     assert.match(line(mixed, 11), /^#11 conflict /)
 })
 
-test('more than 100 references, a missing nodes array or a failed read exits 2 with empty stdout (never a guessed next)', () => {
+test('more than 100 references, a missing node or nodes array, or a failed read exits 2 with empty stdout (never a guessed next)', () => {
     const over = { 'graphql TicketPulls': { nodes: [{ timelineItems: { totalCount: 101, nodes: [] } }] } }
     for (const extra of [over, { 'graphql TicketPulls': { nodes: [{ timelineItems: { totalCount: 1 } }] } }, { 'graphql TicketPulls': { nodes: [{ timelineItems: { totalCount: 'x', nodes: [] } }] } },
-        { 'graphql TicketPulls': {} }, { 'graphql TicketPulls': { nodes: null } }, { 'graphql TicketPulls': { errors: [{ message: 'boom' }] } }]) {
+        { 'graphql TicketPulls': {} }, { 'graphql TicketPulls': { nodes: null } }, { 'graphql TicketPulls': { nodes: [null] } }, { 'graphql TicketPulls': { nodes: [{}] } }, { 'graphql TicketPulls': { errors: [{ message: 'boom' }] } }]) {
         const r = run(['11'], { issues: [issue(11)], extra })
         assert.equal(r.status, 2, JSON.stringify(extra)); assert.equal(r.stdout, '')
     }
