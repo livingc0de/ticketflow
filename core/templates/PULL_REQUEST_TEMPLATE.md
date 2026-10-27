@@ -34,5 +34,5 @@ Deferred checks:
 <!-- ticketflow:begin tail -->
 ## Review Notes
 
-<!-- Rollout steps, risks, "Also fixed" (small related problems fixed in this PR), follow-up issues, assumptions. -->
+<!-- Rollout steps, risks, deviations from the plan, "Also fixed" (small related problems fixed in this PR), follow-up issues, assumptions. -->
 <!-- ticketflow:end tail -->

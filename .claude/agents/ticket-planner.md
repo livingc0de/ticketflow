@@ -1,6 +1,6 @@
 ---
 name: "ticket-planner"
-description: "Use when a ticket needs its Technical plan before implementation (the default unless the change is easy and straightforward), when a linked plan must be re-verified, or when the same failure survived two fix attempts."
+description: "Use when a ticket or a plain request needs its plan before implementation (the default unless the change is easy and straightforward), when a linked plan must be re-verified, or when the same failure survived two fix attempts."
 model: "opus"
 effort: "high"
 tools: Bash, Read, Grep, Glob, Skill

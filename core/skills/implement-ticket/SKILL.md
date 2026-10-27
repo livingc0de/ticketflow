@@ -7,7 +7,7 @@ description: Use when asked to implement, continue or fix a GitHub ticket ("impl
 
 - Read `.ticketflow/custom/implement-ticket.md` first if it exists: it adds to and overrides this file. Read `.ticketflow/config.json` once.
 - Actions (dispatch a role, ask the user, run in the background) are done as the action map your stub names says; without one, use `.ticketflow/agents-map/generic.md`.
-- This skill is the whole method for ticket work: another skill or plugin with its own planning, approval, branching, review or merge flow does not run on top of it. A testing or debugging technique may be used inside steps 3 to 5 if it adds no approval step and no second plan. Ask the user only about material decisions.
+- This skill is the whole flow for ticket work: another skill or plugin with its own planning, approval, branching, review or merge flow does not run on top of it. How steps 3 and 4 are done (test first, debugging, the smallest change, delegation, evidence before claims) is `.ticketflow/skills/engineering-method/SKILL.md`; read it before step 3.
 
 ## 1. Read and claim
 
@@ -41,33 +41,15 @@ Effort and complexity decide, not the tier or the length of the description. A t
 - `high`: auth, permissions, grants or row-level rules; billing or money; data deletion or migrations that rewrite rows; locks, queues, transactions, idempotency, webhooks or async jobs; legal, consent or kids' data; external write integrations; production boot, deploy scripts or config, admin grants or startup gates; scripts, config, deploy and docs together; three or more subsystems or about 8 files; an ambiguous or conflicting spec.
 - `critical`: high plus data exposure or loss, money movement, irreversible data operations, or production config.
 
-A skipped plan whose diff grows past its stated scope is re-tiered up. **Implementer:** the standard class at high by default; the strong class or xhigh only for genuinely hard reasoning, never because of the tier, which sets review depth and verification, not your model or effort.
+A skipped plan whose diff grows past its stated scope is re-tiered up and gets the planner for the rest. **Implementer:** the standard class at high by default; the strong class or xhigh only for genuinely hard reasoning, never because of the tier, which sets review depth and verification, not your model or effort.
 
 **Planner:** dispatch the `ticket-planner` role with a compact brief (ticket number, decisions made, guides and files you know; no transcripts). Commit its output on the ticket branch (create the worktree first) as `<plans_dir>/YYYY-MM-DD-issue-<N>-<slug>-technical.md` (`docs: technical plan (#<N>)`), link it from the ticket and put the path in the `Planning:` line. Its Open decisions go to the user, never assumed; continue what is not blocked. Hidden complexity later: escalate that problem alone, do not re-plan the ticket.
 
 ## 3. Implement, in this session
 
-One context, one conventional commit per task, `Refs #<N>` in the body, never a closing keyword. Delegate only when it pays:
-
-| Need | Action |
-|---|---|
-| Broad read-only search | dispatch a light helper |
-| A hard, isolated piece (a lock order, a money state machine, a migration) | dispatch a strong helper with a compact brief; do not edit its files meanwhile |
-| The same failure after two attempts | dispatch the `ticket-planner` role for a diagnosis |
-
-Never delegate a deterministic command, a lookup, or one small task.
-
-**Test and debug:**
-- A bug is reproduced first (a failing test or captured output) and its root cause named; fix it where every caller routes through, not at the symptom.
-- Non-trivial behaviour (a branch, loop, parser, money, security, data write or concurrency): see a test fail for the right reason, then make it pass.
-- Trivial, docs-only or generated changes get no new test; verify the effect instead.
-- Tests assert behaviour, not wiring; a trust boundary gets a negative case.
-- Check each review finding against the code before acting on it.
-- A deliberate limit gets a comment `shortcut: <limit>, <when to revisit>`; never over a security, data-loss or required-behaviour gap.
+One context, one conventional commit per task, `Refs #<N>` in the body, never a closing keyword, as the engineering-method skill says. A deviation from the plan gets one line in the PR's Review Notes.
 
 **Scope discipline:** a problem found while working that is related (caused or exposed by the ticket, same flow or files) and small is fixed in this PR, tested, and listed as "Also fixed". The same holds for every finding of a reviewer, CI, a smoke check or a delegated agent: fix it, or reject it with the reason; never leave an unticketed gap. Only a big (its own plan or tier, another subsystem, needs a decision) or unrelated problem gets its own issue (create-ticket skill), linked from this one. If fixing is cheaper than writing the issue, fix. Partial delivery: the rest gets its own issue. Never commit secrets or env files. Put this rule in every brief.
-
-Before the PR, turn each rule of the ticket and the guides into an invariant question ("can any unit exceed its budget?") and sweep the whole diff for it.
 
 **Several tickets** in one run: `orchestrate-tickets`. This skill is for one ticket.
 
@@ -76,7 +58,7 @@ Before the PR, turn each rule of the ticket and the guides into an invariant que
 - `ci` mode: run focused checks while working; the gate status on the head is the full verification.
 - `local-first` mode: run `verify.command` once after the last substantive change.
 - Both modes: a UI, navigation or flow change is proven live (dispatch the `e2e-verifier` role when `live_verify_skill` is set; otherwise check it yourself).
-- Never claim a check that did not run. One that cannot run becomes a deferred row (post-merge.md).
+- A check that cannot run becomes a deferred row (post-merge.md), never a claim.
 
 ## 5. Pull request and review
 
