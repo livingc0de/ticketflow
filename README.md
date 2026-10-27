@@ -26,7 +26,7 @@ What you get out of it:
 
 - **Predictability.** Every ticket goes through the same steps, so you always know where a piece of work stands and what comes next.
 - **Safety.** Branch protection requires a green gate before anything merges, and the merge script also checks that the review is
-  done. Admin overrides stay yours: agents never use them on their own.
+  done (or attested when a reviewer can't answer). Admin overrides stay yours: agents never use them on their own.
 - **Honesty.** A check that could not run is reported as "not verified", never claimed.
 - **Your control.** Once every gate passes, the agent merges and hands the work back to you as **In Review**: merged, waiting for
   your look. Only you mark it **Done**, and real decisions (product, data, security, money) are asked, never assumed.
@@ -67,7 +67,8 @@ Here is what happens when you say *"implement #42"*:
 4. **Verify.** CI runs your normal checks and posts `CI / Gate` on the exact commit. If GitHub Actions can't run (a billing hiccup,
    no runner), a careful local fallback runs the same checks and posts the result instead.
 5. **Review.** An independent `pr-reviewer` role reviews the pull request against the ticket, security, correctness and your own
-   rules. External reviewers (for example a review bot) can be added too. Findings are fixed in the same pull request.
+   rules: every pull request when it is your only reviewer, the `high` and `critical` ones (or as a stand-in) when you also use an
+   external reviewer such as a review bot. Findings are fixed in the same pull request.
 6. **Merge.** Only through the `merge` script, which checks the gate, the review and that the branch is up to date, then squash-merges
    exactly that commit.
 7. **Hand off.** The ticket moves to **In Review** with a summary: what changed, the evidence, decisions, anything not verified.
@@ -133,7 +134,7 @@ device) is recorded as not verified, in your deferred-checks issue if you have o
 
 When a ticket hits a real choice (product behaviour, data shape, a security or money trade-off), the agent asks you instead of
 guessing, marks the ticket `Needs: Decision`, and carries on with other unblocked work. Small details get a sensible default that is
-stated in the pull request. Bigger choices can be recorded as `Type: Decision` issues.
+stated on the ticket. Bigger choices can be recorded as `Type: Decision` issues.
 
 ### Branching
 
@@ -184,7 +185,8 @@ The setup interviews you (your verify command, your Project, optional reviewers 
 only applied after your yes. Branch protection is switched on after you merge the setup pull request. A brand-new, empty repo gets
 one confirmed direct push instead.
 
-Three small things are left for you after the setup merges: in Codex, trust the repo's hook once (`/hooks`); restart open Claude
+Three small things are left for you after the setup merges: in Codex, trust the repo's hook (`/hooks`; again whenever an update
+changes it); restart open Claude
 Code sessions so they load the new skills; and turn on the Project's built-in workflows that the setup lists (GitHub's API can't).
 
 Already have a CI workflow, a Project or branch protection? The setup adopts them: your own CI steps move into the repo section of
@@ -233,9 +235,10 @@ The full threat model and what each safeguard does and doesn't prevent: [SECURIT
 ## FAQ
 
 **Do I need Claude Code or Codex?** No. They get the smoothest setup, but any agent that can read files and run a shell can follow
-`START.md` and the skills.
+`START.md` and the skills. Other agents get no command guard, and without sub-agents the review runs in the same session, so you are
+asked before a merge that rests on it.
 
-**Will it slow small changes down?** Small, obvious changes skip planning, docs-only pull requests skip the heavy checks, and review
+**Will it slow small changes down?** Small, obvious changes skip planning, pull requests that touch only your listed docs paths skip the heavy checks, and review
 depth follows the risk tier. The process grows with the risk, not with the ticket count.
 
 **What if GitHub Actions is down or out of minutes?** The local fallback runs your verify command on the exact commit in a clean
