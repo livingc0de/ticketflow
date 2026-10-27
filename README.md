@@ -10,9 +10,8 @@ Project flow whether it is Claude Code, Codex or another agent that can read fil
 - **`.ticketflow/` is the canonical runtime** in your repo: the skills, roles, scripts, templates and docs, copied from a tagged
   release and changed only by an explicit `sync`. Your config (`.ticketflow/config.json`) and extensions (`.ticketflow/custom/`)
   are yours; `sync` never touches them.
-- **Claude Code and Codex get generated stubs** (`.claude/`, `.agents/`, `.codex/`) built from the canonical files: Claude's point at
-  them, Codex's carry their text (so they work even where a sandbox blocks file reads). Never edit a stub; change the canonical
-  file and run `gen-stubs`. Other agents read `.ticketflow/` through the AGENTS.md block.
+- **Claude Code and Codex get generated stubs** (`.claude/`, `.agents/`, `.codex/`) built from the canonical files: each one points at
+  them. Never edit a stub; change the canonical file and run `gen-stubs`. Other agents read `.ticketflow/` through the AGENTS.md block.
 - **Generated GitHub files** (CI workflow, issue forms, PR template) carry managed blocks; your own steps and fields stay.
 - **The merge gate is a commit status**, `CI / Gate`, enforced by a branch ruleset and the `merge` script. Admin bypass stays
   possible for the owner, and agents never use it on their own.

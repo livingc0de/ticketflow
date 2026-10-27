@@ -1,6 +1,6 @@
 {
-  "skill": { "target": ".agents/skills/{name}/SKILL.md", "format": "md", "body": "inline" },
-  "role": { "target": ".codex/agents/{name}.toml", "format": "toml", "body": "inline" },
+  "skill": { "target": ".agents/skills/{name}/SKILL.md", "format": "md" },
+  "role": { "target": ".codex/agents/{name}.toml", "format": "toml" },
   "plugin": {
     "manifest": {
       "path": ".codex-plugin/plugin.json",
