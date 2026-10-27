@@ -81,7 +81,7 @@ test('two rulesets covering the default branch exit 2, listing both; org-level a
     const org = { id: 20, name: 'org rules', source_type: 'Organization' }
     const tags = old({ id: 13, name: 'tags', conditions: { ref_name: { include: ['refs/tags/*'], exclude: [] } } })
     const ok = run([], { ...listed(a, tags), [`${R}/rulesets`]: [{ id: 11, name: 'one', source_type: 'Repository' }, { id: 13, name: 'tags', source_type: 'Repository' }, org] })
-    assert.doesNotMatch(ok.stderr, /usage:/); assert.ok(ok.calls.length > 0)
+    assert.notEqual(ok.status, 2, ok.stderr)
     assert.match(ok.stdout, /org-level ruleset "org rules" \(not touched\)/)
 })
 
@@ -256,6 +256,8 @@ test('--replace-context with classic protection: refused without --migrate-class
     const classic = { required_status_checks: { strict: true, contexts: ['ci/gate', 'lint'] }, required_pull_request_reviews: { required_approving_review_count: 0 }, enforce_admins: { enabled: false } }
     const refused = run(['--apply', '--replace-context', 'ci/gate'], { ...listed(withChecks('ci/gate')), [`${R}/branches/main/protection`]: classic })
     assert.equal(refused.status, 1); assert.deepEqual(refused.writes, []); assert.match(refused.stderr, /also requires "ci\/gate"/)
+    const plan = run(['--replace-context', 'ci/gate'], { ...listed(withChecks('ci/gate')), [`${R}/branches/main/protection`]: classic })
+    assert.equal(plan.status, 1); assert.deepEqual(plan.writes, []); assert.match(plan.stderr, /also requires "ci\/gate"/); assert.match(plan.stdout, /-> \["CI \/ Gate"\]/)
     const map = { ...applyMap(withChecks('ci/gate'), withChecks('CI / Gate', 'lint')), [`${R}/branches/main/protection`]: classic, [`DELETE ${R}/branches/main/protection`]: null }
     const r = run(['--apply', '--migrate-classic', '--replace-context', 'ci/gate'], map)
     assert.equal(r.status, 0, r.stderr + r.stdout)
@@ -266,6 +268,7 @@ test('--replace-context with classic protection: refused without --migrate-class
 test('--replace-context is idempotent: a synced body is unchanged, and a not-required <old> warns and exits 0', () => {
     const { body } = desiredRuleset(null, config())
     assert.deepEqual(desiredRuleset({ ...body, id: 1 }, config(), [], 'ci/gate').body, body)
+    assert.throws(() => desiredRuleset(null, config(), [], 'CI / Gate'), /gate/)
     const synced = run(['--replace-context', 'ci/gate'], { [R]: repo({ ...SETTINGS }), ...listed(standardRuleset()) })
-    assert.equal(synced.status, 0, synced.stdout + synced.stderr); assert.match(synced.stderr, /"ci\/gate" is not required; nothing to replace/)
+    assert.equal(synced.status, 0, synced.stdout + synced.stderr); assert.match(synced.stderr, /"ci\/gate" is not required by a repo ruleset or classic protection; nothing to replace/)
 })

@@ -68,11 +68,12 @@ main('protect', () => {
     const migrate = values['migrate-classic'] === true
     const classicRequires = classic ? classicContexts(classic).some((c) => c.context === drop) : false
     if (drop && !migrate && classicRequires) {
-        console.error(`protect: classic protection on ${branch} also requires "${drop}": run with --apply --migrate-classic --replace-context ${drop}, or remove it there by hand; nothing changed`)
-        return 1
+        const m = `classic protection on ${branch} also requires "${drop}": add --migrate-classic (--apply --migrate-classic --replace-context ${drop}), or remove it there by hand`
+        if (values.apply) { console.error(`protect: ${m}; nothing changed`); return 1 }
+        warn(m)   // plan mode still shows the plan
     }
     const ruleRequires = (existing?.rules ?? []).some((r) => r.type === 'required_status_checks' && (r.parameters?.required_status_checks ?? []).some((c) => c.context === drop))
-    if (drop && !ruleRequires && !classicRequires) warn(`"${drop}" is not required; nothing to replace`)
+    if (drop && !ruleRequires && !classicRequires) warn(`"${drop}" is not required by a repo ruleset or classic protection; nothing to replace (an org-level ruleset is not changed here)`)
     if (migrate) {
         const blockers = classicBlockers(classic ?? {})
         if (blockers.length) {

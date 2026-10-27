@@ -68,16 +68,18 @@ clean worktree of the exact, up-to-date head and posts the result as the status 
 
 ## Renaming the gate context
 
-Without a flag, `protect` only ever adds required contexts. To move an existing repository from an old context to `gate.context`:
+Without a flag, `protect` only ever adds required contexts. To move an existing repository from an old context to `gate.context`,
+change `gate.context` on a branch (or sync to a release that renames it), render, and open the pull request. Then, on the owner's yes:
 
-1. On a branch, change `gate.context` (or sync to a release that renames it) and render, so that pull request's CI posts the new name.
-   The ruleset still requires the old name, so the pull request cannot merge yet.
-2. From that branch's checkout run `protect.mjs --replace-context <old>` (the plan shows `[<old>] -> [<new>]`), then, on the owner's
-   yes, `protect.mjs --apply --replace-context <old>`. Add `--migrate-classic` when a classic protection requires `<old>`; without it
-   such a protection is refused, since it would still block every pull request.
-3. Merge with `merge.mjs` from the same checkout. Other open pull requests post the new name once they update from the default branch.
+- **CI runs the job:** its gate is posted under the new name, which the ruleset does not require yet. From that branch's checkout run
+  `protect.mjs --apply --replace-context <old>`, then merge with `merge.mjs`.
+- **Actions refuses the job:** the local fallback runs the default branch's runtime, so it posts the old name. Merge first, then from
+  the updated default branch run `protect.mjs --apply --replace-context <old>`.
 
-`<old>` must not be `gate.context`, and an org-level ruleset that requires it is never touched: its owner changes it.
+Show the plan first (the same command without `--apply`: `[<old>] -> [<new>]`). Add `--migrate-classic` when a classic protection
+requires `<old>`; `--apply` refuses without it, since it would still block every pull request. Undo: `--replace-context <new>` after
+setting `gate.context` back. Other open pull requests post the new name once they update. `<old>` must not be `gate.context`, and
+an org-level ruleset is never touched.
 
 ## Security notes
 

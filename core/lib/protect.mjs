@@ -49,6 +49,7 @@ const sameActor = (a) => a.actor_type === actor.actor_type && a.actor_id === act
  * one context the caller asked to replace, never the gate); other bypass actors are kept. Returns { body, warnings }.
  */
 export function desiredRuleset(existing, cfg, extraContexts = [], drop = null) {
+    if (drop === cfg.gate.context) throw new Error('the gate context cannot be dropped')
     const warnings = []
     const rules = (existing?.rules ?? []).map((r) => structuredClone({ type: r.type, ...(r.parameters ? { parameters: r.parameters } : {}) }))
     const ensure = (type, fix) => {
