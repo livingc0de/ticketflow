@@ -322,7 +322,7 @@ test('guard.mjs --format fails closed in every format: malformed input, a non-ob
     for (const format of Object.keys(SHAPES)) {
         for (const input of ['not json', '', 'null', '[1]']) {
             const r = run(format, input, cfgArgs)
-            assert.equal(r.status, 2, `${format} ${JSON.stringify(input)}`)
+            assert.equal(r.status, format === 'antigravity' ? 0 : 2, `${format} ${JSON.stringify(input)}`)
             assert.match(format === 'cursor' || format === 'antigravity' ? r.stdout : r.stderr, /not a JSON object/, format)
             if (format === 'cursor') assert.equal(JSON.parse(r.stdout).permission, 'deny')
             if (format === 'antigravity') assert.equal(JSON.parse(r.stdout).decision, 'deny')
@@ -334,8 +334,30 @@ test('guard.mjs --format fails closed in every format: malformed input, a non-ob
     writeFileSync(join(root, 'core', 'guard.json'), '{')
     for (const format of Object.keys(SHAPES)) {
         const r = spawnSync(process.execPath, [join(root, 'core/scripts/guard.mjs'), '--format', format, ...cfgArgs], { input: JSON.stringify(SHAPES[format]('ls')), encoding: 'utf8' })
-        assert.equal(r.status, 2, format); assert.match(r.stdout + r.stderr, /guard\.json/, format)
+        assert.equal(r.status, format === 'antigravity' ? 0 : 2, format); assert.match(r.stdout + r.stderr, /guard\.json/, format)
         if (format === 'antigravity') assert.equal(JSON.parse(r.stdout).decision, 'deny')
         if (format === 'cursor') assert.equal(JSON.parse(r.stdout).permission, 'deny')
     }
+})
+
+test('a payload without a tool name is a shell call in every format (their matchers only send shell calls): checked, and denied without a command', () => {
+    for (const format of Object.keys(SHAPES)) {
+        const f = FORMATS[format]
+        for (const raw of [{}, { tool_call: { name: 'run_command', args: { CommandLine: 'ls' } } }, { tool_input: {} }]) {
+            const d = hookDecision(f.input(raw), cfg, { cwd: '/' })
+            assert.equal(d.block, true, `${format} ${JSON.stringify(raw)}`)
+            assert.deepEqual(f.output(d), EXPECT[format].block(d.reason), format)
+        }
+    }
+    // a name that is present and is not a shell tool still passes
+    assert.equal(hookDecision(FORMATS.gemini.input({ tool_name: 'read_file' }), cfg).block, false)
+    assert.equal(hookDecision(FORMATS.antigravity.input({ toolCall: { name: 'view_file' } }), cfg).block, false)
+    assert.equal(hookDecision(FORMATS.copilot.input({ tool_name: 'Read' }), cfg).block, false)
+})
+
+test('antigravity: an error answers with the documented deny JSON and exit 0 (its exit-2 behaviour is undocumented); the other formats exit 2', () => {
+    const cfgArgs = withConfig()
+    const r = run('antigravity', 'not json', cfgArgs)
+    assert.equal(r.status, 0); assert.equal(JSON.parse(r.stdout).decision, 'deny')
+    for (const format of ['cursor', 'gemini', 'copilot', 'codex']) assert.equal(run(format, 'not json', cfgArgs).status, 2, format)
 })

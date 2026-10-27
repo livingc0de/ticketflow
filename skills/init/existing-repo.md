@@ -23,7 +23,7 @@ Work on the branch `chore/ticketflow-init`. Nothing is overwritten that ticketfl
 
 - A settings or hooks file that is not valid JSON: fix it with the owner first.
 - `GEMINI.md` without markers: take the proposal (the block at the top imports `AGENTS.md`).
-- `--propose` for `.gemini/settings.json`, `.cursor/hooks.json`, `.agents/hooks.json` and `opencode.json`: the merged file keeps every key and hook of the owner's. An `opencode.jsonc` is never merged: show the ask rules of the proposal and add them by hand, then hold `opencode.json` with `--keep`.
+- `--propose` for `.gemini/settings.json`, `.cursor/hooks.json`, `.agents/hooks.json` and `opencode.json`: for a valid JSON file the proposal keeps every key and hook of the owner's. For a file that is not valid JSON it holds only ticketflow's entries (render says so): fix or merge by hand, never replace the file with it. An `opencode.jsonc` is never merged: show the ask rules of the proposal and add them by hand, then hold `opencode.json` with `--keep`.
 - `.github/workflows/ci.yml`: exactly one job posts `gate.context` and no job is named after it; the repo's own steps go in the repo section outside the managed blocks and replace the template's default Install Dependencies and Verify steps there, never in addition to them; the repo section also sets up the project's own toolchain (TicketFlow's steps set up none) (`doctor` warns when `verify.command` runs twice).
 - The managed CI jobs run on `ubuntu-latest` in a new file; when the repo's workflows use other runners, set the `runs-on` lines of the managed jobs before committing: render keeps them.
 - `.claude/CLAUDE.md`: take the proposal that imports `AGENTS.md` through the block, and remove a stray `@AGENTS.md` line.

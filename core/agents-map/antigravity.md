@@ -4,8 +4,8 @@ The canonical skills and roles name actions. In Antigravity, do them like this. 
 
 | Action | How |
 |---|---|
-| Dispatch the `<role>` role | `invoke_subagent` with the built-in `research` (read-only roles) or `self` (roles that write), and a brief: read `.ticketflow/agents/<role>.md`, follow it, and report in the size it asks. There are no custom role files |
-| Dispatch a helper of a class | `invoke_subagent` with `research` for broad read-only search or `self` for work; the tier from `config.models.antigravity[<class>]` |
+| Dispatch the `<role>` role | `invoke_subagent` with the built-in `self` (it has your tools, so a role can run `gh` and `node`) and a brief: read `.ticketflow/agents/<role>.md`, follow it (a read-only role stays read-only: say so in the brief), and report in the size it asks. There are no custom role files |
+| Dispatch a helper of a class | `invoke_subagent` with `research` for broad read-only search (it may not run commands) or `self` for work; the tier from `config.models.antigravity[<class>]` |
 | Dispatch a fresh ticket lead | `invoke_subagent` with `self`, the standard tier; brief it fully, it does not inherit this history |
 | Run in the background and wait once | Subagents are asynchronous: start it, then wait for its result message. Do not poll |
 | Ask the user | Ask one targeted question in the reply and wait |

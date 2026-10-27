@@ -110,11 +110,11 @@ ask the owner to run it. A hook file ticketflow adds to is merged, never replace
 |---|---|---|---|---|
 | Claude Code | `.claude/settings.json` ask rules | ask only | n/a | no blocking hook |
 | Codex | `.codex/rules` prompt rules and the `.codex/hooks.json` hook | prompt / block | exit 2 blocks | project and hook must be trusted (`/hooks`) |
-| Cursor | `.cursor/hooks.json`, `beforeShellExecution`, matcher `gh\|git\|protect`, `failClosed` | ask / deny | blocks | workspace trust; `allow` may skip Cursor's own approval (not verified); a command without those words never reaches the hook |
+| Cursor | `.cursor/hooks.json`, `beforeShellExecution`, matcher `\b(?:gh\|git)\b\|protect\.mjs`, `failClosed` | ask / deny | blocks | workspace trust; `allow` may skip Cursor's own approval (not verified); a command without `gh`, `git` or `protect.mjs` never reaches the hook |
 | Gemini CLI | `.gemini/settings.json`, `BeforeTool` on `run_shell_command` | deny / deny (no ask) | exit 2 blocks, any other failure only warns (the guard exits 2 on every error) | the project hook must be approved once; a user's auto-approve cannot ask anyway |
 | GitHub Copilot | `.github/hooks/ticketflow-guard.json`, `PreToolUse` on `Bash` (CLI and VS Code) | ask / deny | a crash or non-zero exit denies; a timeout lets the call through | the cloud agent cannot be asked, so an ask is a deny; folder trust |
-| Antigravity | `.agents/hooks.json`, entry `ticketflow-guard`, `PreToolUse` on `run_command` | `force_ask` / deny | undocumented: the guard prints the deny and exits 2 | check `/hooks`; hook working directory undocumented |
-| OpenCode | ask rules in `opencode.json` (`permission.bash`, or `permissions` in V2) | ask only | n/a | no hook command exists, so the rules match the whole command string only; `opencode.jsonc` is merged by hand |
+| Antigravity | `.agents/hooks.json`, entry `ticketflow-guard`, `PreToolUse` on `run_command` | `force_ask` / deny | undocumented: the guard prints the JSON deny and exits 0 | check `/hooks`; hook working directory undocumented |
+| OpenCode | ask rules in `opencode.json` (`permission.bash`, or `permissions` in V2) | ask only | n/a | no hook command exists; the rules match parsed commands (V2: each part of a compound command), and the last matching rule wins, so an existing deny of yours is kept and an ask rule goes last; a deny narrower than an ask pattern is not detected; `opencode.jsonc` is merged by hand |
 
 None of the five hooks was run in the tool itself for this page (the live checks are listed in the pull request that added them); the
 formats come from each tool's current documentation and the guard's own tests.

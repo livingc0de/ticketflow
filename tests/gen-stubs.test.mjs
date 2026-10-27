@@ -474,6 +474,8 @@ test('checkAdapter rejects a malformed adapter before any output (StubError)', (
         'a multi-line const': { ...base, role: { ...base.role, const: ['max_turns: 1\nevil: 1'] } },
         'a const that is not key: value': { ...base, role: { ...base.role, const: ['max_turns'] } },
         'a tools line with a control character': { ...base, role: { ...base.role, tools: { 'read-only': 'tools: [a]\u0001', full: null } } },
+        'a const key that repeats a field': { ...base, role: { ...base.role, const: ['model: x'] } },
+        'a tools key that repeats a const key': { ...base, role: { ...base.role, tools: { 'read-only': 'max_turns: 3', full: null } } },
         'a role format that is not md or toml': { ...base, role: { ...base.role, format: 'yaml' } },
         'a manifest path that climbs': { ...base, plugin: { manifest: { ...base.plugin.manifest, path: '../x.json' } } },
         'a manifest path that is absolute': { ...base, plugin: { manifest: { ...base.plugin.manifest, path: '/x.json' } } },

@@ -8,7 +8,7 @@
  *        all take [--config f]
  *
  * Fails closed in every format: malformed input, a shell call without a command, an unknown format or an unloadable guard.json
- * answer with the format's deny and exit 2. An unloadable config
+ * answer with the format's deny and exit 2 (Antigravity: its JSON deny and exit 0, the only contract its docs give). An unloadable config
  * falls back to the default branch names main and master, with a warning: it stays strict and never blocks every shell call.
  * This is a speed bump for forms with no legitimate agent use, not a security boundary: see core/docs/SECURITY.md.
  */
@@ -43,7 +43,7 @@ try {   // `core/scripts` in ticketflow itself, `.ticketflow/scripts` in a user 
 
 const decide = (input, cwd) => { const ds = configs.map((cfg) => hookDecision(input, cfg, { cwd, scriptsDir })); return ds.find((d) => d.block) ?? ds.find((d) => d.ask) ?? { block: false } }
 const emit = ({ stdout, stderr, code }) => { process.stdout.write(stdout); process.stderr.write(stderr); process.exitCode = code }
-const deny = (reason) => emit({ ...FORMATS[format].output({ block: true, reason }), code: 2 })   // an error always exits 2: the one code every tool treats as a block
+const deny = (reason) => emit({ ...FORMATS[format].output({ block: true, reason }), code: format === 'antigravity' ? 0 : 2 })   // an error exits 2, the code every tool treats as a block; Antigravity documents only its JSON deny, which its normal denies exit 0 with
 
 try {
     if (values['self-test']) {

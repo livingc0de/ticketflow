@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { askPatterns, claudeAsk } from '../core/lib/guard.mjs'
+import { askPatterns, claudeAsk, loadGuard } from '../core/lib/guard.mjs'
 import { validate } from '../core/lib/config.mjs'
 import { FILES, RenderError, filesFor, dropParts, fill, mergeClaudeSettings, runsOn, mergeCodexHooks, mergeHooks, mergeKeys, mergeManaged, mergeOpencodeAsk, omittedParts, parseBlocks, proposeInsert, renderFile, templateVars, verifyRuns } from '../core/lib/render.mjs'
 import { config, fakeGh, rawConfig, tempDir } from './helpers.mjs'
@@ -525,7 +525,7 @@ test('each hook-config file is written only with its agent, with the exact conte
     const rt = '.ticketflow'
     const read = (agent) => repo({ agents: [agent], models: { [agent]: ALL[agent] } })
     const c = read('cursor'); c.run()
-    assert.equal(c.read('.cursor/hooks.json'), JSON.stringify({ version: 1, hooks: { beforeShellExecution: [{ command: `node ${rt}/scripts/guard.mjs --format cursor`, matcher: 'gh|git|protect', timeout: 30, failClosed: true }] } }, null, 2) + '\n')
+    assert.equal(c.read('.cursor/hooks.json'), JSON.stringify({ version: 1, hooks: { beforeShellExecution: [{ command: `node ${rt}/scripts/guard.mjs --format cursor`, matcher: '\\b(?:gh|git)\\b|protect\\.mjs', timeout: 30, failClosed: true }] } }, null, 2) + '\n')
     const g = read('gemini'); g.run()
     assert.equal(g.read('.gemini/settings.json'), JSON.stringify({ hooks: { BeforeTool: [{ matcher: 'run_shell_command', hooks: [{ name: 'ticketflow-guard', type: 'command', command: `node "$GEMINI_PROJECT_DIR/${rt}/scripts/guard.mjs" --format gemini`, timeout: 30000 }] }] } }, null, 2) + '\n')
     const p = read('copilot'); p.run()
@@ -584,7 +584,7 @@ test('opencode: V1 permission.bash gets ask keys (a deny is kept, an allow is ch
     const o = JSON.parse(v1.text)
     assert.deepEqual(o.permission.bash, { '*': 'allow', 'git push * main': 'deny', 'gh pr merge': 'ask', 'gh pr merge *': 'ask' })
     assert.equal(o.theme, 'x'); assert.equal(o.permission.edit, 'deny')
-    assert.deepEqual(v1.notes, ['permission.bash["gh pr merge"] was "allow", now "ask"'])
+    assert.deepEqual(v1.notes, ['permission.bash["gh pr merge"] was "allow", now "ask" (moved last)', 'kept your deny "git push * main": it decides "git push * main", so no ask rule was added for it'])
     assert.equal(mergeOpencodeAsk(v1.text, pats, base).text, v1.text)
     const str = JSON.parse(mergeOpencodeAsk(JSON.stringify({ permission: { bash: 'allow' } }), pats, base).text)
     assert.deepEqual(str.permission.bash, { '*': 'allow', 'gh pr merge': 'ask', 'gh pr merge *': 'ask', 'git push * main': 'ask' })
@@ -616,4 +616,66 @@ test('existing user config files: invalid JSON and an opencode.jsonc are conflic
     assert.deepEqual(Object.keys(JSON.parse(t.read('.agents/hooks.json'))), ['linter', 'ticketflow-guard'])
     assert.equal(JSON.parse(t.read('.github/hooks/ticketflow-guard.json')).hooks.PreToolUse.length, 2)
     assert.equal(t.run('--check').status, 0)
+})
+
+test('opencode: an existing deny that decides a pattern is never weakened (the last matching rule wins), whatever form it has', () => {
+    const base = { $schema: 'https://opencode.ai/config.json' }
+    const pats = ['gh pr merge', 'gh pr merge *', 'git push * main']
+    const asks = (o) => Object.entries(o.permission?.bash ?? {}).filter(([, v]) => v === 'ask').map(([k]) => k)
+    // V1: a top-level string, a bash string, a broader bash glob
+    for (const [what, input, left] of [
+        ['permission: "deny"', { permission: 'deny' }, []],
+        ['permission["*"]: deny', { permission: { '*': 'deny' } }, []],
+        ['bash: "deny"', { permission: { bash: 'deny' } }, []],
+        ['bash["gh *"]: deny', { permission: { bash: { 'gh *': 'deny' } } }, ['git push * main']],
+        ['bash["*"]: deny, "gh pr merge *": allow after it', { permission: { bash: { '*': 'deny', 'gh pr merge *': 'allow' } } }, ['gh pr merge', 'gh pr merge *']],
+    ]) {
+        const r = mergeOpencodeAsk(JSON.stringify(input), pats, base)
+        const out = JSON.parse(r.text)
+        assert.deepEqual(asks(out).sort(), [...left].sort(), what)
+        if (left.length < pats.length) assert.ok(r.notes.some((n) => /kept your deny/.test(n)), `${what}: ${r.notes}`)
+        assert.equal(mergeOpencodeAsk(r.text, pats, base).text, r.text, `${what}: idempotent`)
+    }
+    // V2: a broader shell deny, an any-action deny; a later allow does not hide the deny's effect on the pattern it does not cover
+    for (const [what, rules, added] of [
+        ['shell gh *: deny', [{ action: 'shell', resource: 'gh *', effect: 'deny' }], ['git push * main']],
+        ['any action, any resource: deny', [{ action: '*', resource: '*', effect: 'deny' }], []],
+        ['an earlier deny, a later allow', [{ action: 'shell', resource: 'gh *', effect: 'deny' }, { action: 'shell', resource: 'gh pr merge *', effect: 'allow' }], ['gh pr merge', 'gh pr merge *', 'git push * main']],
+    ]) {
+        const r = mergeOpencodeAsk(JSON.stringify({ permissions: rules }), pats, base)
+        const got = JSON.parse(r.text).permissions.slice(rules.length)
+        assert.deepEqual(got.map((x) => x.resource), added, what)
+        assert.ok(got.every((x) => x.action === 'shell' && x.effect === 'ask'), what)
+        assert.equal(mergeOpencodeAsk(r.text, pats, base).text, r.text, `${what}: idempotent`)
+    }
+})
+
+test('opencode V1: an existing key is moved to the end so a later broader allow cannot win; an ask already deciding it is left alone', () => {
+    const base = { $schema: 'https://opencode.ai/config.json' }
+    const pats = ['gh pr merge', 'gh pr merge *']
+    const r = mergeOpencodeAsk(JSON.stringify({ permission: { bash: { 'gh pr merge *': 'allow', 'gh *': 'allow' } } }), pats, base)
+    assert.deepEqual(Object.entries(JSON.parse(r.text).permission.bash), [['gh *', 'allow'], ['gh pr merge', 'ask'], ['gh pr merge *', 'ask']])
+    const kept = { permission: { bash: { 'gh *': 'allow', 'gh pr merge': 'ask', 'gh pr merge *': 'ask' } } }
+    assert.equal(mergeOpencodeAsk(JSON.stringify(kept), pats, base).text, JSON.stringify(kept))   // nothing changes while an ask already decides
+    const v2 = JSON.stringify({ permissions: [{ action: 'shell', resource: 'gh pr merge *', effect: 'ask' }] })
+    assert.equal(JSON.parse(mergeOpencodeAsk(v2, ['gh pr merge *'], base).text).permissions.length, 1)
+})
+
+test('a proposal for a file that is not valid JSON says it holds only ticketflow\'s entries', () => {
+    const t = repo({ agents: ['gemini', 'opencode'], models: ALL })
+    t.put('.gemini/settings.json', '// my settings\n{"theme":"dark"}')
+    t.put('opencode.json', '{nope')
+    const out = tempDir('proposal-')
+    const r = t.run('--propose', out)
+    assert.equal(r.status, 1)
+    assert.match(r.stdout, /conflict: \.gemini\/settings\.json: .*\n  note: .*only ticketflow's entries: merge them into your file by hand/)
+    assert.match(r.stdout, /conflict: opencode\.json: .*\n  note: .*only ticketflow's entries: merge them into your file by hand/)
+})
+
+test('the Cursor matcher covers every guard form and does not fire inside other words', () => {
+    const matcher = new RegExp(JSON.parse(tpl('cursor-hooks.json').replaceAll('{{runtime}}', '.ticketflow')).hooks.beforeShellExecution[0].matcher)
+    const cfg = config({ agents: ['cursor'], models: { cursor: ALL.cursor } })
+    for (const f of loadGuard(cfg, { scriptsDir: '.ticketflow/scripts' }).forms) for (const e of f.examples) if (e.codex !== 'pass') assert.match(e.cmd, matcher, e.cmd)
+    for (const cmd of ['git push origin main', 'FOO=1 git push -u origin main', '/usr/bin/git push', 'cd x && gh pr merge 5', 'node .ticketflow/scripts/protect.mjs --apply', '.ticketflow/scripts/protect.mjs --apply']) assert.match(cmd, matcher, cmd)
+    for (const cmd of ['echo high', 'ls through/digit', 'cat github.md', 'npm test']) assert.doesNotMatch(cmd, matcher, cmd)
 })

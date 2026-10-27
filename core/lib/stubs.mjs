@@ -100,6 +100,8 @@ export function checkAdapter(a) {
             for (const [k, v] of Object.entries(f)) if (!ROLE_FIELDS.includes(k) || typeof v !== 'string' || !KEY.test(v)) bad(`role.fields.${k}: a canonical key (${ROLE_FIELDS.join(', ')}) mapped to a plain key name`)
             for (const l of a.role.const ?? []) if (typeof l !== 'string' || !LINE.test(l)) bad(`role.const line ${JSON.stringify(l)} must be one "key: value" line`)
             for (const [k, l] of Object.entries(a.role.tools ?? {})) if (!TOOLS.includes(k) || (l !== null && (typeof l !== 'string' || !LINE.test(l)))) bad(`role.tools.${k} must be null or one "key: value" line`)
+            const keys = [...Object.values(f), ...(a.role.const ?? []).map((l) => l.split(':')[0])]   // a repeated key would be a duplicate YAML key
+            for (const l of [null, ...Object.values(a.role.tools ?? {})]) { const all = l === null ? keys : [...keys, l.split(':')[0]]; if (new Set(all).size !== all.length) bad(`role frontmatter repeats a key: ${all.join(', ')}`) }
         }
     }
     if (a.plugin !== undefined) {

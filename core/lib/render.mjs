@@ -272,33 +272,54 @@ export function mergeKeys(existing, template) {
     return { text: existing !== null && JSON.stringify(next) === JSON.stringify(obj) ? existing : json(next), notes: [] }
 }
 
+/** An OpenCode glob as a RegExp: `*` any text, `?` one character; a trailing ` *` also matches the command without arguments. */
+function globRe(g) {
+    const body = (x) => x.replace(/[.+^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*').replaceAll('?', '.')
+    return new RegExp(g.endsWith(' *') ? `^${body(g.slice(0, -2))}(?: .*)?$` : `^${body(g)}$`)
+}
+
+/** What decides `text` among ordered `[glob, effect]` rules (the last match wins, as in OpenCode): `[glob, effect]` or null. */
+const decider = (rules, text) => rules.findLast(([glob]) => globRe(glob).test(text)) ?? null
+
 /**
  * OpenCode asks before the bypass forms (it has no hook command): `patterns` become ask rules, in `permissions` when the file already
- * uses the V2 array, else in the V1 `permission.bash` map (V2 reads it too). An existing deny for a pattern is kept, never weakened.
+ * uses the V2 array, else in the V1 `permission.bash` map (V2 reads it too). OpenCode applies the last matching rule, so for each
+ * pattern the rule that decides its own text is found first: a deny is kept (no ask rule, a note), an ask is left alone, anything else
+ * gets the ask rule last (V1: the key moves to the end), so a later broader allow cannot win over it.
  * ponytail: a pattern the guard drops later stays an ask rule; remove it by hand.
- * shortcut: a V1 pattern matches the whole command string, so `cd x && gh pr merge 5` slips (as for the Claude rules); revisit when OpenCode has a hook command.
+ * shortcut: a deny narrower than a pattern (`gh pr merge 5` against `gh pr merge *`) is not detected and the later ask wins over it; V1 patterns match parsed commands, so `cd x && gh pr merge 5` is covered as for the Claude rules; revisit when a narrower deny shows up.
  */
 export function mergeOpencodeAsk(existing, patterns, base) {
     const obj = existing === null ? { ...base } : parseJson(existing)
     if (!isObject(obj)) return { conflict: obj === undefined ? 'the file is not valid JSON' : 'the file is not a JSON object' }
     const notes = []
+    const kept = (p, glob) => notes.push(`kept your deny "${glob}": it decides "${p}", so no ask rule was added for it`)
     let next
     if (obj.permissions !== undefined) {
         if (!Array.isArray(obj.permissions)) return { conflict: 'permissions is not a list' }
-        const known = (p) => obj.permissions.some((r) => r?.action === 'shell' && r.resource === p && ['ask', 'deny'].includes(r.effect))
-        const add = patterns.filter((p) => !known(p)).map((resource) => ({ action: 'shell', resource, effect: 'ask' }))
+        const shellRules = () => obj.permissions.filter((r) => typeof r?.action === 'string' && typeof r.resource === 'string' && globRe(r.action).test('shell')).map((r) => [r.resource, r.effect])
+        const add = []
+        for (const p of patterns) {
+            const d = decider([...shellRules(), ...add.map((r) => [r.resource, 'ask'])], p)
+            if (d?.[1] === 'deny') kept(p, d[0])
+            else if (d?.[1] !== 'ask') add.push({ action: 'shell', resource: p, effect: 'ask' })
+        }
         next = add.length ? { ...obj, permissions: [...obj.permissions, ...add] } : obj
     } else {
         const perm = typeof obj.permission === 'string' ? { '*': obj.permission } : obj.permission ?? {}
         const bash = typeof perm.bash === 'string' ? { '*': perm.bash } : perm.bash ?? {}
         if (!isObject(perm) || !isObject(bash)) return { conflict: 'permission (or permission.bash) is not an object' }
+        const general = typeof perm['*'] === 'string' ? [['*', perm['*']]] : []   // the action-wide rule is the fallback under the bash rules
         const merged = { ...bash }
         for (const p of patterns) {
-            if (merged[p] === 'deny') continue
-            if (merged[p] !== undefined && merged[p] !== 'ask') notes.push(`permission.bash[${JSON.stringify(p)}] was ${JSON.stringify(merged[p])}, now "ask"`)
+            const d = decider([...general, ...Object.entries(merged)], p)
+            if (d?.[1] === 'deny') { kept(p, d[0]); continue }
+            if (d?.[1] === 'ask') continue
+            if (merged[p] !== undefined && merged[p] !== 'ask') notes.push(`permission.bash[${JSON.stringify(p)}] was ${JSON.stringify(merged[p])}, now "ask" (moved last)`)
+            delete merged[p]
             merged[p] = 'ask'
         }
-        next = { ...obj, permission: { ...perm, bash: merged } }
+        next = JSON.stringify(merged) === JSON.stringify(bash) ? obj : { ...obj, permission: { ...perm, bash: merged } }
     }
     return { text: existing !== null && JSON.stringify(next) === JSON.stringify(obj) ? existing : json(next), notes }
 }
@@ -340,8 +361,8 @@ export function renderFile(file, tpl, existing, { cfg, vars, runtimeRel, owned =
             const merge = (text) => file.kind === 'hooks' ? mergeHooks(text, template, runtimeRel) : file.kind === 'keys' ? mergeKeys(text, template)
                 : mergeOpencodeAsk(text, askPatterns(cfg, { scriptsDir: `${runtimeRel}/scripts` }), template)
             const r = merge(existing)
-            if (alt !== null) return { conflict: `${file.alt} exists and has comments or trailing commas ticketflow cannot merge: add the proposed ask rules to it by hand and hold ${file.dest} (render --keep ${file.dest})`, proposal: r.conflict ? merge(null) : r }   // OpenCode reads both files
-            return r.conflict ? { ...r, proposal: merge(null) } : r
+            if (alt !== null) return { conflict: `${file.alt} exists and has comments or trailing commas ticketflow cannot merge: add the proposed ask rules to it by hand and hold ${file.dest} (render --keep ${file.dest})`, proposal: r.conflict ? { ...merge(null), note: "only ticketflow's entries: merge them into your file by hand; your other settings are not in it" } : r }   // OpenCode reads both files
+            return r.conflict ? { ...r, proposal: { ...merge(null), note: "only ticketflow's entries: merge them into your file by hand; your other settings are not in it" } } : r
         }
         case 'owned':
             return existing !== null && !existing.startsWith('# Generated by ticketflow render') ? { conflict: 'the file exists and was not generated by ticketflow render', proposal: { text: rendered } } : { text: rendered, notes: [] }

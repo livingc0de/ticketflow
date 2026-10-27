@@ -180,19 +180,20 @@ export const FORMATS = {
         output: (d) => out(line(d.block ? { permission: 'deny', user_message: d.reason, agent_message: d.reason } : d.ask ? { permission: 'ask', user_message: d.reason, agent_message: d.reason } : { permission: 'allow' })),
     },
     gemini: {   // BeforeTool: exit 2 blocks, stderr is the reason; Gemini has no project-level ask, so a prompt form is denied
-        input: (raw) => (raw?.tool_name === 'run_shell_command' ? shell(raw.tool_input?.command, raw.cwd) : { tool_name: raw?.tool_name }),
+        input: (raw) => (typeof raw?.tool_name !== 'string' || raw.tool_name === 'run_shell_command' ? shell(raw?.tool_input?.command, raw?.cwd) : { tool_name: raw.tool_name }),   // the matcher sends shell calls only: no tool name is a changed protocol, so it is checked
         output: (d) => (d.block ? out('', `guard: blocked: ${d.reason}\n`, 2) : d.ask ? out('', `guard: blocked: ${d.reason} Gemini CLI cannot ask for this: ask the owner to run it\n`, 2) : out('{}\n')),
     },
     copilot: {   // PreToolUse: any payload that carries a command string is a shell call, whatever the harness calls the tool (shortcut: tool-name guesses for a payload without one, revisit when the harness docs fix the names)
         input(raw) {
             const args = asJson(raw?.tool_input ?? raw?.toolArgs)
-            const named = /bash|shell|terminal|powershell|execute/i.test(String(raw?.tool_name ?? raw?.toolName ?? ''))
-            return typeof args?.command === 'string' || named ? shell(args?.command, raw?.cwd) : { tool_name: raw?.tool_name ?? raw?.toolName }
+            const name = raw?.tool_name ?? raw?.toolName
+            const named = typeof name !== 'string' || /bash|shell|terminal|powershell|execute/i.test(name)   // no tool name at all: checked as a shell call
+            return typeof args?.command === 'string' || named ? shell(args?.command, raw?.cwd) : { tool_name: name }
         },
         output: (d) => (d.block ? out('', `guard: blocked: ${d.reason}\n`, 2) : d.ask ? out(line({ permissionDecision: 'ask', permissionDecisionReason: d.reason })) : out()),
     },
     antigravity: {   // PreToolUse on run_command; decision allow / force_ask / deny
-        input: (raw) => (raw?.toolCall?.name === 'run_command' ? shell(raw.toolCall.args?.CommandLine, raw.toolCall.args?.Cwd) : { tool_name: raw?.toolCall?.name }),
+        input: (raw) => (typeof raw?.toolCall?.name !== 'string' || raw.toolCall.name === 'run_command' ? shell(raw?.toolCall?.args?.CommandLine, raw?.toolCall?.args?.Cwd) : { tool_name: raw.toolCall.name }),   // no tool name: checked, like gemini
         output: (d) => out(line(d.block ? { decision: 'deny', reason: d.reason } : d.ask ? { decision: 'force_ask', reason: d.reason } : { decision: 'allow' })),
     },
 }

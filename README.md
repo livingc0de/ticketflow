@@ -180,9 +180,10 @@ Pick whichever front door suits you. They all lead to the same guided setup:
 - **Claude Code:** `/plugin marketplace add livingc0de/ticketflow`, then `/plugin install ticketflow@ticketflow`. Then ask:
   *"set up ticketflow"*.
 - **Codex:** `codex plugin marketplace add livingc0de/ticketflow`, then `codex plugin add ticketflow@ticketflow`. Then ask the same.
-- **Cursor:** Customize, then From GitHub Repository, `livingc0de/ticketflow`. **Gemini CLI:** `gemini extensions install https://github.com/livingc0de/ticketflow`.
-  **GitHub Copilot:** `copilot plugin install livingc0de/ticketflow` (VS Code: add the repo to `chat.plugins.marketplaces`).
-  **Antigravity:** `agy plugin install https://github.com/livingc0de/ticketflow`. Then ask the same.
+- **Cursor:** Customize, then From GitHub Repository, `livingc0de/ticketflow`. Then ask the same.
+- **Gemini CLI:** `gemini extensions install https://github.com/livingc0de/ticketflow`. Then ask the same.
+- **GitHub Copilot:** `copilot plugin install livingc0de/ticketflow` (VS Code: add the repo to `chat.plugins.marketplaces`). Then ask the same.
+- **Antigravity:** `agy plugin install https://github.com/livingc0de/ticketflow`. Then ask the same.
 - **OpenCode** has no plugin: tell it to read
   [`START.md`](https://raw.githubusercontent.com/livingc0de/ticketflow/main/START.md) and follow it. It already reads the `.agents/skills` folder the stubs go to.
 - **Any other agent:** tell it to read
