@@ -9,15 +9,18 @@
  * `gate.context` is `success` on exactly the head; the head contains the default branch; `pr-wait --once` exits 0 and prints exactly
  * one `Unresolved threads:` line, `0` (threads of any author; `unknown` refuses), and exactly one `Review:` line, `done` (never
  * `changes requested`). A pr-reviewer review is a submitted review of an OWNER, MEMBER or COLLABORATOR with a `**Verdict:**` line;
- * the last one on the head must have exactly one verdict line, `ready to merge`. When no reviewer answered (`standin needed ...`)
- * or none is configured (`none configured ...`), `--review-basis` is the id of a comment of such an account that starts
- * `Review basis for <sha7>:` (the first 7 characters of the head) and then has exactly one of: `owner approved` (printed when it
- * merges), or a link `/pull/<pr>#pullrequestreview-<id>` to the newest pr-reviewer review of this PR, which is COMMENTED or APPROVED,
- * starts `Reviewed head: <sha>` (a prefix of the commit it was posted on), has exactly one verdict line `ready to merge`, and is on a
- * commit the head contains. Both are written with the agent's own credentials, so they prove which review the agent named, not
- * that an independent reviewer ran.
- * The merge passes `--match-head-commit`, so a push after the checks fails the merge. Known ceiling: a base that moves between the
- * behind check and the merge is not caught.
+ * the last one on the head must have exactly one verdict line, `ready to merge`, and its author must have write access to the repo.
+ * When no reviewer accepted the head (`standin needed ...`, which includes a reviewer that only commented, or `none configured ...`),
+ * `--review-basis` is the id of a comment of such an account that starts `Review basis for <sha7>:` (the first 7 characters of the
+ * head) and then has exactly one of: `owner approved` (the author must have admin access; printed when it merges), or a link
+ * `/pull/<pr>#pullrequestreview-<id>` (author with write access) to the newest pr-reviewer review of this PR, which is COMMENTED or
+ * APPROVED, starts `Reviewed head: <sha>` (a prefix of the commit it was posted on), has exactly one verdict line `ready to merge`,
+ * and is on exactly the head (a push, an update-branch included, needs a new review). Access is the repository permission GitHub
+ * reports for the login (admin | write; maintain counts as write, triage as read); a read-only account or an unreadable permission
+ * refuses. Both are written with the agent's own credentials, so they prove which review the agent named, not that an independent
+ * reviewer ran.
+ * The merge passes `--match-head-commit`, so a push after the checks fails the merge; the base is read again right before it, so a base
+ * that moved after the slow reads is refused.
  *
  * Exit: 0 = merged, 1 = a gate is not met or the merge did not happen (the next action is printed), 2 = usage or config error.
  */
@@ -35,7 +38,16 @@ const here = dirname(fileURLToPath(import.meta.url))
 const R = `repos/${cfg.repo}`
 const base = cfg.default_branch
 
-const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])   // who may write a review of record or a basis; on a public repo anyone can comment
+const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])   // the pre-filter for a review of record or a basis; on a public repo anyone can comment. COLLABORATOR includes read-only, so permission() decides next
+const permissions = new Map()
+/** The repository permission of a login: admin | write | read | none (maintain is folded into write, triage into read). No login, or a field GitHub did not send, is none; a failed read throws. */
+function permission(login) {
+    if (!login) return 'none'
+    if (!permissions.has(login)) permissions.set(login, api(`${R}/collaborators/${encodeURIComponent(login)}/permission`).permission)
+    return ['admin', 'write', 'read'].includes(permissions.get(login)) ? permissions.get(login) : 'none'
+}
+const canWrite = (login) => ['admin', 'write'].includes(permission(login))
+const who = (login) => login || 'an unknown account'
 const READ_HEAD = /^Reviewed head: ([0-9a-f]{7,40})\b/
 // Any spelling of the label counts as a verdict (so a "changes needed" is never missed); only the exact bold line below is ready.
 const verdictsOf = (body) => [...String(body ?? '').matchAll(/^[ \t]*(?:#{1,6}[ \t]+|[-*+][ \t]+)?(?:\*{1,2}|_{1,2})?[ \t]*verdict[ \t]*(?:\*{1,2}|_{1,2})?[ \t]*:[ \t]*(?:\*{1,2}|_{1,2})?[ \t]*(.*?)[ \t]*$/gim)].map((m) => m[1])
@@ -54,8 +66,10 @@ function merge() {
     const gate = status.sha === head ? status.statuses.find((s) => s.context === cfg.gate.context) : undefined
     if (gate?.state !== 'success') return stop(`${cfg.gate.context} is ${gate?.state ?? 'missing'} on ${head.slice(0, 7)} (it must be success on the exact head)`)
 
-    const compare = api(`${R}/compare/${base}...${head}`)
-    if (compare.behind_by !== 0) return stop(`${base} moved (behind by ${compare.behind_by}): gh pr update-branch ${pr} --repo ${cfg.repo}, then wait for the new head`)
+    const behind = () => api(`${R}/compare/${base}...${head}`).behind_by
+    const stale = (n) => stop(`${base} moved (behind by ${n}): gh pr update-branch ${pr} --repo ${cfg.repo}, then wait for the new head`)
+    const early = behind()   // a fast fail before the slow reads; read again right before the merge
+    if (early !== 0) return stale(early)
 
     const configFile = values.config ?? configPath(here)
     const wait = spawnSync(process.execPath, [join(here, 'pr-wait.mjs'), pr, '--once', '--config', configFile], { encoding: 'utf8' })
@@ -79,6 +93,8 @@ function merge() {
     const verdicts = reviews.filter((x) => TRUSTED.has(x.author_association) && x.state !== 'PENDING' && x.state !== 'DISMISSED' && verdictsOf(x.body).length > 0)
     const onHead = verdicts.filter((x) => x.commit_id === head).at(-1)
     if (onHead && !isReady(onHead.body)) return stop(`the last pr-reviewer review of ${head.slice(0, 7)} has verdict "${verdictsOf(onHead.body).join(' / ')}", not exactly "ready to merge": fix, push and review again`)
+    // a ready verdict of record is a decision: a read-only account must not lift an earlier "changes needed" with one
+    if (onHead && !canWrite(onHead.user?.login)) return stop(`the ready verdict ${onHead.id} on ${head.slice(0, 7)} is by ${who(onHead.user?.login)}, who has ${permission(onHead.user?.login)} access: a verdict of record needs write access`)
     let approval = null
     if (review !== 'done') {
         if (!/^(standin needed|none configured)\b/.test(review)) return stop(`review is "${review}"\n${summary}`)
@@ -91,8 +107,11 @@ function merge() {
         const body = String(comment.body)
         if (!body.startsWith(lead)) return stop(`comment ${id} must start with "${lead}"`)
         const rest = body.slice(lead.length)
-        if (/^\s*owner approved\b/.test(rest)) approval = id
-        else {
+        if (/^\s*owner approved\b/.test(rest)) {
+            if (permission(comment.user?.login) !== 'admin') return stop(`comment ${id} says "owner approved" but ${who(comment.user?.login)} has ${permission(comment.user?.login)} access: only an admin account can approve for the owner`)
+            approval = { id, login: comment.user.login }
+        } else {
+            if (!canWrite(comment.user?.login)) return stop(`comment ${id} is by ${who(comment.user?.login)}, who has ${permission(comment.user?.login)} access: a basis needs write access`)
             const links = [...rest.matchAll(/\/pull\/(\d+)#pullrequestreview-(\d+)/g)]
             if (links.length !== 1) return stop(`comment ${id} must say "owner approved" or link exactly one pr-reviewer review of #${pr} (…/pull/${pr}#pullrequestreview-<id>)`)
             if (links[0][1] !== pr) return stop(`comment ${id} links a review of another PR (#${links[0][1]}), not #${pr}`)
@@ -104,8 +123,8 @@ function merge() {
             if (!reviewed || !isReady(linked.body)) return stop(`review ${linked.id} has no "Reviewed head:" first line and exactly one "**Verdict:** ready to merge"`)
             if (!String(linked.commit_id).startsWith(reviewed)) return stop(`review ${linked.id} says it reviewed ${reviewed} but was posted on commit ${String(linked.commit_id).slice(0, 7)}: review again`)
             if (verdicts.at(-1) !== linked) return stop(`a later pr-reviewer review (${verdicts.at(-1)?.id}) exists: the basis must link the newest one`)
-            const since = api(`${R}/compare/${linked.commit_id}...${head}`).status
-            if (since !== 'identical' && since !== 'ahead') return stop(`review ${linked.id} is on ${String(linked.commit_id).slice(0, 7)}, which the head does not contain (${since}): review again`)
+            // the linked review is the newest verdict and on the head, so it is the verdict of record whose author was checked above
+            if (linked.commit_id !== head) return stop(`review ${linked.id} is on ${String(linked.commit_id).slice(0, 7)}, not the head ${head.slice(0, 7)}: run pr-reviewer on the head (a delta review since its last review is enough), then post a new basis`)
         }
     }
 
@@ -118,12 +137,14 @@ function merge() {
     const method = ['squash', 'rebase', 'merge'].find((m) => allowed[m] === true && rules.every((r) => !r.parameters?.allowed_merge_methods || r.parameters.allowed_merge_methods.includes(m)))
     if (!method) return stop(`no merge method is allowed by both the repository settings and the rules of ${base}`)
 
+    const late = behind()
+    if (late !== 0) return stale(late)
     const run = spawnSync('gh', ['pr', 'merge', pr, '--repo', cfg.repo, `--${method}`, '--delete-branch', '--match-head-commit', head], { encoding: 'utf8' })
     let after   // gh can exit non-zero after the merge (for example when deleting the branch)
     try { after = api(`${R}/pulls/${pr}`) } catch { return stop(`cannot tell whether #${pr} merged: check it before anything else`) }
     if (after.merged === true) {
         console.log(`Merged #${pr} (${method}) as ${after.merge_commit_sha}`)
-        if (approval) console.log(`Note: merged on the owner's approval (comment ${approval}), not on a reviewer's verdict`)
+        if (approval) console.log(`Note: merged on an \`owner approved\` basis (comment ${approval.id} by ${approval.login}, admin): a comment shows which account posted it, not who typed it`)
         return 0
     }
     return stop(`gh pr merge failed: ${(run.stderr || run.stdout || 'no output').trim()}`)
