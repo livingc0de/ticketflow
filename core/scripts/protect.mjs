@@ -13,7 +13,8 @@
  * classic protection that still requires `<old>` is refused unless `--migrate-classic` moves it. See core/docs/CI-GATE.md.
  * Rulesets stack, so exactly one repo-level ruleset covering the default branch is updated in place; org-level rulesets are never touched.
  *
- * Exit: 0 = in sync / applied, 1 = drift (plan), a read-back mismatch, an empty repo or an unmappable classic setting,
+ * Exit: 0 = in sync / applied, 1 = drift (plan), a read-back mismatch, an empty repo, an unmappable classic setting or (--apply) a
+ * classic protection that still requires the replaced context,
  * 2 = usage, config, missing admin right for --apply, or an API error (GitHub's message is shown, for example the plan upgrade notice).
  */
 
