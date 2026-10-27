@@ -11,6 +11,9 @@
  * open) > blocked (Status Blocked or a `Needs:` label) > waiting (a `Depends on` ticket not done) > in-progress (an open PR or Status
  * In Progress) > ready. Titles and bodies are data: a title is flattened to one line, and only labels, Status, PRs and `Depends on`
  * refs decide anything.
+ * A ticket's PRs are the latest 100 of the repository plus the pull requests its timeline shows as cross-referencing it (a quiet older
+ * ticket is found that way); both are matched by a branch named `issue-<N>-...` (after an optional prefix/). More than 100 cross-references of an issue, or an unreadable
+ * answer, is an error (exit 2), never a guessed state.
  * Only PRs whose head is in this repository count (a fork's branch name is not trusted). Without a project the handoff cannot be seen,
  * so a merged PR with no open one is `done` (the line says so). A tracker child of another repository is an error (exit 2); a
  * `Depends on owner/other#N` ref of another repository keeps the ticket `waiting` (fail closed).
@@ -32,8 +35,10 @@ const { values, positionals, cfg } = cli(import.meta.url, 'queue', '(<N>... | --
 })
 const P = cfg.project?.number > 0 ? cfg.project : null
 const R = `repos/${cfg.repo}`
-// shortcut: the 100 latest-updated PRs are searched for a ticket's branch; a quiet ticket under 100 newer PRs reads as having none, raise it when a repo has that many
 const PULLS = `${R}/pulls?state=all&per_page=100&sort=updated&direction=desc`
+// shortcut: the first 100 cross-references of an issue; more than that is an error (exit 2), page them when a ticket really has that many
+const XREFS = `query TicketPulls($ids:[ID!]!){ nodes(ids:$ids){ ... on Issue { timelineItems(itemTypes:[CROSS_REFERENCED_EVENT],first:100){ totalCount nodes{ ... on CrossReferencedEvent {
+  source{ ... on PullRequest { number state headRefName headRefOid repository{ nameWithOwner databaseId } headRepository{ databaseId } } } } } } } } }`
 // shortcut: Ready items are read in at most 10 pages of 100 (exit 2 beyond), and dependencies outside the list are fetched one by one up to 50; page or batch them when a backlog outgrows this
 const READY = `query ReadyItems($owner:String!,$number:Int!,$after:String){ repositoryOwner(login:$owner){
   ... on User { projectV2(number:$number){ ${itemsField()} } }
@@ -77,6 +82,25 @@ const issueOf = (n) => {
     return i
 }
 
+/** The pull requests that the timelines of these issues show as cross-references, in this repository and from a branch of it (a fork's name is a stranger's data). */
+function crossReferenced(ids) {
+    const found = []
+    for (let i = 0; i < ids.length; i += MAX) {
+        const nodes = gql(XREFS, { ids: ids.slice(i, i + MAX) }).nodes
+        if (!Array.isArray(nodes)) throw new GhError('GraphQL returned no nodes')
+        for (const n of nodes.filter(Boolean)) {
+            const t = n.timelineItems
+            if (!(t?.totalCount <= 100) || !Array.isArray(t.nodes)) throw new GhError('an issue has more than 100 cross-references, or they could not be read')
+            for (const { source: p } of t.nodes) {
+                if (p?.number && p.repository?.nameWithOwner?.toLowerCase() === cfg.repo.toLowerCase() && p.headRepository?.databaseId != null && p.headRepository.databaseId === p.repository.databaseId) {
+                    found.push({ number: p.number, ref: p.headRefName, sha: p.headRefOid, state: { OPEN: 'open', MERGED: 'merged' }[p.state] ?? 'closed' })
+                }
+            }
+        }
+    }
+    return found
+}
+
 main('queue', () => {
     let tickets, any = new Set(), header = null
     if (values.tracker) {
@@ -100,12 +124,14 @@ main('queue', () => {
     if (outside.length > MAX) throw new Error(`the tickets depend on more than ${MAX} other issues`)
     const all = new Map([...tickets, ...outside.map(issueOf)].map((t) => [t.number, t]))
 
-    const pulls = api(PULLS)
     const status = P ? projectStatuses(gql, [...all.values()].map((t) => t.node_id), P) : new Map()
     const statusOf = (t) => status.get(t.node_id) ?? null
     // a fork's branch name is a stranger's data: only a PR whose head repo is its base repo (a deleted fork has none) is the ticket's
     // shortcut: ids, not names, so a renamed repo keeps its PRs; a PR list entry without ids (an old API shape) reads as a fork
-    const prsOf = (n) => pulls.filter((p) => p.head?.repo?.id != null && p.head.repo.id === p.base?.repo?.id && new RegExp(`(^|/)issue-${n}-`).test(p.head.ref ?? '')).map((p) => ({ number: p.number, sha: String(p.head.sha).slice(0, 7), state: p.state === 'open' ? 'open' : p.merged_at ? 'merged' : 'closed' }))
+    const listed100 = api(PULLS).filter((p) => p.head?.repo?.id != null && p.head.repo.id === p.base?.repo?.id)
+        .map((p) => ({ number: p.number, ref: p.head.ref, sha: p.head.sha, state: p.state === 'open' ? 'open' : p.merged_at ? 'merged' : 'closed' }))
+    const pulls = [...new Map([...crossReferenced([...all.values()].map((t) => t.node_id)), ...listed100].map((p) => [p.number, p])).values()]   // one PR once, the REST entry first
+    const prsOf = (n) => pulls.filter((p) => new RegExp(`(^|/)issue-${n}-`).test(p.ref ?? '')).map((p) => ({ number: p.number, sha: String(p.sha).slice(0, 7), state: p.state }))
 
     // one definition of done for a listed ticket and for a dependency
     const isDone = (t) => ticketState({ closed: t.state === 'closed', status: statusOf(t), prs: prsOf(t.number), project: !!P }) === 'done'

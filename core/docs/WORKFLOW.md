@@ -195,8 +195,9 @@ Limits:
   or a lead.
 - A run lasts as long as its session. There is no daemon; resume by asking again.
 - Two orchestrators can claim one ticket within seconds; it shows afterwards as `conflict` in the queue.
-- `queue.mjs` matches tickets to pull requests by branch name (`*/issue-<N>-*`, same repository only) among the 100 latest-updated
-  pull requests; at most 50 tickets; at most 10 pages of Ready items.
+- `queue.mjs` matches tickets to pull requests by branch name (`*/issue-<N>-*`, same repository only) among the pull requests that
+  reference the ticket plus the 100 latest-updated ones (so a quiet older ticket is still found); an issue with more than 100
+  references stops it with exit 2; at most 50 tickets; at most 10 pages of Ready items.
 - Without a Project a merged ticket shows `done`, because its handoff cannot be seen.
 - Follow-up work on a ticket after its merge needs its own ticket: the old merged pull request keeps the ticket `merged`.
 - A `Depends on owner/other#N` ref to another repository keeps the ticket `waiting` until the owner edits it out of the ticket.
