@@ -23,7 +23,8 @@ A plan already in the ticket, written there or linked, is **input**: verify it a
 
 ## Rules
 
-- Apply the ponytail ladder when the companion is installed; otherwise: reuse what exists, take the smallest correct change, prefer native features, delete before you add. Never cut security, validation or data-loss protection.
+- Take the smallest complete change: is it needed at all? reuse what exists, then a native feature, then an installed dependency, then the least new code. Complete means callers, tests, fixtures, config and validation are covered. Never cut security, validation, data-loss protection or accessibility.
+- Map every acceptance criterion to the check that proves it. Size the plan to the work.
 - Turn every rule of the ticket and of the guides into an invariant the plan keeps, and name the test that proves it.
 - Be concrete: paths, function names, commands. Do not restate the ticket or plan scope it excludes; name an out-of-scope bug in one line.
 - You cannot ask the requester. Under Open decisions list only material decisions (product, money, data shape, security trade-offs) that the code, the ticket, its comments, linked plans and guides cannot answer: batched, each with a recommended default. Settle details yourself. A money rule comes with a who-pays-whom example.
@@ -35,7 +36,7 @@ No preamble. Up to 120 lines, or one block per task when the caller asks for a t
 ```
 # Technical plan: #<N> <title>
 **Risk:** low|normal|high|critical: why a plan (effort and complexity, 1 line)
-**Approach:** 2-4 sentences, and why it is the laziest correct option
+**Approach:** 2-4 sentences, and why it is the smallest complete option; when a consequential choice is open, 2-3 approaches with a recommendation
 **Tasks:** in order; each with the files and functions and what changes, the tests and what each proves, its checks
 **Callers checked:** every caller or consumer of the changed code, and what it needs
 **Fail-closed & errors:** behaviour on missing config, bad input, provider or storage failure

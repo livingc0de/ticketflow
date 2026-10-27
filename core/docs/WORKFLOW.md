@@ -35,7 +35,8 @@ never lower it. The `implement-ticket` skill holds the full definitions; in shor
   production boot or deploy config, an ambiguous spec, or three or more subsystems.
 - `critical`: `high` plus data exposure or loss, money movement, irreversible data operations, or production config.
 
-Effort is `high` by default, with floor `high` for the `high` tier and `xhigh` for `critical`; `xhigh` also for genuinely hard work.
+The implementer runs in the standard class at `high` by default; the strong class or `xhigh` only for genuinely hard reasoning, never
+because of the tier. The floor is `high` for the `high` tier and `xhigh` for `critical`.
 A skipped plan whose diff grows past its stated scope is re-tiered up.
 
 ## Planning

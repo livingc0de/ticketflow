@@ -48,6 +48,17 @@ test('every script, skill and role path a file names exists in core/', () => {
     }
 })
 
+test('the core prose and practices rely on no external skill or plugin being installed', () => {
+    const reliance = /(when|if)[^.\n]{0,40}\binstalled\b|superpowers/i
+    for (const { path } of prose) assert.doesNotMatch(text(path), reliance, path)
+    for (const file of practiceFiles) assert.doesNotMatch(readFileSync(file, 'utf8'), reliance, file)
+})
+
+test('every skill, role and map stays within the 20,000-byte budget', () => {
+    for (const { path } of [...prose, ...maps]) assert.ok(Buffer.byteLength(text(path)) <= 20000, `${path}: ${Buffer.byteLength(text(path))} bytes`)
+    for (const file of practiceFiles) assert.ok(Buffer.byteLength(readFileSync(file, 'utf8')) <= 20000, file)
+})
+
 test('each file names its own custom extension file', () => {
     for (const { path, custom } of prose) assert.ok(text(path).includes(`.ticketflow/custom/${custom}.md`), `${path} -> custom/${custom}.md`)
 })
