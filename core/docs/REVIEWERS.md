@@ -37,16 +37,24 @@ reviews, issue comments and reactions on the pull request.
 A review round starts at the pull request's creation, or at the latest comment starting with `rereview_comment`. For each reviewer,
 in this order, the first that holds decides:
 
-1. **done**: it left a review on exactly the head commit; or it left `no_findings_reaction` after the head commit; or the **last**
-   match of `done_pattern` across its issue comments (bodies as currently edited, ordered by last update) captures a `sha` of 7 or
-   more hex characters that is a prefix of the head.
-2. **unavailable**: a comment of the account since the round started matches `unavailable_pattern`.
-3. **silent**: `stale_after_min` minutes passed since the later of the round start and the head commit.
-4. otherwise **pending**.
+1. **changes requested**: its **last** review on exactly the head commit (reviews that are dismissed or still pending do not count)
+   is `CHANGES_REQUESTED`. A later review of the same head replaces it.
+2. **done**: its last such review is any other state (approved or commented); or it left `no_findings_reaction` after both the head
+   commit and the round start; or the **last** match of `done_pattern` across its issue comments (bodies as currently edited, ordered
+   by last update) captures a `sha` of 7 or more hex characters that is a prefix of the head.
+3. **unavailable**: a comment of the account since the round started matches `unavailable_pattern`.
+4. **silent**: `stale_after_min` minutes passed since the later of the round start and the head commit.
+5. otherwise **pending**.
 
-`pr-wait` prints one `Review:` line: `pending` while any reviewer is pending, `standin needed (<names>)` when none is pending but some
-are unavailable or silent, else `done`. It also lists the account's inline comments since the round started. With no reviewers
-configured it prints `Review: none configured (pr-reviewer reviews)`.
+`pr-wait` prints one `Review:` line: `pending` while any reviewer is pending, else `changes requested (<names>)`, else `standin needed
+(<names>)` when some are unavailable or silent, else `done`. A reviewer who requested changes has answered, so the wait ends; `merge`
+refuses until they review the new head or the owner dismisses the review. With no reviewers configured it prints `Review: none
+configured (pr-reviewer reviews)`.
+
+In pull request mode (not `--ci-only`, not a sha), configured or not, `pr-wait` also prints `Unresolved threads: <n | unknown>`,
+then up to 20 lines `  [<thread id>] <path>:<line> @<author> <first line>` for the unresolved review threads **of any author**. `unknown`
+means the read failed or the pull request has more than 100 threads. Answer and resolve each with
+`node .ticketflow/scripts/thread.mjs <PR> <thread-id>` (the reply on stdin: the fix commit, or the reason for rejecting it).
 
 `done_pattern` is for a bot that posts no review when it has no findings, and instead keeps one summary comment that it edits in
 place, with a machine line such as `review-state:v1 {"code_review":{"commit_sha":"<40-hex>","status":"completed"}}` (key order not
@@ -54,10 +62,12 @@ guaranteed). An order-independent pattern for that line (a JSON string, so backs
 
 ```json
 { "name": "bot", "login": "review-bot[bot]",
-  "done_pattern": "review-state:v1 (?=[^\\n]*\"commit_sha\":\"(?<sha>[0-9a-f]{7,40})\")(?=[^\\n]*\"status\":\"(?:completed|failed)\")" }
+  "done_pattern": "review-state:v1 (?=[^\\n]*\"commit_sha\":\"(?<sha>[0-9a-f]{7,40})\")(?=[^\\n]*\"status\":\"completed\")" }
 ```
 
-A state still `running`, or naming an older commit, does not match the head, so the reviewer stays pending.
+A state still `running`, or naming an older commit, does not match the head, so the reviewer stays pending. Match `completed` only:
+a run that `failed` reviewed nothing. Put the failure wording in `unavailable_pattern` instead, so a stand-in takes over. (Before 0.3.0
+this example also accepted `failed`: remove `|failed` from a copy.)
 
 ## Stand-in and review basis
 
@@ -67,10 +77,30 @@ A state still `running`, or naming an older commit, does not match the head, so 
   unless it already reviewed this head.
 - **`none configured`**: the `pr-reviewer` review from when the pull request opened is the one.
 
-In both of the last two cases `merge` needs an attestation, because no external reviewer finished: post a comment on the pull request
-and pass its id as `--review-basis`:
+In both of the last two cases `merge` needs a basis, because no external reviewer finished. Post a comment on the pull request and
+pass its id as `--review-basis`. It starts with `Review basis for <sha7>:` (the first 7 characters of the head) and then has exactly one of:
 
-`Review basis for <sha7>: <why>, reviewed by pr-reviewer <review URL> on <sha7'>; since then: <trivial fixes or none>`
+- a link to the `pr-reviewer` review: `Review basis for <sha7>: <why>, reviewed by pr-reviewer <review URL>; since then: <trivial fixes or none>`.
+  The URL is `.../pull/<PR>#pullrequestreview-<id>`. `merge` reads that review: its body must start `Reviewed head: <sha>` and contain
+  `**Verdict:** ready to merge`, and the commit it reviewed must be the head or an ancestor of it (a force-push needs a new review);
+- `owner approved` right after the colon (for example `Review basis for <sha7>: owner approved the setup PR`): the owner's decision,
+  used for the setup and update pull requests of `init` and `sync`. `merge` accepts it and says so in its output.
 
-`merge` checks that the comment is on this pull request and names the first 7 characters of the head. The comment is made by the
-agent: it is bound to the head but cannot prove that a reviewer ran ([SECURITY.md](SECURITY.md)).
+`merge` also refuses when the last `pr-reviewer` review of the head (a review that starts `Reviewed head:`) says
+`**Verdict:** changes needed`, whichever path got there. So `pr-reviewer` keeps its first line and its `Verdict` line exact.
+
+## What is enforced
+
+| Rule | Enforced by | Notes |
+|---|---|---|
+| The gate status is `success` on the exact head, the branch is up to date | `merge` (and the ruleset) | |
+| No unresolved review thread, from any author; `unknown` refuses | `merge`, from `pr-wait` | Ceiling: 100 threads |
+| No configured reviewer has `CHANGES_REQUESTED` on the head | `merge`, from `pr-wait` | The reviewer's last review of the head wins |
+| The last `pr-reviewer` review of the head is not `changes needed` | `merge` | Any account's review that starts `Reviewed head:` |
+| A basis is a `ready to merge` review of this pull request on the head or an ancestor, or `owner approved` | `merge` | |
+| A reviewer ran, and was independent of the author | convention | The review and the basis are posted with the agent's own credentials: `merge` proves which review was named, not who wrote it |
+| Findings are fixed and answered with a reason | convention | Only the threads are gated; a finding left in a review body is not |
+| The owner is asked before an inline (non-independent) review is the only one | convention | The skill and the action map say so |
+
+Owner exceptions are explicit: `owner approved` for a basis, and dismissing a review on GitHub. Admin rights and a hand-posted gate
+status are outside what these scripts can check ([SECURITY.md](SECURITY.md)).

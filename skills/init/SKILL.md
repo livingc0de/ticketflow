@@ -45,7 +45,7 @@ A new repo lands as `new-repo.md` says. Otherwise:
 1. Stage explicit paths (never `git add -A`) and commit `chore: set up ticketflow <version>`.
 2. Push the branch and open a pull request from the repo's PR template: `Ticket: none (setup)`, plus the conflicts, the held files and the unverified items.
 3. Run `node .ticketflow/scripts/pr-wait.mjs <PR>` once, in the background, and wait. Exit 1: fix and push once. Exit 3: Actions refused the run and the local fallback cannot take over yet (the default branch has no runtime), so tell the owner and let them land it. Exit 0: ask the owner to review.
-4. **Merge only when the owner says so**, with `node .ticketflow/scripts/merge.mjs <PR>`. When it reports `standin needed` or `none configured`, first post the comment `Review basis for <sha7>: owner approved the setup PR` and pass its id as `--review-basis`. The PR carries its own gate scripts, which is why the owner decides.
+4. **Merge only when the owner says so**, with `node .ticketflow/scripts/merge.mjs <PR>`. When it reports `standin needed` or `none configured`, first post the comment `Review basis for <sha7>: owner approved the setup PR` and pass its id as `--review-basis` (`merge` also needs every review thread resolved: `thread.mjs`). The PR carries its own gate scripts, which is why the owner decides.
 
 ## 6. Protect and check
 

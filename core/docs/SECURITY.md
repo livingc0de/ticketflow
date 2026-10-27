@@ -20,7 +20,14 @@ you before (or blocks) the common forms of a bypass command. The guard is a seat
 - **The bypass** exists on purpose: the repository admin may merge past the checks when the owner explicitly asks. An agent that
   runs with the owner's admin token has that right too. The ruleset therefore cannot stop an agent that uses the admin token for
   an API merge or `gh pr merge --admin` (see the table). Only the rules above, the ask/prompt rules and the owner's attention do.
-- **The attestation** `--review-basis` is made by the agent. It is bound to the head sha but cannot prove that a reviewer ran.
+- **The review gate** `merge` refuses unresolved review threads (any author), a reviewer's `CHANGES_REQUESTED`, a `pr-reviewer` verdict of
+  `changes needed` on the head, and a `--review-basis` that is not either `owner approved` or a link to a `ready to merge` review of this
+  pull request on the head or an ancestor. The review and the basis comment are posted with the same credentials the agent merges with:
+  `merge` proves which review the agent named and that it says ready, not that an independent reviewer wrote it. `owner approved` is
+  the auditable exception, not proof either. What is enforced and what is convention: [REVIEWERS.md](REVIEWERS.md).
+- **Credentials.** With an admin token, `merge.mjs` and the guard are the only stop: the ruleset does not bind an admin, so an API merge
+  skips every check above. With a non-admin token the ruleset binds the agent too. Prefer the second; the repository's approvals
+  and thread-resolution settings stay the owner's choice (`protect` sets neither).
 - **Known ceiling:** a push to the base branch between the "up to date" check and the merge is not caught (the head is, through
   `--match-head-commit`). The window is seconds.
 
@@ -64,7 +71,8 @@ Other facts from the same run:
   the read-back compares only what `protect` sets.
 - A merge method other than squash is refused by the repository setting (405, "Merge commits are not allowed").
 - `merge.mjs` refused with `CI / Gate` missing, refused with the gate green but no reviewer and no `--review-basis`, and merged once
-  the gate was `success` on the head and a comment naming the head's first 7 characters was passed as the basis.
+  the gate was `success` on the head and a comment naming the head's first 7 characters was passed as the basis (probed with the
+  0.2.0 basis, which 0.3.0 no longer accepts: the basis must now be `owner approved` or a link to a `ready to merge` review).
 
 What this means: `pull_request` closes direct pushes and force pushes for everyone, agents included, because GitHub enforces it.
 It does not close merges, so the merge path stays behind the guard and the AGENTS rule. Use `always` only if direct pushes by the

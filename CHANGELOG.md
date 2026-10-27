@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+**Upgrade notes** (from 0.2.0):
+
+- `merge` now refuses a pull request with an unresolved review thread, from any author. Answer and resolve each with `thread.mjs <PR> <thread-id>` (reply on stdin).
+- The review basis has a new format. Re-post the basis on in-flight pull requests: `Review basis for <sha7>: ... <pr-reviewer review URL>` (a `.../pull/<PR>#pullrequestreview-<id>` link to a review that says `**Verdict:** ready to merge` on the head or an ancestor), or `Review basis for <sha7>: owner approved ...`. A comment that merely names the head no longer works.
+- If you copied the `done_pattern` example from the 0.2.0 docs, remove `|failed` from it: a failed run is not a finished review (put its wording in `unavailable_pattern` for a stand-in).
+- `sync` re-renders `.claude/settings.json` (it allows `thread.mjs`).
+
+- **merge:** requires an accepted review, not a finished one: it refuses unresolved or unknown review threads, a reviewer's `CHANGES_REQUESTED`, a `pr-reviewer` verdict of `changes needed` on the head, and a basis that is neither `owner approved` nor a link to a `ready to merge` review of this pull request (#22).
+- **pr-wait:** a reviewer's last non-dismissed review of the head decides (`Review: changes requested (...)`); a no-findings reaction must be newer than the latest re-review request; prints `Unresolved threads: <n | unknown>` with thread ids (replaces the inline-comment listing); `--ci-only` and a sha make no GraphQL call (#22).
+- **thread.mjs:** new script that replies to and resolves one review thread, refusing a thread of another pull request (#22).
+- **Docs:** REVIEWERS, SECURITY, WORKFLOW and the implement-ticket skill state what is enforced and what stays convention (#22).
+
 ## 0.2.0
 
 **Upgrade notes** (from 0.1.0):
