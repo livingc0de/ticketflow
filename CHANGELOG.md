@@ -32,7 +32,7 @@
   discovery section. A plain "fix this bug" or "review this diff" follows it with no ticket, branch, commit or PR unless asked.
 - **`pr-reviewer` diff and audit modes.** Review a diff, range, branch or plan task, or audit a repo for what can be deleted
   (a mapped, ranked list of at most 20 findings with `path:line`, the cost of skipping and `Lean: -N lines possible`). Both
-  post nothing and never count as the review `merge` needs. The lenses now include behaviour at the expected load.
+  post nothing, use the verdict `no blockers | blockers found` and never count as the review `merge` needs. The lenses now include behaviour at the expected load.
 - **Planner and orchestrator.** The `ticket-planner` takes a plain brief with no ticket and may mark a high-risk task
   `review: task` (reviewed in diff mode before the next task). A deviation from the plan gets a line in the PR's Review Notes.
   `orchestrate-tickets` stops on host limits (timeout, usage or rate limit, depth or concurrency cap, a refused dispatch) and prints

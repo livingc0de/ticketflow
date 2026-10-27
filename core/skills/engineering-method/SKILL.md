@@ -6,14 +6,20 @@ description: Use when writing, fixing, debugging, refactoring or reviewing code,
 # Engineering method
 
 - Read `.ticketflow/custom/engineering-method.md` first if it exists: it adds to and overrides this file. Actions (dispatch a role, ask the user) are done as the action map your stub names says; without one, use `.ticketflow/agents-map/generic.md`.
-- With a ticket, `implement-ticket` is the flow and this is how its steps 3 and 4 are done. Without one this is the whole method: no ticket, branch, commit, PR or merge unless the user asks. No other plugin's planning, approval, branching, review or merge process runs on top of it; a technique may be borrowed if it adds no approval step and no second plan.
+- With a ticket, `implement-ticket` is the flow (it reads, plans and reports); apply the plan-or-skip tests of section 1 and sections 2 to 5 here. Without one all sections apply: no ticket, branch, commit, PR or merge unless the user asks. No other plugin's planning, approval, branching, review or merge process runs on top of it; a technique may be borrowed if it adds no approval step and no second plan.
 - Ask the user only about material decisions (product, data shape, security, money); take the default for the rest and say which.
 
-## 1. Understand
+## 1. Understand and plan
 
 - Read the code and docs the request touches first, and never ask what they already answer.
 - A clear request: just do it. A vague or risky one: play it back in two sentences, then ask the one question that changes the most and say why. Offer 2-3 approaches with a recommendation only when a real choice is open. "Go" or "your call" proceeds on the defaults you stated.
-- Not easy and straightforward by the four tests of `implement-ticket` step 2 (`.ticketflow/skills/implement-ticket/SKILL.md`): dispatch the `ticket-planner` role with a plain brief (the request, what you read, decisions made); no ticket is needed. Its Open decisions go to the user.
+- **Plan or skip.** Plan by default: dispatch the `ticket-planner` role with a plain brief (the request, what you read, decisions made); no ticket is needed. Its Open decisions go to the user. Skip only when all four hold, judged from the code you read:
+  - (a) you understand the whole change end to end, no design choice left;
+  - (b) a small diff in one place, roughly under 4 files, nothing cross-cutting;
+  - (c) no boot, deploy or config change, auth, permission or admin grant, data or schema change, money, concurrency or startup gate, and no second subsystem;
+  - (d) verification is obvious and automated.
+
+  Effort and complexity decide, not the length of the request. Any doubt, or moderate or high effort: plan. When torn, plan.
 - Record decisions where they last: the ticket's Decisions and acceptance criteria, else the final report.
 
 ## 2. The smallest complete change
@@ -37,7 +43,7 @@ Work in one context. Delegate only when it pays:
 |---|---|
 | Broad read-only search | dispatch a light helper |
 | A hard, isolated piece (a lock order, a money state machine, a migration) | dispatch a strong helper with a compact brief; do not edit its files meanwhile |
-| Independent failures (different files, no shared state) | one helper each, within the budget |
+| Independent failures (different files, no shared state) | one helper each; inside a ticket one at a time (a lead has one specialist slot), several at once only on a plain request and within any limit the user set |
 | A plan task marked `review: task` | dispatch the `pr-reviewer` role in diff mode on that task's commits; fix its blockers before the next task |
 
 Never delegate a deterministic command, a lookup, or one small task.
@@ -51,11 +57,12 @@ Never delegate a deterministic command, a lookup, or one small task.
 ## 5. Reviews
 
 - **Receiving:** check each finding against the code, then fix it or reject it with the reason. No agreeing to be polite. A feature nobody asked for is declined (YAGNI) unless the code needs it.
-- **Requesting without a PR:** a diff, range, branch or plan task goes to the `pr-reviewer` role in diff mode; "audit the repo" goes to it in audit mode. Both report and post nothing; relay the findings.
+- **A PR:** "review PR #N" goes to the `pr-reviewer` role in its normal mode, which posts one review on the PR. For a PR of your own, review and merge are `implement-ticket` steps 5 and 6.
+- **No PR:** a diff, range, branch or plan task goes to the role in diff mode, "audit the repo" in audit mode. Both report and post nothing; relay the findings.
 - **Shortcut debt:** `node .ticketflow/scripts/debt.mjs [path]` lists every `shortcut:` marker with its trigger; a row marked `[no-trigger]` needs one.
 
 ## 6. Report
 
 - What changed, the evidence, "Not checked", the shortcuts added with their triggers. Short; no tour of the diff.
-- Without a ticket, finishing is the report. Commit, push or open a PR only when asked; merge only with `node .ticketflow/scripts/merge.mjs <PR>`; the rules of AGENTS.md (no admin bypass) stand.
-- "Why did this run go wrong, or cost so much?": read the ticket's Run line, the PR timeline and your tool's usage or transcript view. Cite what was repeated, ignored or skipped, with evidence. Change nothing.
+- Without a ticket, finishing is the report. Commit, push or open a PR only when asked. A PR opened that way is reviewed and merged as `implement-ticket` steps 5 and 6 say, minus the ticket references: the `pr-reviewer` review of the head, then `node .ticketflow/scripts/merge.mjs <PR>`. A request to merge is not a review basis, and a diff or audit report is not the review. The rules of AGENTS.md (no admin bypass) stand.
+- "Why did this run go wrong, or cost so much?": read the ticket's Run line, the PR timeline and commits, and whatever usage or transcript record your tool keeps (TicketFlow has no counter; if the tool keeps none, say so rather than guess). Cite what was repeated, ignored or skipped, with evidence. Change nothing.

@@ -49,9 +49,9 @@ Blockers are only: an unmet criterion, a security or data issue, a broken invari
 
 ## Diff and audit modes
 
-No pull request, so post nothing: the report itself goes to the caller (no review URL).
-- **Diff mode** (the brief names a diff, range, branch or plan task): the same lenses on `git diff <range>` and the touched files and callers. For a plan task, lens 1 is "does exactly what the task says"; skip the process lens. Use the report template above; the first line is the range and its head sha7.
-- **Audit mode** (the brief says audit the repo or a path): map first (README, entry points, build and deploy, dependencies, tests) and state the expected load. Read the main flows, not every file. Findings are Must / Should / Nice, at most 20, numbered, each with `path:line`, the concrete case, the smallest fix and the cost of skipping it; grep for callers before calling code unused. End with `Verdict:`, `Lean: -N lines possible` and `Not checked:`.
+No pull request, so post nothing: the report itself goes to the caller (no review URL). It is never a PR's review of record and never a `Review basis`, so its verdict is `no blockers` or `blockers found`, never the merge wording above.
+- **Diff mode** (the brief names a diff, range, branch or plan task): the same lenses on `git diff <range>` and the touched files and callers. For a plan task, lens 1 is "does exactly what the task says"; skip the process lens. Use the report template above with that verdict; the first line is the range and its head sha7.
+- **Audit mode** (the brief says audit the repo or a path): map first (README, entry points, build and deploy, dependencies, tests) and state the expected load. Read the main flows, not every file. Findings are Must / Should / Nice, at most 20, numbered, each with `path:line`, the concrete case, the smallest fix and the cost of skipping it; grep for callers before calling code unused. End with `Verdict: no blockers | blockers found` (a Must finding is a blocker), `Lean: -N lines possible` and `Not checked:`.
 
 ## Report to the caller (at most 10 lines; an audit up to 40)
 

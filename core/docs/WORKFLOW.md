@@ -100,21 +100,23 @@ Most everyday requests are not tickets: "fix this bug", "build X", "review this 
 `engineering-method` skill answers them with the same method and none of the ticket ceremony:
 
 - **No ticket, branch, commit, PR or merge unless you ask.** Finishing is a short report: what changed, the evidence, what was not
-  checked, the shortcuts added. A commit or PR is made when you ask; a merge only through `merge`, with the rules of
-  [SECURITY.md](SECURITY.md) unchanged.
+  checked, the shortcuts added. A commit or PR is made when you ask. A PR opened that way is reviewed and merged like any other: the
+  `pr-reviewer` role reviews its head, then only `merge` merges, with the rules of [SECURITY.md](SECURITY.md) unchanged. Asking the
+  agent to merge is not a review.
 - **Anything beyond an easy change gets a plan** from the `ticket-planner` role on a plain brief; no ticket is needed, and its open
   decisions come to you.
 - **A review without a PR:** the `pr-reviewer` role in *diff mode* reviews a diff, range, branch or one task of a plan (a plan task
   marked `review: task` is reviewed on its commits before the next task starts; the default stays one PR-level review). In *audit
   mode* it maps the repo, states the expected load and returns up to 20 numbered findings (Must / Should / Nice, each with
-  `path:line`, the concrete case, the smallest fix and the cost of skipping it), ending with `Verdict:`, `Lean: -N lines possible` and
-  `Not checked:`. Both report to you and post nothing, so neither counts as the review `merge` needs.
+  `path:line`, the concrete case, the smallest fix and the cost of skipping it), ending with `Verdict: no blockers | blockers found`, `Lean: -N lines possible` and
+  `Not checked:`. Both report to you and post nothing, and a diff review's verdict is never the merge wording, so neither counts as the
+  review `merge` needs. A review of a PR itself ("review PR #N") is the normal mode: one review posted on the PR.
 - **Shortcut debt:** `node .ticketflow/scripts/debt.mjs [path]` lists every `shortcut:` comment with its limit and trigger. A row
   marked `[no-trigger]` needs one. It reads the tracked files and changes nothing.
-- **"Why did that run go wrong, or cost so much?"** The agent reads the ticket's Run line, the PR timeline and your tool's usage or
-  transcript view, cites what was repeated, ignored or skipped, and changes nothing.
+- **"Why did that run go wrong, or cost so much?"** The agent reads the ticket's Run line, the PR timeline and commits, and whatever usage or
+  transcript record your tool keeps (TicketFlow ships no counter), cites what was repeated, ignored or skipped, and changes nothing.
 
-Work that needs a ticket, a PR or a merge is still `create-ticket` and `implement-ticket`; say so and the full journey starts.
+Work that should be tracked is still `create-ticket` and `implement-ticket`; say so and the full journey starts.
 
 ## Verify
 

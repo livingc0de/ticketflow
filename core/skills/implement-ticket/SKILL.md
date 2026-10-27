@@ -7,7 +7,7 @@ description: Use when asked to implement, continue or fix a GitHub ticket ("impl
 
 - Read `.ticketflow/custom/implement-ticket.md` first if it exists: it adds to and overrides this file. Read `.ticketflow/config.json` once.
 - Actions (dispatch a role, ask the user, run in the background) are done as the action map your stub names says; without one, use `.ticketflow/agents-map/generic.md`.
-- This skill is the whole flow for ticket work: another skill or plugin with its own planning, approval, branching, review or merge flow does not run on top of it. How steps 3 and 4 are done (test first, debugging, the smallest change, delegation, evidence before claims) is `.ticketflow/skills/engineering-method/SKILL.md`; read it before step 3.
+- This skill is the whole flow for ticket work: another skill or plugin with its own planning, approval, branching, review or merge flow does not run on top of it. How the work is done (the plan-or-skip tests, test first, debugging, the smallest change, delegation, evidence before claims) is `.ticketflow/skills/engineering-method/SKILL.md`; read it before step 2.
 
 ## 1. Read and claim
 
@@ -20,13 +20,7 @@ description: Use when asked to implement, continue or fix a GitHub ticket ("impl
 
 ## 2. Route
 
-**Plan by default:** dispatch the `ticket-planner` role. Skip only when all four hold, judged from the code you read:
-- (a) you understand the whole change end to end, no design choice left;
-- (b) a small diff in one place, roughly under 4 files, nothing cross-cutting;
-- (c) no boot, deploy or config change, auth, permission or admin grant, data or schema change, money, concurrency or startup gate, and no second subsystem;
-- (d) verification is obvious and automated.
-
-Effort and complexity decide, not the tier or the length of the description. A ticket that reads like a plan is input to verify. Any doubt, or moderate or high effort: plan. When torn, plan.
+**Plan by default:** dispatch the `ticket-planner` role. Skip only when the four tests (a)-(d) of `.ticketflow/skills/engineering-method/SKILL.md` section 1 all hold, judged from the code you read. The tier and the length of the description do not decide, and a ticket that reads like a plan is input to verify.
 
 **Planned earlier** means the ticket's `Planning:` line links a committed plan file. Model or effort text, "plan ready" or a detailed description never counts. A linked plan is still re-verified: by the planner, or by you only when its files are unchanged since its sha (`git diff <sha>..origin/<default_branch> -- <files>` is empty) and (a)-(d) hold.
 
@@ -47,7 +41,7 @@ A skipped plan whose diff grows past its stated scope is re-tiered up and gets t
 
 ## 3. Implement, in this session
 
-One context, one conventional commit per task, `Refs #<N>` in the body, never a closing keyword, as the engineering-method skill says. A deviation from the plan gets one line in the PR's Review Notes.
+One context, one conventional commit per task, `Refs #<N>` in the body, never a closing keyword. Work as the engineering-method skill says (test first, debugging, the smallest change, delegation). A deviation from the plan gets one line in the PR's Review Notes.
 
 **Scope discipline:** a problem found while working that is related (caused or exposed by the ticket, same flow or files) and small is fixed in this PR, tested, and listed as "Also fixed". The same holds for every finding of a reviewer, CI, a smoke check or a delegated agent: fix it, or reject it with the reason; never leave an unticketed gap. Only a big (its own plan or tier, another subsystem, needs a decision) or unrelated problem gets its own issue (create-ticket skill), linked from this one. If fixing is cheaper than writing the issue, fix. Partial delivery: the rest gets its own issue. Never commit secrets or env files. Put this rule in every brief.
 

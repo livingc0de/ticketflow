@@ -124,6 +124,8 @@ Evidence and fallbacks:
   counted nested agents. Copilot allows it in VS Code only (the cloud agent never). Where it is unsupported, a lead plans inline and
   reports `needs-review`.
 - **The method without a ticket** (the `engineering-method` skill) is new in 0.3.5; no paid agent run has measured it yet.
+- **Usage and transcripts** (for "why did that run cost so much"): TicketFlow ships no counter and no per-tool command for them. The agent reads
+  what the tool itself keeps, and says so when it keeps nothing ([TOKEN-BUDGET.md](TOKEN-BUDGET.md#measuring)). A documented gap, not a verified feature.
 
 ## Adding a tool to a repo that already uses TicketFlow
 

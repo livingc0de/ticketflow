@@ -17,8 +17,8 @@ It never pushes, commits, edits or approves. Add repo lenses in `.ticketflow/cus
 "Review Guidelines" ([EXTENDING.md](EXTENDING.md)).
 
 Two more modes review without a pull request and post nothing: *diff mode* (a diff, range, branch or one task of a plan) and
-*audit mode* (the repo or a path). They return a report to the caller, so they never count as the review `merge` needs, which is
-always a review posted on the pull request's head.
+*audit mode* (the repo or a path). They return a report to the caller with the verdict `no blockers | blockers found`, so they never
+count as the review `merge` needs, which is always a review posted on the pull request's head.
 
 Without sub-agents (the generic action map) it runs inline in the same session. An inline review is not independent, so the owner is
 asked before merging on it.
