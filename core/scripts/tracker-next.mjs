@@ -10,7 +10,8 @@
  */
 
 import { cli, main } from '../lib/cli.mjs'
-import { GhError, api, gql, isNumber } from '../lib/gh.mjs'
+import { api, gql, isNumber } from '../lib/gh.mjs'
+import { DONE, anyTime, projectStatuses } from '../lib/tracker.mjs'
 
 const { positionals: [tracker], cfg } = cli(import.meta.url, 'tracker-next', '<tracker> [--config f]', {}, (p) => p.length === 1 && isNumber(p[0]))
 const P = cfg.project
@@ -19,37 +20,11 @@ if (!P || P.number === 0) {
     process.exit(2)
 }
 const R = `repos/${cfg.repo}`
-const DONE = ['In Review', 'Done']
-const QUERY = `query TrackerStatus($ids:[ID!]!){ nodes(ids:$ids){ ... on Issue { id projectItems(first:50){ nodes{
-  project{ number owner{ ... on User { login } ... on Organization { login } } }
-  fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } }`
-
-/** The issue numbers that start a list item under an "Any time" heading or bold line. */
-function anyTime(body) {
-    const out = new Set()
-    let inside = false
-    for (const line of (body ?? '').split('\n')) {
-        if (/^\s*(#{1,6}\s+|\*\*)/.test(line)) inside = /^\s*(#{1,6}\s+)?\**\s*any time/i.test(line)
-        const item = inside && /^\s*[-*]\s+(.*)$/.exec(line)
-        if (!item) continue
-        for (let rest = item[1], m; (m = /^#(\d+)\s*(?:,|&|and)?\s*/.exec(rest)); rest = rest.slice(m[0].length)) out.add(Number(m[1]))
-    }
-    return out
-}
 
 main('tracker-next', () => {
     const body = api(`${R}/issues/${tracker}`).body
     const children = api(`${R}/issues/${tracker}/sub_issues`, { paginate: true })
-    const status = new Map()
-    for (let i = 0; i < children.length; i += 100) {
-        const ids = children.slice(i, i + 100).map((c) => c.node_id)
-        const found = gql(QUERY, { ids }).nodes
-        if (!Array.isArray(found)) throw new GhError('GraphQL returned no nodes')
-        for (const n of found.filter(Boolean)) {
-            const item = n.projectItems?.nodes.find((x) => x.project.number === P.number && x.project.owner?.login?.toLowerCase() === P.owner.toLowerCase())
-            status.set(n.id, item?.fieldValueByName?.name ?? null)
-        }
-    }
+    const status = projectStatuses(gql, children.map((c) => c.node_id), P)
     const any = anyTime(body)
     const isAny = (c) => any.has(c.number) && (c.repository_url?.toLowerCase().endsWith(`/${R}`.toLowerCase()) ?? true)   // the body's #N means this repo
     const done = (c) => c.state === 'closed' || DONE.includes(status.get(c.node_id))

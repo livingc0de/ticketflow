@@ -4,9 +4,9 @@ The canonical skills and roles name actions. In Codex, do them like this. `confi
 
 | Action | How |
 |---|---|
-| Dispatch the `<role>` role | `spawn_agent` with `agent_type: "<role>"` (the repo's agent in `.codex/agents/`) and `fork_turns: "none"`, then wait for it. Needs `[features] multi_agent = true` in the Codex config: suggest it to the user, never write it yourself. If you cannot dispatch, follow the generic map (inline) |
-| Dispatch a helper of a class | `spawn_agent` with `fork_turns: "none"` and both `model` (from `config.models.codex[<class>]`) and `reasoning_effort` set |
-| Dispatch a parallel ticket worker | Same, in its own git worktree: give it the worktree path and the brief; it has no context |
+| Dispatch the `<role>` role | `spawn_agent` with `agent_type: "<role>"` (the repo's agent in `.codex/agents/`) without forking (`fork_context` false; V2 `fork_turns: "none"`), then wait for it. If you cannot dispatch, follow the generic map (inline) |
+| Dispatch a helper of a class | `spawn_agent` without forking (`fork_context` false; V2 `fork_turns: "none"`) and both `model` (from `config.models.codex[<class>]`) and `reasoning_effort` set |
+| Dispatch a fresh ticket lead | `spawn_agent` without forking (`fork_context` false; V2 `fork_turns: "none"`), `model` and `reasoning_effort` of the standard class; brief it fully, it has no context |
 | Run in the background and wait once | Run it in the foreground: the ticketflow scripts are bounded by their own timeouts |
 | Ask the user | Ask one targeted question in the reply and wait |
 | Track tasks | `update_plan` |
@@ -16,4 +16,6 @@ The canonical skills and roles name actions. In Codex, do them like this. `confi
 ## Rules
 
 - Codex asks before the forms in `.codex/rules` (a merge, a push to the default branch, a protection change); a hook blocks the rest. Do not look for a way around either: when a step needs one, stop and ask the user. After the hook file changes, the user must trust it again with `/hooks`.
+- Nesting: `agents.enabled` is on by default. V1 allows depth 1 (a lead cannot dispatch) unless `agents.max_depth = 2`; V2 ignores `max_depth`. A refused dispatch: do the step inline and say so; a lead that cannot dispatch reports `needs-review` and the orchestrator dispatches the reviewer.
+- Limits: suggest to the user, never write, `agents.max_depth = 2` and `agents.max_concurrent_threads_per_session = <B-1>`. Defaults: 6 threads in V1, 4 in V2; V2 has no depth cap, so `max_depth` does not limit it.
 - A spawned agent does not see this conversation. Brief it with the ticket number, the files, the rule on scope, and the exact report you want.

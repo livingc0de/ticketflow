@@ -5,6 +5,7 @@
       "Bash(node core/scripts/project.mjs *)",
       "Bash(node core/scripts/sub-issue.mjs *)",
       "Bash(node core/scripts/tracker-next.mjs *)",
+      "Bash(node core/scripts/queue.mjs *)",
       "Bash(node core/scripts/pr-wait.mjs *)",
       "Bash(node core/scripts/local-verify.mjs *)",
       "Bash(node core/scripts/merge.mjs *)",

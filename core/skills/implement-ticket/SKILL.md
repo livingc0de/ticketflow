@@ -11,9 +11,10 @@ description: Use when asked to implement, continue or fix a GitHub ticket ("impl
 
 ## 1. Read and claim
 
-- **Ticket:** the one named, or the first open child from `node .ticketflow/scripts/tracker-next.mjs <T>`. "The next" is exactly one ticket, "all" is one after another; if unclear, ask.
+- **Ticket:** the one named, or the first open child from `node .ticketflow/scripts/tracker-next.mjs <T>`. "The next" is exactly one ticket; "all" or a list of tickets goes to `orchestrate-tickets`; if unclear, ask.
 - **Read** it with `node .ticketflow/scripts/issue.mjs <N>`, plus its linked plans and the docs it names. Later comments override the description. A statement about behaviour ("the job starts by itself") is checked in the code, never reinterpreted.
 - **Readiness gate:** scope, acceptance criteria and verification must be coherent and checkable against the code. A material gap (a decision, a criterion you cannot verify, an unmerged dependency): ask one targeted question; with a recommended default, set `Needs: Decision`, say so on the ticket and continue other unblocked work. A non-material gap: state your assumption in the claim comment.
+- **Already started:** `node .ticketflow/scripts/queue.mjs <N>` shows an open PR (a closed one is history), `merged` or `done`: this replaces Claim and Workspace. Reuse the PR's worktree or branch (never a second claim comment, worktree add or PR) and continue from the PR; `merged`: step 7 only, skipping what is done, never repeating a deploy or migration step. For a continue or resume request (an orchestrator lead, "continue #N"), `done` with a merged PR means nothing to build and never a second PR: without a project, step 7 only when its summary comment is missing, otherwise stop and report. An owner's explicit request to change an In Review ticket is a new change in the running ticket, as before.
 - **Claim:** `gh issue edit <N> --add-assignee @me`; when `project` is set in the config, `node .ticketflow/scripts/project.mjs status <N> "In Progress"`; a claim comment (`gh issue comment <N> --body-file -`, heredoc) with the tier, the assumptions and exactly one `Planning:` line (step 2).
 - **Workspace:** `git fetch origin` every time, then `git worktree add --no-track <worktrees_dir>/<branch> -b <type>/issue-<N>-<slug> origin/<default_branch>`, then `verify.install` there. Edit and test in the worktree; run `pr-wait`, `merge` and `local-verify` with the up-to-date primary checkout as the working directory (`git -C <primary> pull --ff-only` first), so a branch never gates itself.
 
@@ -68,7 +69,7 @@ Never delegate a deterministic command, a lookup, or one small task.
 
 Before the PR, turn each rule of the ticket and the guides into an invariant question ("can any unit exceed its budget?") and sweep the whole diff for it.
 
-**Parallel tickets** only when independent: disjoint files, no tracker order, no schema or shared state. You claim each ticket, create its worktree and branch, plan it and commit the plan; then dispatch one standard worker per ticket, in that worktree: "follow `.ticketflow/skills/implement-ticket/SKILL.md` step 3 with this plan, run the focused checks, open the PR (step 5, items 1-2), do not run live checks, review, wait or merge; report in at most 12 lines". You run the live checks, the reviews, the waits and the merges, one ticket at a time.
+**Several tickets** in one run: `orchestrate-tickets`. This skill is for one ticket.
 
 ## 4. Verify
 

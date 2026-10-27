@@ -14,6 +14,8 @@ Every word an agent loads costs time and money, and crowds out the code it shoul
 
 - The body of a skill or role, when it runs (the stub only points at it). `implement-ticket` is the largest; its after-merge steps
   sit in a separate file read only after a merge.
+- `orchestrate-tickets` (optional, [WORKFLOW.md](WORKFLOW.md)): one more stub description per agent. The orchestrator holds only the
+  queue output and each lead's `Result` line; every ticket's context lives in its own fresh lead, not in the orchestrator.
 - `custom/<name>.md`, only with its skill or role.
 - `.ticketflow/docs/` (these files) is reference: never auto-loaded, read only when someone opens it.
 

@@ -6,7 +6,7 @@ ticket is, how urgent it is and how big.
 
 TicketFlow tracks work in one GitHub Project (Projects v2, never classic) linked to the repo, set in the `project` config key
 (keys: [CONFIG.md](CONFIG.md)). Without it, the skills skip the status steps and `project.mjs` exits with an error.
-Everything below is done through the API: `project.mjs`, `sub-issue.mjs`, `tracker-next.mjs`, `labels.mjs`.
+Everything below is done through the API: `project.mjs`, `sub-issue.mjs`, `tracker-next.mjs`, `queue.mjs`, `labels.mjs`.
 
 ## Statuses
 
@@ -72,4 +72,7 @@ A `Type: Initiative` issue is a tracker; its children are GitHub sub-issues, in 
 - `tracker-next.mjs <tracker>` prints the first child, in the tracker's order, that is not done. Done means closed, or In Review or
   Done in the configured project. "Any time" children (list items under a heading or bold line starting with "Any time" in the tracker
   body) are never `next` and are listed separately.
+- `queue.mjs (<N>... | --tracker <T> | --ready [--limit n])` is read-only: it prints each ticket's state (`ready`, `in-progress`, `merged`,
+  `blocked`, `waiting`, `conflict`, `done`) rebuilt from the issue, its Status, labels, `Depends on #N` lines and the pull requests on its
+  `*/issue-<N>-*` branches, then `next:` and `resume:`. `--ready` lists the Ready tickets by Priority label, then number. Only pull requests from this repository count; a tracker child of another repository is an error. Without a project, a merged pull request shows as `done`: the handoff cannot be seen. Follow-up work after a merge needs its own ticket (the merged PR keeps the old one `merged`), and a `Depends on owner/other#N` ref keeps the ticket `waiting` until the owner edits it out.
 - Say why on the tracker when a child is added mid-flight.

@@ -8,7 +8,7 @@ const core = new URL('../core/', import.meta.url).pathname
 const ls = (dir) => (existsSync(join(core, dir)) ? readdirSync(join(core, dir)) : [])
 // the canonical prose: skills (every .md under skills/<n>/) and roles, each with its own `.ticketflow/custom/<name>.md` and line budget
 const prose = [
-    ...ls('skills').flatMap((n) => ls(`skills/${n}`).filter((f) => f.endsWith('.md')).map((f) => ({ path: `skills/${n}/${f}`, custom: f === 'SKILL.md' ? n : f.replace(/\.md$/, ''), max: { 'implement-ticket/SKILL.md': 130, 'implement-ticket/post-merge.md': 60, 'create-ticket/SKILL.md': 90 }[`${n}/${f}`] ?? 130 }))),
+    ...ls('skills').flatMap((n) => ls(`skills/${n}`).filter((f) => f.endsWith('.md')).map((f) => ({ path: `skills/${n}/${f}`, custom: f === 'SKILL.md' ? n : f.replace(/\.md$/, ''), max: { 'implement-ticket/SKILL.md': 130, 'implement-ticket/post-merge.md': 60, 'create-ticket/SKILL.md': 90, 'orchestrate-tickets/SKILL.md': 70 }[`${n}/${f}`] ?? 130 }))),
     ...ls('agents').map((f) => ({ path: `agents/${f}`, custom: f.replace(/\.md$/, ''), max: 80 })),
 ]
 // the optional practices (practices/<n>/*.md at the repo root) follow the same two rules as the core prose
@@ -18,7 +18,7 @@ const maps = ls('agents-map').map((f) => ({ path: `agents-map/${f}`, max: 40 }))
 const text = (p) => readFileSync(join(core, p), 'utf8')
 
 test('there are canonical skills and roles to check', () => {
-    for (const p of ['skills/implement-ticket/SKILL.md', 'skills/implement-ticket/post-merge.md', 'skills/create-ticket/SKILL.md', 'agents/ticket-planner.md', 'agents/pr-reviewer.md', 'agents/e2e-verifier.md', 'agents-map/claude.md', 'agents-map/codex.md', 'agents-map/generic.md']) assert.ok(prose.some((x) => x.path === p) || maps.some((x) => x.path === p), p)
+    for (const p of ['skills/implement-ticket/SKILL.md', 'skills/implement-ticket/post-merge.md', 'skills/create-ticket/SKILL.md', 'skills/orchestrate-tickets/SKILL.md', 'agents/ticket-planner.md', 'agents/pr-reviewer.md', 'agents/e2e-verifier.md', 'agents-map/claude.md', 'agents-map/codex.md', 'agents-map/generic.md']) assert.ok(prose.some((x) => x.path === p) || maps.some((x) => x.path === p), p)
 })
 
 test('skills and roles name actions, never one agent\'s tools', () => {
@@ -113,4 +113,17 @@ test('every part file of init is referenced by its SKILL.md and exists; START.md
         assert.ok(rootText('START.md').includes(`skills/${n}/SKILL.md`), `START.md names skills/${n}/SKILL.md`)
         assert.match(rootText(`skills/${n}/SKILL.md`), new RegExp(`Read \`<TF>/skills/${n}/SKILL\\.md\` and continue there from section 1`), n)
     }
+})
+
+test('orchestrate-tickets: a coordinator with the Result contract, the budget formula and the Ready-backlog warning', () => {
+    const skill = text('skills/orchestrate-tickets/SKILL.md')
+    assert.match(skill, /Result #N: merged <PR> <sha7> \| needs-review <PR> <sha7> \| needs-decision #D \| blocked <reason> \| failed <reason>/)
+    assert.match(skill, /You never edit files, run git, read diffs, code or logs, review, merge or set a status/)
+    assert.match(skill, /floor\(\(B-1\)\/2\)/)
+    assert.match(skill, /before the first dispatch, show the user a warning that you will work the Ready backlog/)
+    assert.match(skill, /queue\.mjs/)
+    assert.match(skill, /Never "Done"/)
+    assert.match(skill, /the scope is exactly those ticket numbers: every loop and every resume runs the queue with them, never the ready backlog again/)
+    assert.match(skill, /not dispatched again in this run/)
+    assert.match(skill, /write nothing to GitHub/)
 })
