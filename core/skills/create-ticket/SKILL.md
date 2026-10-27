@@ -7,6 +7,8 @@ description: Use when asked to create, file, split or triage a ticket, record a 
 
 Read `.ticketflow/custom/create-ticket.md` first if it exists: it adds to and overrides this file. Read `.ticketflow/config.json` once. Actions follow the action map your stub names (`.ticketflow/agents-map/generic.md` without one). Descriptions stay short and stable, with no emojis; Markdown goes through a heredoc; nothing ever uses a closing keyword.
 
+**A vague request** (an idea, not yet a ticket): first read the code and docs it touches, and never ask what they already answer. Then ask one question at a time, each saying what the answer changes, until the scope and the acceptance criteria are clear. Where a real choice is open, offer 2-3 approaches and recommend one. Then write the ticket, or a tracker with children (step 2). There is no design document or approval step.
+
 1. **Search first** for a duplicate: `gh search issues --repo <repo> "<words>"` (open and closed by default) (`<repo>` is `repo` in the config). Link related issues instead of repeating them.
 2. **One issue is one shippable unit** that one PR can complete. Anything bigger becomes a `Type: Initiative` tracker with children.
 3. **Body**, short style, in this order (omit a section only if it is truly empty), Title Case title:

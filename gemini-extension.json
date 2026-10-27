@@ -1,5 +1,5 @@
 {
   "name": "ticketflow",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "An agent-neutral, ticket-driven delivery workflow for GitHub repos: set it up with init, update it with sync."
 }
