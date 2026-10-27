@@ -281,28 +281,52 @@ function globRe(g) {
 /** What decides `text` among ordered `[glob, effect]` rules (the last match wins, as in OpenCode): `[glob, effect]` or null. */
 const decider = (rules, text) => rules.findLast(([glob]) => globRe(glob).test(text)) ?? null
 
+/** Whether some string matches both OpenCode globs (`*` any run, `?` one character; a trailing ` *` is optional). Exact, by walking both globs together. */
+function overlaps(a, b) {
+    const variants = (g) => (g.endsWith(' *') ? [g, g.slice(0, -2)] : [g])
+    const walk = (x, y) => {
+        const seen = new Set()
+        const go = (i, j) => {
+            const key = `${i},${j}`
+            if (seen.has(key)) return false
+            seen.add(key)
+            if (i === x.length && j === y.length) return true
+            if (x[i] === '*' && go(i + 1, j)) return true
+            if (y[j] === '*' && go(i, j + 1)) return true
+            if (i === x.length || j === y.length) return false
+            const [p, q] = [x[i], y[j]]
+            if (p !== '*' && p !== '?' && q !== '*' && q !== '?' && p !== q) return false   // two different literals
+            return go(p === '*' ? i : i + 1, q === '*' ? j : j + 1)
+        }
+        return go(0, 0)
+    }
+    return variants(a).some((x) => variants(b).some((y) => walk(x, y)))
+}
+
 /**
  * OpenCode asks before the bypass forms (it has no hook command): `patterns` become ask rules, in `permissions` when the file already
- * uses the V2 array, else in the V1 `permission.bash` map (V2 reads it too). OpenCode applies the last matching rule, so for each
- * pattern the rule that decides its own text is found first: a deny is kept (no ask rule, a note), an ask is left alone, anything else
- * gets the ask rule last (V1: the key moves to the end), so a later broader allow cannot win over it.
+ * uses the V2 array, else in the V1 `permission.bash` map (V2 reads it too). OpenCode applies the last matching rule, so an ask added
+ * after a deny would turn that deny into a prompt (and `opencode --auto` approves prompts): a pattern is skipped, with one note for the
+ * render, when ANY deny of the owner's could match a command the pattern also matches (`overlaps`). Otherwise an ask that already
+ * decides the pattern is left alone, and anything else gets the ask rule last (a V1 key moves to the end), so a later broader allow cannot win.
  * ponytail: a pattern the guard drops later stays an ask rule; remove it by hand.
- * shortcut: a deny narrower than a pattern (`gh pr merge 5` against `gh pr merge *`) is not detected and the later ask wins over it; V1 patterns match parsed commands, so `cd x && gh pr merge 5` is covered as for the Claude rules; revisit when a narrower deny shows up.
+ * shortcut: any overlapping deny skips the whole pattern (a `git push --force *` deny also skips `git push * main`): an ask is lost, never a deny; revisit if owners with such denies ask for the ask rules to be placed before them. V1 patterns match parsed commands, V2 each part of a compound command.
  */
 export function mergeOpencodeAsk(existing, patterns, base) {
     const obj = existing === null ? { ...base } : parseJson(existing)
     if (!isObject(obj)) return { conflict: obj === undefined ? 'the file is not valid JSON' : 'the file is not a JSON object' }
     const notes = []
-    const kept = (p, glob) => notes.push(`kept your deny "${glob}": it decides "${p}", so no ask rule was added for it`)
+    const skipped = [], blockers = new Set()
+    const overlapping = (p, denies) => { const hit = denies.filter((g) => overlaps(g, p)); hit.forEach((g) => blockers.add(g)); if (hit.length) skipped.push(p); return hit.length > 0 }
     let next
     if (obj.permissions !== undefined) {
         if (!Array.isArray(obj.permissions)) return { conflict: 'permissions is not a list' }
-        const shellRules = () => obj.permissions.filter((r) => typeof r?.action === 'string' && typeof r.resource === 'string' && globRe(r.action).test('shell')).map((r) => [r.resource, r.effect])
+        const shellRules = obj.permissions.filter((r) => typeof r?.action === 'string' && typeof r.resource === 'string' && globRe(r.action).test('shell')).map((r) => [r.resource, r.effect])
+        const denies = shellRules.filter(([, e]) => e === 'deny').map(([g]) => g)
         const add = []
         for (const p of patterns) {
-            const d = decider([...shellRules(), ...add.map((r) => [r.resource, 'ask'])], p)
-            if (d?.[1] === 'deny') kept(p, d[0])
-            else if (d?.[1] !== 'ask') add.push({ action: 'shell', resource: p, effect: 'ask' })
+            if (overlapping(p, denies)) continue
+            if (decider([...shellRules, ...add.map((r) => [r.resource, 'ask'])], p)?.[1] !== 'ask') add.push({ action: 'shell', resource: p, effect: 'ask' })
         }
         next = add.length ? { ...obj, permissions: [...obj.permissions, ...add] } : obj
     } else {
@@ -310,17 +334,18 @@ export function mergeOpencodeAsk(existing, patterns, base) {
         const bash = typeof perm.bash === 'string' ? { '*': perm.bash } : perm.bash ?? {}
         if (!isObject(perm) || !isObject(bash)) return { conflict: 'permission (or permission.bash) is not an object' }
         const general = typeof perm['*'] === 'string' ? [['*', perm['*']]] : []   // the action-wide rule is the fallback under the bash rules
+        const denies = [...general, ...Object.entries(bash)].filter(([, e]) => e === 'deny').map(([g]) => g)
         const merged = { ...bash }
         for (const p of patterns) {
-            const d = decider([...general, ...Object.entries(merged)], p)
-            if (d?.[1] === 'deny') { kept(p, d[0]); continue }
-            if (d?.[1] === 'ask') continue
+            if (overlapping(p, denies)) continue
+            if (decider([...general, ...Object.entries(merged)], p)?.[1] === 'ask') continue
             if (merged[p] !== undefined && merged[p] !== 'ask') notes.push(`permission.bash[${JSON.stringify(p)}] was ${JSON.stringify(merged[p])}, now "ask" (moved last)`)
             delete merged[p]
             merged[p] = 'ask'
         }
         next = JSON.stringify(merged) === JSON.stringify(bash) ? obj : { ...obj, permission: { ...perm, bash: merged } }
     }
+    if (skipped.length) notes.unshift(`kept your deny rule${blockers.size > 1 ? 's' : ''} ${[...blockers].map((g) => JSON.stringify(g)).join(', ')}: no ask rule was added for the pattern${skipped.length > 1 ? 's' : ''} ${skipped.map((p) => JSON.stringify(p)).join(', ')} (a deny of yours could match a command they also match)`)
     return { text: existing !== null && JSON.stringify(next) === JSON.stringify(obj) ? existing : json(next), notes }
 }
 

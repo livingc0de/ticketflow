@@ -584,7 +584,7 @@ test('opencode: V1 permission.bash gets ask keys (a deny is kept, an allow is ch
     const o = JSON.parse(v1.text)
     assert.deepEqual(o.permission.bash, { '*': 'allow', 'git push * main': 'deny', 'gh pr merge': 'ask', 'gh pr merge *': 'ask' })
     assert.equal(o.theme, 'x'); assert.equal(o.permission.edit, 'deny')
-    assert.deepEqual(v1.notes, ['permission.bash["gh pr merge"] was "allow", now "ask" (moved last)', 'kept your deny "git push * main": it decides "git push * main", so no ask rule was added for it'])
+    assert.deepEqual(v1.notes, ['kept your deny rule "git push * main": no ask rule was added for the pattern "git push * main" (a deny of yours could match a command they also match)', 'permission.bash["gh pr merge"] was "allow", now "ask" (moved last)'])
     assert.equal(mergeOpencodeAsk(v1.text, pats, base).text, v1.text)
     const str = JSON.parse(mergeOpencodeAsk(JSON.stringify({ permission: { bash: 'allow' } }), pats, base).text)
     assert.deepEqual(str.permission.bash, { '*': 'allow', 'gh pr merge': 'ask', 'gh pr merge *': 'ask', 'git push * main': 'ask' })
@@ -628,19 +628,19 @@ test('opencode: an existing deny that decides a pattern is never weakened (the l
         ['permission["*"]: deny', { permission: { '*': 'deny' } }, []],
         ['bash: "deny"', { permission: { bash: 'deny' } }, []],
         ['bash["gh *"]: deny', { permission: { bash: { 'gh *': 'deny' } } }, ['git push * main']],
-        ['bash["*"]: deny, "gh pr merge *": allow after it', { permission: { bash: { '*': 'deny', 'gh pr merge *': 'allow' } } }, ['gh pr merge', 'gh pr merge *']],
+        ['bash["*"]: deny, "gh pr merge *": allow after it (a deny that could match is enough)', { permission: { bash: { '*': 'deny', 'gh pr merge *': 'allow' } } }, []],
     ]) {
         const r = mergeOpencodeAsk(JSON.stringify(input), pats, base)
         const out = JSON.parse(r.text)
         assert.deepEqual(asks(out).sort(), [...left].sort(), what)
-        if (left.length < pats.length) assert.ok(r.notes.some((n) => /kept your deny/.test(n)), `${what}: ${r.notes}`)
+        if (left.length < pats.length) assert.equal(r.notes.filter((n) => /kept your deny/.test(n)).length, 1, `${what}: one aggregated note, ${r.notes}`)
         assert.equal(mergeOpencodeAsk(r.text, pats, base).text, r.text, `${what}: idempotent`)
     }
     // V2: a broader shell deny, an any-action deny; a later allow does not hide the deny's effect on the pattern it does not cover
     for (const [what, rules, added] of [
         ['shell gh *: deny', [{ action: 'shell', resource: 'gh *', effect: 'deny' }], ['git push * main']],
         ['any action, any resource: deny', [{ action: '*', resource: '*', effect: 'deny' }], []],
-        ['an earlier deny, a later allow', [{ action: 'shell', resource: 'gh *', effect: 'deny' }, { action: 'shell', resource: 'gh pr merge *', effect: 'allow' }], ['gh pr merge', 'gh pr merge *', 'git push * main']],
+        ['an earlier deny, a later allow (a deny that could match is enough)', [{ action: 'shell', resource: 'gh *', effect: 'deny' }, { action: 'shell', resource: 'gh pr merge *', effect: 'allow' }], ['git push * main']],
     ]) {
         const r = mergeOpencodeAsk(JSON.stringify({ permissions: rules }), pats, base)
         const got = JSON.parse(r.text).permissions.slice(rules.length)
@@ -678,4 +678,33 @@ test('the Cursor matcher covers every guard form and does not fire inside other 
     for (const f of loadGuard(cfg, { scriptsDir: '.ticketflow/scripts' }).forms) for (const e of f.examples) if (e.codex !== 'pass') assert.match(e.cmd, matcher, e.cmd)
     for (const cmd of ['git push origin main', 'FOO=1 git push -u origin main', '/usr/bin/git push', 'cd x && gh pr merge 5', 'node .ticketflow/scripts/protect.mjs --apply', '.ticketflow/scripts/protect.mjs --apply']) assert.match(cmd, matcher, cmd)
     for (const cmd of ['echo high', 'ls through/digit', 'cat github.md', 'npm test']) assert.doesNotMatch(cmd, matcher, cmd)
+})
+
+test('opencode: a deny that overlaps an ask pattern (can match a command the pattern also matches) is never turned into an ask; a disjoint deny changes nothing', () => {
+    const base = { $schema: 'https://opencode.ai/config.json' }
+    const pats = ['gh pr merge', 'gh pr merge *', 'git push * main', 'git push *:main', 'git push *--mirror*']
+    const v1 = (denies) => mergeOpencodeAsk(JSON.stringify({ permission: { bash: Object.fromEntries(denies.map((d) => [d, 'deny'])) } }), pats, base)
+    const v2 = (denies) => mergeOpencodeAsk(JSON.stringify({ permissions: denies.map((resource) => ({ action: 'shell', resource, effect: 'deny' })) }), pats, base)
+    const added1 = (r) => Object.entries(JSON.parse(r.text).permission.bash).filter(([, v]) => v === 'ask').map(([k]) => k)
+    const added2 = (r) => JSON.parse(r.text).permissions.filter((x) => x.effect === 'ask').map((x) => x.resource)
+    for (const deny of ['git push --force *', 'git push -f *', 'gh pr merge * --admin*']) {
+        const skipped = pats.filter((p) => !['npm publish *'].includes(p))
+        for (const [v, added] of [[v1, added1], [v2, added2]]) {
+            const r = v([deny])
+            const got = added(r)
+            assert.ok(!got.includes('git push * main') || !deny.startsWith('git push'), `${deny}: ${got}`)
+            assert.ok(!got.includes('gh pr merge *') || !deny.startsWith('gh pr merge'), `${deny}: ${got}`)
+            assert.equal(r.notes.filter((n) => /kept your deny/.test(n)).length, 1, `${deny}: one aggregated note`)
+            assert.match(r.notes[0], new RegExp(deny.replace(/[*.]/g, '\\$&')))
+            assert.equal(mergeOpencodeAsk(r.text, pats, base).text, r.text, `${deny}: idempotent`)
+            assert.ok(skipped.length)
+        }
+    }
+    // the exact expectations per example
+    assert.deepEqual(added1(v1(['git push --force *'])), ['gh pr merge', 'gh pr merge *'])
+    assert.deepEqual(added2(v2(['git push -f *'])), ['gh pr merge', 'gh pr merge *'])
+    assert.deepEqual(added1(v1(['gh pr merge * --admin*'])), ['gh pr merge', 'git push * main', 'git push *:main', 'git push *--mirror*'])   // `gh pr merge` alone cannot match it
+    assert.deepEqual(added2(v2(['gh pr merge * --admin*'])), ['gh pr merge', 'git push * main', 'git push *:main', 'git push *--mirror*'])
+    // a disjoint deny: every pattern is asked, no note
+    for (const [v, added] of [[v1, added1], [v2, added2]]) { const r = v(['npm publish *']); assert.deepEqual(added(r), pats); assert.deepEqual(r.notes, []) }
 })
