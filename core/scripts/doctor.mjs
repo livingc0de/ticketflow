@@ -30,8 +30,10 @@ try {
 }
 
 const rt = dirname(dirname(fileURLToPath(import.meta.url)))
-const GH_MIN = [2, 48, 0], NODE_MIN = 22, SCOPES = ['repo', 'project', 'workflow']
+const GH_MIN = [2, 48, 0], NODE_MIN = [18, 9, 0], SCOPES = ['repo', 'project', 'workflow']
 let failed = 0, warned = 0
+/** Is version `v` ([major, minor, patch]) older than `min`? */
+const older = (v, min) => { const at = min.findIndex((n, i) => v[i] !== n); return at >= 0 && (v[at] ?? 0) < min[at] }
 const say = (status, check, detail) => {
     if (status === 'fail') failed++
     if (status === 'warn') warned++
@@ -59,10 +61,7 @@ if (!values.local) {
     const m = v.status === 0 ? /gh version (\d+)\.(\d+)\.(\d+)/.exec(v.stdout) : null
     if (v.status !== 0 || v.error) say('fail', 'gh', 'not on PATH: install the GitHub CLI (https://cli.github.com)')
     else {
-        const ver = m ? m.slice(1).map(Number) : [0, 0, 0]
-        const at = ver.findIndex((n, i) => n !== GH_MIN[i])
-        const old = at >= 0 && ver[at] < GH_MIN[at]
-        if (old || !m) say('fail', 'gh', `${m ? m.slice(1).join('.') : 'unknown version'} is older than ${GH_MIN.join('.')}: upgrade the GitHub CLI`)
+        if (older(m ? m.slice(1).map(Number) : [0, 0, 0], GH_MIN) || !m) say('fail', 'gh', `${m ? m.slice(1).join('.') : 'unknown version'} is older than ${GH_MIN.join('.')}: upgrade the GitHub CLI`)
         else say('ok', 'gh', m.slice(1).join('.'))
         const me = sh('gh', ['api', '-i', 'user'])
         if (me.status !== 0) say('fail', 'gh-auth', 'not logged in: run gh auth login')
@@ -79,8 +78,8 @@ if (!values.local) {
         }
     }
 }
-const nodeMajor = Number(process.versions.node.split('.')[0])
-if (nodeMajor >= NODE_MIN) say('ok', 'node', process.versions.node); else say('fail', 'node', `${process.versions.node} is older than ${NODE_MIN}: upgrade node`)
+// 18.9: parseArgs (18.3) and os.machine (18.9), the newest APIs the scripts use
+if (!older(process.versions.node.split('.').map(Number), NODE_MIN)) say('ok', 'node', process.versions.node); else say('fail', 'node', `${process.versions.node} is older than ${NODE_MIN.join('.')}: upgrade node`)
 if (sh('timeout', ['--version']).status === 0) say('ok', 'timeout', 'found'); else say('warn', 'timeout', 'not on PATH; only the local-verify fallback needs it (macOS: brew install coreutils and use its gnubin)')
 const origin = root ? slug(root) : null
 if (!root) say('fail', 'repo', 'not inside a git repository: run git init, or see new-repo.md of the ticketflow init skill')

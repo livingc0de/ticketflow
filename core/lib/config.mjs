@@ -60,8 +60,6 @@ const shellText = (v, p) => {
     const s = text(v, p)
     return /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u0085\u2028\u2029]|\r(?!\n)|\$\{\{/.test(s) ? fail(`${p} must not contain control characters, a lone CR, a unicode line break or \${{`) : s
 }
-// a version that setup-node resolves: a major, or major.minor[.patch]; quoted in the workflow so "24.10" stays 24.10
-const nodeVersion = (v, p) => (typeof v === 'string' && /^\d+(\.\d+){0,2}$/.test(v) ? v : fail(`${p} must be a Node.js version such as "22" or "24.4"`))
 const repo = (v, p) => (typeof v === 'string' && /^[\w.-]+\/[\w.-]+$/.test(v) && !v.split('/').some((s) => /^\.+$/.test(s)) ? v : fail(`${p} must be owner/name`))
 
 /** Parses an object against `shape` = { key: [parse, default | REQUIRED] }; an unknown key is an error. */
@@ -136,7 +134,7 @@ const parse = section({
     deferred_checks_issue: [orNull(int(1)), null],
     areas: [unique(list(area)), []],
     practices: [unique(list(oneOf(...PRACTICES))), []],
-    ci: [section({ push_paths: [orNull(list(glob)), null], node: [nodeVersion, '22'] }), {}],
+    ci: [section({ push_paths: [orNull(list(glob)), null] }), {}],
 })
 
 const deepFreeze = (v) => {

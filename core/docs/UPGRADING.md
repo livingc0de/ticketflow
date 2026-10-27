@@ -44,7 +44,7 @@ and no GitHub setting (labels, Project, protection) changes, until the owner mer
 checkout it runs from equals `origin/<default_branch>`, so after a sync merges, pull the default branch before using the fallback.
 
 `doctor.mjs [--preflight | --local]` only reads. `--preflight` checks the tools (git, gh 2.48 or newer with the `repo`, `project` and
-`workflow` scopes, node 22 or newer, `timeout`) and the repo; `--local` adds the config, runtime against the manifest, stubs,
+`workflow` scopes, node 18.9 or newer, `timeout`) and the repo; `--local` adds the config, runtime against the manifest, stubs,
 templates, CI steps (a warning when `verify.command` runs twice), guard and gitignore with no GitHub call; the full run also dry-runs labels, the project and branch protection.
 Exit 1 when a check failed, 2 on usage.
 
@@ -52,6 +52,9 @@ Exit 1 when a check failed, 2 on usage.
 
 Every release lists in its `CHANGELOG.md` what changed, and any step that needs a decision (a renamed default, a
 removed file). `sync` reads and summarizes the sections you skip over.
+
+From 0.1.0: the managed CI job no longer sets up Node.js, so a repo whose steps need a particular Node.js (or any other toolchain)
+adds its own setup step to the repo section of `.github/workflows/ci.yml` in the update pull request.
 
 A release or a config change that renames `gate.context` needs one protection step next to its merge (before it when CI runs the
 job, after it when the local fallback does): `protect.mjs --apply --replace-context <old>` ([CI-GATE.md](CI-GATE.md#renaming-the-gate-context)).

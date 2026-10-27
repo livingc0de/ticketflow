@@ -170,7 +170,7 @@ Nothing TicketFlow owns is ever hand-edited: you change it in `.ticketflow/custo
 ## Getting started
 
 **You need:** a shell, `git`, the GitHub CLI `gh` 2.48 or newer (logged in with the `repo`, `project` and `workflow` scopes),
-Node.js 22 or newer, and `timeout` (part of coreutils; on macOS `brew install coreutils`). The setup checks all of it for you.
+Node.js 18.9 or newer (only to run TicketFlow's own scripts: your project can use any language, version or none), and `timeout` (part of coreutils; on macOS `brew install coreutils`). The setup checks all of it for you.
 
 Pick whichever front door suits you. They all lead to the same guided setup:
 
