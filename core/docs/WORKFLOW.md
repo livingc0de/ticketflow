@@ -105,7 +105,7 @@ each review thread with `thread.mjs`. A related small problem found along the wa
 
 `merge <PR>` is the only way. It requires, on the exact head: the pull request open, not a draft, based on the default branch; the
 gate status `success`; the head contains the default branch; no unresolved review thread (any author); the review gate done and not
-`changes requested` (a reviewer's answer, or a `--review-basis` comment `Review basis for <sha7>: ...` that links a `ready to merge`
+`changes requested` (a reviewer's approval or no-findings signal, or a `--review-basis` comment `Review basis for <sha7>: ...` that links a `ready to merge`
 `pr-reviewer` review of this PR posted on the exact head, or says `owner approved`, when `pr-wait` printed `standin needed` (a reviewer
 that only commented included) or `none configured`); and the last `pr-reviewer` review of the head saying exactly `ready to merge`
 (accounts with write access only; `owner approved` needs an admin account). What that proves, what
@@ -198,7 +198,8 @@ Limits:
 - Two orchestrators can claim one ticket within seconds; it shows afterwards as `conflict` in the queue.
 - `queue.mjs` matches tickets to pull requests by branch name (`*/issue-<N>-*`, same repository only) among the pull requests that
   reference the ticket plus the 100 latest-updated ones (so a quiet older ticket is still found); an issue with more than 100
-  references stops it with exit 2; at most 50 tickets; at most 10 pages of Ready items.
+  references (issues that mention it count too, so on a public repo a flood of mentions can cause this) stops it with exit 2, never a
+  guessed state; at most 50 tickets; at most 10 pages of Ready items.
 - Without a Project a merged ticket shows `done`, because its handoff cannot be seen.
 - Follow-up work on a ticket after its merge needs its own ticket: the old merged pull request keeps the ticket `merged`.
 - A `Depends on owner/other#N` ref to another repository keeps the ticket `waiting` until the owner edits it out of the ticket.

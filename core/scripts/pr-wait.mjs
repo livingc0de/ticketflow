@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * One blocking wait for a pull request (or a default-branch commit): returns when the merge gate is final and the configured
- * reviewers are done, unavailable or silent, then prints one summary. Run it in the background instead of polling in turns.
+ * reviewers are done, asked for changes, commented, unavailable or silent, then prints one summary. Run it in the background instead of polling in turns.
  *
  * Usage: pr-wait.mjs <pr | 40-hex sha> [--once] [--ci-only] [--timeout-min N] [--config f]
  *   --once         one poll; the exit code comes from CI only (reviewer lines are still printed unless --ci-only)
@@ -18,7 +18,7 @@
  * `changes requested`, else `standin needed` (unavailable, silent or commented), else `done`. In PR mode (not `--ci-only`) it also prints `Unresolved threads: <n | unknown>` and lists them for
  * `thread.mjs`; `unknown` is a failed read or more than 100 threads, and `merge` refuses it.
  *
- * Exit: 0 = CI green and every reviewer done, unavailable or silent; 1 = CI red, or the PR conflicts with / is behind the default
+ * Exit: 0 = CI green and every reviewer done, changes requested, commented, unavailable or silent; 1 = CI red, or the PR conflicts with / is behind the default
  * branch; 2 = timed out, still pending, a draft in local-first mode, or (sha) superseded; 3 = Actions refused the run, so
  * `local-verify` may take over ("Fallback: allowed" in the summary). Usage and config errors exit 2 before any call.
  */
