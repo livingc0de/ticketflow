@@ -4,6 +4,7 @@
 
 - **CI:** the managed job sets up Node.js at the new `ci.node` key (default `"22"`), with `actions/checkout` and `actions/setup-node` at v7 (#4).
 - **CI:** every gate run, and the local fallback, checks the agent stubs with `gen-stubs --check`, so a stale or hand-edited stub fails the gate in every repo, not only here (#4).
+- **doctor:** warns when `verify.command` runs in more than one step of `ci.yml`; `init` on an existing repo replaces the template's default steps instead of adding to them (#3).
 
 ## 0.1.0
 

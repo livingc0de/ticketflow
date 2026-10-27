@@ -4,7 +4,7 @@
  *
  * Usage: doctor.mjs [--preflight | --local] [--config f]
  *   --preflight   the tools and the repo in the current directory (no config needed): git, gh and its scopes, node, timeout, a clean tree
- *   --local       everything that needs no GitHub call: config, runtime, stubs, templates, guard, gitignore
+ *   --local       everything that needs no GitHub call: config, runtime, stubs, templates, CI steps, guard, gitignore
  *   (neither)     the local checks plus labels, project and branch protection, each in its read-only mode
  *   The checked repo is the one this script lives in (`.ticketflow/scripts/` in a user repo, `core/scripts/` in the ticketflow repo).
  * Output: `ok|warn|fail|skip <check>: <detail>`, a failed child's output indented below it, then `doctor: <n> failed, <m> warnings`.
@@ -12,13 +12,13 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { accessSync, constants, existsSync } from 'node:fs'
+import { accessSync, constants, existsSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { loadConfig } from '../lib/config.mjs'
 import { readManifest, runtimeState } from '../lib/manifest.mjs'
-import { FILES } from '../lib/render.mjs'
+import { FILES, verifyRuns } from '../lib/render.mjs'
 
 let values
 try {
@@ -151,6 +151,15 @@ if (!values.preflight) {
             if (repoMode && code === 1 && lines(r).every((l) => /^(conflict:|\s)/.test(l))) return ['warn', 'files without ticketflow markers: not managed yet (render --propose)']
             return plain('', 'out of date or in conflict: run render')(code)
         })
+    })
+    need('ci-steps', () => {
+        const f = join(root, '.github', 'workflows', 'ci.yml')
+        if (!existsSync(f)) return say('skip', 'ci-steps', 'no .github/workflows/ci.yml')
+        let text
+        try { text = readFileSync(f, 'utf8') } catch (e) { return say('warn', 'ci-steps', `cannot read .github/workflows/ci.yml: ${e.code ?? e.message}`) }
+        const n = verifyRuns(text, cfg.verify.command)
+        if (n > 1) say('warn', 'ci-steps', `verify.command appears ${n} times in ci.yml: keep one (your own steps replace the template's Install Dependencies and Verify)`)
+        else say('ok', 'ci-steps', n ? 'verify.command appears once' : 'verify.command does not appear in ci.yml as written (a repo step runs it another way)')
     })
     need('guard', () => {
         try { accessSync(join(rt, 'scripts', 'guard.mjs'), constants.X_OK) } catch { return say('fail', 'guard', 'scripts/guard.mjs is missing or not executable (the Codex hook runs it directly): restore it or chmod +x it') }

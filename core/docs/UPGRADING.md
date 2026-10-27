@@ -42,7 +42,7 @@ checkout it runs from equals `origin/<default_branch>`, so after a sync merges, 
 
 `doctor.mjs [--preflight | --local]` only reads. `--preflight` checks the tools (git, gh 2.48 or newer with the `repo`, `project` and
 `workflow` scopes, node 22 or newer, `timeout`) and the repo; `--local` adds the config, runtime against the manifest, stubs,
-templates, guard and gitignore with no GitHub call; the full run also dry-runs labels, the project and branch protection.
+templates, CI steps (a warning when `verify.command` runs twice), guard and gitignore with no GitHub call; the full run also dry-runs labels, the project and branch protection.
 Exit 1 when a check failed, 2 on usage.
 
 ## Upgrade notes

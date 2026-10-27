@@ -223,3 +223,17 @@ test('practices: a missing folder fails, live-verify without live_verify_skill w
     const v = w.run('--local')
     assert.equal(v.status, 0, v.out); has(v, /^warn practices: live-verify is enabled but live_verify_skill is null/m)
 })
+
+test('ci-steps: verify.command in two steps of ci.yml warns, once is ok, no ci.yml skips', () => {
+    const t = setup()
+    has(t.run('--local'), /^skip ci-steps: no \.github\/workflows\/ci\.yml$/m)
+    t.put('.github/workflows/ci.yml', 'jobs:\n  v:\n    steps:\n      - run: npm test\n')
+    has(t.run('--local'), /^ok ci-steps: verify\.command appears once$/m)
+    t.put('.github/workflows/ci.yml', 'jobs:\n  v:\n    steps:\n      - run: npm test\n      - name: Verify\n        run: |\n          npm test\n')
+    const r = t.run('--local')
+    assert.equal(r.status, 0, r.out); has(r, /^warn ci-steps: verify\.command appears 2 times in ci\.yml/m)
+    const d = setup()
+    mkdirSync(join(d.dir, '.github/workflows/ci.yml'), { recursive: true })   // unreadable: a directory
+    const u = d.run('--local')
+    has(u, /^warn ci-steps: cannot read \.github\/workflows\/ci\.yml: EISDIR$/m); has(u, /^doctor: 0 failed/m)
+})
