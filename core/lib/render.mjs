@@ -276,6 +276,7 @@ export function mergeKeys(existing, template) {
  * OpenCode asks before the bypass forms (it has no hook command): `patterns` become ask rules, in `permissions` when the file already
  * uses the V2 array, else in the V1 `permission.bash` map (V2 reads it too). An existing deny for a pattern is kept, never weakened.
  * ponytail: a pattern the guard drops later stays an ask rule; remove it by hand.
+ * shortcut: a V1 pattern matches the whole command string, so `cd x && gh pr merge 5` slips (as for the Claude rules); revisit when OpenCode has a hook command.
  */
 export function mergeOpencodeAsk(existing, patterns, base) {
     const obj = existing === null ? { ...base } : parseJson(existing)

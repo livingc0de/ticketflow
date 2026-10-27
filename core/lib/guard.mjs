@@ -183,7 +183,7 @@ export const FORMATS = {
         input: (raw) => (raw?.tool_name === 'run_shell_command' ? shell(raw.tool_input?.command, raw.cwd) : { tool_name: raw?.tool_name }),
         output: (d) => (d.block ? out('', `guard: blocked: ${d.reason}\n`, 2) : d.ask ? out('', `guard: blocked: ${d.reason} Gemini CLI cannot ask for this: ask the owner to run it\n`, 2) : out('{}\n')),
     },
-    copilot: {   // PreToolUse: any payload that carries a command string is a shell call, whatever the harness calls the tool
+    copilot: {   // PreToolUse: any payload that carries a command string is a shell call, whatever the harness calls the tool (shortcut: tool-name guesses for a payload without one, revisit when the harness docs fix the names)
         input(raw) {
             const args = asJson(raw?.tool_input ?? raw?.toolArgs)
             const named = /bash|shell|terminal|powershell|execute/i.test(String(raw?.tool_name ?? raw?.toolName ?? ''))
