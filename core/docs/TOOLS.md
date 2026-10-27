@@ -68,7 +68,9 @@ You never edit these files. `sync` and the generators rebuild them; your own cha
   and follow it. It already reads the `.agents/skills/` folder.
 - **Files:** `.agents/skills/`, `.opencode/agents/`, and ask rules merged into `opencode.json`.
 - **By hand:** restart OpenCode. If you use `opencode.jsonc` instead, the setup shows the ask rules and you add them yourself.
-- **Guard:** ask rules only (OpenCode has no hook), so it prompts you before the guarded commands. Hard denies you want belong in
+- **Guard:** ask rules only (OpenCode has no hook), so it prompts you before the guarded commands. If you run OpenCode with auto-approval (`--auto`), its prompts are approved and
+  the guard does nothing. Where one of your own denies overlaps a TicketFlow ask rule, the ask is left out and the setup says so.
+  Hard denies you want belong in
   the project's `opencode.json`.
 
 ### Antigravity
@@ -89,7 +91,7 @@ You never edit these files. `sync` and the generators rebuild them; your own cha
 
 ## Adding a tool to a repo that already uses TicketFlow
 
-Nothing changes until you ask. A repo set up for Claude Code and Codex stays exactly as it is after an update. To add a tool:
+Nothing changes until you ask. A repo set up for Claude Code and Codex gets none of the new tools' files after an update. To add a tool:
 
 1. In `.ticketflow/config.json` add its name to `agents` (`cursor`, `gemini`, `opencode`, `antigravity` or `copilot`) and a
    `models.<tool>` entry. Use `null` for each model class to let the tool pick its own; Copilot model names contain spaces, so

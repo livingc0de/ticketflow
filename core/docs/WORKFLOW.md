@@ -150,7 +150,7 @@ both and touches neither).
 
 ### Resuming
 
-If a session ends or you stop it, ask again: *"continue the run"* or *"continue #12 #13 #14"*. State is rebuilt from GitHub: a
+If a session ends or you stop it, ask again, naming the scope: *"continue #12 #13 #14"* or *"continue the children of #10"*. State is rebuilt from GitHub: a
 ticket whose pull request merged gets its handoff finished, one with an open pull request continues from it, one not started starts
 fresh. Nothing is done twice and no second pull request is opened. Restate the tickets or the tracker when you resume; the
 orchestrator does not remember them. A single ticket resumes the same way: *"continue #42"*.
@@ -159,18 +159,18 @@ orchestrator does not remember them. A single ticket resumes the same way: *"con
 
 With no list or tracker, the orchestrator works the **Ready** column of your Project. Because that is a bigger step than naming
 tickets, it **warns you first**: it says it will work the Ready backlog, states the bound (at most the 10 highest-priority Ready
-tickets, by Priority label, P0 first, then by number) and lists them. It then starts without waiting for an answer, so say *stop*
+tickets, by Priority label, P0 first, then by number; tickets with no Priority label come last) and lists them. It then starts without waiting for an answer, so say *stop*
 if that is not what you meant. Those ticket numbers are the scope from then on, since tickets leave Ready once claimed. To resume,
 restate the numbers, or ask for the backlog afresh. This mode needs a Project in the config; without one it asks for a list.
 
 ### Controls
 
-Three separate controls, all with safe defaults, and each can be changed by asking ("budget 5", "two tickets at once"):
+Three separate controls, all with safe defaults, and each can be changed by asking ("budget 5, two tickets at once"):
 
 - **Depth:** orchestrator, then leads, then specialists (planner, reviewer); nothing deeper.
 - **Budget B:** agents active at once, including the orchestrator. Default 3.
 - **Ticket parallelism P:** tickets worked at once. Default 1, at most floor((B-1)/2), because each lead keeps a slot for its own
-  specialist. More than one only on request, and only for independent tickets (disjoint files, config and generated files, no order
+  specialist. With the default budget of 3 that is one ticket at a time; each extra ticket needs two more slots (budget 5 allows two). More than one only on request, and only for independent tickets (disjoint files, config and generated files, no order
   between them).
 
 What each tool allows (installing and enabling them: [TOOLS.md](TOOLS.md)):

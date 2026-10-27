@@ -71,7 +71,8 @@ no file of the new tools. The full list is in the `## 0.3.0` section of `CHANGEL
 repo; what you do by hand:
 
 1. **Pull requests already open.** `merge` is stricter now ([REVIEWERS.md](REVIEWERS.md#when-merge-says-no)). Resolve any open review
-   thread with `thread.mjs <PR> <thread-id>`. If a basis comment was posted in the 0.2.0 form (it merely named the head), post it again:
+   thread with `node .ticketflow/scripts/thread.mjs <PR> <thread-id>`. The basis comment and the `pr-reviewer` reviews must come from an
+   owner, member or collaborator account; an agent posting as a GitHub App or an outside account is refused and its verdicts are ignored. If a basis comment was posted in the 0.2.0 form (it merely named the head), post it again:
    `Review basis for <sha7>: ... <review URL>`, linking the newest `ready to merge` review, or `Review basis for <sha7>: owner approved ...`.
 2. **A copied `done_pattern`.** If you copied the example from the 0.2.0 docs, remove `|failed` from it: a failed review run is not a
    finished review. Put its wording in `unavailable_pattern` so a stand-in takes over.
@@ -83,8 +84,6 @@ repo; what you do by hand:
    can adapt it ([EXTENDING.md](EXTENDING.md)).
 6. **Models.** `models` in the config is unchanged. What changed is the advice in the skills: the agent that writes the code runs on
    the standard class at `high` (the strong class or `xhigh` only for genuinely hard reasoning), and `create-ticket` recommends the same.
-
-After the update merges, pull the default branch before using the local fallback (`local-verify` compares the runtime).
 
 ### From 0.1.0
 

@@ -45,18 +45,16 @@ Upgrading from 0.2.0? Read [the upgrade notes](core/docs/UPGRADING.md#from-020).
   what waits for your look and what is stuck. If the session dies, ask again and it picks up from GitHub.
   [How to use it](core/docs/WORKFLOW.md#several-tickets-optional)
 - **Merge waits until findings are answered.** A finished review used to be enough. Now every open review thread (from anyone,
-  bots included), a reviewer's "changes requested" and a "changes needed" verdict stop the merge until they are dealt with. Every
+  bots included), a configured reviewer's "changes requested" and a "changes needed" verdict stop the merge until they are dealt with. Every
   refusal says what to do next, and there is always a legitimate way through.
   [When merge says no](core/docs/REVIEWERS.md#when-merge-says-no)
-- **Five more tools.** Cursor, Gemini CLI, OpenCode, Antigravity and GitHub Copilot join Claude Code and Codex, each with its own
-  install, its own generated files and its own command guard. Adding one to an existing repo is opt-in.
-  [Install steps and manual steps per tool](core/docs/TOOLS.md)
-- **A guard for every tool.** The "ask me before merging by hand or pushing to the default branch" seatbelt now exists in all
-  seven tools. Gemini CLI cannot ask, so it denies those commands and you run them yourself.
-  [The guard in plain words](core/docs/TOOLS.md#the-command-guard-in-plain-words)
+- **Five more tools, each with a command guard.** Cursor, Gemini CLI, OpenCode, Antigravity and GitHub Copilot join Claude Code
+  and Codex. Each has its own install (OpenCode through `START.md`), generated files and seatbelt that asks before merging by hand
+  or pushing to the default branch (Gemini CLI cannot ask, so it denies those commands and you run them yourself). Adding one to an
+  existing repo is opt-in. [Install steps and manual steps per tool](core/docs/TOOLS.md), and [the guard in plain words](core/docs/TOOLS.md#the-command-guard-in-plain-words)
 - **A built-in engineering method.** TicketFlow now carries its own rules: reproduce a bug and name its cause before fixing it,
   write the failing test first when the behaviour is non-trivial (and skip the ceremony for trivial changes), keep changes
-  small, and have the reviewer name a concrete breaking case for every blocker. You do not need to install any other plugin.
+  small, and have the reviewer name a concrete breaking case for every blocker.
   [The method in detail](core/docs/WORKFLOW.md#building-tests-bugs-and-small-changes)
 - **A cheaper default.** The agent that writes the code now runs on the standard model at `high` effort. The strongest model
   stays with the planner and the reviewer, and the implementer escalates only for genuinely hard reasoning, not because a ticket
@@ -150,8 +148,8 @@ then replies to the thread and resolves it. [More in REVIEWERS.md](core/docs/REV
 ### Merging and branch protection
 
 Merges happen only through the `merge` script. A standard branch ruleset requires `CI / Gate` and an up-to-date
-branch. The script adds what a ruleset cannot see: no unresolved review thread from anyone, no reviewer left on "changes requested",
-and the built-in reviewer's last verdict on the exact commit must be "ready to merge". When it refuses, it prints the next step
+branch. The script adds what a ruleset cannot see: no unresolved review thread from anyone, no configured reviewer left on "changes requested",
+and, if the built-in reviewer reviewed this exact commit, its last verdict must be "ready to merge". When it refuses, it prints the next step
 ([the ways past a refusal](core/docs/REVIEWERS.md#when-merge-says-no)). Your merge methods and branch settings stay yours: the setup shows them and offers squash-only (one commit per ticket) and
 tidy-branch settings, which you can take or leave. You, as an admin, can still override it through a pull request when you choose to; agents never do that on their own.
 [More in SECURITY.md](core/docs/SECURITY.md)
@@ -251,8 +249,8 @@ Talk to your agent in plain words:
 | "next child of #10" | the next unfinished sub-issue of an initiative |
 | "I have an idea: ..." | the agent reads the code, asks one question at a time, offers 2-3 approaches and writes the ticket or tracker |
 | "work through #12 #13 #14" / "do all children of #10" | the optional orchestrator: one fresh helper per ticket, a final table, tickets left In Review |
-| "work the ready backlog" | the orchestrator warns you first, then takes up to 10 Ready tickets, highest priority first (needs a Project) |
-| "continue the run" / "continue #12" | an interrupted run picks up from GitHub: finished tickets stay finished, open pull requests continue |
+| "work the ready backlog" | the orchestrator warns you and lists the tickets, then starts (say "stop" if that is not what you meant); up to 10 Ready tickets, highest priority first (needs a Project) |
+| "continue #12 #13 #14" / "continue the children of #10" | an interrupted run picks up from GitHub: finished tickets stay finished, open pull requests continue. Name the tickets again in a new session |
 | "mark #42 done" | Done and closed, only because you asked |
 | "update ticketflow" | the update procedure below |
 
@@ -290,8 +288,6 @@ native front door (stubs, an action map and a command guard); any other agent th
 the skills. That includes Windsurf, Cline and Roo Code, Amp, Kiro, Junie, Zed, Aider, Goose and Factory Droid: they read `AGENTS.md` and
 use `core/agents-map/generic.md` (Aider: `read: AGENTS.md` in `.aider.conf.yml`; Kiro and Cline: tell it to read `AGENTS.md`). They get
 no command guard, and without sub-agents the review runs in the same session, so you are asked before a merge that rests on it.
-
-**Do I need Superpowers or Ponytail?** No. TicketFlow carries the ideas it uses in its own skills; see [Credits](#credits).
 
 **Why did `merge` refuse?** It names the reason and the next step. The common ones (an open review thread, "changes requested", an
 out-of-date branch) and the legitimate ways past each are in [REVIEWERS.md](core/docs/REVIEWERS.md#when-merge-says-no).
