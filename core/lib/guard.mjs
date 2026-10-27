@@ -1,6 +1,6 @@
 /**
  * The agent guard. `core/guard.json` is the single list of bypass forms; this file renders it into the Claude ask rules, the
- * Codex prefix rules and the Codex hook decision, so the three never drift. See core/docs/SECURITY.md for what it does not cover.
+ * Codex prefix rules and the hook decision (also used, through FORMATS, by the Cursor, Gemini CLI, Copilot and Antigravity hooks), so they never drift. See core/docs/SECURITY.md for what it does not cover.
  *
  * Placeholders in guard.json: `{default_branch}` (regex-escaped inside `hook_block`), `{scripts_dir}` (where the ticketflow scripts are
  * in the checkout: `.ticketflow/scripts`, or `core/scripts` in ticketflow itself) and `{write}` (a regex for "this gh api call writes").
@@ -48,8 +48,11 @@ export function loadGuard(cfg, { scriptsDir = '.ticketflow/scripts', file = GUAR
     return { forms }
 }
 
+/** The shell patterns that make the bypass forms ask (Claude Code wraps them in `Bash(...)`; OpenCode uses them as they are). */
+export const askPatterns = (cfg, opts) => loadGuard(cfg, opts).forms.flatMap((f) => f.claude_ask)
+
 /** The Claude Code permission rules that make the bypass forms ask. */
-export const claudeAsk = (cfg, opts) => loadGuard(cfg, opts).forms.flatMap((f) => f.claude_ask.map((p) => `Bash(${p})`))
+export const claudeAsk = (cfg, opts) => askPatterns(cfg, opts).map((p) => `Bash(${p})`)
 
 /** Words of a command, with quotes removed. */
 export function tokenize(s) {
@@ -133,8 +136,10 @@ const CHECKS = {
 }
 
 /**
- * What the Codex PreToolUse hook does with a tool call: { block, reason }. A command that a Codex prompt rule matches passes
- * (the rule will ask); a hook_block or hook_check hit blocks. `input` is the parsed hook input; `command` may be a string or argv.
+ * What a PreToolUse hook does with a tool call: `{ block: true, reason, form }`, `{ block: false, ask: true, reason, form }` or
+ * `{ block: false }`. A hook_block or hook_check hit blocks, anywhere in the command. A command that a Codex prompt rule matches is
+ * an `ask`: Codex ignores it (its rule asks), the tools with an ask of their own use it. `input` is the parsed hook input (see FORMATS);
+ * `command` may be a string or argv.
  */
 export function hookDecision(input, cfg, { cwd = process.cwd(), scriptsDir } = {}) {
     if (input?.tool_name !== 'Bash') return { block: false }
@@ -142,14 +147,53 @@ export function hookDecision(input, cfg, { cwd = process.cwd(), scriptsDir } = {
     if (Array.isArray(command)) command = command.length === 3 && /(^|\/)(sh|bash|zsh)$/.test(command[0]) && /^-l?c$/.test(command[1]) ? command[2] : command.map((t) => (/^[\w@%+=:,./-]+$/.test(t) ? t : `'${String(t).replaceAll("'", "'\\''")}'`)).join(' ')
     if (typeof command !== 'string' || command.trim() === '') return { block: true, reason: 'a Bash tool call without a command cannot be checked' }
     const guard = loadGuard(cfg, { scriptsDir })
+    let ask = null
     for (const raw of segments(stripHeredocs(command))) {
         const segment = raw.replace(/^(?:[A-Za-z_]\w*=\S*\s+)+/, '')
         const tokens = tokenize(segment)
         const subject = tokens[0] === 'gh' && tokens[1] === 'api' ? apiSubject(tokens, segment) : tokens.join(' ')   // quotes removed: `"main"` is main
         for (const f of guard.forms) {
-            if (f.codex_prompt.some((p) => matchesPrefix(tokens, p))) continue
+            if (f.codex_prompt.some((p) => matchesPrefix(tokens, p))) { ask ??= { reason: f.reason, form: f.id }; continue }
             if (f.hook_block.some((re) => re.test(subject)) || f.hook_check.some((name) => CHECKS[name](tokens, { cwd, cfg }))) return { block: true, reason: f.reason, form: f.id }
         }
     }
-    return { block: false }
+    return ask ? { block: false, ask: true, ...ask } : { block: false }
+}
+
+const out = (stdout = '', stderr = '', code = 0) => ({ stdout, stderr, code })
+const line = (x) => JSON.stringify(x) + '\n'
+const asJson = (v) => { if (typeof v !== 'string') return v; try { return JSON.parse(v) } catch { return undefined } }
+const shell = (command, cwd) => ({ tool_name: 'Bash', tool_input: { command }, cwd })
+
+/**
+ * One adapter per tool with a hook: `input(raw)` turns the tool's hook payload into the `{ tool_name: 'Bash', tool_input: { command }, cwd }`
+ * that hookDecision reads (a shell call without a readable command stays a Bash call, so it blocks; any other tool passes), and
+ * `output(d)` turns a decision into `{ stdout, stderr, code }`. Every deny that comes from an error exits 2 (script/guard.mjs).
+ */
+export const FORMATS = {
+    codex: {
+        input: (raw) => raw,
+        output: (d) => (d.block ? out('', `guard: blocked: ${d.reason}\n`, 2) : out()),
+    },
+    cursor: {   // beforeShellExecution: always a shell command; permission allow / ask / deny
+        input: (raw) => shell(raw?.command, raw?.cwd),
+        output: (d) => out(line(d.block ? { permission: 'deny', user_message: d.reason, agent_message: d.reason } : d.ask ? { permission: 'ask', user_message: d.reason, agent_message: d.reason } : { permission: 'allow' })),
+    },
+    gemini: {   // BeforeTool: exit 2 blocks, stderr is the reason; Gemini has no project-level ask, so a prompt form is denied
+        input: (raw) => (typeof raw?.tool_name !== 'string' || raw.tool_name === 'run_shell_command' ? shell(raw?.tool_input?.command, raw?.cwd) : { tool_name: raw.tool_name }),   // the matcher sends shell calls only: no tool name is a changed protocol, so it is checked
+        output: (d) => (d.block ? out('', `guard: blocked: ${d.reason}\n`, 2) : d.ask ? out('', `guard: blocked: ${d.reason} Gemini CLI cannot ask for this: ask the owner to run it\n`, 2) : out('{}\n')),
+    },
+    copilot: {   // PreToolUse: any payload that carries a command string is a shell call, whatever the harness calls the tool (shortcut: tool-name guesses for a payload without one, revisit when the harness docs fix the names)
+        input(raw) {
+            const args = asJson(raw?.tool_input ?? raw?.toolArgs)
+            const name = raw?.tool_name ?? raw?.toolName
+            const named = typeof name !== 'string' || /bash|shell|terminal|powershell|execute/i.test(name)   // no tool name at all: checked as a shell call
+            return typeof args?.command === 'string' || named ? shell(args?.command, raw?.cwd) : { tool_name: name }
+        },
+        output: (d) => (d.block ? out('', `guard: blocked: ${d.reason}\n`, 2) : d.ask ? out(line({ permissionDecision: 'ask', permissionDecisionReason: d.reason })) : out()),
+    },
+    antigravity: {   // PreToolUse on run_command; decision allow / force_ask / deny
+        input: (raw) => (typeof raw?.toolCall?.name !== 'string' || raw.toolCall.name === 'run_command' ? shell(raw?.toolCall?.args?.CommandLine, raw?.toolCall?.args?.Cwd) : { tool_name: raw.toolCall.name }),   // no tool name: checked, like gemini
+        output: (d) => out(line(d.block ? { decision: 'deny', reason: d.reason } : d.ask ? { decision: 'force_ask', reason: d.reason } : { decision: 'allow' })),
+    },
 }

@@ -2,8 +2,8 @@
 
 Agents act with your GitHub credentials, so it matters what they can and cannot do on their own. This page is honest about it:
 what stops an agent from merging or pushing past the checks, what does not, and what was measured on a test repository. The short
-version: branch protection does the hard enforcing, the scripts refuse unsafe actions, and in Claude Code and Codex a guard asks
-you before (or blocks) the common forms of a bypass command. The guard is a seatbelt, not a wall.
+version: branch protection does the hard enforcing, the scripts refuse unsafe actions, and in Claude Code, Codex, Cursor, Gemini CLI,
+OpenCode, Antigravity and GitHub Copilot a guard asks you before (or blocks) the common forms of a bypass command. The guard is a seatbelt, not a wall.
 
 ## Threat model
 
@@ -11,8 +11,8 @@ you before (or blocks) the common forms of a bypass command. The guard is a seat
   The ruleset is enforced by GitHub, for everyone it applies to. The merge script checks, on the exact head, the gate status,
   that the branch is up to date and the review gate, then merges with `--match-head-commit`, using the first of squash, rebase and a
   merge commit that the repository settings and every rule on the base allow.
-- **The speed bumps** are the AGENTS rule, the Claude ask rules, the Codex prompt rules and the Codex hook (`core/guard.json`,
-  rendered by `core/lib/guard.mjs`). They stop an agent that follows the rules and makes an honest mistake. They are not a boundary:
+- **The speed bumps** are the AGENTS rule, the Claude ask rules, the Codex prompt rules and the hooks of Codex, Cursor, Gemini CLI, Copilot and Antigravity, and the OpenCode ask rules (`core/guard.json`,
+  rendered by `core/lib/guard.mjs`, one decision for every tool). They stop an agent that follows the rules and makes an honest mistake. They are not a boundary:
   `bash -c "..."` inside a script, a script file, `$(...)`, `git -C <dir> push`, `git -c k=v push`, a variable holding the command,
   an `env`, `command` or `sudo` prefix, a subshell, a line continuation, `gh pr -R o/r merge`, a path to `protect.mjs` that is not
   the relative one, a heredoc marker inside a multi-line quoted string (it hides the lines after it), or another tool all get past them. Writes to the default branch through the API (`git/refs`, `merges`,
@@ -98,3 +98,23 @@ owner are needed.
 - Every block names the allowed path. Claude has no blocking hook, because it would also block the owner's explicit request.
 - Both Codex rules and hooks load only in trusted projects, and a hook must be trusted once via `/hooks`, again after a change.
 - `guard.mjs --self-test` checks every example in `guard.json` against the hook.
+
+## Per-tool guard
+
+One decision (`hookDecision`), one adapter per tool (`guard.mjs --format <tool>`). A block is denied everywhere; a prompt form (`gh pr merge`,
+a push of the default branch, `protect --apply`) asks where the tool has a project-level ask and is denied on Gemini CLI, which has none:
+ask the owner to run it. A hook file ticketflow adds to is merged, never replaced: your own entries stay, and invalid JSON (or an
+`opencode.jsonc`) is a conflict with a proposal. All of them share the bypass list above: a speed bump, not a boundary.
+
+| Tool | Mechanism | Ask / deny | If the guard fails | Gaps |
+|---|---|---|---|---|
+| Claude Code | `.claude/settings.json` ask rules | ask only | n/a | no blocking hook |
+| Codex | `.codex/rules` prompt rules and the `.codex/hooks.json` hook | prompt / block | exit 2 blocks | project and hook must be trusted (`/hooks`) |
+| Cursor | `.cursor/hooks.json`, `beforeShellExecution`, matcher `\b(?:gh\|git)\b\|protect\.mjs`, `failClosed` | ask / deny | blocks | workspace trust; `allow` may skip Cursor's own approval (not verified); a command without `gh`, `git` or `protect.mjs` never reaches the hook (the matcher is case-sensitive: `GIT push` does not reach it) |
+| Gemini CLI | `.gemini/settings.json`, `BeforeTool` on `run_shell_command` | deny / deny (no ask) | exit 2 blocks, any other failure only warns (the guard exits 2 on every error) | the project hook must be approved once; a user's auto-approve cannot ask anyway |
+| GitHub Copilot | `.github/hooks/ticketflow-guard.json`, `PreToolUse` on `Bash` (CLI and VS Code) | ask / deny | a crash or non-zero exit denies; a timeout lets the call through | the cloud agent cannot be asked, so an ask is a deny; folder trust |
+| Antigravity | `.agents/hooks.json`, entry `ticketflow-guard`, `PreToolUse` on `run_command` | `force_ask` / deny | undocumented: the guard prints the JSON deny and exits 0 | check `/hooks`; hook working directory undocumented |
+| OpenCode | ask rules in `opencode.json` (`permission.bash`, or `permissions` in V2) | ask only | n/a | no hook command exists; the rules match parsed commands (V2: each part of a compound command), and the last matching rule wins, so an ask rule goes last; an ask pattern is skipped (one note) when any deny of yours could match a command it also matches (`git push --force *` skips `git push * main`: an ask is lost, never a deny); only denies in this project's `opencode.json` are seen: a deny in a user-level `~/.config/opencode/opencode.json` loads before the project's rules and render cannot see it, so an overlapping ask would override it; put hard denies in the project file (or V2 `policies`, which always win); `opencode.jsonc` is merged by hand |
+
+None of the five hooks was run in the tool itself for this page (the live checks are listed in the pull request that added them); the
+formats come from each tool's current documentation and the guard's own tests.

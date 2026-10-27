@@ -1,0 +1,9 @@
+{
+  "skill": { "target": ".agents/skills/{name}/SKILL.md", "format": "md", "body": "pointer" },
+  "role": {
+    "target": ".opencode/agents/{name}.md", "format": "md", "body": "pointer",
+    "fields": { "description": "description", "model": "model" },
+    "const": ["mode: subagent"],
+    "tools": { "read-only": "permission: {edit: deny}", "full": null }
+  }
+}

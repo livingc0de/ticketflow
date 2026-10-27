@@ -1,9 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { ConfigError, PRACTICES, SCHEMA_VERSION, configPath, loadConfig, migrate, validate } from '../core/lib/config.mjs'
+import { AGENTS, ConfigError, PRACTICES, SCHEMA_VERSION, configPath, loadConfig, migrate, validate } from '../core/lib/config.mjs'
 import { BASE_CONFIG, rawConfig, tempDir, writeConfig } from './helpers.mjs'
 
 const bad = (over, re) => assert.throws(() => validate(rawConfig(over)), (e) => e instanceof ConfigError && re.test(e.message), JSON.stringify(over))
@@ -138,14 +138,26 @@ test('agents are a unique list of known agents; each one needs a model per class
     assert.deepEqual(ok.models.claude, M)
     assert.deepEqual(validate(rawConfig({ agents: ['codex'], models: { codex: M } })).agents, ['codex'])
     bad({ agents: ['claude', 'claude'] }, /agents has a duplicate/)
-    bad({ agents: ['gemini'] }, /agents\[0\] must be one of/)
+    bad({ agents: ['windsurf'] }, /agents\[0\] must be one of/)
     bad({ agents: ['claude'] }, /models\.claude is required/)
     bad({ agents: ['claude'], models: { codex: M } }, /models\.claude is required/)
-    bad({ models: { gemini: M } }, /unknown key models\.gemini/)
+    bad({ models: { windsurf: M } }, /unknown key models\.windsurf/)
     bad({ models: { claude: { strong: 'a', standard: 'b' } } }, /missing models\.claude\.light/)
     bad({ models: { claude: { ...M, extra: 'x' } } }, /unknown key models\.claude\.extra/)
     for (const m of ['', 'a b', 'a;b', 3, '$(x)']) bad({ models: { claude: { ...M, light: m } } }, /models\.claude\.light must be a model id/)
     bad({ models: [] }, /models must be an object/)
+})
+
+test('all seven agents are accepted; AGENTS is exactly the shipped adapters; a new agent needs models like the others', () => {
+    const M = { strong: null, standard: null, light: null }
+    const all = ['claude', 'codex', 'cursor', 'gemini', 'opencode', 'antigravity', 'copilot']
+    assert.deepEqual([...AGENTS], all)
+    assert.deepEqual(validate(rawConfig({ agents: all, models: Object.fromEntries(all.map((a) => [a, M])) })).agents, all)
+    assert.deepEqual(readdirSync(new URL('../core/adapters/', import.meta.url)).map((f) => f.replace(/\.json$/, '')).sort(), [...all].sort())
+    bad({ agents: ['cursor'] }, /models\.cursor is required/)
+    bad({ agents: ['windsurf'], models: { windsurf: M } }, /agents\[0\] must be one of/)
+    assert.equal(validate(rawConfig({ agents: ['antigravity'], models: { antigravity: { strong: 'pro', standard: 'flash', light: 'flash' } } })).models.antigravity.strong, 'pro')
+    assert.equal(validate(rawConfig({ agents: ['opencode'], models: { opencode: { ...M, strong: 'anthropic/claude-opus' } } })).models.opencode.strong, 'anthropic/claude-opus')
 })
 
 test('plans_dir and worktrees_dir are safe relative paths; live_verify_skill is a skill name; deferred_checks_issue a positive integer', () => {

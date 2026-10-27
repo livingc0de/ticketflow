@@ -90,12 +90,13 @@ const reviewer = section({
 const VIEWS = ['All Work', 'Initiatives', 'Open Decisions', 'P0/P1 Open']
 const unique = (parse) => (v, p) => { const out = parse(v, p); return new Set(out).size === out.length ? out : fail(`${p} has a duplicate`) }
 
-const AGENTS = ['claude', 'codex']
+/** The agents with a front door: `core/adapters/<n>.json` and `core/agents-map/<n>.md` each. */
+export const AGENTS = Object.freeze(['claude', 'codex', 'cursor', 'gemini', 'opencode', 'antigravity', 'copilot'])
 /** The optional practices shipped in `practices/`: a config enables them by name. */
 export const PRACTICES = Object.freeze(['live-verify', 'runtime-settings', 'i18n', 'database', 'provider-adapters', 'api-endpoints', 'ui-screens', 'domain-guides', 'deploy-gating', 'analytics-events'])
 const model = orNull((v, p) => (typeof v === 'string' && /^[\w.:/[\]-]+$/.test(v) ? v : fail(`${p} must be a model id`)))
 const modelClasses = section({ strong: [model, REQUIRED], standard: [model, REQUIRED], light: [model, REQUIRED] })
-/** `{ claude?, codex? }`, each with all three classes; `null` (inherit) is the only way to leave a model out. */
+/** `{ <agent>?: ... }` for the agents above, each with all three classes; `null` (inherit) is the only way to leave a model out. */
 const models = (v, p) => {
     if (!isObject(v)) fail(`${p} must be an object`)
     return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, AGENTS.includes(k) ? modelClasses(x, `${p}.${k}`) : fail(`unknown key ${p}.${k}`)]))

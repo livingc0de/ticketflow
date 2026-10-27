@@ -13,7 +13,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 import { loadConfig } from '../lib/config.mjs'
 import { main } from '../lib/cli.mjs'
-import { parseCanonical, parseGuide, planWrites, renderStubs } from '../lib/stubs.mjs'
+import { checkAdapter, parseCanonical, parseGuide, planWrites, renderStubs } from '../lib/stubs.mjs'
 
 const usage = 'usage: gen-stubs <canonical-dir> <target-repo> [--check]'
 
@@ -35,6 +35,8 @@ main('gen-stubs', () => {
     const all = readdirSync(new URL('../adapters/', import.meta.url)).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).map((name) => {
         try { return { name, ...JSON.parse(readFileSync(new URL(`../adapters/${name}.json`, import.meta.url), 'utf8')) } } catch (e) { throw new Error(`adapter ${name}: ${e.message}`) }
     })
+    for (const a of all) checkAdapter(a)
+    for (const n of cfg.agents) if (!all.some((a) => a.name === n)) throw new Error(`agent ${n} has no adapter in core/adapters`)
     const adapters = all.filter((a) => cfg.agents.includes(a.name))
     const ls = (dir) => (existsSync(join(canonical, dir)) ? readdirSync(join(canonical, dir)).sort() : [])
     const load = (file) => ({ ...parseCanonical(readFileSync(join(canonical, file), 'utf8'), `${rel}/${file}`), src: file })
@@ -51,13 +53,13 @@ main('gen-stubs', () => {
         if (link(`docs/agents/${f}`) || !lstatSync(join(guidesDir, f)).isFile()) throw new Error(`docs/agents/${f} must be a regular file, and docs/agents a real directory`)
         return parseGuide(readFileSync(join(guidesDir, f), 'utf8'), `docs/agents/${f}`)
     })
-    const expected = renderStubs({ skills, roles, adapters, cfg, runtimeRel: rel, version, guides })
+    const expected = renderStubs({ skills, roles, adapters, cfg, runtimeRel: rel, version, guides, plugins: rel === '.ticketflow' ? [] : all.filter((a) => a.plugin) })   // the ticketflow repo ships every manifest
 
     // the files that could be ours: everything at an adapter's stub paths, plus the expected paths themselves
     const disk = new Map()
     const take = (path) => { if (existsSync(join(target, path)) && !link(path)) disk.set(path, readFileSync(join(target, path), 'utf8')) }
     for (const a of all) {
-        for (const tpl of [a.skill.target, a.role.target, a.rule].filter(Boolean)) {
+        for (const tpl of [a.skill.target, a.role?.target, a.rule].filter(Boolean)) {
             const [pre, post] = tpl.split('{name}')
             const dir = join(target, pre)
             if (!existsSync(dir)) continue

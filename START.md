@@ -1,7 +1,7 @@
 # TicketFlow: start here
 
 TicketFlow is an agent-neutral, ticket-driven delivery workflow for GitHub repos: ticket, plan, implement, verify, review, merge, handoff.
-It is installed into a repo as a `.ticketflow/` folder with thin stubs for Claude Code and Codex, and updated only when the owner chooses.
+It is installed into a repo as a `.ticketflow/` folder with thin stubs for Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Antigravity and GitHub Copilot, and updated only when the owner chooses.
 
 ## Before you start
 
@@ -13,12 +13,15 @@ You need a shell, `git`, `gh` 2.48 or newer logged in with the `repo`, `project`
 - **Set up:** read `skills/init/SKILL.md` of https://github.com/livingc0de/ticketflow (raw: https://raw.githubusercontent.com/livingc0de/ticketflow/main/skills/init/SKILL.md) and follow it from section 0.
 - **Update:** the same with `skills/sync/SKILL.md`, in a repo that already has `.ticketflow/manifest.json`.
 - Section 0 of each skill clones the release you install and continues from the clone's own copy, so the procedure always matches the scripts it runs.
-- The skills say "dispatch a role", "ask the user" and similar actions. If you have no action map of your own, `core/agents-map/generic.md` of the clone translates them.
+- The skills say "dispatch a role", "ask the user" and similar actions. `core/agents-map/<your tool>.md` of the clone translates them (claude, codex, cursor, gemini, opencode, antigravity, copilot); any other agent uses `generic.md`.
 
 ## As a plugin
 
 - Claude Code: `/plugin marketplace add livingc0de/ticketflow`, then `/plugin install ticketflow@ticketflow`. Ask: "set up ticketflow" or "update ticketflow".
 - Codex: add `livingc0de/ticketflow` as a plugin marketplace (`codex plugin marketplace add livingc0de/ticketflow`) and install it (`codex plugin add ticketflow@ticketflow`).
+- Cursor: Customize, then From GitHub Repository, `livingc0de/ticketflow`. Gemini CLI: `gemini extensions install https://github.com/livingc0de/ticketflow`.
+- GitHub Copilot: `copilot plugin install livingc0de/ticketflow`, or add the repo to `chat.plugins.marketplaces` in VS Code. Antigravity: `agy plugin install https://github.com/livingc0de/ticketflow`.
+- OpenCode has no plugin: ask it to read this file (its skills folder is `.agents/skills`). Any other tool: the same, through `AGENTS.md`.
 
 ## Rules for any agent
 

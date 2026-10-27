@@ -122,6 +122,12 @@ test('config: missing or invalid fails and the dependent checks skip; repo diffe
     assert.equal(r.status, 1); has(r, /^fail config: repo is o\/else, origin is o\/r/m); has(r, /^skip stubs: no valid config$/m)
 })
 
+test('config: a config with the new agents is valid', () => {
+    const M = { strong: null, standard: null, light: null }
+    const t = setup({ cfg: { agents: ['gemini', 'cursor', 'opencode', 'antigravity', 'copilot'], models: { gemini: M, cursor: M, opencode: M, antigravity: M, copilot: M } } })
+    has(t.run('--local'), /^ok config: valid, repo o\/r$/m)
+})
+
 test('runtime: edited, missing and untracked files fail with their paths; CRLF is fine; held files warn and render gets --keep', () => {
     const t = setup()
     t.put('.ticketflow/scripts/render.mjs', readFileSync(join(t.dir, '.ticketflow/scripts/render.mjs'), 'utf8').replaceAll('\n', '\r\n'))

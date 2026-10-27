@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { cpSync, readFileSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
-import { GuardError, claudeAsk, codexRules, hookDecision, loadGuard, segments, tokenize } from '../core/lib/guard.mjs'
+import { FORMATS, GuardError, askPatterns, claudeAsk, codexRules, hookDecision, loadGuard, segments, tokenize } from '../core/lib/guard.mjs'
 import { config, tempDir, writeConfig } from './helpers.mjs'
 
 const cfg = config()
@@ -200,4 +200,164 @@ test('review round 2: here-strings, comments, quoted branch names, options befor
     assert.equal(decide('gh api -H "Accept: x" graphql -f query=\'mutation { mergePullRequest(input:{}) { clientMutationId } }\'').block, true)
     assert.equal(decide('gh api --hostname github.com graphql -f query=\'query { repository { rulesets { totalCount } } }\'').block, false)
     assert.equal(decide('gh api repos/o/r/issues/5/comments -f body="mergePullRequest and enablePullRequestAutoMerge"').block, false)
+})
+
+// ---- the guard for Cursor, Gemini CLI, Copilot and Antigravity (#31): one decision engine, one input/output adapter per tool
+
+const SHAPES = {
+    cursor: (command) => ({ command, cwd: '/', sandbox: false }),
+    gemini: (command) => ({ hook_event_name: 'BeforeTool', tool_name: 'run_shell_command', tool_input: { command }, cwd: '/' }),
+    copilot: (command) => ({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, cwd: '/' }),
+    antigravity: (command) => ({ toolCall: { name: 'run_command', args: { CommandLine: command, Cwd: '/' } }, stepIdx: 1 }),
+}
+const NON_SHELL = {
+    cursor: null,   // beforeShellExecution only ever carries a shell command
+    gemini: { tool_name: 'read_file', tool_input: { absolute_path: '/x' }, cwd: '/' },
+    copilot: { hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { path: '/x' }, cwd: '/' },
+    antigravity: { toolCall: { name: 'view_file', args: { AbsolutePath: '/x' } } },
+}
+const j = (x) => JSON.stringify(x) + '\n'
+const R = (command) => decide(command).reason ?? hookDecision(bash(command), cfg, { cwd: '/' }).reason
+/** The exact output a format gives for a decision `d` with reason `reason`. */
+const EXPECT = {
+    cursor: { block: (r) => ({ stdout: j({ permission: 'deny', user_message: r, agent_message: r }), stderr: '', code: 0 }), ask: (r) => ({ stdout: j({ permission: 'ask', user_message: r, agent_message: r }), stderr: '', code: 0 }), pass: { stdout: j({ permission: 'allow' }), stderr: '', code: 0 } },
+    gemini: { block: (r) => ({ stdout: '', stderr: `guard: blocked: ${r}\n`, code: 2 }), ask: (r) => ({ stdout: '', stderr: `guard: blocked: ${r} Gemini CLI cannot ask for this: ask the owner to run it\n`, code: 2 }), pass: { stdout: '{}\n', stderr: '', code: 0 } },
+    copilot: { block: (r) => ({ stdout: '', stderr: `guard: blocked: ${r}\n`, code: 2 }), ask: (r) => ({ stdout: j({ permissionDecision: 'ask', permissionDecisionReason: r }), stderr: '', code: 0 }), pass: { stdout: '', stderr: '', code: 0 } },
+    antigravity: { block: (r) => ({ stdout: j({ decision: 'deny', reason: r }), stderr: '', code: 0 }), ask: (r) => ({ stdout: j({ decision: 'force_ask', reason: r }), stderr: '', code: 0 }), pass: { stdout: j({ decision: 'allow' }), stderr: '', code: 0 } },
+}
+
+test('hookDecision: a prompt form is an ask (Codex ignores it and passes); a block anywhere beats an ask; plain commands pass', () => {
+    assert.deepEqual(decide('git push origin main'), { block: false, ask: true, reason: 'Nothing is pushed to main directly. Push a branch, open a pull request and merge it with .ticketflow/scripts/merge.mjs <pr>.', form: 'push-default' })
+    assert.equal(decide('gh pr merge 5').ask, true)
+    assert.equal(decide('gh pr merge 5 && git push -u origin main').block, true)   // the ask is recorded, the later block wins
+    assert.equal(decide('git push -u origin main && gh pr merge 5').block, true)
+    assert.deepEqual(decide('git status'), { block: false })
+    assert.equal(decide('git push -u origin main').ask, undefined)
+})
+
+for (const format of Object.keys(SHAPES)) {
+    test(`${format}: every guard.json example gives the declared decision and the exact output`, () => {
+        const f = FORMATS[format]
+        for (const e of examples) {
+            const d = hookDecision(f.input(SHAPES[format](e.cmd)), cfg, { cwd: '/' })
+            const want = e.codex === 'block' ? 'block' : e.codex === 'prompt' ? 'ask' : 'pass'
+            assert.equal(d.block ? 'block' : d.ask ? 'ask' : 'pass', want, `${e.form}: ${e.cmd}`)
+            assert.deepEqual(f.output(d), want === 'pass' ? EXPECT[format].pass : EXPECT[format][want](d.reason), `${e.form}: ${e.cmd}`)
+        }
+    })
+
+    test(`${format}: a non-shell tool passes; malformed input and a shell call without a command are denied`, () => {
+        const f = FORMATS[format]
+        if (NON_SHELL[format]) assert.deepEqual(f.output(hookDecision(f.input(NON_SHELL[format]), cfg, { cwd: '/' })), EXPECT[format].pass)
+        const noCommand = { cursor: {}, gemini: { tool_name: 'run_shell_command', tool_input: {} }, copilot: { tool_name: 'Bash', tool_input: {} }, antigravity: { toolCall: { name: 'run_command', args: {} } } }[format]
+        const d = hookDecision(f.input(noCommand), cfg, { cwd: '/' })
+        assert.equal(d.block, true)
+        assert.deepEqual(f.output(d), EXPECT[format].block(d.reason))
+    })
+}
+
+test('copilot: a payload that carries a command is checked whatever the tool is called (VS Code and the CLI name it differently)', () => {
+    const f = FORMATS.copilot
+    for (const raw of [
+        { toolName: 'bash', toolArgs: JSON.stringify({ command: 'git push -u origin main' }), cwd: '/' },
+        { tool_name: 'run_in_terminal', tool_input: { command: 'git push -u origin main' }, cwd: '/' },
+        { tool_name: 'Bash', tool_input: JSON.stringify({ command: 'git push -u origin main' }), cwd: '/' },
+    ]) assert.equal(hookDecision(f.input(raw), cfg, { cwd: '/' }).block, true, JSON.stringify(raw))
+    assert.equal(hookDecision(f.input({ tool_name: 'Bash', tool_input: 'not json' }), cfg, { cwd: '/' }).block, true)   // a shell tool whose command cannot be read
+})
+
+test('gemini: the prompt forms are denied with "ask the owner to run it"', () => {
+    for (const cmd of ['gh pr merge 5', 'git push origin main', 'node .ticketflow/scripts/protect.mjs --apply']) {
+        const o = FORMATS.gemini.output(hookDecision(FORMATS.gemini.input(SHAPES.gemini(cmd)), cfg, { cwd: '/' }))
+        assert.equal(o.code, 2, cmd); assert.match(o.stderr, /ask the owner to run it\n$/, cmd)
+    }
+})
+
+test('codex format: the exact output the hook always gave', () => {
+    assert.deepEqual(FORMATS.codex.output(decide('git push -u origin main')), { stdout: '', stderr: `guard: blocked: ${R('git push -u origin main')}\n`, code: 2 })
+    assert.deepEqual(FORMATS.codex.output(decide('git status')), { stdout: '', stderr: '', code: 0 })
+    assert.deepEqual(FORMATS.codex.output(decide('git push origin main')), { stdout: '', stderr: '', code: 0 })   // a prompt form passes: the Codex rule asks
+    assert.deepEqual(FORMATS.codex.input({ tool_name: 'Bash', tool_input: { command: 'ls' } }), { tool_name: 'Bash', tool_input: { command: 'ls' } })
+})
+
+test('OpenCode ask patterns: every Claude ask example matches one, every pass example none; claudeAsk is the same list', () => {
+    const patterns = askPatterns(cfg)
+    assert.deepEqual(claudeAsk(cfg), patterns.map((p) => `Bash(${p})`))
+    const re = patterns.map((p) => new RegExp(`^${p.split('*').map((x) => x.replace(/[.+?^${}()|[\]\\/]/g, '\\$&')).join('.*')}$`))
+    for (const e of examples) assert.equal(re.some((r) => r.test(e.cmd)), e.claude === 'ask', `${e.form}: ${e.cmd}`)
+})
+
+const run = (format, input, args = []) => spawnSync(process.execPath, [script, '--format', format, ...args], { input: typeof input === 'string' ? input : JSON.stringify(input), encoding: 'utf8', cwd: tempDir('guard-cwd-') })
+
+test('guard.mjs --format: cursor asks for a merge, denies a forbidden push, allows the rest; the exact stdout and exit code', () => {
+    const cfgArgs = withConfig()
+    let r = run('cursor', { command: 'gh pr merge 5', cwd: '/' }, cfgArgs)
+    assert.equal(r.status, 0, r.stderr); assert.equal(JSON.parse(r.stdout).permission, 'ask'); assert.match(JSON.parse(r.stdout).agent_message, /merge\.mjs/)
+    r = run('cursor', { command: 'git push -u origin main', cwd: '/' }, cfgArgs)
+    assert.equal(r.status, 0); assert.equal(JSON.parse(r.stdout).permission, 'deny')
+    r = run('cursor', { command: 'git status', cwd: '/' }, cfgArgs)
+    assert.equal(r.stdout, '{"permission":"allow"}\n'); assert.equal(r.status, 0)
+    r = run('gemini', SHAPES.gemini('git push -u origin main'), cfgArgs)
+    assert.equal(r.status, 2); assert.equal(r.stdout, ''); assert.match(r.stderr, /Nothing is pushed to main directly/)
+    r = run('gemini', SHAPES.gemini('ls'), cfgArgs)
+    assert.equal(r.status, 0); assert.equal(r.stdout, '{}\n')
+    r = run('copilot', SHAPES.copilot('gh pr merge 5'), cfgArgs)
+    assert.equal(r.status, 0); assert.equal(JSON.parse(r.stdout).permissionDecision, 'ask')
+    r = run('antigravity', SHAPES.antigravity('gh pr merge 5'), cfgArgs)
+    assert.equal(r.status, 0); assert.equal(JSON.parse(r.stdout).decision, 'force_ask')
+    r = run('antigravity', SHAPES.antigravity('ls'), cfgArgs)
+    assert.equal(r.stdout, '{"decision":"allow"}\n')
+})
+
+test('guard.mjs --format: an unknown format exits 2; the default is the Codex hook, byte for byte', () => {
+    const cfgArgs = withConfig()
+    const r = run('windsurf', SHAPES.cursor('ls'), cfgArgs)
+    assert.equal(r.status, 2); assert.match(r.stderr, /unknown format windsurf/)
+    const d = hook('git push -u origin main', cfgArgs), explicit = run('codex', bash('git push -u origin main'), cfgArgs)
+    assert.equal(d.status, 2); assert.equal(d.stdout, ''); assert.equal(d.stderr, explicit.stderr); assert.match(d.stderr, /^guard: blocked: Nothing is pushed to main directly\. .*merge\.mjs <pr>\.\n$/)
+})
+
+test('guard.mjs --format fails closed in every format: malformed input, a non-object, a missing command and an unloadable guard.json all exit 2 with the format\'s deny', () => {
+    const cfgArgs = withConfig()
+    for (const format of Object.keys(SHAPES)) {
+        for (const input of ['not json', '', 'null', '[1]']) {
+            const r = run(format, input, cfgArgs)
+            assert.equal(r.status, format === 'antigravity' ? 0 : 2, `${format} ${JSON.stringify(input)}`)
+            assert.match(format === 'cursor' || format === 'antigravity' ? r.stdout : r.stderr, /not a JSON object/, format)
+            if (format === 'cursor') assert.equal(JSON.parse(r.stdout).permission, 'deny')
+            if (format === 'antigravity') assert.equal(JSON.parse(r.stdout).decision, 'deny')
+        }
+    }
+    const root = tempDir('guard-copy-')
+    spawnSync('git', ['init', '-q', root])
+    cpSync(new URL('../core', import.meta.url).pathname, join(root, 'core'), { recursive: true })
+    writeFileSync(join(root, 'core', 'guard.json'), '{')
+    for (const format of Object.keys(SHAPES)) {
+        const r = spawnSync(process.execPath, [join(root, 'core/scripts/guard.mjs'), '--format', format, ...cfgArgs], { input: JSON.stringify(SHAPES[format]('ls')), encoding: 'utf8' })
+        assert.equal(r.status, format === 'antigravity' ? 0 : 2, format); assert.match(r.stdout + r.stderr, /guard\.json/, format)
+        if (format === 'antigravity') assert.equal(JSON.parse(r.stdout).decision, 'deny')
+        if (format === 'cursor') assert.equal(JSON.parse(r.stdout).permission, 'deny')
+    }
+})
+
+test('a payload without a tool name is a shell call in every format (their matchers only send shell calls): checked, and denied without a command', () => {
+    for (const format of Object.keys(SHAPES)) {
+        const f = FORMATS[format]
+        for (const raw of [{}, { tool_call: { name: 'run_command', args: { CommandLine: 'ls' } } }, { tool_input: {} }]) {
+            const d = hookDecision(f.input(raw), cfg, { cwd: '/' })
+            assert.equal(d.block, true, `${format} ${JSON.stringify(raw)}`)
+            assert.deepEqual(f.output(d), EXPECT[format].block(d.reason), format)
+        }
+    }
+    // a name that is present and is not a shell tool still passes
+    assert.equal(hookDecision(FORMATS.gemini.input({ tool_name: 'read_file' }), cfg).block, false)
+    assert.equal(hookDecision(FORMATS.antigravity.input({ toolCall: { name: 'view_file' } }), cfg).block, false)
+    assert.equal(hookDecision(FORMATS.copilot.input({ tool_name: 'Read' }), cfg).block, false)
+})
+
+test('antigravity: an error answers with the documented deny JSON and exit 0 (its exit-2 behaviour is undocumented); the other formats exit 2', () => {
+    const cfgArgs = withConfig()
+    const r = run('antigravity', 'not json', cfgArgs)
+    assert.equal(r.status, 0); assert.equal(JSON.parse(r.stdout).decision, 'deny')
+    for (const format of ['cursor', 'gemini', 'copilot', 'codex']) assert.equal(run(format, 'not json', cfgArgs).status, 2, format)
 })

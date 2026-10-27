@@ -1,0 +1,19 @@
+{
+  "skill": { "target": ".agents/skills/{name}/SKILL.md", "format": "md", "body": "pointer" },
+  "role": {
+    "target": ".gemini/agents/{name}.md", "format": "md", "body": "pointer",
+    "fields": { "name": "name", "description": "description", "model": "model" },
+    "const": ["max_turns: 150", "timeout_mins: 45"],
+    "tools": { "read-only": "tools: [read_file, read_many_files, grep_search, glob, list_directory, run_shell_command, activate_skill]", "full": null }
+  },
+  "plugin": {
+    "manifest": {
+      "path": "gemini-extension.json",
+      "json": {
+        "name": "ticketflow",
+        "version": "{version}",
+        "description": "An agent-neutral, ticket-driven delivery workflow for GitHub repos: set it up with init, update it with sync."
+      }
+    }
+  }
+}

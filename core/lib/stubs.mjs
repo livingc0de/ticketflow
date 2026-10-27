@@ -79,6 +79,37 @@ export function target(template, name) {
     return template.replace('{name}', name)
 }
 
+const ROLE_FIELDS = ['name', 'description', 'model', 'effort']
+const KEY = /^[a-z][\w-]*$/
+const LINE = /^[a-z][\w-]*: \S[^\u0000-\u001f\u007f]*$/   // one frontmatter line: written as is, so no newline or control character
+
+/** Throws a StubError unless the adapter is well formed: every value that reaches a stub is checked here, before any file is written. */
+export function checkAdapter(a) {
+    const bad = (m) => fail(`adapter ${a?.name}: ${m}`)
+    const body = (x, what) => { if (!['pointer', 'inline'].includes(x.body ?? 'pointer')) bad(`${what}.body must be pointer or inline`) }
+    const relative = (p, what) => { if (typeof p !== 'string' || !p || p.startsWith('/') || p.split('/').includes('..')) bad(`${what} must be a relative path inside the repo`) }
+    if (a?.skill?.format !== 'md') bad('skill.format must be md')
+    target(a.skill.target, 'x'); body(a.skill, 'skill')
+    if (a.rule !== undefined) target(a.rule, 'x')
+    if (a.role !== undefined) {
+        target(a.role.target, 'x'); body(a.role, 'role')
+        if (!['md', 'toml'].includes(a.role.format)) bad('role.format must be md or toml')
+        if (a.role.format === 'md') {
+            const f = a.role.fields
+            if (f === null || typeof f !== 'object' || Array.isArray(f)) bad('role.fields is required for md')
+            for (const [k, v] of Object.entries(f)) if (!ROLE_FIELDS.includes(k) || typeof v !== 'string' || !KEY.test(v)) bad(`role.fields.${k}: a canonical key (${ROLE_FIELDS.join(', ')}) mapped to a plain key name`)
+            for (const l of a.role.const ?? []) if (typeof l !== 'string' || !LINE.test(l)) bad(`role.const line ${JSON.stringify(l)} must be one "key: value" line`)
+            for (const [k, l] of Object.entries(a.role.tools ?? {})) if (!TOOLS.includes(k) || (l !== null && (typeof l !== 'string' || !LINE.test(l)))) bad(`role.tools.${k} must be null or one "key: value" line`)
+            const keys = [...Object.values(f), ...(a.role.const ?? []).map((l) => l.split(':')[0])]   // a repeated key would be a duplicate YAML key
+            for (const l of [null, ...Object.values(a.role.tools ?? {})]) { const all = l === null ? keys : [...keys, l.split(':')[0]]; if (new Set(all).size !== all.length) bad(`role frontmatter repeats a key: ${all.join(', ')}`) }
+        }
+    }
+    if (a.plugin !== undefined) {
+        if (a.plugin.manifest === undefined) bad('plugin.manifest is required')
+        for (const f of [a.plugin.manifest, a.plugin.marketplace].filter((x) => x !== undefined)) { relative(f?.path, 'plugin path'); if (f.json === null || typeof f.json !== 'object') bad('plugin json must be an object') }
+    }
+}
+
 /**
  * A guide's relative Markdown links, rewritten from `docs/agents/` to the folder of the rule file it is copied to: inline links and
  * images (`](path#frag "title")`) and reference definitions (`[ref]: path`). URLs, anchors and absolute paths stay.
@@ -95,40 +126,52 @@ export function relinkGuide(body, rulePath) {
 /**
  * Everything gen-stubs owns: a sorted Map of path to content. `skills` and `roles` are `parseCanonical` results plus `src`, the
  * canonical path relative to the runtime (`skills/<n>/SKILL.md`, or `practices/<n>/SKILL.md` for an enabled practice). `guides` are
- * `parseGuide` results: an adapter with a `rule` target gets one rule file per guide. `adapters` are the adapter objects for the agents in the config.
+ * `parseGuide` results: an adapter with a `rule` target gets one rule file per guide. `adapters` are the adapter objects for the agents in the config;
+ * `plugins` are the adapters whose manifests are written (the ticketflow repo only, whatever its own `agents`). Adapters with the same skill target share one skill stub.
  */
-export function renderStubs({ skills, roles, adapters, cfg, runtimeRel, version, guides = [] }) {
+export function renderStubs({ skills, roles, adapters, cfg, runtimeRel, version, guides = [], plugins = [] }) {
     const out = new Map()
     const by = (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
     const put = (path, content) => { if (out.has(path)) fail(`two stubs for ${path}`); out.set(path, content) }
-    for (const a of adapters) {
+    for (const a of [...adapters, ...plugins]) checkAdapter(a)
+    // adapters that read the same skill folder share one stub per skill, so its action-map line names the tool only when it is the only one
+    const shared = new Map()
+    for (const a of adapters) shared.set(a.skill.target, [...(shared.get(a.skill.target) ?? []), a])
+    for (const group of shared.values()) {
+        const names = group.map((a) => a.name).sort()
+        const first = group.find((a) => a.name === names[0])
+        for (const a of group) if ((a.skill.body ?? 'pointer') !== (first.skill.body ?? 'pointer')) fail(`adapters ${names.join(', ')} share ${first.skill.target} but differ in skill.body`)
+        const map = names.length === 1 ? `Your action map: \`${runtimeRel}/agents-map/${names[0]}.md\`.`
+            : `Your action map: \`${runtimeRel}/agents-map/<agent>.md\` for the agent you are (${names.join(', ')}); any other agent: \`${runtimeRel}/agents-map/generic.md\`.`
         for (const s of [...skills].sort(by)) {
-            const map = `Your action map: \`${runtimeRel}/agents-map/${a.name}.md\`.`
-            const text = note(runtimeRel) + (a.skill.body === 'inline' ? `${s.body}\n${map}\n` : `Read \`${runtimeRel}/${s.src}\` and follow it; it is the whole skill. ${map}\n`)
-            put(target(a.skill.target, s.name), md([['name', s.name], ['description', s.description]], s.src, text))
+            const text = note(runtimeRel) + (first.skill.body === 'inline' ? `${s.body}\n${map}\n` : `Read \`${runtimeRel}/${s.src}\` and follow it; it is the whole skill. ${map}\n`)
+            put(target(first.skill.target, s.name), md([['name', s.name], ['description', s.description]], s.src, text))
         }
+    }
+    for (const a of adapters) {
         if (a.rule) for (const g of [...guides].sort(by)) put(target(a.rule, g.name), `---\n${g.frontmatter}\n---\n<!-- ${MARKER} from docs/agents/${g.name}.md. Do not edit: change the source, run gen-stubs. -->\n\n${relinkGuide(g.body, target(a.rule, g.name))}`)
+        if (!a.role) continue
         for (const r of [...roles].sort(by)) {
             if (r.needs_config && (!Object.hasOwn(cfg, r.needs_config) ? fail(`${r.src}: needs_config ${r.needs_config} is not a config key`) : cfg[r.needs_config] == null)) continue
             const model = cfg.models[a.name]?.[r.model_class] ?? null
             const map = `Your action map: \`${runtimeRel}/agents-map/${a.name}.md\`.`
             const text = note(runtimeRel) + (a.role.body === 'inline' ? `${r.body}\n${map}\n` : `You are the \`${r.name}\` role. Read \`${runtimeRel}/agents/${r.name}.md\` and follow it; it is your full instruction. ${map}\n`)
-            const tools = a.role.tools?.[r.tools] ?? null
             put(target(a.role.target, r.name), a.role.format === 'toml'
                 ? `# ${MARKER} from ${r.src}. Do not edit: change the source, run gen-stubs.\nname = ${JSON.stringify(r.name)}\ndescription = ${JSON.stringify(r.description)}\n${model === null ? '' : `model = ${JSON.stringify(model)}\n`}model_reasoning_effort = ${JSON.stringify(r.effort)}\ndeveloper_instructions = ${JSON.stringify(text)}\n`
-                : md([['name', r.name], ['description', r.description], ...(model === null ? [] : [['model', model]]), ['effort', r.effort]], r.src, text, tools))
+                : md(Object.entries(a.role.fields).map(([from, to]) => [to, { name: r.name, description: r.description, model, effort: r.effort }[from]]).filter(([, v]) => v !== null), r.src, text,
+                    [...(a.role.const ?? []), ...(a.role.tools?.[r.tools] ? [a.role.tools[r.tools]] : [])]))
         }
-        if (runtimeRel !== '.ticketflow') {
-            if (!/^\d+\.\d+\.\d+$/.test(version ?? '')) fail('VERSION must be X.Y.Z')
-            for (const f of [a.plugin.manifest, a.plugin.marketplace]) put(f.path, json(dig(f.json, (v) => (v === '{version}' ? version : v === '{repo_url}' ? `https://github.com/${cfg.repo}` : v))))
-        }
+    }
+    if (runtimeRel !== '.ticketflow') {
+        if (!/^\d+\.\d+\.\d+$/.test(version ?? '')) fail('VERSION must be X.Y.Z')
+        for (const a of plugins) for (const f of [a.plugin.manifest, a.plugin.marketplace].filter(Boolean)) put(f.path, json(dig(f.json, (v) => (v === '{version}' ? version : v === '{repo_url}' ? `https://github.com/${cfg.repo}` : v))))
     }
     return new Map([...out].sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)))
 }
 
-function md(fields, src, text, tools) {
-    const head = fields.map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
-    if (tools) head.push(`tools: ${tools}`)
+/** A Markdown stub: `fields` are quoted `[key, value]` pairs, `extra` are finished frontmatter lines. */
+function md(fields, src, text, extra = []) {
+    const head = [...fields.map(([k, v]) => `${k}: ${JSON.stringify(v)}`), ...extra]
     return `---\n${head.join('\n')}\n---\n<!-- ${MARKER} from ${src}. Do not edit: change the source, run gen-stubs. -->\n\n${text}`
 }
 
