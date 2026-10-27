@@ -20,18 +20,35 @@ OpenCode, Antigravity and GitHub Copilot a guard asks you before (or blocks) the
 - **The bypass** exists on purpose: the repository admin may merge past the checks when the owner explicitly asks. An agent that
   runs with the owner's admin token has that right too. The ruleset therefore cannot stop an agent that uses the admin token for
   an API merge or `gh pr merge --admin` (see the table). Only the rules above, the ask/prompt rules and the owner's attention do.
-- **The review gate** `merge` refuses unresolved review threads (any author), a reviewer's `CHANGES_REQUESTED`, a `pr-reviewer` verdict on
-  the head that is not exactly `ready to merge`, and a `--review-basis` that is not either `owner approved` or a link to the newest
-  `ready to merge` review of this pull request on the head or an ancestor. Only reviews and comments of an `OWNER`, `MEMBER` or
-  `COLLABORATOR` count. The review and the basis comment are posted with the same credentials the agent merges with: `merge` proves
-  which review the agent named and what it says, not that an independent reviewer wrote it, and `owner approved` is the auditable
-  exception, not proof of the owner's say-so. What is enforced, convention and not verifiable: [REVIEWERS.md](REVIEWERS.md).
+- **The review gate** `merge` refuses unresolved review threads (any author), a reviewer's `CHANGES_REQUESTED`, a reviewer that only
+  commented (a stand-in decides, then a basis), a `pr-reviewer` verdict on the head that is not exactly `ready to merge`, and a
+  `--review-basis` that is not either `owner approved` or a link to the newest `ready to merge` review of this pull request posted on
+  exactly the head. Only reviews and comments of an `OWNER`, `MEMBER` or `COLLABORATOR` count, and then only from an account that
+  GitHub reports with `write` or `admin` permission on the repository (`owner approved`: `admin` only; an unreadable permission
+  refuses). The review and the basis comment are posted with the credentials the agent merges with, unless you run the high-assurance
+  mode below: `merge` proves which review the agent named and what it says, not that an independent reviewer wrote it, and
+  `owner approved` is the auditable exception (the merge note names the account), not proof of the owner's say-so. What is enforced,
+  convention and not verifiable: [REVIEWERS.md](REVIEWERS.md).
 - **Credentials.** With an admin token, `merge.mjs` and the guard are the only stop: the ruleset does not bind an admin, so an API merge
   skips every check above. With a non-admin token the ruleset still binds the gate status and the up-to-date rule, but not the review
   gate (`protect` requires no approvals and no thread resolution): the review checks live in `merge.mjs`, and a non-admin agent can
   still run `gh pr merge` once the gate is green. The repository's approvals and thread-resolution settings stay the owner's choice.
-- **Known ceiling:** a push to the base branch between the "up to date" check and the merge is not caught (the head is, through
-  `--match-head-commit`). The window is seconds.
+- **Known ceiling:** `merge` checks that the branch is up to date, reads that again right before `gh pr merge`, and passes
+  `--match-head-commit`; a push to the base branch in the instant between the second read and GitHub's merge is still not caught.
+
+## Two ways to run
+
+- **Standard.** The agent works with your credentials (or a token of the same power). Everything above holds, and it is auditable,
+  not independent: the agent can post the review of record and the basis under the account `merge` trusts, and with an admin token it
+  can post `owner approved` too. The permission check keeps out read-only accounts and outsiders, not the agent itself.
+- **High-assurance.** The agent runs as a separate account with `write` access (not `admin`, and not the owner's). You set these in
+  the repository ruleset by hand (an agent never writes them; `protect` keeps them when they exist): required approvals of at least
+  1, dismiss stale approvals when new commits are pushed, require approval of the most recent reviewable push, and require
+  conversation resolution. You approve on GitHub, and post `owner approved` from your admin account when a basis is needed. Then
+  GitHub, not a script, stops a merge the agent's account made without your approval, and `owner approved` can only come from you.
+  Optional: bind the required `CI / Gate` check to the GitHub Actions app, so a hand-posted status cannot satisfy it (not probed here; it also
+  turns the local fallback off, because a status posted by `local-verify` is not from that app). An agent on a GitHub App account
+  reads `none` permission and `merge` refuses it.
 
 ## The bypass rule
 

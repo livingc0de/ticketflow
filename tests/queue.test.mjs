@@ -14,11 +14,11 @@ const node = (number, status) => ({ id: `N${number}`, projectItems: { nodes: sta
 /** Runs queue.mjs against a fake gh. `statuses` maps an issue number to its Project status; `extra` adds fixtures. */
 function run(args, { issues = [], pulls = [], statuses = {}, extra = {}, project = { owner: 'octo', number: 7 } } = {}) {
     const dir = tempDir('queue-')
-    const map = { [PULLS]: pulls, 'graphql TrackerStatus': { nodes: Object.keys(statuses).map((n) => node(Number(n), statuses[n])) }, ...extra }
+    const map = { [PULLS]: pulls, 'graphql TrackerStatus': { nodes: Object.keys(statuses).map((n) => node(Number(n), statuses[n])) }, 'graphql TicketPulls': { nodes: [] }, ...extra }
     for (const i of issues) map[`${R}/issues/${i.number}`] = i
     const gh = fakeGh(dir, map)
     const r = spawnSync(process.execPath, [script, ...args, '--config', writeConfig(dir, { project })], { encoding: 'utf8', env: gh.env })
-    return { ...r, calls: gh.calls() }
+    return { ...r, calls: gh.calls(), log: gh.log() }
 }
 const lines = (r) => r.stdout.trimEnd().split('\n')
 const line = (r, n) => lines(r).find((l) => l.startsWith(`#${n} `))
@@ -176,7 +176,7 @@ test('without a project the list and tracker modes still work (closed is the onl
     const r = run(['11'], { issues: [issue(11)], project: null })
     assert.equal(r.status, 0, r.stderr)
     assert.match(r.stdout, /\nnext: #11\n/)
-    assert.ok(!r.calls.some((c) => c.includes('graphql')))
+    assert.ok(!r.log.some((c) => /TrackerStatus/.test(c.stdin ?? '')), 'no project call')
 })
 
 test('only pull requests from this repository count: a fork PR (or a deleted fork) on a matching branch is ignored', () => {
@@ -258,4 +258,92 @@ test('a PR link in Depends on fails closed like #N pointing at a PR (exit 2); an
     }
     const r = run(['12'], { issues: [issue(12, { body: 'Depends on https://github.com/x/y/pull/4.' })] })
     assert.match(line(r, 12), /^#12 waiting T12 \[after: x\/y#4\]$/)
+})
+
+// ---- #38: PRs found through the ticket's cross-references, beyond the latest 100
+/** A cross-referenced event whose source is a pull request: its head branch and repositories (ids), like GraphQL answers. */
+const xref = (number, branch, o = {}) => ({ source: { number, state: o.state ?? 'OPEN', headRefName: branch, headRefOid: o.sha ?? 'abcdef1234567890', repository: { nameWithOwner: o.repo ?? 'o/r', databaseId: 1 }, headRepository: o.headRepository === undefined ? { databaseId: 1 } : o.headRepository } })
+/** The TicketPulls answer: one node per ticket, with its cross-reference events. */
+const pulls = (...lists) => ({ 'graphql TicketPulls': { nodes: lists.map((nodes) => ({ timelineItems: { totalCount: nodes.length, nodes } })) } })
+const pullIds = (r) => r.log.filter((c) => c.args.includes('graphql') && /TicketPulls/.test(c.stdin)).map((c) => JSON.parse(c.stdin).variables.ids)
+
+test('a ticket PR that the latest 100 do not show is found through the ticket\'s cross-references: open is in-progress, merged without a project is done', () => {
+    const open = run(['11', '12'], { issues: [issue(11), issue(12)], extra: pulls([xref(40, 'feat/issue-11-x')], []) })
+    assert.equal(open.status, 0, open.stderr)
+    assert.match(line(open, 11), /^#11 in-progress T11 \[pr: #40 open abcdef1\]$/)
+    assert.match(open.stdout, /\nresume: #11\n/)
+    assert.match(open.stdout, /\nnext: #12\n/)
+    const merged = run(['11', '12'], { issues: [issue(11), issue(12)], project: null, extra: pulls([xref(40, 'feat/issue-11-x', { state: 'MERGED' })], []) })
+    assert.match(line(merged, 11), /^#11 done T11 \[pr: #40 merged abcdef1\] \[no project: handoff not visible\]$/)
+    const withProject = run(['11'], { issues: [issue(11)], extra: pulls([xref(40, 'feat/issue-11-x', { state: 'MERGED' })]) })
+    assert.match(line(withProject, 11), /^#11 merged /)
+    const closed = run(['11'], { issues: [issue(11)], extra: pulls([xref(40, 'feat/issue-11-x', { state: 'CLOSED' })]) })
+    assert.match(line(closed, 11), /^#11 ready T11 \[pr: #40 closed abcdef1\]$/)
+    // a dependency finished long ago is seen too, so a chain continues
+    const chain = run(['12'], { issues: [issue(11), issue(12, { body: 'Depends on #11.' })], project: null, extra: pulls([xref(40, 'feat/issue-11-x', { state: 'MERGED' })], []) })
+    assert.match(line(chain, 12), /^#12 ready T12$/)
+})
+
+test('cross-referenced pull requests of a fork, another repository, a deleted fork, another branch or an issue are ignored', () => {
+    const r = run(['11', '12'], {
+        issues: [issue(11), issue(12)],
+        extra: pulls([
+            xref(50, 'x/issue-11-a', { headRepository: { databaseId: 2 } }),   // a fork
+            xref(51, 'x/issue-11-b', { repo: 'x/y' }),                         // another repository
+            xref(52, 'x/issue-11-c', { headRepository: null }),                // a deleted fork
+            xref(53, 'x/issue-110-d'), xref(54, 'x/issue-1-e'), xref(55, 'x/other-11-f'), xref(56, 'x/issue-11'),   // not this ticket's branch
+            { source: {} },                                                    // an issue, not a pull request
+            { source: null },
+        ], []),
+    })
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(line(r, 11), /^#11 ready T11$/)
+    assert.match(line(r, 12), /^#12 ready T12$/)
+    const same = run(['11'], { issues: [issue(11)], extra: pulls([xref(57, 'x/issue-11-g', { repo: 'O/R' })]) })   // the repository name compares case-insensitively
+    assert.match(line(same, 11), /^#11 in-progress T11 \[pr: #57 open abcdef1\]$/)
+})
+
+test('the same pull request in the REST list and in the cross-references is one PR, not a conflict; two different open ones are a conflict', () => {
+    const both = run(['11'], { issues: [issue(11)], pulls: [pr(40, 'feat/issue-11-x')], extra: pulls([xref(40, 'feat/issue-11-x')]) })
+    assert.match(line(both, 11), /^#11 in-progress T11 \[pr: #40 open abcdef1\]$/)
+    const two = run(['11', '12'], { issues: [issue(11), issue(12)], extra: pulls([xref(40, 'a/issue-11-x'), xref(41, 'b/issue-11-y')], []) })
+    assert.match(line(two, 11), /^#11 conflict /)
+    assert.match(two.stdout, /\nnext: #12\n/)
+    const mixed = run(['11'], { issues: [issue(11)], pulls: [pr(40, 'a/issue-11-x')], extra: pulls([xref(41, 'b/issue-11-y')]) })   // one from each source
+    assert.match(line(mixed, 11), /^#11 conflict /)
+})
+
+test('the open PR to resume is listed even behind three older closed cross-references, from either source', () => {
+    const old = [30, 31, 32].map((n) => xref(n, `x/issue-11-${n}`, { state: 'CLOSED' }))
+    const rest = run(['11'], { issues: [issue(11)], pulls: [pr(40, 'x/issue-11-new')], extra: pulls([...old, xref(40, 'x/issue-11-new')]) })
+    assert.match(line(rest, 11), /^#11 in-progress T11 \[pr: #40 open abcdef1\]/)
+    const xrefOnly = run(['11'], { issues: [issue(11)], extra: pulls([...old, xref(41, 'x/issue-11-new')]) })
+    assert.match(line(xrefOnly, 11), /^#11 in-progress T11 \[pr: #41 open abcdef1\]/)
+})
+
+test('an older PR that cross-references two listed tickets is one PR, not a conflict', () => {
+    const r = run(['11', '12'], { issues: [issue(11), issue(12)], extra: pulls([xref(40, 'x/issue-11-a')], [xref(40, 'x/issue-11-a')]) })
+    assert.match(line(r, 11), /^#11 in-progress T11 \[pr: #40 open abcdef1\]$/)
+    assert.match(r.stdout, /\nnext: #12\n/)
+})
+
+test('more than 100 references, a missing node or nodes array, or a failed read exits 2 with empty stdout (never a guessed next)', () => {
+    const over = { 'graphql TicketPulls': { nodes: [{ timelineItems: { totalCount: 101, nodes: [] } }] } }
+    for (const extra of [over, { 'graphql TicketPulls': { nodes: [{ timelineItems: { totalCount: 1 } }] } }, { 'graphql TicketPulls': { nodes: [{ timelineItems: { totalCount: 'x', nodes: [] } }] } },
+        { 'graphql TicketPulls': {} }, { 'graphql TicketPulls': { nodes: null } }, { 'graphql TicketPulls': { nodes: [null] } }, { 'graphql TicketPulls': { nodes: [{}] } }, { 'graphql TicketPulls': { errors: [{ message: 'boom' }] } }]) {
+        const r = run(['11'], { issues: [issue(11)], extra })
+        assert.equal(r.status, 2, JSON.stringify(extra)); assert.equal(r.stdout, '')
+    }
+    assert.equal(run(['11'], { issues: [issue(11)], extra: pulls([...Array.from({ length: 100 }, (_, i) => xref(100 + i, `x/issue-12-${i}`))]) }).status, 0)   // exactly 100 is fine
+})
+
+test('the cross-reference read takes the node ids of the tickets and their dependencies, 50 per call', () => {
+    const r = run(['11', '12'], { issues: [issue(11), issue(12, { body: 'Depends on #20.' })], extra: { [`${R}/issues/20`]: issue(20, { state: 'closed' }) } })
+    assert.deepEqual(pullIds(r).map((ids) => ids.sort()), [['N11', 'N12', 'N20']])
+    const deps = Array.from({ length: 50 }, (_, i) => 100 + i)
+    const many = run(['11'], { issues: [issue(11, { body: `Depends on ${deps.map((n) => `#${n}`).join(', ')}.` })], extra: Object.fromEntries(deps.map((n) => [`${R}/issues/${n}`, issue(n, { state: 'closed' })])) })
+    assert.equal(many.status, 0, many.stderr)
+    assert.deepEqual(pullIds(many).map((ids) => ids.length), [50, 1])
+    const none = run(['--ready'], { extra: { 'graphql ReadyItems': page([]) } })   // no ticket: no cross-reference call
+    assert.deepEqual(pullIds(none), [])
 })

@@ -18,11 +18,12 @@ const MERGED = pull({ merged: true, merge_commit_sha: 'f'.repeat(40) })
 
 /** Runs the real merge.mjs and the real pr-wait.mjs against the fake gh. `pulls` is served in turn: merge, pr-wait, merge's read-back. */
 const FLAGS = { squashMergeAllowed: true, rebaseMergeAllowed: true, mergeCommitAllowed: true }
-function run({ script: use = script, args = ['5'], pulls = seq(pull(), pull(), MERGED), gate = status('success'), behind = 0, reviews = [{ user: { login: BOT.login }, commit_id: HEAD }], comments = [], extra = {}, merge = {}, over = { reviewers: [BOT] }, config = true, flags = FLAGS, rules = [], threads = [] } = {}) {
+function run({ script: use = script, args = ['5'], pulls = seq(pull(), pull(), MERGED), gate = status('success'), behind = 0, reviews = [{ user: { login: BOT.login }, commit_id: HEAD, state: 'APPROVED' }], comments = [], extra = {}, merge = {}, over = { reviewers: [BOT] }, config = true, flags = FLAGS, rules = [], threads = [] } = {}) {
     const dir = tempDir('merge-')
     const gh = fakeGh(dir, {
         [`${R}/pulls/5`]: pulls, [`${R}/commits/${HEAD}/status`]: gate, [`${R}/compare/main...${HEAD}`]: { behind_by: behind },
         [`${R}/issues/5/comments`]: comments, [`${R}/pulls/5/reviews`]: reviews, [`${R}/pulls/5/comments`]: [], [`${R}/issues/5/reactions`]: [],
+        [`${R}/collaborators/me/permission`]: { permission: 'admin' },
         'pr merge': merge, 'graphql MergeMethods': { repository: flags }, [`${R}/rules/branches/main?per_page=100`]: rules,
         'graphql ReviewThreads': threads.errors ? threads : { repository: { pullRequest: { reviewThreads: { totalCount: threads.length, nodes: threads } } } }, ...extra,
     })
@@ -80,13 +81,14 @@ const READY = `Reviewed head: ${SHA7}\n**Verdict:** ready to merge\n**Blockers:*
 const NEEDED = `Reviewed head: ${SHA7}\n**Verdict:** changes needed\n**Blockers:** \`a.js:1\`: bug -> fix`
 const review = (over = {}) => ({ id: 77, user: { login: 'me' }, author_association: 'OWNER', commit_id: HEAD, state: 'COMMENTED', body: READY, ...over })
 const STRANGER = { user: { login: 'stranger' }, author_association: 'NONE' }
-const ext = { user: { login: BOT.login }, commit_id: HEAD }   // the external reviewer's review: done, and not a pr-reviewer verdict
+const ext = { user: { login: BOT.login }, commit_id: HEAD, state: 'APPROVED' }   // the external reviewer's review: done, and not a pr-reviewer verdict
 const thread = (id, login = 'anyone', over = {}) => ({ id, isResolved: false, path: 'a.js', line: 3, originalLine: 3, comments: { nodes: [{ author: { login }, body: 'P1: SQL injection' }] }, ...over })
-const comment = (body, over = {}) => ({ [`${R}/issues/comments/55`]: { issue_url: 'https://api.github.com/repos/o/r/issues/5', author_association: 'OWNER', body, ...over } })
+const comment = (body, over = {}) => ({ [`${R}/issues/comments/55`]: { issue_url: 'https://api.github.com/repos/o/r/issues/5', user: { login: 'me' }, author_association: 'OWNER', body, ...over } })
 const link = (pr = 5, id = 77) => `https://github.com/o/r/pull/${pr}#pullrequestreview-${id}`
 const prefix = `Review basis for ${SHA7}:`
-/** The reviews of the PR (the linked one last, after `before`) and the compare of its commit with the head. */
-const linked = (rev = review(), before = [], after = []) => ({ [`${R}/pulls/5/reviews`]: [...before, rev, ...after], [`${R}/compare/${rev.commit_id}...${HEAD}`]: { status: rev.commit_id === HEAD ? 'identical' : 'ahead' } })
+/** The reviews of the PR: the linked one last, after `before`. */
+const linked = (rev = review(), before = [], after = []) => ({ [`${R}/pulls/5/reviews`]: [...before, rev, ...after] })
+const perm = (login, permission) => ({ [`${R}/collaborators/${login}/permission`]: { permission } })
 const basis = ['5', '--review-basis', '55']
 const NONE = { over: { reviewers: [] }, reviews: [] }
 const withBasis = (body, extra = {}, more = {}) => run({ ...NONE, ...more, args: basis, extra: { ...comment(body), ...extra } })
@@ -228,10 +230,10 @@ test('with no reviewer, the basis must be a comment "Review basis for <sha7>:" t
     refused(withBasis(`${prefix} ${link(6)}`, linked()), /another PR|#5/)   // a review link of another PR
     const ok = withBasis(`${prefix} ${link()}`, linked())
     assert.equal(ok.status, 0, ok.stderr); assert.equal(ok.merges.length, 1)
-    assert.doesNotMatch(ok.stdout, /owner's approval/)
+    assert.doesNotMatch(ok.stdout, /owner approved/)
 })
 
-test('the linked review: not on this PR, another verdict, no Reviewed head line, pending or a diverged commit refuses; an ancestor commit is fine', () => {
+test('the linked review: not on this PR, another verdict, no Reviewed head line or pending refuses', () => {
     const link5 = `${prefix} ${link()}`
     refused(withBasis(link5, { [`${R}/pulls/5/reviews`]: [] }), /not a review of #5/)   // another PR's review id is not in this list
     refused(withBasis(link5, linked(review({ body: NEEDED }))), /ready to merge/)
@@ -239,20 +241,28 @@ test('the linked review: not on this PR, another verdict, no Reviewed head line,
     refused(withBasis(link5, linked(review({ body: `Reviewed head: ${SHA7}\nno verdict` }))), /ready to merge/)
     for (const state of ['PENDING', 'DISMISSED', 'CHANGES_REQUESTED']) refused(withBasis(link5, linked(review({ state }))), /ready to merge|submitted/)
     assert.equal(withBasis(link5, linked(review({ state: 'APPROVED' }))).status, 0)
-    const diverged = review({ commit_id: ANCESTOR, body: READY.replace(SHA7, ANCESTOR.slice(0, 7)) })
-    for (const status of ['diverged', 'behind']) refused(withBasis(link5, { ...linked(diverged), [`${R}/compare/${ANCESTOR}...${HEAD}`]: { status } }), /does not contain/)
-    const ancestor = withBasis(link5, linked(diverged))
-    assert.equal(ancestor.status, 0, ancestor.stderr)
 })
 
-test('the linked review must be the newest verdict review of the PR: a later "changes needed" on an ancestor defeats an older ready review', () => {
+test('D2: a basis must link a ready review of the exact head; an ancestor or any other commit is refused, whatever its relation to the head', () => {
     const link5 = `${prefix} ${link()}`
-    const ready = review({ commit_id: ANCESTOR, body: READY.replace(SHA7, ANCESTOR.slice(0, 7)) })
+    const onAncestor = review({ commit_id: ANCESTOR, body: READY.replace(SHA7, ANCESTOR.slice(0, 7)) })
+    for (const status of ['identical', 'ahead', 'diverged', 'behind']) {
+        const r = withBasis(link5, { ...linked(onAncestor), [`${R}/compare/${ANCESTOR}...${HEAD}`]: { status } })
+        refused(r, /review 77 is on 2222222, not the head abcdef1: run pr-reviewer on the head \(a delta review since its last review is enough\), then post a new basis/)
+        assert.ok(!r.calls.some((c) => c.some((a) => String(a).includes(`compare/${ANCESTOR}`))), 'no compare call is needed')
+    }
+    assert.equal(withBasis(link5, linked(review())).status, 0)   // on the head
+})
+
+test('the linked review must be the newest verdict review of the PR: a later review, even of another commit, defeats an older ready review', () => {
+    const link5 = `${prefix} ${link()}`
+    const ready = review()
     const later = review({ id: 78, commit_id: MID, body: NEEDED.replace(SHA7, MID.slice(0, 7)) })
     refused(withBasis(link5, linked(ready, [], [later])), /newest|later/)
     assert.equal(withBasis(link5, linked(ready, [later], [])).status, 0)   // an older "changes needed" is superseded
-    refused(withBasis(link5, linked(ready, [], [review({ id: 79, body: READY })])), /newest|later/)   // the link must name the newest one
-    assert.equal(withBasis(link5, linked(ready, [], [review({ id: 79, body: NEEDED.replace(SHA7, MID.slice(0, 7)), commit_id: MID, ...STRANGER })])).status, 0)   // an outsider's later review does not count
+    refused(withBasis(link5, linked(ready, [], [review({ id: 79, commit_id: MID, body: READY.replace(SHA7, MID.slice(0, 7)) })])), /newest|later/)   // the link must name the newest one
+    assert.equal(withBasis(link5, linked(ready, [], [{ ...later, ...STRANGER }])).status, 0)   // an outsider's later review does not count
+    refused(withBasis(link5, linked(ready, [], [review({ id: 80, body: NEEDED })])), /changes needed/)   // on the head, a later "changes needed" stops first
 })
 
 test('the linked review: its "Reviewed head:" sha must prefix its commit_id (a review posted after a force-push is refused)', () => {
@@ -264,7 +274,7 @@ test('the linked review: its "Reviewed head:" sha must prefix its commit_id (a r
 test('"owner approved" is accepted as the basis, and merge says so', () => {
     const r = withBasis(`${prefix} owner approved the setup PR`)
     assert.equal(r.status, 0, r.stderr); assert.equal(r.merges.length, 1)
-    assert.match(r.stdout, /^Note: merged on the owner's approval \(comment 55\)/m)
+    assert.match(r.stdout, /^Note: merged on an `owner approved` basis \(comment 55 by me, admin\): a comment shows which account posted it, not who typed it$/m)
     refused(withBasis(`${prefix} not owner approved`), /link a pr-reviewer review|owner approved/)
     refused(withBasis(`${prefix} owner approved`, {}, { threads: [thread('PRRT_o')] }), /unresolved review thread/)   // still gated by threads
     refused(withBasis(`${prefix} owner approved`, {}, { reviews: [review({ body: NEEDED })] }), /changes needed/)
@@ -305,4 +315,74 @@ test('the merge method follows the repo: squash, else rebase, else a merge commi
     refused(run({ flags: { ...FLAGS, mergeCommitAllowed: false }, rules: [{ type: 'pull_request', parameters: { allowed_merge_methods: ['merge'] } }] }), /no merge method is allowed/)
     refused(run({ extra: { 'graphql MergeMethods': { __status: 502, __stderr: 'boom' } } }), /cannot read/)
     refused(run({ extra: { [`${R}/rules/branches/main?per_page=100`]: { __status: 502, __stderr: 'boom' } } }), /cannot read/)
+})
+
+// ---- #38: a comment is not an approval, trust follows repository permission, the base is re-read before the merge
+const commentedExt = { ...ext, state: 'COMMENTED' }
+
+test('A1: a configured reviewer that only commented (no thread) is not done: it needs a stand-in and a basis on the head', () => {
+    refused(run({ reviews: [commentedExt] }), /standin needed \(rb\)/)
+    refused(run({ reviews: [{ ...commentedExt, state: undefined }] }), /standin needed \(rb\)/)   // an unknown state reads as commented
+    const ok = run({ reviews: [commentedExt, review()], args: basis, extra: comment(`${prefix} ${link()}`) })
+    assert.equal(ok.status, 0, ok.stderr); assert.equal(ok.merges.length, 1)
+    refused(run({ reviews: [commentedExt, review({ body: NEEDED })], args: basis, extra: comment(`${prefix} ${link()}`) }), /changes needed/)   // the basis never lifts a verdict of record
+    refused(run({ reviews: [commentedExt, review()], args: basis, extra: comment(`${prefix} ${link()}`, { author_association: 'NONE' }) }), /not from the owner/)
+})
+
+test('N2: a ready verdict on the head counts only from an account with write access; a read-only collaborator cannot lift "changes needed"', () => {
+    const reader = { id: 99, user: { login: 'reader' }, author_association: 'COLLABORATOR', body: READY }
+    refused(run({ reviews: [ext, review({ body: NEEDED }), review(reader)], extra: perm('reader', 'read') }), /reader.*read access.*write/)
+    refused(run({ reviews: [ext, review(reader)], extra: perm('reader', 'none') }), /reader.*none access/)   // a lone ready verdict of a read-only account
+    refused(run({ reviews: [ext, review({ ...reader, user: null })] }), /unknown account.*none access/)   // a deleted account has no login
+    for (const permission of ['write', 'admin']) assert.equal(run({ reviews: [ext, review({ body: NEEDED }), review(reader)], extra: perm('reader', permission) }).status, 0, permission)
+    refused(run({ reviews: [ext, review(reader), review({ id: 100, body: NEEDED })], extra: perm('reader', 'write') }), /changes needed/)   // the newest verdict still wins
+    refused(run({ reviews: [ext, review({ body: NEEDED, author_association: 'COLLABORATOR' })], extra: perm('me', 'read') }), /changes needed/)   // a read-only account's "changes needed" still blocks
+})
+
+test('D3: "owner approved" needs an admin author; a write account cannot approve for the owner', () => {
+    const approved = `${prefix} owner approved`
+    refused(withBasis(approved, perm('me', 'write')), /admin.*write|write.*admin/)
+    for (const permission of ['read', 'none']) refused(withBasis(approved, perm('me', permission)), /admin/)
+    refused(withBasis(approved, comment(approved, { user: null })), /admin/)
+    const boss = withBasis(approved, { ...comment(approved, { user: { login: 'boss' } }), ...perm('boss', 'admin') })
+    assert.equal(boss.status, 0, boss.stderr); assert.equal(boss.merges.length, 1)
+    assert.match(boss.stdout, /^Note: merged on an `owner approved` basis \(comment 55 by boss, admin\)/m)
+    refused(withBasis(approved, { ...comment(approved, { user: { login: 'boss' } }), ...perm('boss', 'admin') }, { reviews: [review({ body: NEEDED })] }), /changes needed/)
+})
+
+test('D3: a link basis needs a write author, and so does the author of the linked review', () => {
+    const link5 = `${prefix} ${link()}`
+    const byRev = (permission = 'write', over = {}) => ({ ...linked(review({ user: { login: 'rev' } })), ...perm('rev', permission), ...over })
+    assert.equal(withBasis(link5, byRev()).status, 0)
+    for (const permission of ['read', 'none']) refused(withBasis(link5, byRev('write', perm('me', permission))), /comment 55 is by me, who has \w+ access.*write/)
+    refused(withBasis(link5, byRev('write', comment(link5, { user: null }))), /comment 55 is by an unknown account.*write/)
+    refused(withBasis(link5, byRev('read')), /verdict 77.*rev.*read access.*write/)
+    refused(withBasis(link5, { ...linked(review({ user: { login: 'reader' }, author_association: 'COLLABORATOR' })), ...perm('reader', 'read') }), /verdict 77.*reader.*read access.*write/)
+})
+
+test('an unreadable or malformed permission refuses; the same login is read once', () => {
+    const down = { [`${R}/collaborators/me/permission`]: { __status: 500, __stderr: 'boom' } }
+    refused(run({ reviews: [ext, review()], extra: down }), /cannot read/)
+    refused(withBasis(`${prefix} owner approved`, down), /cannot read/)
+    refused(withBasis(`${prefix} ${link()}`, { ...linked(), ...down }), /cannot read/)
+    for (const bad of [{}, { permission: 'maintain' }, { permission: null }, []]) refused(withBasis(`${prefix} owner approved`, { [`${R}/collaborators/me/permission`]: bad }), /admin/)
+    const r = withBasis(`${prefix} ${link()}`, linked())   // the comment and the linked review are by the same login
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(r.calls.filter((c) => c.some((a) => String(a).includes('collaborators/me/permission'))).length, 1)
+})
+
+test('a login is URL-encoded in the permission path', () => {
+    const bot = { user: { login: 'weird[bot]' } }
+    const r = run({ reviews: [ext, review(bot)], extra: { [`${R}/collaborators/weird%5Bbot%5D/permission`]: { permission: 'write' } } })
+    assert.equal(r.status, 0, r.stderr)
+})
+
+test('the base is read again right before the merge: a base that moved in between is refused and nothing is merged', () => {
+    const compare = (...v) => ({ [`${R}/compare/main...${HEAD}`]: seq(...v.map((behind_by) => ({ behind_by }))) })
+    const r = run({ extra: compare(0, 3) })
+    refused(r, /behind by 3\): gh pr update-branch 5 --repo o\/r/)
+    assert.equal(r.calls.filter((c) => c.some((a) => String(a).includes(`compare/main...${HEAD}`))).length, 2)
+    assert.equal(run({ extra: compare(0, 0) }).status, 0)
+    refused(run({ extra: compare(2, 0) }), /behind by 2/)   // the early check still fails fast
+    refused(run({ extra: { [`${R}/compare/main...${HEAD}`]: seq({ behind_by: 0 }, { __status: 500, __stderr: 'boom' }) } }), /cannot read/)
 })

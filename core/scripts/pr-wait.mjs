@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * One blocking wait for a pull request (or a default-branch commit): returns when the merge gate is final and the configured
- * reviewers are done, unavailable or silent, then prints one summary. Run it in the background instead of polling in turns.
+ * reviewers are done, asked for changes, commented, unavailable or silent, then prints one summary. Run it in the background instead of polling in turns.
  *
  * Usage: pr-wait.mjs <pr | 40-hex sha> [--once] [--ci-only] [--timeout-min N] [--config f]
  *   --once         one poll; the exit code comes from CI only (reviewer lines are still printed unless --ci-only)
@@ -13,11 +13,12 @@
  * A failed read is a pending poll, never a verdict.
  *
  * A reviewer's last review on the head decides: CHANGES_REQUESTED prints `Review: changes requested (<names>)` (settled, exit 0: merge
- * refuses it); a dismissed or pending review counts for nothing. The summary is `pending`, else `changes requested`, else `standin
- * needed`, else `done`. In PR mode (not `--ci-only`) it also prints `Unresolved threads: <n | unknown>` and lists them for
+ * refuses it); APPROVED is done; any other state (COMMENTED, unknown, missing) is `commented`, which needs a stand-in: a comment
+ * reports findings, it does not accept them. A dismissed or pending review counts for nothing. The summary is `pending`, else
+ * `changes requested`, else `standin needed` (unavailable, silent or commented), else `done`. In PR mode (not `--ci-only`) it also prints `Unresolved threads: <n | unknown>` and lists them for
  * `thread.mjs`; `unknown` is a failed read or more than 100 threads, and `merge` refuses it.
  *
- * Exit: 0 = CI green and every reviewer done, unavailable or silent; 1 = CI red, or the PR conflicts with / is behind the default
+ * Exit: 0 = CI green and every reviewer done, changes requested, commented, unavailable or silent; 1 = CI red, or the PR conflicts with / is behind the default
  * branch; 2 = timed out, still pending, a draft in local-first mode, or (sha) superseded; 3 = Actions refused the run, so
  * `local-verify` may take over ("Fallback: allowed" in the summary). Usage and config errors exit 2 before any call.
  */
@@ -30,6 +31,7 @@ import { configPath, loadConfig } from '../lib/config.mjs'
 import { gql } from '../lib/gh.mjs'
 
 const ACTIONS_APP_ID = 15368
+const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
 const BILLING = /recent account payments have failed|spending limit/i
 const STUCK_MS = 20 * 60_000
 const POLL_SEC = '60'
@@ -128,7 +130,8 @@ function pollReviewers(S) {
     const reactions = cfg.reviewers.some((r) => r.no_findings_reaction) ? api(`${R}/issues/${target}/reactions`, true) : []
     const headDate = cfg.reviewers.some((r) => r.no_findings_reaction || r.stale_after_min) ? ms(api(`${R}/commits/${S.head}`).commit.committer.date) : NaN
     S.reviewers = cfg.reviewers.map((r) => {
-        const asked = r.rereview_comment ? comments.filter((c) => c.body?.trim().startsWith(r.rereview_comment)).map((c) => ms(c.created_at)) : []
+        // only a request of the owner, a member or a collaborator moves the round: on a public repo anyone can comment
+        const asked = r.rereview_comment ? comments.filter((c) => TRUSTED.has(c.author_association) && c.body?.trim().startsWith(r.rereview_comment)).map((c) => ms(c.created_at)) : []
         const start = asked.length ? Math.max(...asked) : ms(S.created)
         const mine = (x) => x.user?.login === r.login
         const out = { r, start }
@@ -137,7 +140,8 @@ function pollReviewers(S) {
         // the reviewer's last answer on the head decides; a dismissed or pending review is no answer
         const last = reviews.filter((x) => mine(x) && x.commit_id === S.head && x.state !== 'DISMISSED' && x.state !== 'PENDING').at(-1)
         if (last?.state === 'CHANGES_REQUESTED') return { ...out, state: 'changes', text: `changes requested (${S.head.slice(0, 7)})` }
-        if (last) return { ...out, state: 'done', text: `done (${S.head.slice(0, 7)})` }
+        if (last?.state === 'APPROVED') return { ...out, state: 'done', text: `approved (${S.head.slice(0, 7)})` }
+        if (last) return { ...out, state: 'commented', text: `commented, not approved (${S.head.slice(0, 7)})` }
         if (r.no_findings_reaction && reactions.some((x) => mine(x) && x.content === r.no_findings_reaction && ms(x.created_at) > Math.max(start, headDate))) {
             return { ...out, state: 'done', text: `done (${r.no_findings_reaction} after head)` }
         }
@@ -179,7 +183,7 @@ function print(S, timedOut) {
     if (S.reviewers) {
         for (const x of S.reviewers) console.log(flat(`Review ${x.r.name}: ${x.text}`))
         const named = (...states) => S.reviewers.filter((x) => states.includes(x.state)).map((x) => x.r.name).join(', ')
-        console.log(`Review: ${S.reviewers.some((x) => x.state === 'pending') ? 'pending' : named('changes') ? `changes requested (${named('changes')})` : named('unavailable', 'silent') ? `standin needed (${named('unavailable', 'silent')})` : 'done'}`)
+        console.log(`Review: ${S.reviewers.some((x) => x.state === 'pending') ? 'pending' : named('changes') ? `changes requested (${named('changes')})` : named('unavailable', 'silent', 'commented') ? `standin needed (${named('unavailable', 'silent', 'commented')})` : 'done'}`)
     } else if (!sha && !ciOnly && cfg.reviewers.length === 0) console.log('Review: none configured (pr-reviewer reviews)')
     if (S.threads === 'unknown') console.log('Unresolved threads: unknown')
     else if (S.threads) {
