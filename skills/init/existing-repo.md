@@ -22,7 +22,7 @@ Work on the branch `chore/ticketflow-init`. Nothing is overwritten that ticketfl
 ## Other cases
 
 - A settings or hooks file that is not valid JSON: fix it with the owner first.
-- `.github/workflows/ci.yml`: exactly one job posts `gate.context` and no job is named after it; the repo's own steps go in the repo section outside the managed blocks.
+- `.github/workflows/ci.yml`: exactly one job posts `gate.context` and no job is named after it; the repo's own steps go in the repo section outside the managed blocks and replace the template's default Install Dependencies and Verify steps there, never in addition to them (`doctor` warns when `verify.command` runs twice).
 - `.claude/CLAUDE.md`: take the proposal that imports `AGENTS.md` through the block, and remove a stray `@AGENTS.md` line.
 - Replaced copies: list the scripts, skills and agents that ticketflow now replaces and ask before deleting them in this PR.
 - Never `--prune` labels without a yes to the shown list.

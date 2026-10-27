@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFil
 import { dirname, join } from 'node:path'
 import { claudeAsk } from '../core/lib/guard.mjs'
 import { validate } from '../core/lib/config.mjs'
-import { FILES, RenderError, dropParts, fill, mergeClaudeSettings, mergeCodexHooks, mergeManaged, omittedParts, parseBlocks, proposeInsert, renderFile, templateVars } from '../core/lib/render.mjs'
+import { FILES, RenderError, dropParts, fill, verifyRuns, mergeClaudeSettings, mergeCodexHooks, mergeManaged, omittedParts, parseBlocks, proposeInsert, renderFile, templateVars } from '../core/lib/render.mjs'
 import { config, fakeGh, rawConfig, tempDir } from './helpers.mjs'
 
 const TEMPLATES = new URL('../core/templates/', import.meta.url).pathname
@@ -434,4 +434,13 @@ test('the default gate context "CI / Gate" has spaces and a slash: the rendered 
     const accepts = (d) => spawnSync('bash', ['-c', `d=${JSON.stringify(d)}; ${pattern}`]).status === 0
     assert.ok(accepts('description=Inherited from abc1234: only docs merged from main'))
     assert.ok(!accepts('description=Inherited from abc: x') && !accepts('description=inherited from abc1234: x') && !accepts('description=Actions run #1'))
+})
+
+test('verifyRuns counts the steps that run the verify command: inline or in a run block, first line of a multi-line command, comments skipped', () => {
+    const ci = renderAll(A).get('.github/workflows/ci.yml')
+    assert.equal(verifyRuns(ci, 'npm run verify'), 1)
+    assert.equal(verifyRuns(ci + '      - name: Mine\n        run: npm run verify\n', 'npm run verify'), 2)
+    assert.equal(verifyRuns('# npm run verify\n- run: npm run verify --watch\n', 'npm run verify'), 0)
+    const b = renderAll(B).get('.github/workflows/ci.yml')
+    assert.equal(verifyRuns(b, 'pnpm verify\npnpm test:extra'), 1)
 })

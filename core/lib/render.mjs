@@ -111,6 +111,12 @@ export function templateVars(cfg, { runtimeRel, practices = [] }) {
     }
 }
 
+/** How many lines of a workflow run the verify command (its first line, as `run: <cmd>` or inside a `run: |` block); comments are skipped. */
+export function verifyRuns(text, command) {
+    const first = command.trim().split('\n')[0].trim()
+    return text.split('\n').map((l) => l.trim()).filter((l) => !l.startsWith('#')).map((l) => l.replace(/^(-\s*)?run:\s*/, '')).filter((l) => l === first).length
+}
+
 /** Parts a config leaves out of the rendered file. */
 export const omittedParts = (cfg) => (cfg.deploy_branch === null ? ['deploy'] : [])
 
