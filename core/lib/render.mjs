@@ -340,7 +340,7 @@ export function mergeOpencodeAsk(existing, patterns, base) {
         const perm = typeof obj.permission === 'string' ? { '*': obj.permission } : obj.permission ?? {}
         const bash = typeof perm.bash === 'string' ? { '*': perm.bash } : perm.bash ?? {}
         if (!isObject(perm) || !isObject(bash)) return { conflict: 'permission (or permission.bash) is not an object' }
-        const general = typeof perm['*'] === 'string' ? [['*', perm['*']]] : []   // the action-wide rule is the fallback under the bash rules
+        const general = Object.entries(perm).filter(([k, v]) => k !== 'bash' && typeof v === 'string' && globMatch(k, 'bash')).map(([, v]) => ['*', v])   // action-key rules matching bash (`*`, `b*`) are the fallback under the bash rules
         const denies = [...(obj.tools?.bash === false ? [['*', 'deny']] : []), ...general, ...Object.entries(bash)].filter(([, e]) => e === 'deny').map(([g]) => g)   // legacy tools.bash:false is a deny-all
         const merged = { ...bash }
         for (const p of patterns) {

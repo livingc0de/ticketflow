@@ -626,6 +626,7 @@ test('opencode: an existing deny that decides a pattern is never weakened (the l
     for (const [what, input, left] of [
         ['permission: "deny"', { permission: 'deny' }, []],
         ['permission["*"]: deny', { permission: { '*': 'deny' } }, []],
+        ['permission["b*"]: deny (an action-key glob matching bash)', { permission: { 'b*': 'deny' } }, []],
         ['bash: "deny"', { permission: { bash: 'deny' } }, []],
         ['bash["gh *"]: deny', { permission: { bash: { 'gh *': 'deny' } } }, ['git push * main']],
         ['bash["*"]: deny, "gh pr merge *": allow after it (a deny that could match is enough)', { permission: { bash: { '*': 'deny', 'gh pr merge *': 'allow' } } }, []],
