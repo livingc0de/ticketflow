@@ -249,3 +249,13 @@ test('a transferred issue (its repository_url is another repository) is an error
         assert.equal(r.status, 2); assert.equal(r.stdout, ''); assert.match(r.stderr, /x\/y/)
     }
 })
+
+test('a PR link in Depends on fails closed like #N pointing at a PR (exit 2); another repository\'s PR link stays pending', () => {
+    const pullRequest = { ...issue(30), pull_request: {} }
+    for (const text of ['Depends on #30.', 'Depends on https://github.com/o/r/pull/30.']) {
+        const r = run(['12'], { issues: [issue(12, { body: text }), pullRequest] })
+        assert.equal(r.status, 2, text); assert.equal(r.stdout, ''); assert.match(r.stderr, /pull request/)
+    }
+    const r = run(['12'], { issues: [issue(12, { body: 'Depends on https://github.com/x/y/pull/4.' })] })
+    assert.match(line(r, 12), /^#12 waiting T12 \[after: x\/y#4\]$/)
+})

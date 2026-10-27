@@ -38,14 +38,14 @@ export function projectStatuses(gql, ids, project) {
 
 /**
  * The dependencies of a ticket: the refs in the sentence that starts with "Depends on" (up to a `.` or `;`), or, when that sentence has
- * none ("Depends on:"), in the list items (bulleted or numbered) right after it. An issue URL counts as a ref. A number is an issue of `repo`; `owner/repo#N` of another repository is kept
+ * none ("Depends on:"), in the list items (bulleted or numbered) right after it. An issue or pull request URL counts as a ref. A number is an issue of `repo`; `owner/repo#N` of another repository is kept
  * as a string (queue treats it as not done: fail closed). "Part of #T" and "Blocks #M" are not dependencies.
  */
 export function dependsOn(body, repo) {
     const out = new Set(), lines = (body ?? '').split('\n')
     const refs = (text) => {
         const found = []
-        for (const [, w1, n1, w2, n2] of text.matchAll(/(?<![\w/-])(?:([\w.-]+\/[\w.-]+))?#(\d+)|github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)/g)) {
+        for (const [, w1, n1, w2, n2] of text.matchAll(/(?<![\w/-])(?:([\w.-]+\/[\w.-]+))?#(\d+)|github\.com\/([\w.-]+\/[\w.-]+)\/(?:issues|pull)\/(\d+)/g)) {
             const where = w1 ?? w2, n = n1 ?? n2
             found.push(!where || where.toLowerCase() === repo.toLowerCase() ? Number(n) : `${where}#${n}`)
         }
