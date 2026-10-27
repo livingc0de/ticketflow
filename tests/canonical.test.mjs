@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { AGENTS } from '../core/lib/config.mjs'
 import { parseCanonical } from '../core/lib/stubs.mjs'
 
 const core = new URL('../core/', import.meta.url).pathname
@@ -18,7 +19,7 @@ const maps = ls('agents-map').map((f) => ({ path: `agents-map/${f}`, max: 40 }))
 const text = (p) => readFileSync(join(core, p), 'utf8')
 
 test('there are canonical skills and roles to check', () => {
-    for (const p of ['skills/implement-ticket/SKILL.md', 'skills/implement-ticket/post-merge.md', 'skills/create-ticket/SKILL.md', 'skills/orchestrate-tickets/SKILL.md', 'agents/ticket-planner.md', 'agents/pr-reviewer.md', 'agents/e2e-verifier.md', 'agents-map/claude.md', 'agents-map/codex.md', 'agents-map/generic.md']) assert.ok(prose.some((x) => x.path === p) || maps.some((x) => x.path === p), p)
+    for (const p of ['skills/implement-ticket/SKILL.md', 'skills/implement-ticket/post-merge.md', 'skills/create-ticket/SKILL.md', 'skills/orchestrate-tickets/SKILL.md', 'agents/ticket-planner.md', 'agents/pr-reviewer.md', 'agents/e2e-verifier.md', 'agents-map/claude.md', 'agents-map/codex.md', 'agents-map/generic.md', ...['cursor', 'gemini', 'opencode', 'antigravity', 'copilot'].map((n) => `agents-map/${n}.md`)]) assert.ok(prose.some((x) => x.path === p) || maps.some((x) => x.path === p), p)
 })
 
 test('skills and roles name actions, never one agent\'s tools', () => {
@@ -130,4 +131,15 @@ test('orchestrate-tickets: a coordinator with the Result contract, the budget fo
 
 test('the ticketflow repo root has no plugin.json, hooks.json, rules/ or GEMINI.md: agents that scan the root would load them as their own', () => {
     for (const f of ['plugin.json', 'hooks.json', 'rules', 'GEMINI.md']) assert.ok(!existsSync(join(root, f)), f)
+})
+
+test('every agent has an action map; the maps for the other tools point claude and codex users to theirs; no map is one tool\'s name for another', () => {
+    for (const n of AGENTS) assert.ok(maps.some((m) => m.path === `agents-map/${n}.md`), n)
+    for (const n of ['claude', 'codex']) assert.match(text(`agents-map/${n}.md`), /Loaded by another tool \(Cursor, Copilot and OpenCode also read `\.claude\/`; Cursor reads `\.codex\/agents`\)\? Use `\.ticketflow\/agents-map\/<your tool>\.md`, or `generic\.md`\./)
+    for (const n of AGENTS) assert.match(text(`agents-map/${n}.md`), new RegExp(`^# Action map: `), n)
+})
+
+test('the skills and roles stay agent-neutral: none names a front-door tool or its config file', () => {
+    const tools = /\.cursor|\.gemini|\.opencode|\.antigravity|opencode\.json|GEMINI\.md|\.agent\.md|invoke_subagent|runSubagent|activate_skill|ask_user|write_todos/
+    for (const { path } of prose) assert.doesNotMatch(text(path), tools, path)
 })
