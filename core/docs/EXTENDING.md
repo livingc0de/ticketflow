@@ -15,12 +15,20 @@ A file here adds to and overrides the TicketFlow file of the same name; each can
 | `implement-ticket.md` | the implement-ticket skill: your build, test and live-check commands |
 | `post-merge.md` | the steps after a merge: deploy, smoke checks, your handoff rules |
 | `create-ticket.md` | the create-ticket skill: your label and tracker conventions |
+| `engineering-method.md` | the engineering-method skill, ticket or not: your test, review and lean-code conventions |
 | `orchestrate-tickets.md` | the optional multi-ticket skill: your budget and parallelism defaults, tickets that must never run together |
 | `ticket-planner.md`, `pr-reviewer.md`, `e2e-verifier.md` | that role: the guides to read, your lenses, your accounts and viewports |
 | `<practice>.md` | one enabled practice (its README says what to record) |
 | `labels.json` | labels beyond TicketFlow's (same format as `templates/labels.json`); `labels sync` adds them |
 
 Keep each file short: it is read every time its skill or role runs.
+
+## Testing a rule you add
+
+A rule costs tokens on every run, so keep it only if it changes what the agent does. Write down the situation that breaks without it
+(for example, a bug fix that patches the symptom). Run that situation once without the rule and once with it, in a scratch repo and
+with the same agent and model. If the behaviour is the same, delete the rule; if it changed, keep it and note the situation in the
+file.
 
 ## AGENTS.md
 

@@ -9,7 +9,7 @@ const core = new URL('../core/', import.meta.url).pathname
 const ls = (dir) => (existsSync(join(core, dir)) ? readdirSync(join(core, dir)) : [])
 // the canonical prose: skills (every .md under skills/<n>/) and roles, each with its own `.ticketflow/custom/<name>.md` and line budget
 const prose = [
-    ...ls('skills').flatMap((n) => ls(`skills/${n}`).filter((f) => f.endsWith('.md')).map((f) => ({ path: `skills/${n}/${f}`, custom: f === 'SKILL.md' ? n : f.replace(/\.md$/, ''), max: { 'implement-ticket/SKILL.md': 130, 'implement-ticket/post-merge.md': 60, 'create-ticket/SKILL.md': 90, 'orchestrate-tickets/SKILL.md': 70 }[`${n}/${f}`] ?? 130 }))),
+    ...ls('skills').flatMap((n) => ls(`skills/${n}`).filter((f) => f.endsWith('.md')).map((f) => ({ path: `skills/${n}/${f}`, custom: f === 'SKILL.md' ? n : f.replace(/\.md$/, ''), max: { 'implement-ticket/SKILL.md': 130, 'implement-ticket/post-merge.md': 60, 'create-ticket/SKILL.md': 90, 'orchestrate-tickets/SKILL.md': 70, 'engineering-method/SKILL.md': 100 }[`${n}/${f}`] ?? 130 }))),
     ...ls('agents').map((f) => ({ path: `agents/${f}`, custom: f.replace(/\.md$/, ''), max: 80 })),
 ]
 // the optional practices (practices/<n>/*.md at the repo root) follow the same two rules as the core prose
@@ -19,7 +19,7 @@ const maps = ls('agents-map').map((f) => ({ path: `agents-map/${f}`, max: 40 }))
 const text = (p) => readFileSync(join(core, p), 'utf8')
 
 test('there are canonical skills and roles to check', () => {
-    for (const p of ['skills/implement-ticket/SKILL.md', 'skills/implement-ticket/post-merge.md', 'skills/create-ticket/SKILL.md', 'skills/orchestrate-tickets/SKILL.md', 'agents/ticket-planner.md', 'agents/pr-reviewer.md', 'agents/e2e-verifier.md', 'agents-map/claude.md', 'agents-map/codex.md', 'agents-map/generic.md', ...['cursor', 'gemini', 'opencode', 'antigravity', 'copilot'].map((n) => `agents-map/${n}.md`)]) assert.ok(prose.some((x) => x.path === p) || maps.some((x) => x.path === p), p)
+    for (const p of ['skills/implement-ticket/SKILL.md', 'skills/implement-ticket/post-merge.md', 'skills/create-ticket/SKILL.md', 'skills/orchestrate-tickets/SKILL.md', 'skills/engineering-method/SKILL.md', 'agents/ticket-planner.md', 'agents/pr-reviewer.md', 'agents/e2e-verifier.md', 'agents-map/claude.md', 'agents-map/codex.md', 'agents-map/generic.md', ...['cursor', 'gemini', 'opencode', 'antigravity', 'copilot'].map((n) => `agents-map/${n}.md`)]) assert.ok(prose.some((x) => x.path === p) || maps.some((x) => x.path === p), p)
 })
 
 test('skills and roles name actions, never one agent\'s tools', () => {
@@ -127,6 +127,17 @@ test('orchestrate-tickets: a coordinator with the Result contract, the budget fo
     assert.match(skill, /the scope is exactly those ticket numbers: every loop and every resume runs the queue with them, never the ready backlog again/)
     assert.match(skill, /not dispatched again in this run/)
     assert.match(skill, /write nothing to GitHub/)
+})
+
+test('engineering-method: the method has one home (implement-ticket and create-ticket point to it), and the roles carry the new modes', () => {
+    const skill = text('skills/engineering-method/SKILL.md')
+    for (const re of [/see a test fail for the right reason/, /root cause/, /shortcut: <limit>, <when to revisit>/, /diff mode/, /audit mode/, /debt\.mjs/, /Not checked/, /No other plugin's planning, approval, branching, review or merge process runs on top/]) assert.match(skill, re)
+    for (const re of [/\(b\) a small diff in one place/, /\(d\) verification is obvious and automated/]) { assert.match(skill, re); assert.doesNotMatch(text('skills/implement-ticket/SKILL.md'), re) }   // the plan-or-skip tests have one home
+    assert.doesNotMatch(text('skills/implement-ticket/SKILL.md'), /see a test fail for the right reason|shortcut: <limit>|Never delegate a deterministic command/)
+    for (const p of ['skills/implement-ticket/SKILL.md', 'skills/create-ticket/SKILL.md']) assert.match(text(p), /\.ticketflow\/skills\/engineering-method\/SKILL\.md|engineering-method skill/, p)
+    const reviewer = text('agents/pr-reviewer.md')
+    for (const re of [/\*\*Diff mode\*\*/, /\*\*Audit mode\*\*/, /Lean: -N lines possible/, /at most 20/, /never a PR's review of record and never a `Review basis`/, /Verdict: no blockers \| blockers found/]) assert.match(reviewer, re)
+    assert.match(text('agents/ticket-planner.md'), /`review: task`/)
 })
 
 test('the ticketflow repo root has no plugin.json, hooks.json, rules/ or GEMINI.md: agents that scan the root would load them as their own', () => {

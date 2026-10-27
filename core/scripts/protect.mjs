@@ -53,7 +53,7 @@ main('protect', () => {
         console.error(`protect: ${cfg.repo} has no ${branch} yet: push the initial commit first`)
         return 1
     }
-    const listed = api(`${R}/rulesets?per_page=100`)   // ponytail: no paging past 100 rulesets
+    const listed = api(`${R}/rulesets?per_page=100`)   // shortcut: no paging past 100 rulesets, page them if a repo has more
     for (const r of listed.filter((x) => x.source_type && x.source_type !== 'Repository')) console.log(`org-level ruleset "${r.name}" (not touched)`)
     const touching = listed.filter((x) => !x.source_type || x.source_type === 'Repository').map((x) => api(`${R}/rulesets/${x.id}`)).map((x) => ({ x, how: relation(x, branch) })).filter((t) => t.how)
     const name = (x) => `"${x.name}" (id ${x.id})`

@@ -113,7 +113,7 @@ export function checkAdapter(a) {
 /**
  * A guide's relative Markdown links, rewritten from `docs/agents/` to the folder of the rule file it is copied to: inline links and
  * images (`](path#frag "title")`) and reference definitions (`[ref]: path`). URLs, anchors and absolute paths stay.
- * ponytail: code spans and fences are not skipped; a link-shaped example in one is rewritten too.
+ * shortcut: code spans and fences are not skipped (a link-shaped example in one is rewritten too), skip them if a guide needs such an example
  */
 export function relinkGuide(body, rulePath) {
     const rel = (path) => posix.relative(posix.dirname(rulePath), posix.join('docs/agents', path)) || '.'

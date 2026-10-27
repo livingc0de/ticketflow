@@ -146,7 +146,7 @@ if (!values.preflight) {
         try { held = (readManifest(root)?.held ?? []).filter((p) => FILES.some((f) => f.dest === p)) } catch { /* the runtime check reports an unreadable manifest */ }
         child('templates', 'render.mjs', [join(rtRel, 'templates'), '.', '--check', ...held.flatMap((p) => ['--keep', p])], (code, r) => {
             if (code === 0) return ['ok', held.length ? `in sync (${held.length} held)` : 'in sync']
-            // ponytail: the ticketflow repo is rendered by hand until it is dogfooded, so its unmanaged files are a warning there, not a failure
+            // shortcut: unmanaged files in the ticketflow repo are only a warning (it is rendered by hand), make them a failure once the repo is dogfooded
             if (repoMode && code === 1 && lines(r).every((l) => /^(conflict:|\s)/.test(l))) return ['warn', 'files without ticketflow markers: not managed yet (render --propose)']
             return plain('', 'out of date or in conflict: run render')(code)
         })

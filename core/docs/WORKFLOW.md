@@ -1,12 +1,14 @@
 # Workflow
 
 This is the heart of TicketFlow: how a piece of work travels from an idea to merged code, and why each step exists. Agents follow
-the same rules step by step through the `implement-ticket` and `create-ticket` skills; this page explains them for people, in one
+the same rules step by step through the `implement-ticket`, `create-ticket` and `engineering-method` skills; this page explains them for people, in one
 place. For what the board statuses and labels mean, see [PROJECT.md](PROJECT.md).
 
-**The short version:** every change starts as a ticket, is planned unless it is small and obvious, is built on its own branch,
+**The short version:** every change that ships starts as a ticket, is planned unless it is small and obvious, is built on its own branch,
 proves itself with a green gate, gets an independent review, merges only through a script that checks all of that, and comes back
 to you as In Review with a summary. You decide when it is Done.
+A request that is not a ticket (a quick fix, a review, an audit) gets the same engineering method without the ticket ceremony:
+[Without a ticket](#without-a-ticket).
 
 ## Lifecycle
 
@@ -62,21 +64,59 @@ Exactly one `Planning:` line, in the claim comment and the ticket (formats in th
 
 ## Building: tests, bugs and small changes
 
-TicketFlow carries its own engineering method in `implement-ticket` and the two roles; no other plugin is needed.
+TicketFlow carries its own engineering method in the `engineering-method` skill and the two roles; no other plugin is needed. In a
+ticket it is how steps 3 and 4 of `implement-ticket` are done; without one it is the whole method (next section).
 
-- **A bug is reproduced first** (a failing test, or captured output) and its root cause named. The fix goes where every caller
-  routes through, not at the symptom.
+- **Understand first.** Read the code and docs before asking anything. A clear request is simply done; a vague or risky one is played
+  back in two sentences with the one question that changes the most. 2-3 approaches are offered only when a real choice is open, and
+  "go" proceeds on the defaults the agent stated.
+- **A bug is reproduced first** (a failing test, or captured output) and its root cause named from evidence: the whole error, recent
+  changes, the bad value traced to its source, a working case to compare. The fix goes where every caller routes through, not at the
+  symptom.
 - **Test first where it pays.** For non-trivial behaviour (a branch, a loop, a parser, money, security, a data write,
   concurrency), see a test fail for the right reason, then make it pass. A trivial, docs-only or generated change gets no new test;
   its effect is verified instead.
 - **Tests assert behaviour, not wiring,** and a trust boundary gets a case that must be refused.
-- **Small changes.** The smallest correct change wins: reuse before adding, delete before adding. A deliberate limit gets a comment
+- **The smallest complete change.** Does it need to exist? Is it already in the codebase, the standard library, the platform, an
+  installed dependency? Then the least new code, counting the cost of owning it (options, dependencies, docs), never at the cost of
+  security, validation, data-loss protection or accessibility. A deliberate limit gets a comment
   `shortcut: <limit>, <when to revisit>`, never over a security, data-loss or required-behaviour gap.
+- **Evidence before claims.** "Fixed", "passes" or "reviewed" names the command run after the last change and what it printed; a
+  helper's report is checked against the diff; what could not run is listed as "Not checked".
+- **Delegation is the exception.** One context by default. A light helper searches, a strong one takes a hard isolated piece, one
+  helper each for independent failures. After two failed attempts at the same failure the planner is asked for a targeted
+  diagnosis; a third failure questions the design.
+- **Findings are checked against the code** before they are acted on, and a feature nobody asked for is declined.
 - **The roles use the same lens.** The planner takes the smallest complete change, maps every acceptance criterion to the check
-  that proves it and weighs 2-3 approaches when a choice is open. The reviewer's "Lean" lens asks what can be deleted or reused,
-  names a concrete breaking case and the smallest fix for every blocker, and ends with a "Not checked" line.
-- **Findings are checked against the code** before they are acted on. After two failed attempts at the same failure, the planner is
-  asked for a targeted diagnosis instead of a third blind try.
+  that proves it and weighs 2-3 approaches when a choice is open; it marks a task `review: task` only when it is high-risk and later
+  tasks build on it. The reviewer's "Lean" lens asks what can be deleted or reused, names a concrete breaking case and the smallest fix
+  for every blocker, and ends with a "Not checked" line.
+- **Deviations are recorded.** A departure from the plan gets one line in the PR's Review Notes; a skipped plan whose diff grows gets
+  the planner for the rest.
+
+## Without a ticket
+
+Most everyday requests are not tickets: "fix this bug", "build X", "review this diff", "audit the repo", "list the shortcuts". The
+`engineering-method` skill answers them with the same method and none of the ticket ceremony:
+
+- **No ticket, branch, commit, PR or merge unless you ask.** Finishing is a short report: what changed, the evidence, what was not
+  checked, the shortcuts added. A commit or PR is made when you ask. A PR opened that way is reviewed and merged like any other: the
+  `pr-reviewer` role reviews its head, then only `merge` merges, with the rules of [SECURITY.md](SECURITY.md) unchanged. Asking the
+  agent to merge is not a review.
+- **Anything beyond an easy change gets a plan** from the `ticket-planner` role on a plain brief; no ticket is needed, and its open
+  decisions come to you.
+- **A review without a PR:** the `pr-reviewer` role in *diff mode* reviews a diff, range, branch or one task of a plan (a plan task
+  marked `review: task` is reviewed on its commits before the next task starts; the default stays one PR-level review). In *audit
+  mode* it maps the repo, states the expected load and returns up to 20 numbered findings (Must / Should / Nice, each with
+  `path:line`, the concrete case, the smallest fix and the cost of skipping it), ending with `Verdict: no blockers | blockers found`, `Lean: -N lines possible` and
+  `Not checked:`. Both report to you and post nothing, and a diff review's verdict is never the merge wording, so neither counts as the
+  review `merge` needs. A review of a PR itself ("review PR #N") is the normal mode: one review posted on the PR.
+- **Shortcut debt:** `node .ticketflow/scripts/debt.mjs [path]` lists every `shortcut:` comment with its limit and trigger. A row
+  marked `[no-trigger]` needs one. It reads the tracked files and changes nothing.
+- **"Why did that run go wrong, or cost so much?"** The agent reads the ticket's Run line, the PR timeline and commits, and whatever usage or
+  transcript record your tool keeps (TicketFlow ships no counter), cites what was repeated, ignored or skipped, and changes nothing.
+
+Work that should be tracked is still `create-ticket` and `implement-ticket`; say so and the full journey starts.
 
 ## Verify
 
@@ -95,7 +135,7 @@ The gate itself: [CI-GATE.md](CI-GATE.md).
 The `pr-reviewer` role is always available and is never listed in `reviewers`. With no external reviewer configured, it reviews
 every pull request; with one configured, it reviews `high` and `critical` pull requests, and stands in when the configured reviewer
 is unavailable, silent or only commented. Its effort follows the tier (the skill sets it). It posts one review
-comment, never approves, never edits. A fix to behaviour, tests, config or SQL gets one more pass; a trivial fix does not.
+comment, never approves, never edits. Diff and audit mode review without a pull request (above) and post nothing. A fix to behaviour, tests, config or SQL gets one more pass; a trivial fix does not.
 External reviewers and the stand-in rules: [REVIEWERS.md](REVIEWERS.md).
 
 Wait once, in the background (`pr-wait`), batch every finding into one push, and fix or reject each with a reason; reply to and resolve
@@ -138,7 +178,7 @@ over any report, so nothing depends on the orchestrator's memory. There is no le
 
 ### What you will see
 
-- At the start: one announcement of the budget, how many tickets run at once, and when it will stop.
+- At the start: one announcement of the budget, how many tickets run at once, when it will stop and the line to resume with.
 - A lead cannot ask you questions. When a ticket needs a real decision, the lead labels it `Needs: Decision` with a recommended
   default and reports `needs-decision`. In a list, the run moves on to the next ticket; in a tracker it stops, because later children
   may depend on the answer.
@@ -146,14 +186,16 @@ over any report, so nothing depends on the orchestrator's memory. There is no le
   the merge commit, the review, what was not verified and any follow-ups, plus totals from the leads' Run lines.
 - Every merged ticket sits **In Review**. The orchestrator never marks anything Done; that is yours.
 
-The run also stops when nothing is ready, when you say so, or when one ticket has two open pull requests (`conflict`: it reports
-both and touches neither).
+The run also stops when nothing is ready, when you say so, when one ticket has two open pull requests (`conflict`: it reports
+both and touches neither), or when the host does: a session timeout, a usage or rate limit, a depth or concurrency cap, a dispatch that
+is refused and cannot be worked around. Every stop and the final report end with `Resume: continue #a #b` (or `continue the children
+of #T`), listing the tickets not merged yet.
 
 ### Resuming
 
 If a session ends or you stop it, ask again, naming the scope: *"continue #12 #13 #14"* or *"continue the children of #10"*. State is rebuilt from GitHub: a
 ticket whose pull request merged gets its handoff finished, one with an open pull request continues from it, one not started starts
-fresh. Nothing is done twice and no second pull request is opened. Restate the tickets or the tracker when you resume; the
+fresh. Nothing is done twice and no second pull request is opened. Paste the `Resume:` line, or restate the tickets or the tracker; the
 orchestrator does not remember them. A single ticket resumes the same way: *"continue #42"*.
 
 ### The Ready-backlog warning
@@ -195,7 +237,7 @@ Limits:
 - The Copilot cloud agent pushes only to `copilot/*` branches, which the `*/issue-<N>-*` match misses, so it is never an orchestrator
   or a lead.
 - A run lasts as long as its session. There is no daemon; resume by asking again.
-- Two orchestrators can claim one ticket within seconds; it shows afterwards as `conflict` in the queue.
+- Two orchestrators can claim one ticket within seconds; it shows afterwards as `conflict` in the queue. Run one coordinator per scope.
 - `queue.mjs` matches tickets to pull requests by branch name (`*/issue-<N>-*`, same repository only) among the pull requests that
   reference the ticket plus the 100 latest-updated ones (so a quiet older ticket is still found); an issue with more than 100
   references (issues that mention it count too, so on a public repo a flood of mentions can cause this) stops it with exit 2, never a
