@@ -28,6 +28,7 @@ What you get out of it:
 - **Safety.** Branch protection requires a green gate before anything merges, and the merge script also checks that the review
   findings were answered. Admin overrides stay yours: agents never use them on their own.
 - **Honesty.** A check that could not run is reported as "not verified", never claimed.
+- **One method, with or without a ticket.** Understand first, the smallest complete change, test first where it pays, evidence before "done", and reviews, audits and a shortcut-debt list on demand: also for a plain "fix this bug", with no ticket, branch or PR unless you ask.
 - **Your control.** Once every gate passes, the agent merges and hands the work back to you as **In Review**: merged, waiting for
   your look. Only you mark it **Done**, and real decisions (product, data, security, money) are asked, never assumed.
 - **Several tickets, optionally.** Ask for a list, a tracker or the Ready backlog and the `orchestrate-tickets` skill hands each ticket to a fresh lead that follows the same workflow, resuming from GitHub after an interruption.
@@ -108,16 +109,22 @@ is risky. [More in WORKFLOW.md](core/docs/WORKFLOW.md#risk-tiers)
 
 ### Building: the engineering method
 
-TicketFlow carries its own rules for how the code gets written, so no other plugin is needed:
+TicketFlow carries its own rules for how the code gets written, so no other plugin is needed. They live in one `engineering-method`
+skill that works inside a ticket and for a plain request alike:
 
-- **A bug is reproduced first** and its cause named before anyone fixes it.
+- **Understand first.** The agent reads the code before asking, does a clear request, and plays a vague one back with the one
+  question that changes the most.
+- **A bug is reproduced first** and its cause named from evidence before anyone fixes it.
 - **Test first where it pays.** For non-trivial behaviour the agent writes the failing test first; a trivial change gets no
   ceremony.
-- **Small changes.** The smallest correct change wins: reuse before adding, delete before adding.
-- **Concrete blockers.** The reviewer must name the case that breaks and the smallest fix for every blocker, and ends with what it
-  could not check.
+- **Small changes.** The smallest complete change wins: reuse before adding, delete before adding. A deliberate shortcut is marked
+  `shortcut: <limit>, <when to revisit>`, and `debt.mjs` lists them all.
+- **Evidence before claims.** "Done" names the command that proved it, and the report ends with what was not checked.
+- **Concrete reviews.** The reviewer must name the case that breaks and the smallest fix for every blocker. It also reviews a diff,
+  a branch or a plan task with no pull request, and audits a whole repo for what can be deleted.
 
-[The method in detail](core/docs/WORKFLOW.md#building-tests-bugs-and-small-changes)
+[The method in detail](core/docs/WORKFLOW.md#building-tests-bugs-and-small-changes), and
+[without a ticket](core/docs/WORKFLOW.md#without-a-ticket)
 
 ### Several tickets (optional)
 
@@ -185,8 +192,9 @@ TicketFlow works natively with seven agents: Claude Code, Codex, Cursor, Gemini 
 Each gets its own install, thin generated files that point at the same skills and roles, and a command guard that asks before
 (or blocks) merging by hand or pushing to the default branch. Gemini CLI cannot ask, so it denies those commands and you run them
 yourself. Adding a tool to a repo that already uses TicketFlow is opt-in: nothing changes until you list it in the config and
-update. [Install steps and manual steps per tool](core/docs/TOOLS.md), and
-[the guard in plain words](core/docs/TOOLS.md#the-command-guard-in-plain-words)
+update. [Install steps and manual steps per tool](core/docs/TOOLS.md),
+[the guard in plain words](core/docs/TOOLS.md#the-command-guard-in-plain-words) and
+[what has actually been verified in each tool](core/docs/TOOLS.md#what-is-verified)
 
 ### Practices (optional)
 
@@ -261,6 +269,10 @@ Talk to your agent in plain words:
 | "implement #42" / "implement the next ticket" | the full journey above, ending In Review with a summary |
 | "next child of #10" | the next unfinished sub-issue of an initiative |
 | "I have an idea: ..." | the agent reads the code, asks one question at a time, offers 2-3 approaches and writes the ticket or tracker |
+| "fix this bug" / "build X" (no ticket) | the same method without the ceremony: understand, reproduce or test first, the smallest change, a short report with what was not checked; no branch, commit or PR unless you ask |
+| "review this diff" / "review my branch" | an independent `pr-reviewer` pass with no pull request: blockers with the concrete case and the smallest fix; nothing is posted |
+| "audit the repo" | a mapped, ranked list (at most 20) of what to delete, simplify or fix, each with `path:line` and the cost of skipping it, ending with what was not checked |
+| "list the shortcuts" | `debt.mjs`: every `shortcut:` comment with its limit and trigger; the ones without a trigger are flagged |
 | "work through #12 #13 #14" / "do all children of #10" | the optional orchestrator: one fresh helper per ticket, a final table, tickets left In Review |
 | "work the ready backlog" | the orchestrator warns you and lists the tickets, then starts (say "stop" if that is not what you meant); up to 10 Ready tickets, highest priority first (needs a Project) |
 | "continue #12 #13 #14" / "continue the children of #10" | an interrupted run picks up from GitHub: finished tickets stay finished, open pull requests continue. Name the tickets again in a new session |
@@ -323,11 +335,11 @@ Everything else is read only when it is needed. [More in TOKEN-BUDGET.md](core/d
 
 | Doc | Read it when you want to know… |
 |---|---|
-| [WORKFLOW.md](core/docs/WORKFLOW.md) | the lifecycle in detail: tiers, planning, verifying, reviewing, merging, handoff, several tickets, branching |
+| [WORKFLOW.md](core/docs/WORKFLOW.md) | the lifecycle in detail: tiers, planning, the engineering method (with and without a ticket), verifying, reviewing, merging, handoff, several tickets, branching |
 | [PROJECT.md](core/docs/PROJECT.md) | the board: statuses, views, labels and initiative trackers |
 | [CI-GATE.md](core/docs/CI-GATE.md) | how the merge gate works, docs-only runs, the local fallback, renaming the gate |
 | [REVIEWERS.md](core/docs/REVIEWERS.md) | the built-in reviewer, external reviewers, and what to do when `merge` says no |
-| [TOOLS.md](core/docs/TOOLS.md) | each supported agent: install, generated files, manual steps, its command guard |
+| [TOOLS.md](core/docs/TOOLS.md) | each supported agent: install, generated files, manual steps, its command guard, and what has actually been verified per tool |
 | [CONFIG.md](core/docs/CONFIG.md) | every setting in `.ticketflow/config.json` |
 | [EXTENDING.md](core/docs/EXTENDING.md) | how to customize: `custom/`, review guidelines, practices, domain guides |
 | [SECURITY.md](core/docs/SECURITY.md) | the threat model and the safeguards |
@@ -340,8 +352,9 @@ These docs are also copied into every repo as `.ticketflow/docs/`, so your agent
 
 ## Credits
 
-TicketFlow's engineering method (plan first, test first where it pays, debug by cause) was inspired by
-[Superpowers](https://github.com/obra/superpowers), and its lean, minimal-change rules by
-[Ponytail](https://github.com/dietrichgebert/ponytail). Neither needs to be installed.
+TicketFlow's engineering method (understand first, plan, test first where it pays, debug by cause, verify before claiming) was inspired by
+[Superpowers](https://github.com/obra/superpowers), and its lean, minimal-change rules, lean audit and shortcut-debt list by
+[Ponytail](https://github.com/dietrichgebert/ponytail). TicketFlow re-expresses those practices itself, with or without a ticket;
+neither needs to be installed.
 
 Contributing: [AGENTS.md](AGENTS.md). Maintainers: [`docs/maintainers/upstream-review.md`](docs/maintainers/upstream-review.md). Release notes: [CHANGELOG.md](CHANGELOG.md). License: MIT.

@@ -1,6 +1,6 @@
 # TicketFlow: start here
 
-TicketFlow is an agent-neutral, ticket-driven delivery workflow for GitHub repos: ticket, plan, implement, verify, review, merge, handoff.
+TicketFlow is an agent-neutral, ticket-driven delivery workflow for GitHub repos: ticket, plan, implement, verify, review, merge, handoff. Its engineering method (understand, test first, debug by cause, verify, review) also applies to work without a ticket.
 It is installed into a repo as a `.ticketflow/` folder with thin stubs for Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Antigravity and GitHub Copilot, and updated only when the owner chooses.
 
 ## Before you start

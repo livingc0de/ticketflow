@@ -16,6 +16,10 @@ one review comment whose first line is `Reviewed head: <sha7>`, and reports its 
 It never pushes, commits, edits or approves. Add repo lenses in `.ticketflow/custom/pr-reviewer.md` and in the AGENTS.md
 "Review Guidelines" ([EXTENDING.md](EXTENDING.md)).
 
+Two more modes review without a pull request and post nothing: *diff mode* (a diff, range, branch or one task of a plan) and
+*audit mode* (the repo or a path). They return a report to the caller, so they never count as the review `merge` needs, which is
+always a review posted on the pull request's head.
+
 Without sub-agents (the generic action map) it runs inline in the same session. An inline review is not independent, so the owner is
 asked before merging on it.
 

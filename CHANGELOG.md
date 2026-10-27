@@ -23,6 +23,30 @@
   `pr-reviewer` stand-in mode and `init` are updated. A ticket in progress with no PR reuses its branch and worktree, and the PR
   step checks the queue once more before creating a second PR.
 
+#### Engineering method everywhere (#39)
+
+- **One `engineering-method` skill, with or without a ticket.** Understand first (read before asking, play a vague request back,
+  "go" proceeds on stated defaults), the smallest complete change and its cost of ownership, test first where it pays, evidence-based
+  debugging, delegation (now including one helper per independent failure), evidence before any claim, and a short report. The
+  test, debug and delegation text moved out of `implement-ticket` (which now points to it); `create-ticket` points to its
+  discovery section. A plain "fix this bug" or "review this diff" follows it with no ticket, branch, commit or PR unless asked.
+- **`pr-reviewer` diff and audit modes.** Review a diff, range, branch or plan task, or audit a repo for what can be deleted
+  (a mapped, ranked list of at most 20 findings with `path:line`, the cost of skipping and `Lean: -N lines possible`). Both
+  post nothing and never count as the review `merge` needs. The lenses now include behaviour at the expected load.
+- **Planner and orchestrator.** The `ticket-planner` takes a plain brief with no ticket and may mark a high-risk task
+  `review: task` (reviewed in diff mode before the next task). A deviation from the plan gets a line in the PR's Review Notes.
+  `orchestrate-tickets` stops on host limits (timeout, usage or rate limit, depth or concurrency cap, a refused dispatch) and prints
+  a `Resume: continue #a #b` line at the start, every stop and the end.
+- **New `debt.mjs`.** `node .ticketflow/scripts/debt.mjs [path]` lists every `shortcut:` comment (and older `ponytail:`) with its
+  limit and trigger and flags the ones without a trigger. Read-only; exit 2 outside a git checkout. This repo's own markers now
+  follow the convention.
+- **Docs.** TOOLS gains "What is verified" (live, fixture, documented or unsupported, per tool and capability); WORKFLOW gains
+  "Without a ticket"; EXTENDING gains `engineering-method.md` and "Testing a rule you add"; TOKEN-BUDGET shows the measured size
+  change; the AGENTS block gains one line and the PR template asks for deviations from the plan.
+- **If you update.** The update pull request adds the `engineering-method` stubs, one allow line in `.claude/settings.json`
+  (`debt.mjs`) and one line in the `AGENTS.md` block. A `custom/` file that repeated the old test or debug text of `implement-ticket`
+  can go; your `custom/engineering-method.md` is read first.
+
 ## 0.3.0
 
 ### Highlights
