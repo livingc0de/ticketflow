@@ -113,15 +113,16 @@ Evidence and fallbacks:
 - **Live** is Claude Code only. This repository's own tickets (#32 onward) are delivered with the skills and the planner and reviewer
   roles, and in a checkout with the rendered rules the ask rules refused `gh pr merge --admin`, a push to the default branch and
   `protect --apply` (not checked under `bypassPermissions`; [SECURITY.md](SECURITY.md#agent-side-checks)).
-- **Generated files** are fixture-tested for every tool (`gen-stubs`, `render` and an end-to-end chain with `doctor --local` in the
-  tests); the plugin install commands themselves were not run in any tool.
+- **Generated files** are fixture-tested for every tool (`gen-stubs` and `render` tests), and end to end with `doctor --local` for
+  Claude Code and Codex; no run of the plugin install commands is recorded for any tool.
 - **Codex guard:** `codex execpolicy check` loads the generated rules and decides as the guard's examples say; the hook itself was not
   run end to end. **The other five guards:** the hook scripts and the OpenCode ask rules are tested against the same examples; none
   was run inside its tool.
 - **Antigravity** has no role files; its roles run as built-in subagents. **Any other agent** has no sub-agents and no guard: the
   review runs in the same session and you are asked before a merge that rests on it.
 - **A lead dispatches roles** follows each tool's documentation ([WORKFLOW.md](WORKFLOW.md#several-tickets-optional)); no run has
-  counted nested agents. Where it is unsupported, a lead plans inline and reports `needs-review`.
+  counted nested agents. Copilot allows it in VS Code only (the cloud agent never). Where it is unsupported, a lead plans inline and
+  reports `needs-review`.
 - **The method without a ticket** (the `engineering-method` skill) is new in 0.3.5; no paid agent run has measured it yet.
 
 ## Adding a tool to a repo that already uses TicketFlow
