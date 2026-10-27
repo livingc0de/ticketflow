@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Changes
+
+#### Review gate and queue (#38)
+
+- **A comment is not an approval.** A configured reviewer whose last review of the head is `COMMENTED` (or any state other than
+  `APPROVED` or `CHANGES_REQUESTED`) now prints `Review <name>: commented, not approved` and the summary `standin needed`, even with
+  no thread: a stand-in `pr-reviewer` and a review basis decide. A later reaction or state comment no longer turns it into done.
+  Only a re-review request of an `OWNER`, `MEMBER` or `COLLABORATOR` restarts a review round. This repo's Codex `done_pattern` now
+  also requires `has_any_findings:false`; a copied pattern that accepts `completed` alone accepts a run with findings too, so add the
+  condition (the REVIEWERS example shows it, scoped to its own object).
+- **Trust follows repository permission.** A ready `pr-reviewer` verdict on the head and a link basis need an account with `write`
+  or `admin` access (a read-only collaborator can no longer lift a `changes needed`); `owner approved` needs `admin` and the merge
+  note names the account. An unreadable permission refuses, and an agent on a GitHub App account (permission `none`) is refused.
+- **A basis names the exact head.** The linked review must be posted on the head: after any push, an update-branch included, a new
+  (delta) review is needed. The base is compared again right before `gh pr merge`.
+- **`queue` finds older ticket PRs.** It also reads the pull requests each ticket's timeline cross-references (same repository, head
+  in the repository, branch `issue-<N>-`), so an older merged or open PR is no longer missed; more than 100 references exits 2.
+- **Docs.** SECURITY gains "Two ways to run" (standard, high-assurance); REVIEWERS, WORKFLOW, the `implement-ticket` steps, the
+  `pr-reviewer` stand-in mode and `init` are updated. A ticket in progress with no PR reuses its branch and worktree, and the PR
+  step checks the queue once more before creating a second PR.
+
 ## 0.3.0
 
 ### Highlights
