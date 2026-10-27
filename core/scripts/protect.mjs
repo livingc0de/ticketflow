@@ -2,11 +2,13 @@
 /**
  * Protection of the default branch: compares the repo with the standard ruleset (plan mode) or brings it there.
  *
- * Usage: protect.mjs [--apply [--migrate-classic]] [--replace-context <old>] [--config f]   (this exact order, so one prefix rule can match `--apply`)
+ * Usage: protect.mjs [--apply [--migrate-classic]] [--squash-only] [--branch-settings] [--replace-context <old>] [--config f]
+ *        (this exact order, so one prefix rule can match `--apply`)
  *
  * Plan mode prints one line per difference (`path: current -> desired`). `--apply` first prints the current ruleset (a rollback is a
  * copy-paste), creates or updates the ruleset, then reads back: the difference must be empty and, for a ruleset created here,
- * `current_user_can_bypass` must be the expected one, otherwise exit 1. Repo settings (merge methods, branch deletion) are never changed. Existing protection is never weakened (see core/lib/protect.mjs).
+ * `current_user_can_bypass` must be the expected one, otherwise exit 1. Repo settings (merge methods, branch
+ * deletion, update branch) change only with `--squash-only` / `--branch-settings`, the owner's choice. Existing protection is never weakened (see core/lib/protect.mjs).
  * Classic branch protection is kept, with a warning; `--migrate-classic` adds its required contexts to the ruleset and deletes it,
  * but only after the read-back passed, and not at all when it has a setting a ruleset here does not take over.
  * `--replace-context <old>` drops `<old>` from the required contexts in the same run (never automatically; never the gate itself); a
@@ -86,7 +88,8 @@ main('protect', () => {
     const squash = values['squash-only'] === true
     const settings = { ...(squash ? SQUASH_ONLY : {}), ...(values['branch-settings'] ? BRANCH_SETTINGS : {}) }
     const methods = ['squash', 'merge', 'rebase'].filter((m) => repo[`allow_${m === 'merge' ? 'merge_commit' : `${m}_merge`}`])
-    console.error(`protect: repo: merge methods ${methods.join(', ') || 'none'}; delete branch on merge ${repo.delete_branch_on_merge ? 'on' : 'off'}; always suggest updating branches ${repo.allow_update_branch ? 'on' : 'off'} (kept unless --squash-only / --branch-settings)`)
+    if (repo.allow_squash_merge == null) console.error('protect: repo: merge methods and branch settings are not readable without admin rights')   // GitHub returns null to others
+    else console.error(`protect: repo: merge methods ${methods.join(', ') || 'none'}; delete branch on merge ${repo.delete_branch_on_merge ? 'on' : 'off'}; always suggest updating branches ${repo.allow_update_branch ? 'on' : 'off'} (kept unless --squash-only / --branch-settings)`)
     const { body, warnings } = desiredRuleset(existing, cfg, migrate && classic ? classicContexts(classic) : [], drop, { squashOnly: squash })
     for (const w of warnings) warn(w)
     if (classic?.enforce_admins?.enabled && migrate) warn('the classic protection applies to admins; a ruleset with an admin bypass actor lets admins merge past the checks afterwards')

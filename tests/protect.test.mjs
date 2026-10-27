@@ -224,7 +224,7 @@ test('classic: code owner reviews block; an app-bound check keeps its app; admin
 
 test('a new ruleset passes the read-back when GitHub returns the conditions keys in its own order', () => {
     const stored = standardRuleset({ id: 30, conditions: { ref_name: { exclude: [], include: ['~DEFAULT_BRANCH'] } } })
-    const r = run(['--apply'], { [`POST ${R}/rulesets`]: { id: 30 }, [`PATCH ${R}`]: {}, [`${R}/rulesets/30`]: stored, [R]: seq(repo(), repo()) })
+    const r = run(['--apply'], { [`POST ${R}/rulesets`]: { id: 30 }, [`${R}/rulesets/30`]: stored })
     assert.equal(r.status, 0, r.stderr)
     const changed = run([], { [R]: repo(), ...listed(standardRuleset({ conditions: { ref_name: { include: ['~DEFAULT_BRANCH', 'refs/heads/x'], exclude: [] } } })) })
     assert.equal(changed.status, 2)   // it is now broad
@@ -301,4 +301,10 @@ test('the repo\'s merge methods and branch settings are shown and kept; --squash
     for (const a of [['--squash-only', '--apply'], ['--branch-settings', '--squash-only'], ['--apply', '--squash-only', '--squash-only'], ['--apply', '--replace-context', 'x', '--squash-only']]) {
         const bad = run(a, {}); assert.equal(bad.status, 2, a.join(' ')); assert.deepEqual(bad.calls, [], a.join(' '))
     }
+})
+
+test('without admin rights the repo settings and bypass actors are unknown: said so, never guessed', () => {
+    const r = run([], { [R]: repo({ permissions: { admin: false }, allow_squash_merge: null, allow_merge_commit: null, allow_rebase_merge: null, delete_branch_on_merge: null, allow_update_branch: null }), ...listed(old({ bypass_actors: undefined })) })
+    assert.match(r.stderr, /merge methods and branch settings are not readable without admin rights/)
+    assert.doesNotMatch(r.stderr, /no repository-admin bypass actor/)
 })

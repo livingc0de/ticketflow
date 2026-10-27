@@ -58,7 +58,7 @@ Type, Priority, Effort and Area are labels, not project fields, so nothing is st
 - `Area: <name>` for each name in `areas` of the config.
 - Your own, in `.ticketflow/custom/labels.json` (same format).
 
-`labels.mjs sync <file> [--prune] [--dry-run]` creates the missing labels. A label the repo already has is the repo's: its colour,
+`labels.mjs sync <file> [--restyle] [--prune] [--dry-run]` creates the missing labels. A label the repo already has is the repo's: its colour,
 description and case are never changed, except for the entries of `custom/labels.json`, which are kept in line, and, on the owner's
 choice, `--restyle` (a dry run lists each differing label as `differs:`). It deletes other labels
 only with `--prune`, and only those no issue or pull request uses. The issue forms (feature, bug, task, decision) carry the Type label;

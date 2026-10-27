@@ -60,7 +60,9 @@ After an update, the "After merge" GitHub steps only add what the workflow needs
 standard Project parts. They never change the repo's merge methods, branch settings, bypass actors, existing labels or existing views; each of those is offered
 as a choice instead (`skills/init/github.md`).
 
-From 0.1.0, after this update: squash-only and the other branch settings 0.1.0 applied stay as they are (they are the repo's now);
+From 0.1.0, after this update: squash-only and the other branch settings 0.1.0 applied stay as they are (they are the repo's now),
+and so does its ruleset's `allowed_merge_methods: ["squash"]`, so allowing rebase or merge commits later means changing both the repo
+setting and the ruleset's pull-request rule;
 `.github/ISSUE_TEMPLATE/config.yml` keeps its old `ticketflow:begin/end config` marker lines, which are harmless and can be deleted;
 existing labels and Project views are left alone.
 

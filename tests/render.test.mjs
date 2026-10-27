@@ -459,6 +459,8 @@ test('ci.yml: runs-on is the repo\'s: ubuntu-latest on a fresh render, an existi
     assert.equal(again.conflict, undefined); assert.equal(again.text, mine)
     assert.equal(runsOn(mine, 'deploy'), '    runs-on:\n      group: big-runners\n      labels: [arm64]')
     assert.equal(runsOn(null, 'job'), null)
+    // a step's `with: runs-on:` deeper in the job is not the job's runner
+    assert.equal(runsOn('# ticketflow:begin job\njobs:\n  verify:\n    steps:\n      - uses: x\n        with:\n          runs-on: nope\n# ticketflow:end job\n', 'job'), null)
     // a compact list (items at the key's indent) is kept too, and a deploy part added later runs where the job runs
     const compact = fresh.replace('    runs-on: ubuntu-latest', '    runs-on:\n    - self-hosted\n    - linux')
     assert.equal(renderFile(f, tpl(f.src), compact, { cfg, vars, runtimeRel: '.ticketflow' }).text, compact)

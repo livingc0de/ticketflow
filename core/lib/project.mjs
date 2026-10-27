@@ -74,7 +74,7 @@ const sameOption = (a, b) => a.id === b.id && a.name === b.name && a.color === b
 /**
  * Compares `state` with `std`. Returns { actions, notes }: `actions` are the writes that would bring the project to the standard
  * (in apply order); `notes` are differences that are only reported (they never make a read-back fail). Throws PlanError when the
- * project cannot be topped up safely (no single-select Status field, a Start/Target Date field of another type).
+ * project cannot be topped up safely (no single-select Status field). A Start/Target Date field of another type is only noted.
  *
  * Nothing is lost: every existing Status option keeps its id; extra options are dropped only while the project has no items;
  * existing views are never changed; "Item added to project" is deleted only while the project has no items.

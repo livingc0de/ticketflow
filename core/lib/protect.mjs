@@ -70,11 +70,13 @@ export function desiredRuleset(existing, cfg, extraContexts = [], drop = null, {
     const others = rules.filter((r) => !standard.includes(r.type)).map((r) => r.type)
     if (others.length) warnings.push(`kept other rules of the ruleset: ${others.join(', ')}`)
     // an existing ruleset's bypass actors are the repo's choice; only a ruleset created here gets the admin actor
-    const bypass = existing ? structuredClone(existing.bypass_actors ?? []) : [actor]
-    const admin = bypass.find(sameActor)
-    if (existing && !admin) warnings.push('the ruleset has no repository-admin bypass actor: kept as it is (the owner decides)')
+    // a non-admin reads no `bypass_actors` (unknown, not empty); --apply needs admin, so a write always has the real list
+    const bypass = existing ? (existing.bypass_actors === undefined ? undefined : structuredClone(existing.bypass_actors)) : [actor]
+    const admin = bypass?.find(sameActor)
+    if (existing && !bypass) { /* unknown: nothing to say */ }
+    else if (existing && !admin) warnings.push('the ruleset has no repository-admin bypass actor: kept as it is (the owner decides)')
     else if (existing && admin.bypass_mode !== BYPASS_MODE) warnings.push(`the repository-admin bypass is "${admin.bypass_mode}", not "${BYPASS_MODE}": kept as it is (the owner decides)`)
-    const kept = bypass.filter((a) => !sameActor(a))
+    const kept = (bypass ?? []).filter((a) => !sameActor(a))
     if (kept.length) warnings.push(`kept ${kept.length} other bypass actor(s) of the ruleset`)
     return {
         warnings,
