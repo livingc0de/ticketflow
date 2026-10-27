@@ -688,7 +688,6 @@ test('opencode: a deny that overlaps an ask pattern (can match a command the pat
     const added1 = (r) => Object.entries(JSON.parse(r.text).permission.bash).filter(([, v]) => v === 'ask').map(([k]) => k)
     const added2 = (r) => JSON.parse(r.text).permissions.filter((x) => x.effect === 'ask').map((x) => x.resource)
     for (const deny of ['git push --force *', 'git push -f *', 'gh pr merge * --admin*']) {
-        const skipped = pats.filter((p) => !['npm publish *'].includes(p))
         for (const [v, added] of [[v1, added1], [v2, added2]]) {
             const r = v([deny])
             const got = added(r)
@@ -697,7 +696,6 @@ test('opencode: a deny that overlaps an ask pattern (can match a command the pat
             assert.equal(r.notes.filter((n) => /kept your deny/.test(n)).length, 1, `${deny}: one aggregated note`)
             assert.match(r.notes[0], new RegExp(deny.replace(/[*.]/g, '\\$&')))
             assert.equal(mergeOpencodeAsk(r.text, pats, base).text, r.text, `${deny}: idempotent`)
-            assert.ok(skipped.length)
         }
     }
     // the exact expectations per example
@@ -707,4 +705,22 @@ test('opencode: a deny that overlaps an ask pattern (can match a command the pat
     assert.deepEqual(added2(v2(['gh pr merge * --admin*'])), ['gh pr merge', 'git push * main', 'git push *:main', 'git push *--mirror*'])
     // a disjoint deny: every pattern is asked, no note
     for (const [v, added] of [[v1, added1], [v2, added2]]) { const r = v(['npm publish *']); assert.deepEqual(added(r), pats); assert.deepEqual(r.notes, []) }
+})
+
+test('opencode: deciding a pattern is linear (a hostile many-star rule cannot hang render), a legacy tools.bash:false is a deny-all, matching ignores case (Windows)', () => {
+    const base = { $schema: 'https://opencode.ai/config.json' }
+    const text = 'a'.repeat(40)
+    const hostile = '*a'.repeat(30) + 'b'
+    for (const input of [{ permission: { bash: { [hostile]: 'allow' } } }, { permissions: [{ action: 'shell', resource: hostile, effect: 'allow' }] }]) {
+        const t0 = Date.now()
+        const r = mergeOpencodeAsk(JSON.stringify(input), [text, 'gh pr merge'], base)
+        assert.ok(Date.now() - t0 < 1000, `${Date.now() - t0} ms`)
+        assert.ok(r.text.includes(text))   // the ask is added: the rule does not match the text
+    }
+    // a legacy tools.bash:false disables the shell: nothing to ask about, nothing weakened
+    const legacy = mergeOpencodeAsk(JSON.stringify({ tools: { bash: false } }), ['gh pr merge', 'git push * main'], base)
+    assert.deepEqual(JSON.parse(legacy.text), { tools: { bash: false } }); assert.equal(legacy.notes.length, 1)
+    // Windows matches case-insensitively: an upper-case deny still overlaps
+    const win = mergeOpencodeAsk(JSON.stringify({ permission: { bash: { 'GIT PUSH --force *': 'deny' } } }), ['git push * main', 'gh pr merge'], base)
+    assert.deepEqual(Object.keys(JSON.parse(win.text).permission.bash), ['GIT PUSH --force *', 'gh pr merge'])
 })

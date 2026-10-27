@@ -272,14 +272,21 @@ export function mergeKeys(existing, template) {
     return { text: existing !== null && JSON.stringify(next) === JSON.stringify(obj) ? existing : json(next), notes: [] }
 }
 
-/** An OpenCode glob as a RegExp: `*` any text, `?` one character; a trailing ` *` also matches the command without arguments. */
-function globRe(g) {
-    const body = (x) => x.replace(/[.+^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*').replaceAll('?', '.')
-    return new RegExp(g.endsWith(' *') ? `^${body(g.slice(0, -2))}(?: .*)?$` : `^${body(g)}$`)
+/** Whether OpenCode glob `g` matches `text`: `*` any run, `?` one character, a trailing ` *` also matches the command without arguments. Linear (two pointers), so a hostile many-star rule cannot hang render. */
+function globMatch(g, text) {
+    const run = (p, t) => {
+        let i = 0, j = 0, star = -1, back = 0
+        while (j < t.length) {
+            if (p[i] === '*') { star = i++; back = j } else if (i < p.length && (p[i] === '?' || p[i] === t[j])) { i++; j++ } else if (star >= 0) { i = star + 1; j = ++back } else return false
+        }
+        while (p[i] === '*') i++
+        return i === p.length
+    }
+    return run(g, text) || (g.endsWith(' *') && run(g.slice(0, -2), text))
 }
 
 /** What decides `text` among ordered `[glob, effect]` rules (the last match wins, as in OpenCode): `[glob, effect]` or null. */
-const decider = (rules, text) => rules.findLast(([glob]) => globRe(glob).test(text)) ?? null
+const decider = (rules, text) => rules.findLast(([glob]) => globMatch(glob, text)) ?? null
 
 /** Whether some string matches both OpenCode globs (`*` any run, `?` one character; a trailing ` *` is optional). Exact, by walking both globs together. */
 function overlaps(a, b) {
@@ -300,7 +307,7 @@ function overlaps(a, b) {
         }
         return go(0, 0)
     }
-    return variants(a).some((x) => variants(b).some((y) => walk(x, y)))
+    return variants(a.toLowerCase()).some((x) => variants(b.toLowerCase()).some((y) => walk(x, y)))   // OpenCode matches case-insensitively on Windows: more overlaps, never fewer
 }
 
 /**
@@ -321,8 +328,8 @@ export function mergeOpencodeAsk(existing, patterns, base) {
     let next
     if (obj.permissions !== undefined) {
         if (!Array.isArray(obj.permissions)) return { conflict: 'permissions is not a list' }
-        const shellRules = obj.permissions.filter((r) => typeof r?.action === 'string' && typeof r.resource === 'string' && globRe(r.action).test('shell')).map((r) => [r.resource, r.effect])
-        const denies = shellRules.filter(([, e]) => e === 'deny').map(([g]) => g)
+        const shellRules = obj.permissions.filter((r) => typeof r?.action === 'string' && typeof r.resource === 'string' && globMatch(r.action, 'shell')).map((r) => [r.resource, r.effect])
+        const denies = [...(obj.tools?.bash === false ? ['*'] : []), ...shellRules.filter(([, e]) => e === 'deny').map(([g]) => g)]   // legacy tools.bash:false is a deny-all
         const add = []
         for (const p of patterns) {
             if (overlapping(p, denies)) continue
@@ -334,7 +341,7 @@ export function mergeOpencodeAsk(existing, patterns, base) {
         const bash = typeof perm.bash === 'string' ? { '*': perm.bash } : perm.bash ?? {}
         if (!isObject(perm) || !isObject(bash)) return { conflict: 'permission (or permission.bash) is not an object' }
         const general = typeof perm['*'] === 'string' ? [['*', perm['*']]] : []   // the action-wide rule is the fallback under the bash rules
-        const denies = [...general, ...Object.entries(bash)].filter(([, e]) => e === 'deny').map(([g]) => g)
+        const denies = [...(obj.tools?.bash === false ? [['*', 'deny']] : []), ...general, ...Object.entries(bash)].filter(([, e]) => e === 'deny').map(([g]) => g)   // legacy tools.bash:false is a deny-all
         const merged = { ...bash }
         for (const p of patterns) {
             if (overlapping(p, denies)) continue
