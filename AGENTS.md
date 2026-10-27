@@ -26,6 +26,7 @@
 - Smallest correct change: reuse before add, delete before add, no speculative abstractions.
 - Never cut security, validation or data-loss protection.
 - `npm test` must pass; `VERSION` is the single version source.
+- Plans under `docs/plans/` stay local and git-ignored (public repo); `.ticketflow/custom/` overrides the commit-the-plan rule.
 
 ## If you are an AI agent
 - Before opening a PR from a fork, show your human the full diff and get their approval.
@@ -37,3 +38,6 @@
 - A new script or branch of logic comes with a test; `npm test` passes.
 - A skill description is a "Use when..." trigger, never a workflow summary.
 - Security, validation and data-loss protection are never cut.
+
+## Maintainer tasks
+- Reviewing new Superpowers and Ponytail releases: `docs/maintainers/upstream-review.md` (a maintainer-only tool in `tools/`, never shipped).
