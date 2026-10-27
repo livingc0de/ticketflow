@@ -29,11 +29,11 @@ const LABEL_VIEW = { layout: 'TABLE_LAYOUT', fields: TITLED }
 export const STANDARD = Object.freeze({
     status: STATUS.map(([name, color, description]) => ({ name, color, description })),
     dates: ['Start Date', 'Target Date'],
-    /** In this order: the standard Work Board, then the optional views the config picks (Roadmap brings the two date fields). */
+    /** In this order: the two standard views first, then the optional ones the config picks. */
     views: [
         { name: 'Work Board', layout: 'BOARD_LAYOUT', filter: '', fields: ['Title', 'Assignees', 'Status', 'Labels', 'Milestone', 'Sub-issues progress'] },
         // the API refuses visible fields on a Roadmap (`fields: null`): its fields are neither set nor compared
-        { name: 'Roadmap', optional: true, layout: 'ROADMAP_LAYOUT', filter: 'is:open', fields: null },
+        { name: 'Roadmap', layout: 'ROADMAP_LAYOUT', filter: 'is:open', fields: null },
         { name: 'All Work', optional: true, layout: 'TABLE_LAYOUT', filter: '', fields: ['Title', 'Assignees', 'Status', 'Labels', 'Linked pull requests', 'Milestone', 'Parent issue', 'Sub-issues progress'] },
         { name: 'Initiatives', optional: true, ...LABEL_VIEW, filter: 'label:"Type: Initiative"' },
         { name: 'Open Decisions', optional: true, ...LABEL_VIEW, filter: 'is:open label:"Type: Decision"' },
@@ -106,10 +106,11 @@ export function plan(state, repo, std = STANDARD, optionalViews = []) {
         actions.push({ op: 'status-options', fieldId: status.id, options: want, dropped: fresh ? extra.map((o) => o.name) : [] })
     }
 
-    for (const name of optionalViews.includes('Roadmap') ? std.dates : []) {   // the dates only serve the Roadmap
+    // the Roadmap's date fields: created when missing, never required to be filled; a same-named field of another type is the repo's
+    for (const name of std.dates) {
         const f = state.fields.find((x) => x.name === name)
         if (!f) actions.push({ op: 'create-field', name })
-        else if (f.dataType !== 'DATE') throw new PlanError(`field "${name}" exists with type ${f.dataType}, not DATE: rename or delete it`)
+        else if (f.dataType !== 'DATE') notes.push(`field "${name}" is ${f.dataType}, not DATE: kept as it is; the Roadmap cannot use it`)
     }
 
     const visible = (names) => names.map((n) => state.fields.find((f) => f.name === n)).filter(Boolean).map((f) => f.id)

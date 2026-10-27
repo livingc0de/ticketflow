@@ -24,12 +24,13 @@ Everything below is done through the API: `project.mjs`, `sub-issue.mjs`, `track
 **Done only on request.** An agent never sets Done or closes an issue on its own: when the owner asks, `project.mjs status <N> Done`,
 then `gh issue close <N>`. Pull requests say `Ticket #N`, never a closing keyword, so no workflow closes or moves an issue on merge.
 
-With the optional Roadmap view come two date fields: Start Date and Target Date.
+Two date fields exist too, for the Roadmap: Start Date and Target Date. They are never required: no form, step or check asks for a
+date, and a same-named field the repo already has (of another type) is left alone.
 
 ## Views
 
-Standard, always: **Work Board** (a board grouped by Status).
-Optional, picked in `project.views` of the config: **Roadmap** (`is:open`, with the two date fields), **All Work** (a table of everything), **Initiatives** (`label:"Type: Initiative"`),
+Standard, always, in this order: **Work Board** (a board grouped by Status), then **Roadmap** (`is:open`).
+Optional, picked in `project.views` of the config: **All Work** (a table of everything), **Initiatives** (`label:"Type: Initiative"`),
 **Open Decisions** (open `Type: Decision`), **P0/P1 Open** (open P0 and P1, without initiatives). The label views use only the
 standard labels.
 
@@ -38,7 +39,7 @@ standard labels.
 `project.mjs setup [--dry-run]` creates the project when `project.number` is `0` (finding or creating the one titled `project.title`)
 or tops an existing one up to the standard, then reads everything back. It never loses data: Status options keep their ids, extra
 options are dropped only while the project has no items, existing views are only reported, and the unwanted "Item added to project"
-workflow is removed only while the project is empty. It sets the repo link, the eight statuses, the views (and the date fields with the Roadmap), and a
+workflow is removed only while the project is empty. It sets the repo link, the eight statuses, the date fields, the views, and a
 short README when missing. Put a created project's number in the config (setup does not edit it).
 
 The API cannot turn workflows on. The standard expects these built-in workflows enabled; setup reports any that are not, to turn on in
@@ -58,7 +59,8 @@ Type, Priority, Effort and Area are labels, not project fields, so nothing is st
 - Your own, in `.ticketflow/custom/labels.json` (same format).
 
 `labels.mjs sync <file> [--prune] [--dry-run]` creates the missing labels. A label the repo already has is the repo's: its colour,
-description and case are never changed, except for the entries of `custom/labels.json`, which are kept in line. It deletes other labels
+description and case are never changed, except for the entries of `custom/labels.json`, which are kept in line, and, on the owner's
+choice, `--restyle` (a dry run lists each differing label as `differs:`). It deletes other labels
 only with `--prune`, and only those no issue or pull request uses. The issue forms (feature, bug, task, decision) carry the Type label;
 the creator copies the Priority, Effort and Area answers from the body into labels.
 

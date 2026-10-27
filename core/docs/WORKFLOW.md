@@ -18,7 +18,7 @@ ticket, plan, implement, verify, review, merge, handoff.
    Work happens in a git worktree on a `<type>/issue-<N>-<slug>` branch from the up-to-date default branch.
 3. **Plan** (below), **implement** in one context with one conventional commit per task, `verify`, open the pull request.
 4. **Review** (below), then **merge** only through `merge`, which checks every gate on the exact head, then merges with a method the
-   repo allows (squash first).
+   repo allows (squash first; `protect --squash-only` makes it the only one, on the owner's choice).
 5. **Handoff.** Status In Review, the issue stays open, and a summary comment ends with the Run line. Done only when the owner asks.
 
 Pull requests and commits say `Ticket #N` or `Refs #N`, never a closing keyword (Closes, Fixes, Resolves): nothing may close or

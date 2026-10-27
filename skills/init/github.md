@@ -6,7 +6,10 @@ Every write comes after a shown dry run and a yes. Run the scripts of the instal
 
 1. `node .ticketflow/scripts/labels.mjs sync .ticketflow/templates/labels.json --dry-run` and show it (a dry run exits 1 when changes are pending; that is not a failure, exit 2 is). The list is TicketFlow's labels, one `Area:` label per config area and `custom/labels.json` if present. It only creates the missing ones; a label the repo already has is never changed, except the entries of `custom/labels.json`.
 2. On a yes, the same command without `--dry-run`.
-3. `--prune` removes unused labels the list does not name: only on a separate yes to the shown list.
+3. Labels the repo already has are kept. When the dry run lists `differs:` lines (a TicketFlow label the repo styled differently), show
+   them and ask: keep the repo's look (default), or use TicketFlow's (`--restyle`, same command): one consistent look across repos,
+   but it recolours and may rename labels people know.
+4. `--prune` removes unused labels the list does not name: only on a separate yes to the shown list.
 
 ## Project
 
@@ -26,7 +29,13 @@ Only once the CI step that posts the gate is on the default branch (after the se
 
 1. `node .ticketflow/scripts/protect.mjs` prints the plan, one line per difference. Show it and ask.
 2. On a yes, `node .ticketflow/scripts/protect.mjs --apply`. It prints the current ruleset first, so a rollback is a copy-paste. It never
-   changes the repo's merge methods, branch settings or an existing ruleset's bypass actors.
+   changes the repo's merge methods, branch settings or an existing ruleset's bypass actors unless the owner opts in below.
+   Its `protect: repo:` line shows the merge methods and branch settings; ask about each (keeping them is the default):
+   - **Squash only** (`--squash-only`, added after `--apply`, also in plan mode to preview): one commit per ticket on the default branch,
+     so history reads ticket by ticket and a revert undoes exactly one ticket; but per-commit history of a branch is lost, and teams
+     that rebase or keep merge commits lose that option. Without it, `merge` uses squash whenever the repo allows it.
+   - **Branch settings** (`--branch-settings`): delete a branch after its merge, and always suggest updating a branch that is behind;
+     tidy and convenient with strict checks, but they are the repo's settings, so only on a yes.
 3. When it warns about the repository-admin bypass of an existing ruleset (`always`, or no admin actor), explain and let the owner decide;
    keeping it is the default. `always`: an admin can push straight to the default branch, which is quick for emergencies, but nothing
    but the agents' rules stops an agent using an admin token from doing the same; "for pull requests only" keeps the emergency path

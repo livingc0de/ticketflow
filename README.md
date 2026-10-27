@@ -115,13 +115,14 @@ stand-in.
 ### Merging and branch protection
 
 Merges happen only through the `merge` script. A standard branch ruleset requires `CI / Gate` and an up-to-date
-branch. You, as an admin, can still override it through a pull request when you choose to; agents never do that on their own.
+branch. Your merge methods and branch settings stay yours: the setup shows them and offers squash-only (one commit per ticket) and
+tidy-branch settings, which you can take or leave. You, as an admin, can still override it through a pull request when you choose to; agents never do that on their own.
 [More in SECURITY.md](core/docs/SECURITY.md)
 
 ### The Project board
 
 Optional, but recommended: a GitHub Project with eight statuses: Inbox, Backlog, Ready, In Progress, In Review, Blocked, Done and
-Future. The Work Board view is created for you; the Roadmap and a few more views are optional. Labels already in your repo are kept as
+Future. The Work Board and Roadmap views are created for you (dates on the Roadmap are never required); a few more views are optional. Labels already in your repo are kept as
 they are; TicketFlow only adds the ones that are missing. Labels cover type, priority, effort, area and what a ticket still needs.
 [More in PROJECT.md](core/docs/PROJECT.md)
 

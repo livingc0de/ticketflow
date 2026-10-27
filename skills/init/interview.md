@@ -16,7 +16,7 @@ Start from `<TF>/core/templates/config.json` and write the result to `.ticketflo
 | `areas` | existing `Area:` labels, else the top-level source directories. Labels in use outside the core set go to `custom/labels.json` |
 | UI | front-end dependencies, `playwright.config.*` or `e2e/` found: the `live-verify` practice is recommended through the Practices questions; when it is enabled set `live_verify_skill` to `live-verify` (otherwise the `e2e-verifier` role gets no stub). Also recommend a `deferred_checks_issue` (create one). A repo that keeps its own live-verification skill leaves the practice off and names that skill in `live_verify_skill` |
 | `deploy_branch` | a non-default branch in the workflows' `on.push.branches`, else null. `ci.push_paths` null |
-| `project` | projects linked to the repo (GraphQL `repository{projectsV2}`): reuse one (its number) or a new one (number 0, title = the repo name). Optional views: none by default (the Work Board always exists); offer Roadmap (it adds Start Date and Target Date fields) when the owner plans with dates |
+| `project` | projects linked to the repo (GraphQL `repository{projectsV2}`): reuse one (its number) or a new one (number 0, title = the repo name). No optional views by default: the Work Board and Roadmap always exist |
 | `practices` | see Practices below |
 | `plans_dir`, `worktrees_dir` | reuse an existing worktree directory if there is one |
 | `custom/` | draft the repo-specific workflow rules found in AGENTS.md, CLAUDE.md and the skills ticketflow replaces; show every draft before writing it |

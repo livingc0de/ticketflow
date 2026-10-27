@@ -7,7 +7,7 @@ import { config, fakeGh, seq, tempDir, writeConfig } from './helpers.mjs'
 const script = new URL('../core/scripts/protect.mjs', import.meta.url).pathname
 const R = 'repos/o/r'
 const NOT_PROTECTED = { __status: 404, __stderr: 'Branch not protected' }
-const repo = (over = {}) => ({ default_branch: 'main', permissions: { admin: true }, allow_merge_commit: true, allow_rebase_merge: true, delete_branch_on_merge: false, ...over })
+const repo = (over = {}) => ({ default_branch: 'main', permissions: { admin: true }, allow_squash_merge: true, allow_merge_commit: true, allow_rebase_merge: true, delete_branch_on_merge: false, ...over })
 const standardPr = { required_approving_review_count: 0, dismiss_stale_reviews_on_push: false, require_code_owner_review: false, require_last_push_approval: false, required_review_thread_resolution: false, allowed_merge_methods: ['squash'] }
 const standardChecks = (...contexts) => ({ type: 'required_status_checks', parameters: { strict_required_status_checks_policy: true, do_not_enforce_on_create: false, required_status_checks: contexts.map((context) => ({ context })) } })
 const admin = (bypass_mode = 'pull_request') => ({ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode })
@@ -282,4 +282,23 @@ test('--replace-context is idempotent: a synced body is unchanged, and a not-req
     assert.throws(() => desiredRuleset(null, config(), [], 'CI / Gate'), /gate/)
     const synced = run(['--replace-context', 'ci/gate'], { [R]: repo(), ...listed(standardRuleset()) })
     assert.equal(synced.status, 0, synced.stdout + synced.stderr); assert.match(synced.stderr, /"ci\/gate" is not required by a repo ruleset or classic protection; nothing to replace/)
+})
+
+test('the repo\'s merge methods and branch settings are shown and kept; --squash-only and --branch-settings apply them only on the owner\'s choice', () => {
+    const plain = run([], listed(old()))
+    assert.match(plain.stderr, /protect: repo: merge methods squash, merge, rebase; delete branch on merge off; always suggest updating branches off \(kept unless/)
+    const plan = run(['--squash-only', '--branch-settings'], listed(old()))
+    assert.equal(plan.status, 1); assert.deepEqual(plan.writes, [])
+    for (const l of ['settings.allow_merge_commit: true -> false', 'settings.allow_rebase_merge: true -> false', 'settings.delete_branch_on_merge: false -> true', 'allowed_merge_methods: ["merge","squash","rebase"] -> ["squash"]']) assert.ok(plan.stdout.includes(l), l)
+    const done = { allow_squash_merge: true, allow_merge_commit: false, allow_rebase_merge: false, delete_branch_on_merge: true, allow_update_branch: true }
+    const after = old({ rules: [old().rules[0], old().rules[1], { type: 'pull_request', parameters: standardPr }, old().rules[3]] })
+    const r = run(['--apply', '--squash-only', '--branch-settings'], { ...listed(old()), [`PATCH ${R}`]: {}, [`PUT ${R}/rulesets/11`]: { id: 11 }, [`${R}/rulesets/11`]: seq(old(), after), [R]: seq(repo(), repo(done)) })
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(r.writes[0], { call: 'PATCH repo', body: done })
+    assert.deepEqual(r.writes[1].body.rules.find((x) => x.type === 'pull_request').parameters.allowed_merge_methods, ['squash'])
+    const only = run(['--apply', '--branch-settings'], { ...listed(old()), [`PATCH ${R}`]: {}, [`PUT ${R}/rulesets/11`]: { id: 11 }, [`${R}/rulesets/11`]: seq(old(), old()), [R]: seq(repo(), repo(done)) })
+    assert.equal(only.status, 0, only.stderr); assert.deepEqual(only.writes[0].body, { delete_branch_on_merge: true, allow_update_branch: true })
+    for (const a of [['--squash-only', '--apply'], ['--branch-settings', '--squash-only'], ['--apply', '--squash-only', '--squash-only'], ['--apply', '--replace-context', 'x', '--squash-only']]) {
+        const bad = run(a, {}); assert.equal(bad.status, 2, a.join(' ')); assert.deepEqual(bad.calls, [], a.join(' '))
+    }
 })

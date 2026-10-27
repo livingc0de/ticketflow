@@ -127,7 +127,7 @@ test('project: owner and number are required, title is required while the number
     bad({ project: { owner: 'octo' } }, /missing project\.number/)
     bad({ project: { number: 1 } }, /missing project\.owner/)
     bad({ project: { owner: 'octo', number: -1 } }, /project\.number must be an integer/)
-    bad({ project: { owner: 'octo', number: 1, views: ['Work Board'] } }, /project\.views\[0\] must be one of/)
+    bad({ project: { owner: 'octo', number: 1, views: ['Roadmap'] } }, /project\.views\[0\] must be one of/)
     bad({ project: { owner: 'octo', number: 1, views: ['All Work', 'All Work'] } }, /duplicate/)
     bad({ project: { owner: 'octo', number: 1, extra: 1 } }, /unknown key project\.extra/)
 })

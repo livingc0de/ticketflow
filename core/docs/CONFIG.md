@@ -51,7 +51,7 @@ A project object (the GitHub Project, Projects v2, that tracks the repo's issues
 | `owner` | login of the user or organization that owns the project | required |
 | `number` | integer, the project number; `0` means not created yet (`project setup` creates it) | required |
 | `title` | string; required while `number` is `0` (setup finds or creates the project with exactly this title) | `null` |
-| `views` | the optional views to create, a unique subset of `Roadmap` (adds the Start Date and Target Date fields), `All Work`, `Initiatives`, `Open Decisions`, `P0/P1 Open` | `[]` |
+| `views` | the optional views to create, a unique subset of `All Work`, `Initiatives`, `Open Decisions`, `P0/P1 Open` | `[]` |
 
 `project setup` does not edit the config: after it creates a project, put the printed number in `project.number`.
 `project add`, `project status` and `tracker-next` need `number` above `0`.

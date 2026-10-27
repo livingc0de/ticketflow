@@ -57,7 +57,12 @@ From 0.1.0: the managed CI job no longer sets up Node.js, so a repo whose steps 
 adds its own setup step to the repo section of `.github/workflows/ci.yml` in the update pull request.
 
 After an update, the "After merge" GitHub steps only add what the workflow needs: missing labels, a missing gate requirement, the
-standard Project parts. They never change the repo's merge methods, branch settings, bypass actors, existing labels or existing views.
+standard Project parts. They never change the repo's merge methods, branch settings, bypass actors, existing labels or existing views; each of those is offered
+as a choice instead (`skills/init/github.md`).
+
+From 0.1.0, after this update: squash-only and the other branch settings 0.1.0 applied stay as they are (they are the repo's now);
+`.github/ISSUE_TEMPLATE/config.yml` keeps its old `ticketflow:begin/end config` marker lines, which are harmless and can be deleted;
+existing labels and Project views are left alone.
 
 A release or a config change that renames `gate.context` needs one protection step next to its merge (before it when CI runs the
 job, after it when the local fallback does): `protect.mjs --apply --replace-context <old>` ([CI-GATE.md](CI-GATE.md#renaming-the-gate-context)).

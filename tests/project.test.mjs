@@ -32,9 +32,8 @@ const standardNode = (optional = []) => node({
 })
 const ops = (state, optional) => plan(normalize(state), 'o/r', STANDARD, optional).actions.map((a) => a.op)
 
-test('a fresh project gets the exact action list of the standard, keeping the ids of existing options; Roadmap and its dates only when chosen', () => {
-    assert.deepEqual(plan(normalize(node()), 'o/r').actions.map((a) => a.op), ['status-options', 'update-view', 'delete-workflow', 'describe'])
-    const { actions } = plan(normalize(node()), 'o/r', STANDARD, ['Roadmap'])
+test('a fresh project gets the exact action list of the standard, keeping the ids of existing options', () => {
+    const { actions } = plan(normalize(node()), 'o/r')
     assert.deepEqual(actions.map((a) => a.op), ['status-options', 'create-field', 'create-field', 'update-view', 'create-view', 'delete-workflow', 'describe'])
     const [status, , , board, roadmap, workflow, describe] = actions
     assert.deepEqual(status.options.map((o) => o.name), STANDARD.status.map((s) => s.name))
@@ -64,7 +63,7 @@ test('a project with items keeps every status id, drops nothing and only reports
         views: nodes([view('Roadmap', 'ROADMAP_LAYOUT', '', ['Title']), view('Work Board', 'BOARD_LAYOUT', '', STANDARD.views[0].fields)]),
         workflows: nodes([...STANDARD.workflows, 'Item added to project'].map((name) => ({ id: `W_${name}`, name, enabled: true }))),
     })
-    const { actions, notes } = plan(normalize(n), 'o/r', STANDARD, ['Roadmap'])
+    const { actions, notes } = plan(normalize(n), 'o/r')
     assert.deepEqual(actions.map((a) => a.op), ['status-options'])
     const sent = actions[0].options
     assert.deepEqual(sent.map((o) => o.name), [...STANDARD.status.map((s) => s.name), 'Archived'])
@@ -116,10 +115,11 @@ test('a repo that is not linked is linked; a disabled standard workflow is repor
     assert.deepEqual(plan(normalize(n), 'O/R').actions, [])   // the repo name compares ignoring case
 })
 
-test('a non-date Start Date field or a missing Status field is a PlanError', () => {
+test('a non-date Start Date field is the repo\'s (kept, noted, never required); a missing Status field is a PlanError', () => {
     const text = standardNode(); text.fields = nodes([...builtins(), statusField([opt('Todo')]), { id: 'x', name: 'Start Date', dataType: 'TEXT' }])
-    assert.throws(() => plan(normalize(text), 'o/r', STANDARD, ['Roadmap']), (e) => e instanceof PlanError && /Start Date.*TEXT/.test(e.message))
-    assert.doesNotThrow(() => plan(normalize(text), 'o/r'))   // without the Roadmap the dates are not TicketFlow's
+    const { actions, notes } = plan(normalize(text), 'o/r')
+    assert.ok(!actions.some((a) => a.op === 'create-field' && a.name === 'Start Date'))
+    assert.ok(notes.some((n) => /field "Start Date" is TEXT, not DATE: kept as it is/.test(n)))
     assert.throws(() => plan(normalize(node({ fields: nodes(builtins()) })), 'o/r'), PlanError)
 })
 
@@ -142,9 +142,7 @@ function setup(args, states, { over, owner } = {}) {
 }
 
 test('setup applies the plan in order, reads back and exits 0 when the standard is reached', () => {
-    const plain = setup(['setup'], [node(), standardNode()])
-    assert.equal(plain.status, 0, plain.stderr); assert.ok(!plain.writes.includes('CreateDateField'))
-    const r = setup(['setup'], [node(), standardNode(['Roadmap'])], { over: { views: ['Roadmap'] } })
+    const r = setup(['setup'], [node(), standardNode()])
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(r.writes, ['UpdateStatusOptions', 'CreateDateField', 'CreateDateField', 'UpdateView', 'CreateView', 'UpdateView', 'DeleteWorkflow', 'DescribeProject'])
     const opts = r.sent[r.names.indexOf('UpdateStatusOptions')].variables.o
@@ -169,10 +167,11 @@ test('a read-back that still differs exits 1 and lists what remains', () => {
     assert.match(r.stderr, /still to do after apply: set Status options/)
 })
 
-test('a text Start Date field and a missing project exit 2 with no writes', () => {
+test('a text Start Date field is left alone; a missing project exits 2 with no writes', () => {
     const text = node(); text.fields.nodes.push({ id: 'x', name: 'Start Date', dataType: 'TEXT' })
-    const a = setup(['setup'], [text], { over: { views: ['Roadmap'] } })
-    assert.equal(a.status, 2); assert.match(a.stderr, /Start Date/); assert.deepEqual(a.writes, [])
+    const a = setup(['setup', '--dry-run'], [text])
+    assert.match(a.stdout + a.stderr, /Start Date" is TEXT, not DATE: kept as it is/); assert.deepEqual(a.writes, [])
+    assert.ok(!/create field Start Date/i.test(a.stdout))
     const b = setup(['setup'], [node()], { owner: { id: 'U1', projectV2: null } })
     assert.equal(b.status, 2); assert.match(b.stderr, /project octo\/7 not found/); assert.deepEqual(b.writes, [])
 })

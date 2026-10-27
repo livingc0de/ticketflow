@@ -458,16 +458,23 @@ test('ci.yml: runs-on is the repo\'s: ubuntu-latest on a fresh render, an existi
     const again = renderFile(f, tpl(f.src), mine, { cfg, vars, runtimeRel: '.ticketflow' })
     assert.equal(again.conflict, undefined); assert.equal(again.text, mine)
     assert.equal(runsOn(mine, 'deploy'), '    runs-on:\n      group: big-runners\n      labels: [arm64]')
-    assert.equal(runsOn(null, 'job'), '    runs-on: ubuntu-latest')
+    assert.equal(runsOn(null, 'job'), null)
+    // a compact list (items at the key's indent) is kept too, and a deploy part added later runs where the job runs
+    const compact = fresh.replace('    runs-on: ubuntu-latest', '    runs-on:\n    - self-hosted\n    - linux')
+    assert.equal(renderFile(f, tpl(f.src), compact, { cfg, vars, runtimeRel: '.ticketflow' }).text, compact)
+    const cfgNo = config({ ...B, deploy_branch: undefined }), varsNo = templateVars(cfgNo, { runtimeRel: '.ticketflow' })
+    const noDeploy = renderFile(f, tpl(f.src), null, { cfg: cfgNo, vars: varsNo, runtimeRel: '.ticketflow' }).text.replace('    runs-on: ubuntu-latest', '    runs-on: [self-hosted]')
+    const added = renderFile(f, tpl(f.src), noDeploy, { cfg, vars, runtimeRel: '.ticketflow' })   // adding a part is a conflict: the proposal shows it
+    assert.equal(added.proposal.text.match(/^ {4}runs-on: \[self-hosted\]$/gm).length, 2)
 })
 
-test('templates leave the repo\'s choices alone: the issue chooser is written once, no Environment field, no screenshots line, merging without asking is the skill\'s', () => {
+test('templates leave the repo\'s choices alone: the issue chooser is written once, an optional Environment field, no screenshots line, merging without asking is the skill\'s', () => {
     const f = FILES.find((x) => x.dest === '.github/ISSUE_TEMPLATE/config.yml'), cfg = config(A), vars = templateVars(cfg, { runtimeRel: '.ticketflow' })
     assert.equal(f.kind, 'once')
     const mine = 'blank_issues_enabled: true\ncontact_links:\n  - name: Support\n    url: https://example.com/help\n    about: Ask here\n'
     assert.deepEqual(renderFile(f, tpl(f.src), mine, { cfg, vars, runtimeRel: '.ticketflow' }), { text: mine, notes: [] })
     const files = renderAll(A)
-    assert.doesNotMatch(files.get('.github/ISSUE_TEMPLATE/bug.yml'), /id: environment/)
+    assert.match(files.get('.github/ISSUE_TEMPLATE/bug.yml'), /id: environment\n[\s\S]*?required: false\n  - type: textarea\n    id: steps/)   // optional, with default choices
     assert.doesNotMatch(files.get('.github/PULL_REQUEST_TEMPLATE.md'), /with screenshots/)
     assert.doesNotMatch(files.get('AGENTS.md'), /without asking/)
 })

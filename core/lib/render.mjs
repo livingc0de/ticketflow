@@ -251,15 +251,16 @@ export function mergeCodexHooks(existing, entry, runtimeRel) {
  */
 /**
  * The `runs-on` entry of a managed block in the existing workflow, verbatim (the key line and the more-indented lines under it): the
- * runner is the repo's choice and is kept on every render. `ubuntu-latest` when there is no file or no such block yet.
+ * runner is the repo's choice and is kept on every render. `null` when there is no file or no such block yet (render then uses the job's runner, or `ubuntu-latest`).
  */
 export function runsOn(existing, part) {
     const body = existing === null ? null : parseBlocks(existing.replaceAll('\r\n', '\n')).find((s) => s.part === part)?.body
-    return /^( +)runs-on:.*(?:\n\1 +\S.*)*/m.exec(body ?? '')?.[0] ?? '    runs-on: ubuntu-latest'
+    return /^( +)runs-on:.*(?:\n\1(?: +\S|- ).*)*/m.exec(body ?? '')?.[0] ?? null   // a compact list (`- x` at the key's indent) too
 }
 
 export function renderFile(file, tpl, existing, { cfg, vars, runtimeRel, owned = {} }) {
-    const all = file.src === 'ci.yml' ? { ...vars, runs_on_job: runsOn(existing, 'job'), runs_on_deploy: runsOn(existing, 'deploy') } : vars
+    const job = file.src === 'ci.yml' ? runsOn(existing, 'job') ?? '    runs-on: ubuntu-latest' : null
+    const all = file.src === 'ci.yml' ? { ...vars, runs_on_job: job, runs_on_deploy: runsOn(existing, 'deploy') ?? job } : vars   // a new deploy job runs where the job runs
     const rendered = dropParts(fill(tpl, all), omittedParts(cfg))
     switch (file.kind) {
         case 'blocks': {

@@ -14,6 +14,9 @@ export const BYPASS_MODE = 'pull_request'
 export const CAN_BYPASS = { always: 'always', pull_request: 'pull_requests_only' }[BYPASS_MODE]
 
 export const RULESET_NAME = 'default branch'
+/** Opt-in repo settings, applied only when the owner chooses them: squash only (one ticket, one commit), and tidy branches. */
+export const SQUASH_ONLY = Object.freeze({ allow_squash_merge: true, allow_merge_commit: false, allow_rebase_merge: false })
+export const BRANCH_SETTINGS = Object.freeze({ delete_branch_on_merge: true, allow_update_branch: true })
 
 const PULL_REQUEST_DEFAULTS = {
     required_approving_review_count: 0, dismiss_stale_reviews_on_push: false, require_code_owner_review: false,
@@ -46,7 +49,7 @@ const sameActor = (a) => a.actor_type === actor.actor_type && a.actor_id === act
  * one context the caller asked to replace, never the gate). The bypass actors of an existing ruleset are kept as they are; a new one
  * gets the admin role in BYPASS_MODE. Returns { body, warnings }.
  */
-export function desiredRuleset(existing, cfg, extraContexts = [], drop = null) {
+export function desiredRuleset(existing, cfg, extraContexts = [], drop = null, { squashOnly = false } = {}) {
     if (drop === cfg.gate.context) throw new Error('the gate context cannot be dropped')
     const warnings = []
     const rules = (existing?.rules ?? []).map((r) => structuredClone({ type: r.type, ...(r.parameters ? { parameters: r.parameters } : {}) }))
@@ -57,7 +60,7 @@ export function desiredRuleset(existing, cfg, extraContexts = [], drop = null) {
     }
     ensure('deletion')
     ensure('non_fast_forward')
-    ensure('pull_request', (r) => { r.parameters = { ...PULL_REQUEST_DEFAULTS, ...r.parameters } })
+    ensure('pull_request', (r) => { r.parameters = { ...PULL_REQUEST_DEFAULTS, ...r.parameters, ...(squashOnly ? { allowed_merge_methods: ['squash'] } : {}) } })
     ensure('required_status_checks', (r) => {
         const checks = (r.parameters?.required_status_checks ?? []).filter((c) => c.context !== drop)   // by name: an app-bound copy goes too
         for (const check of [{ context: cfg.gate.context }, ...extraContexts]) if (check.context !== drop && !checks.some((c) => c.context === check.context)) checks.push(check)
@@ -84,8 +87,9 @@ export function desiredRuleset(existing, cfg, extraContexts = [], drop = null) {
 }
 
 /** One flat { path: value } map of the parts of a ruleset that the standard sets. */
-function flat({ ruleset }) {
+function flat({ settings = {}, ruleset }) {
     const out = {}
+    for (const [k, v] of Object.entries(settings)) out[`settings.${k}`] = v
     if (!ruleset) return out
     out['ruleset.enforcement'] = ruleset.enforcement
     out['ruleset.conditions'] = JSON.stringify([ruleset.conditions?.ref_name?.include ?? [], ruleset.conditions?.ref_name?.exclude ?? []])   // GitHub returns the keys in another order
