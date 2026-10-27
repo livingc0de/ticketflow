@@ -37,6 +37,28 @@ What you get out of it:
 
 ---
 
+## New in 0.3.5
+
+Upgrading from 0.3.0? Read [the upgrade notes](core/docs/UPGRADING.md#from-030). The full list is in [CHANGELOG.md](CHANGELOG.md).
+
+- **A comment is not an approval.** A reviewer that only comments on your latest commit (many review bots do) no longer counts as
+  done, even with no open thread. The built-in `pr-reviewer` steps in as a stand-in and `merge` asks for a review basis.
+  [When merge says no](core/docs/REVIEWERS.md#when-merge-says-no)
+- **The review belongs to the exact commit, and to someone who may give it.** A review basis must link a ready review of the commit
+  that merges: after any push, an update-branch included, a short delta review is needed. A ready verdict needs write access to
+  the repository and `owner approved` needs admin, so a read-only collaborator, an outsider or an agent on a GitHub App account
+  cannot lift a block. [Stand-in and review basis](core/docs/REVIEWERS.md#stand-in-and-review-basis)
+- **Older pull requests are found.** `queue` follows a ticket's cross-references, so a ticket whose pull request is old is no longer
+  mistaken for "not started".
+- **The method works without a ticket.** "Fix this bug", "review this diff" or "audit the repo" follow the same engineering method,
+  with no ticket, branch or pull request unless you ask, and `debt.mjs` lists every deliberate shortcut with the moment to revisit it.
+  [Without a ticket](core/docs/WORKFLOW.md#without-a-ticket)
+- **For maintainers of TicketFlow itself:** a small harness runs four local scenarios with a real agent to measure cost and
+  behaviour, and a written procedure checks the review gate on a GitHub sandbox. They live in this repo only and are never
+  installed in yours; no paid run was made for this release. [Evals](docs/evals/agent-scenarios.md)
+
+---
+
 ## How it works, in one picture
 
 ```
@@ -145,8 +167,8 @@ Changes that touch only the paths you list as docs get it quickly without runnin
 
 The `pr-reviewer` role is always available and works with no setup: it reviews every pull request, or only the `high` and `critical`
 ones once you add an external reviewer (a bot or a person) in the config. TicketFlow waits for external reviewers and, when you
-give it the pattern or timeout to recognise it, notices one that is out of quota or silent and brings in the built-in reviewer as a
-stand-in.
+give it the pattern or timeout to recognise it, notices one that is out of quota or silent, or that only left a comment (a comment
+is not an approval), and brings in the built-in reviewer as a stand-in.
 
 A finished review is not enough to merge. Findings must be answered too: every open review thread (from anyone, bots included),
 a configured reviewer's "changes requested" and a "changes needed" verdict from `pr-reviewer` stop the merge until they are dealt
@@ -157,7 +179,8 @@ with. The agent fixes each finding, or says why it disagrees, then replies to th
 
 Merges happen only through the `merge` script. A standard branch ruleset requires `CI / Gate` and an up-to-date
 branch. The script adds what a ruleset cannot see: no unresolved review thread from anyone, no configured reviewer left on "changes requested",
-and, if the built-in reviewer reviewed this exact commit, its last verdict must be "ready to merge". When it refuses, it always prints the next step, and there is always a legitimate way through
+and, if the built-in reviewer reviewed this exact commit, its last verdict must be "ready to merge". A review the merge rests on must be
+of this exact commit and come from an account with write access. When it refuses, it always prints the next step, and there is always a legitimate way through
 ([the ways past a refusal](core/docs/REVIEWERS.md#when-merge-says-no)). Your merge methods and branch settings stay yours: the setup shows them and offers squash-only (one commit per ticket) and
 tidy-branch settings, which you can take or leave. You, as an admin, can still override it through a pull request when you choose to; agents never do that on their own.
 [More in SECURITY.md](core/docs/SECURITY.md)
@@ -220,8 +243,9 @@ adapters, API endpoints, UI screens, domain guides, deploy gating and analytics 
 
 Nothing TicketFlow owns is ever hand-edited: you change it in `.ticketflow/custom/` or the config, and the tools regenerate the rest.
 
-The TicketFlow repository itself also holds a small maintainer tool that checks Superpowers and Ponytail for new releases each
-month ([upstream review](docs/maintainers/upstream-review.md)). It lives in that repo only and is never installed in yours.
+The TicketFlow repository itself also holds two small maintainer tools: one checks Superpowers and Ponytail for new releases each
+month ([upstream review](docs/maintainers/upstream-review.md)), the other runs agent evals ([evals](docs/evals/agent-scenarios.md)).
+They live in that repo only and are never installed in yours.
 
 ---
 
