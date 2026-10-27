@@ -436,11 +436,16 @@ test('the default gate context "CI / Gate" has spaces and a slash: the rendered 
     assert.ok(!accepts('description=Inherited from abc: x') && !accepts('description=inherited from abc1234: x') && !accepts('description=Actions run #1'))
 })
 
-test('verifyRuns counts the steps that run the verify command: inline or in a run block, first line of a multi-line command, comments skipped', () => {
+test('verifyRuns counts the verify command as consecutive lines: inline, quoted, in run | and run > blocks, in any job; comments and other first lines are not counted', () => {
     const ci = renderAll(A).get('.github/workflows/ci.yml')
     assert.equal(verifyRuns(ci, 'npm run verify'), 1)
     assert.equal(verifyRuns(ci + '      - name: Mine\n        run: npm run verify\n', 'npm run verify'), 2)
+    for (const q of ['"npm run verify"', "'npm run verify'"]) assert.equal(verifyRuns(`- run: ${q}\n- run: npm run verify\n`, 'npm run verify'), 2, q)
+    assert.equal(verifyRuns('jobs:\n  a:\n    steps:\n      - run: >\n          npm run verify\n  b:\n    steps:\n      - run: npm run verify\n', 'npm run verify'), 2)
     assert.equal(verifyRuns('# npm run verify\n- run: npm run verify --watch\n', 'npm run verify'), 0)
     const b = renderAll(B).get('.github/workflows/ci.yml')
     assert.equal(verifyRuns(b, 'pnpm verify\npnpm test:extra'), 1)
+    // a shared first line is not a second run of the command
+    assert.equal(verifyRuns('- run: |\n    set -euo pipefail\n    npm test\n- run: |\n    set -euo pipefail\n    npm run lint\n', 'set -euo pipefail\nnpm test'), 1)
+    assert.equal(verifyRuns('- run: npm test\n\n', '  \n '), 0)
 })

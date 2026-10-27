@@ -110,7 +110,7 @@ const parse = section({
     verify: [section({
         mode: [oneOf('ci', 'local-first'), REQUIRED],
         install: [shellText, ''],
-        command: [(v, p) => shellText(str(v, p), p), REQUIRED],
+        command: [(v, p) => (str(v, p).trim() === '' ? fail(`${p} must not be blank`) : shellText(v, p)), REQUIRED],
         timeout_min: [int(1, 360), 45],
     }), REQUIRED],
     gate: [section({

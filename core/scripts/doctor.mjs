@@ -155,9 +155,11 @@ if (!values.preflight) {
     need('ci-steps', () => {
         const f = join(root, '.github', 'workflows', 'ci.yml')
         if (!existsSync(f)) return say('skip', 'ci-steps', 'no .github/workflows/ci.yml')
-        const n = verifyRuns(readFileSync(f, 'utf8'), cfg.verify.command)
-        if (n > 1) say('warn', 'ci-steps', `verify.command runs in ${n} steps of ci.yml: keep one (your own steps replace the template's Install Dependencies and Verify)`)
-        else say('ok', 'ci-steps', n ? 'verify.command runs once' : 'verify.command is not in ci.yml (your own steps run it)')
+        let text
+        try { text = readFileSync(f, 'utf8') } catch (e) { return say('warn', 'ci-steps', `cannot read .github/workflows/ci.yml: ${e.code ?? e.message}`) }
+        const n = verifyRuns(text, cfg.verify.command)
+        if (n > 1) say('warn', 'ci-steps', `verify.command appears ${n} times in ci.yml: keep one (your own steps replace the template's Install Dependencies and Verify)`)
+        else say('ok', 'ci-steps', n ? 'verify.command appears once' : 'verify.command does not appear in ci.yml as written (a repo step runs it another way)')
     })
     need('guard', () => {
         try { accessSync(join(rt, 'scripts', 'guard.mjs'), constants.X_OK) } catch { return say('fail', 'guard', 'scripts/guard.mjs is missing or not executable (the Codex hook runs it directly): restore it or chmod +x it') }

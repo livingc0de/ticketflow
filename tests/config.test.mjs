@@ -51,6 +51,7 @@ test('unknown keys, missing required keys and wrong types fail closed', () => {
     bad({ verify: { mode: undefined } }, /missing verify\.mode/)
     bad({ verify: { command: undefined } }, /missing verify\.command/)
     bad({ verify: { command: '' } }, /verify\.command/)
+    for (const v of [' ', '\n\t ']) bad({ verify: { command: v } }, /verify\.command must not be blank/)
     bad({ verify: { mode: 'both' } }, /verify\.mode/)
     bad({ verify: { install: 3 } }, /verify\.install/)
     for (const t of [0, 361, 1.5, '45', null]) bad({ verify: { timeout_min: t } }, /timeout_min/)
