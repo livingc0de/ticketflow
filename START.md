@@ -18,7 +18,7 @@ You need a shell, `git`, `gh` 2.48 or newer logged in with the `repo`, `project`
 ## As a plugin
 
 - Claude Code: `/plugin marketplace add livingc0de/ticketflow`, then `/plugin install ticketflow@ticketflow`. Ask: "set up ticketflow" or "update ticketflow".
-- Codex: add `livingc0de/ticketflow` as a plugin marketplace (`codex plugin marketplace add livingc0de/ticketflow`) and install `ticketflow`.
+- Codex: add `livingc0de/ticketflow` as a plugin marketplace (`codex plugin marketplace add livingc0de/ticketflow`) and install it (`codex plugin add ticketflow@ticketflow`).
 
 ## Rules for any agent
 

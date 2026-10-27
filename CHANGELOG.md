@@ -2,16 +2,15 @@
 
 ## Unreleased
 
-- Repository skeleton.
-- Core: config loader and validator, docs-only and inherit helpers (WP1).
-- Core: `pr-wait` (WP2).
-- Core: `local-verify` (WP3).
-- Core: `issue`, `project`, `sub-issue`, `tracker-next` and `labels` scripts, the `project` config section, `templates/labels.json` (WP4).
-- Core: `merge`, `protect`, the agent guard (`guard.json`, `guard`) and `core/docs/SECURITY.md` with the measured bypass modes (WP5).
-- Core: `gen-stubs`, the Claude and Codex adapters, the plugin manifests, `agents` and `models` config keys, a manifest version check (WP6). Templates moved to `core/templates/`.
-- Core: the `ticket-planner`, `pr-reviewer` and `e2e-verifier` roles, the Claude, Codex and generic action maps, the `implement-ticket` and `create-ticket` skills, the `plans_dir`, `worktrees_dir`, `live_verify_skill` and `deferred_checks_issue` config keys (WP7, WP8).
-- Core: `render`, the CI workflow, issue form, PR template, AGENTS block, settings, hook and rules templates, the `areas` and `ci.push_paths` config keys (WP9).
-- Core: `runtime` (copies the runtime into a repo), `doctor` (read-only health check), the runtime manifest (`manifest.mjs`), `config validate` and `config migrate`, the `practices` config key, Area and custom labels in `labels`, the manifest record of the Claude settings entries in `render` (WP10).
-- `START.md` and the `init` and `sync` skills.
-- Practices: ten optional practices under `practices/` (live-verify, runtime-settings, i18n, database, provider-adapters, api-endpoints, ui-screens, domain-guides, deploy-gating, analytics-events), the `PRACTICES` list, practice skills and domain-guide rule files in `gen-stubs` (a symlink at a stub path is a conflict), practice lines in the AGENTS block and the PR template, a `practices` check in `doctor` (WP10b).
-- Names GitHub shows are readable and in Title Case: the default gate status context is `CI / Gate` (a repo that relied on the previous default must set `gate.context` to its old value, or remove the old context from its ruleset by hand: `protect` only adds required contexts, so after a sync both would be required), workflow step and job names, `local-verify`'s comment, and the status descriptions (`Actions run #123`, `Actions run #123, docs only`, `Local run on <host> (<arch>, Node <version>)`, `Local check on <host>, docs only`, `Inherited from <sha7>: only docs merged from <branch>`). Upgrade note: the old lowercase descriptions are no longer recognized, which only means a normal full run, and an old lowercase `local ...` failure is now a final red with no local re-run.
+## 0.1.0
+
+First release. ticketflow is an agent-neutral, ticket-driven delivery workflow for GitHub repos, installed into a repo as a canonical `.ticketflow/` runtime with generated stubs for Claude Code and Codex.
+
+- **Front doors:** a Claude plugin, a Codex plugin and `START.md`, all reaching the `init` and `sync` skills.
+- **Skills and roles:** `implement-ticket` and `create-ticket`; the `ticket-planner`, `pr-reviewer` and `e2e-verifier` roles; action maps for Claude, Codex and any other agent.
+- **Scripts:** `issue`, `project`, `sub-issue`, `tracker-next`, `labels`, `pr-wait`, `local-verify`, `merge`, `protect`, `gen-stubs`, `render`, `runtime`, `doctor` and `guard`, with the config loader, docs-only and inherit helpers.
+- **Gate:** the `CI / Gate` commit status, docs-only and inherited results, a fail-closed local fallback when Actions refuses a job, and a standard branch ruleset.
+- **Templates:** config, CI workflow, issue forms, PR template, AGENTS block, labels, Claude settings, Codex hook and rules.
+- **Project:** the standard Projects v2 setup (eight statuses, Work Board and Roadmap, optional views) and Type, Priority, Effort, Needs and Area labels.
+- **Practices:** ten optional rule sets under `practices/`.
+- **Docs:** `README.md` and `core/docs/` (workflow, project, config, CI gate, reviewers, extending, security, token budget, upgrading).

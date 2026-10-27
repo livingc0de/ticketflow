@@ -3,7 +3,7 @@
 `.ticketflow/config.json` in the repo's git toplevel. Every script loads it with `core/lib/config.mjs`
 (`--config <file>` overrides the path). The loader **fails closed**: a missing or unreadable file, bad JSON,
 an unknown key, a wrong type, an invalid regex, or a `schema_version` other than the core's is an error
-(scripts exit 2; the CI helpers print nothing on stdout, which CI reads as "run everything").
+(scripts exit 2; the CI helpers print nothing on stdout, which CI reads as "run everything"). Prerequisites for the scripts: [UPGRADING.md](UPGRADING.md) (`doctor`).
 
 Regexes are JavaScript regex source strings, tested against repo-relative paths with `/` separators.
 
@@ -11,17 +11,17 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 |---|---|---|---|
 | `schema_version` | integer, must equal the core's (`1`) | required | `config`, `sync` |
 | `repo` | `owner/name` | required | all scripts |
-| `default_branch` | branch name | required | `inherit`, `local-verify`, `pr-wait`, `render` |
+| `default_branch` | branch name | required | `inherit`, `local-verify`, `merge`, `pr-wait`, `render` |
 | `verify.mode` | `ci` or `local-first` | required | `pr-wait` (a draft in `local-first` is not CI-checked), `render` |
 | `verify.install` | string (shell) | `""` | `local-verify`, `render` |
 | `verify.command` | non-empty string (shell) | required | `local-verify`, `render` |
 | `verify.timeout_min` | integer 1..360 | `45` | `local-verify`, `render` |
-| `gate.context` | string: the commit status that is the merge gate | `"CI / Gate"` | `inherit`, `pr-wait`, `local-verify`, `render` |
+| `gate.context` | string: the commit status that is the merge gate ([CI-GATE.md](CI-GATE.md)) | `"CI / Gate"` | `inherit`, `merge`, `pr-wait`, `local-verify`, `render` |
 | `gate.check` | string: the Actions job (check run) behind the gate | `"Verify"` | `pr-wait`, `render` |
 | `gate.inherit` | boolean | `false` | `local-verify` (and CI: call `inherit.mjs`), `render` |
 | `gate.ci_files` | list of regexes | `[]` | `inherit` |
-| `docs_only.docs` | list of regexes: paths that are documentation | `[]` | `docs-only`, `inherit` |
-| `docs_only.code` | list of regexes: paths that are code even if they match `docs` | `[]` | `docs-only`, `inherit` |
+| `docs_only.docs` | list of regexes: paths that are documentation | `[]` | `docs-only`, `inherit`, `local-verify` |
+| `docs_only.code` | list of regexes: paths that are code even if they match `docs` | `[]` | `docs-only`, `inherit`, `local-verify` |
 | `reviewers` | list of reviewer objects | `[]` | `pr-wait` |
 | `deploy_branch` | branch name or `null`; must differ from `default_branch` | `null` | `local-verify`, `render` |
 | `project` | project object, or `null` for none | `null` | `project`, `tracker-next` |
@@ -38,33 +38,9 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 `gate.context` and `gate.check` must differ: the verdict is the commit status, and check runs are only read to
 detect a refused Actions run.
 
-A reviewer object:
+A reviewer object (`reviewers`): see [REVIEWERS.md](REVIEWERS.md).
 
-| Key | Type | Default |
-|---|---|---|
-| `name` | string | required |
-| `login` | GitHub login of the reviewing account | required |
-| `rereview_comment` | string a re-review is requested with, or `null` | `null` |
-| `no_findings_reaction` | a GitHub reaction content (`+1`, `-1`, `laugh`, `confused`, `heart`, `hooray`, `rocket`, `eyes`) the account leaves when it has no findings, or `null` | `null` |
-| `unavailable_pattern` | regex (case-insensitive) matched against the account's issue comments to detect "out of quota", or `null` | `null` |
-| `done_pattern` | regex with a named group `sha`, or `null`. The reviewer is done when the **last** match across the account's issue comments (bodies as currently edited, ordered by last update) captures a `sha` of 7 or more hex characters that is a prefix of the head | `null` |
-| `stale_after_min` | integer minutes after which a silent reviewer no longer blocks, or `null` | `null` |
-
-Example login: `review-bot[bot]`.
-
-`done_pattern` is for a bot that posts no review when it has no findings, and instead keeps one summary comment
-that it edits in place, with a machine line such as
-`review-state:v1 {"code_review":{"commit_sha":"<40-hex>","status":"completed"}}` (key order not guaranteed).
-An order-independent pattern for that line (JSON string, so backslashes are doubled):
-
-```json
-{ "name": "bot", "login": "review-bot[bot]",
-  "done_pattern": "review-state:v1 (?=[^\\n]*\"commit_sha\":\"(?<sha>[0-9a-f]{7,40})\")(?=[^\\n]*\"status\":\"(?:completed|failed)\")" }
-```
-
-A state still `running`, or naming an older commit, does not match the head, so the reviewer stays pending.
-
-A project object (the GitHub Project, Projects v2, that tracks the repo's issues):
+A project object (the GitHub Project, Projects v2, that tracks the repo's issues; see [PROJECT.md](PROJECT.md)):
 
 | Key | Type | Default |
 |---|---|---|
@@ -76,25 +52,9 @@ A project object (the GitHub Project, Projects v2, that tracks the repo's issues
 `project setup` does not edit the config: after it creates a project, put the printed number in `project.number`.
 `project add`, `project status` and `tracker-next` need `number` above `0`.
 
-## Manifest, runtime and doctor
+## Manifest, runtime, doctor and migration
 
-`.ticketflow/manifest.json` records an install. `runtime.mjs` owns `version`, `source` (`url`, `tag`, `commit`), `files` (the sha256
-of every copied runtime file, CRLF read as LF) and `held`; `render.mjs` owns `claude_settings` (the `allow` and `ask` entries
-ticketflow added, so a later render can remove one it no longer wants). The file is deterministic: sorted keys and paths, no timestamps.
-In the ticketflow repo itself (runtime in `core/`) it holds `manifest_version` and `claude_settings` only. Stubs and rendered
-files are not hashed: `gen-stubs --check` and `render --check` cover them.
-
-`runtime.mjs <source-clone> <target-repo> [--keep <path>]... [--dry-run]` copies `core/` and the enabled `practices/<n>/` into
-`.ticketflow/`, except `config.json`, `manifest.json` and `custom/`, which are the repo's. It writes nothing and exits 1 when a file
-the manifest lists was edited, or a file in `.ticketflow/` is untracked, unless that file is already byte-identical to the new one
-or is named with `--keep` (recorded in `held`, never written or removed). Exit 2: a bad source, target, config or manifest.
-
-`doctor.mjs [--preflight | --local] [--config f]` only reads. `--preflight` checks the tools (git, gh 2.48 or newer with the `repo`,
-`project` and `workflow` scopes, node 22 or newer, `timeout`) and the repo in the current directory; `--local` adds the config, the
-runtime against the manifest, the stubs, the templates, the guard and the gitignore without any GitHub call; the full run also
-dry-runs labels, the project and branch protection. Exit 1 when a check failed, 2 on usage.
-
-`config.mjs validate <file>` and `config.mjs migrate <file> [--write]` check and migrate a config (`--write` only after the result validates).
+See [UPGRADING.md](UPGRADING.md). 
 
 ## Built-in floors
 
@@ -102,43 +62,6 @@ The config can add to these, never remove them.
 
 - Never docs (always code): `^\.ticketflow/`, `^\.github/workflows/`.
 - CI files (a pull request that changes one never inherits a gate result): `^\.github/`, `^\.ticketflow/`, `^core/`.
-
-## Migration
-
-`schema_version` is an integer. The release version lives in the manifest, not here. `loadConfig` never changes
-a config: an older file is an error ("run sync"), a newer one is an error ("core older than config: sync").
-Only `sync` calls `migrate(raw)`, which applies `MIGRATIONS[n]` (config at `n` to config at `n + 1`) in order
-and throws on a gap.
-
-## Gate description contract
-
-Whatever posts the gate status writes one of these descriptions; `inherit` and `pr-wait` read them.
-
-- `Actions run #<run id>`: a full run by Actions. A failure with this description is final.
-- `Actions run #<run id>, docs only`: Actions, docs-only diff.
-- `Local run on <host> (<arch>, Node <version>)`: a full local run. A failure with a description that starts with `Local ` can be
-  re-run locally while Actions still refuses the job.
-- `Local check on <host>, docs only`: local, docs-only diff.
-- `Inherited from <sha7>: only docs merged from <default_branch>`: the result of the full run at `<sha7>`.
-
-Only the first and third forms count as a full run to inherit from. The text is capitalized and short (GitHub shows at most 140
-characters) because people read it next to the check. An unrecognized description is safe: `inherit` finds no full run and the pull
-request gets a normal one, and `pr-wait` reads a failure with it as final (red), never as a candidate for the local fallback.
-
-## Prerequisites
-
-`gh` 2.48 or newer (`--paginate --slurp`) with the `repo`, `project` and `workflow` scopes, `git`, Node 22 or newer, and `timeout` (coreutils; on macOS
-`brew install coreutils`) for `local-verify`.
-
-## local-verify
-
-`local-verify <pr | sha>` refuses to run (exit 3) unless the ticketflow runtime in the checkout (scripts, lib and
-`.ticketflow/config.json`, untracked files included) equals `origin/<default_branch>`, so a pull request cannot
-widen or neuter its own fallback. That holds only when you run the default branch's copy of the script. The
-verify runs the code under test as you, with your `HOME` (git credentials, SSH keys) and a shared `.git`: it is a
-clean environment, not a sandbox, so run only branches you would run anyway. A failed run is posted as a `failure`
-status; a timeout posts nothing. A passing default-branch commit moves `deploy_branch` with a plain push (never
-forced; a push rejected as non-fast-forward leaves the branch where it is, any other push error exits 1).
 
 ## gen-stubs
 
@@ -176,6 +99,4 @@ The install and verify steps are written into `ci.yml` only when the file is cre
 spaces and `. / : ( ) # + @ & -`; `verify.install` and `verify.command` accept no control character, lone CR, unicode line break (U+0085, U+2028, U+2029) or `${{`; an area is not `None` (issue forms reserve it) and has no surrounding spaces. A file with a
 CRLF marker line merges (the managed block is rewritten with LF). Invalid JSON in a settings or hooks file is a conflict.
 
-In the CI workflow the status `gate.context` is posted by the last step of the job named `gate.check`, on the head commit. The scope
-step sets `skip=true` and a `description` (see the gate description contract above) for a docs-only or inherited pull request; every
-step of the repo section must carry `if: steps.scope.outputs.skip != 'true'`, and a failed scope step means a full run.
+How the rendered workflow decides and posts the gate: [CI-GATE.md](CI-GATE.md).
