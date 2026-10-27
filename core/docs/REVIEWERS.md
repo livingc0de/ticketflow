@@ -1,6 +1,10 @@
 # Reviewers
 
-Two kinds: the `pr-reviewer` role (always available) and any number of external reviewers, which are accounts you list in the
+Every pull request gets a second pair of eyes before it merges. Out of the box that is TicketFlow's own `pr-reviewer` role, an
+independent reviewer that needs no setup. If you already use a review bot or want a person to review, add them here; TicketFlow
+waits for them, notices when they are out of quota or silent, and brings in the built-in reviewer as a stand-in.
+
+Reviewers come in two kinds: the `pr-reviewer` role (always available) and any number of external reviewers, which are accounts you list in the
 config. `pr-wait` reads the external ones; `merge` enforces the result. When each reviews: [WORKFLOW.md](WORKFLOW.md).
 
 ## pr-reviewer

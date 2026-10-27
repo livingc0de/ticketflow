@@ -1,6 +1,10 @@
 # Project
 
-ticketflow tracks work in one GitHub Project (Projects v2, never classic) linked to the repo, set in the `project` config key
+The Project board is where you see all work at a glance: what is waiting, what an agent is doing right now, and what is ready for
+you to look at. TicketFlow keeps it tidy for you: agents move tickets as they work, and the labels say what kind of work each
+ticket is, how urgent it is and how big.
+
+TicketFlow tracks work in one GitHub Project (Projects v2, never classic) linked to the repo, set in the `project` config key
 (keys: [CONFIG.md](CONFIG.md)). Without it, the skills skip the status steps and `project.mjs` exits with an error.
 Everything below is done through the API: `project.mjs`, `sub-issue.mjs`, `tracker-next.mjs`, `labels.mjs`.
 

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Docs:** the README is a friendly guide (why, how it works, a ticket's journey, the processes, getting started, everyday use, FAQ); every reference doc opens with what it is for; the product is called TicketFlow in prose and plugin display names (#10).
 - **Codex:** skill and role stubs point at the canonical files, like the Claude ones, instead of carrying their text (#7).
 - **protect:** `--replace-context <old>` replaces a superseded required gate context in one run; `--config` must come last (#2).
 - **CI:** the managed job sets up Node.js at the new `ci.node` key (default `"22"`), with `actions/checkout` and `actions/setup-node` at v7 (#4).

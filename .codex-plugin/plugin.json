@@ -6,7 +6,7 @@
   "license": "MIT",
   "skills": "./skills/",
   "interface": {
-    "displayName": "ticketflow",
+    "displayName": "TicketFlow",
     "shortDescription": "Ticket-driven delivery workflow for GitHub repos",
     "category": "Developer Tools",
     "capabilities": [

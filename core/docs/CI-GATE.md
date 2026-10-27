@@ -1,5 +1,9 @@
 # CI gate
 
+The gate answers one question: *may this pull request merge?* Instead of many required checks that drift over time, TicketFlow
+asks for exactly one green status on the pull request's latest commit. Your CI posts it after your normal checks pass; docs-only
+changes get it without the heavy work; and when GitHub Actions can't run at all, a careful local fallback can post it instead.
+
 The merge gate is one commit status on the pull request's head commit, named by `gate.context` (default `CI / Gate`).
 The verdict is that status alone; `merge`, `pr-wait` and the branch ruleset all read it. Config keys: [CONFIG.md](CONFIG.md).
 

@@ -1,7 +1,12 @@
 # Workflow
 
-The policy behind the `implement-ticket` and `create-ticket` skills. The skills are the procedure an agent follows; this is
-the reasoning and the rules, in one place. Status meanings and labels: [PROJECT.md](PROJECT.md).
+This is the heart of TicketFlow: how a piece of work travels from an idea to merged code, and why each step exists. Agents follow
+the same rules step by step through the `implement-ticket` and `create-ticket` skills; this page explains them for people, in one
+place. For what the board statuses and labels mean, see [PROJECT.md](PROJECT.md).
+
+**The short version:** every change starts as a ticket, is planned unless it is small and obvious, is built on its own branch,
+proves itself with a green gate, gets an independent review, merges only through a script that checks all of that, and comes back
+to you as In Review with a summary. You decide when it is Done.
 
 ## Lifecycle
 

@@ -1,6 +1,6 @@
-# ticketflow: start here
+# TicketFlow: start here
 
-ticketflow is an agent-neutral, ticket-driven delivery workflow for GitHub repos: ticket, plan, implement, verify, review, merge, handoff.
+TicketFlow is an agent-neutral, ticket-driven delivery workflow for GitHub repos: ticket, plan, implement, verify, review, merge, handoff.
 It is installed into a repo as a `.ticketflow/` folder with thin stubs for Claude Code and Codex, and updated only when the owner chooses.
 
 ## Before you start
@@ -23,6 +23,6 @@ You need a shell, `git`, `gh` 2.48 or newer logged in with the `repo`, `project`
 ## Rules for any agent
 
 - Write only inside the target repo (and the temporary clone). Suggest user-level configuration changes, never make them.
-- Ask before overwriting a file ticketflow does not own, and before any write to GitHub (labels, Project, branch protection).
+- Ask before overwriting a file TicketFlow does not own, and before any write to GitHub (labels, Project, branch protection).
 - Never use an admin bypass. A guard or permission prompt is a question for the owner, not an obstacle.
 - Nothing reaches the default branch until the owner says so.
