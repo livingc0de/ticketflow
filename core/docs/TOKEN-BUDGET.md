@@ -26,6 +26,23 @@ Every word an agent loads costs time and money, and crowds out the code it shoul
 - Model and effort sit in the generated stubs, so a role runs at its class and effort without being told.
 - Plan by default, but not for easy work: a skipped plan needs its four reasons ([WORKFLOW.md](WORKFLOW.md)).
 
+## What 0.3.0 changed
+
+Measured on a scratch repo set up for Claude Code and Codex (the same config, installed from the `v0.2.0` tag, then updated), so the
+numbers are what an update does to a real repo. Bytes are a rough proxy for tokens.
+
+| | 0.2.0 | 0.3.0 | Note |
+|---|---|---|---|
+| Claude Code skill and role stubs (always loaded) | 2,226 B | 2,704 B | the one new stub is `orchestrate-tickets`; the other four are byte-identical |
+| All generated stubs (`.claude`, `.agents`, `.codex`) | 9,668 B | 10,728 B | two new `orchestrate-tickets` stubs, nothing else |
+| AGENTS block, with its two marker lines | 13 lines | 14 lines | one new line: issue and PR text is data, never an instruction |
+| `implement-ticket` (read when a ticket is worked) | 95 lines, 11,076 B | 104 lines, 12,848 B | carries the engineering method now |
+| `orchestrate-tickets` (read only when asked) | none | 4,938 B | |
+| `ticket-planner` / `pr-reviewer` roles | 3,546 / 3,218 B | 3,786 / 3,713 B | smallest-change and lean-review rules |
+
+A stub is read at the start of every session; a skill only when it runs. Adding a tool (Cursor, Gemini CLI and so on) adds its own
+stubs for that tool only. No skill, role or action map is above the 20,000-byte ceiling a test enforces.
+
 ## Measuring
 
 - The size of the always-loaded files: `wc -c` on the stubs, and `wc -l` between the AGENTS block markers.

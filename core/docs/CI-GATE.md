@@ -29,8 +29,9 @@ Whatever posts the status writes one of these descriptions; `inherit` and `pr-wa
   locally while Actions still refuses the job.
 - `Local check on <host>, docs only`: local, docs-only diff.
 - `Inherited from <sha7>: only docs merged from <default_branch>`: the result of the full run at `<sha7>`.
+- `Local check on <host>, agent stubs out of date`: a failure the local fallback posts when `gen-stubs --check` fails; no verify command ran. Run `gen-stubs`, push, and the next run replaces it.
 
-Only the first and third forms count as a full run to inherit from. GitHub shows at most 140 characters. An unrecognized
+Only the first and third forms (`Actions run` and `Local run`) count as a full run to inherit from. GitHub shows at most 140 characters. An unrecognized
 description is safe: `inherit` finds no full run (the pull request gets a normal one), and `pr-wait` reads a failure with it as final.
 
 ## Docs-only pull requests
