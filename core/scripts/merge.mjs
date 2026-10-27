@@ -38,7 +38,7 @@ const base = cfg.default_branch
 const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])   // who may write a review of record or a basis; on a public repo anyone can comment
 const READ_HEAD = /^Reviewed head: ([0-9a-f]{7,40})\b/
 // Any spelling of the label counts as a verdict (so a "changes needed" is never missed); only the exact bold line below is ready.
-const verdictsOf = (body) => [...String(body ?? '').matchAll(/^[ \t]*(?:\*\*|__)?[ \t]*verdict[ \t]*(?:\*\*|__)?[ \t]*:[ \t]*(?:\*\*|__)?[ \t]*(.*?)[ \t]*$/gim)].map((m) => m[1])
+const verdictsOf = (body) => [...String(body ?? '').matchAll(/^[ \t]*(?:#{1,6}[ \t]+|[-*+][ \t]+)?(?:\*{1,2}|_{1,2})?[ \t]*verdict[ \t]*(?:\*{1,2}|_{1,2})?[ \t]*:[ \t]*(?:\*{1,2}|_{1,2})?[ \t]*(.*?)[ \t]*$/gim)].map((m) => m[1])
 const isReady = (body) => verdictsOf(body).length === 1 && [...String(body).matchAll(/^\*\*Verdict:\*\*[ \t]*ready to merge[ \t]*$/gm)].length === 1
 
 const stop = (message) => { console.error(`merge: not merged: ${message}`); return 1 }

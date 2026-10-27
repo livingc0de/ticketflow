@@ -199,7 +199,7 @@ test('a pr-reviewer "changes needed" review of the head blocks even when the ext
 })
 
 test('a changes-needed verdict is seen in any common spelling of the label; only the exact bold line is ready', () => {
-    for (const line of ['**Verdict**: changes needed', 'Verdict: changes needed', '   **Verdict:** changes needed', '\t**VERDICT:** changes needed', '__Verdict:__ changes needed', '**Verdict:**changes needed']) {
+    for (const line of ['**Verdict**: changes needed', 'Verdict: changes needed', '   **Verdict:** changes needed', '\t**VERDICT:** changes needed', '__Verdict:__ changes needed', '**Verdict:**changes needed', '## Verdict: changes needed', '- **Verdict:** changes needed', '* Verdict: changes needed', '*Verdict:* changes needed']) {
         refused(run({ reviews: [ext, review({ body: `Reviewed head: ${SHA7}\n${line}` })] }), /changes needed/)
     }
     // a looser spelling of "ready" is a recognised verdict but never an accepted one
