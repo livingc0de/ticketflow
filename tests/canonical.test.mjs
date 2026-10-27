@@ -123,4 +123,7 @@ test('orchestrate-tickets: a coordinator with the Result contract, the budget fo
     assert.match(skill, /before the first dispatch, show the user a warning that you will work the Ready backlog/)
     assert.match(skill, /queue\.mjs/)
     assert.match(skill, /Never "Done"/)
+    assert.match(skill, /the scope is exactly those ticket numbers: every loop and every resume runs the queue with them, never the ready backlog again/)
+    assert.match(skill, /not dispatched again in this run/)
+    assert.match(skill, /write nothing to GitHub/)
 })

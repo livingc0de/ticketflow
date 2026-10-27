@@ -15,6 +15,7 @@ The canonical skills and roles name actions. Without sub-agents, do them like th
 
 ## Rules
 
-- Nesting: none. Limits: none to set.
+- Nesting: none; a lead cannot be dispatched.
+- Limits: none to set.
 - Never skip a gate because you cannot dispatch a role: do the step inline, say so, and let the user decide whether that is enough.
 - Write the report the canonical file asks for, in the size it asks for.

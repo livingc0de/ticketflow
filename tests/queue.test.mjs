@@ -7,7 +7,7 @@ const script = new URL('../core/scripts/queue.mjs', import.meta.url).pathname
 const R = 'repos/o/r'
 const PULLS = `${R}/pulls?state=all&per_page=100&sort=updated&direction=desc`
 const issue = (number, o = {}) => ({ number, state: 'open', title: `T${number}`, node_id: `N${number}`, body: '', labels: [], ...o })
-const pr = (number, branch, o = {}) => ({ number, state: 'open', merged_at: null, head: { ref: branch, sha: 'abcdef1234567890' }, ...o })
+const pr = (number, branch, o = {}) => ({ number, state: 'open', merged_at: null, head: { ref: branch, sha: 'abcdef1234567890', repo: { full_name: 'o/r' } }, ...o })
 const item = (status, number = 7, login = 'octo') => ({ project: { number, owner: { login } }, fieldValueByName: status ? { name: status } : null })
 const node = (number, status) => ({ id: `N${number}`, projectItems: { nodes: status ? [item(status)] : [] } })
 
@@ -128,7 +128,7 @@ test('any-time tracker children are never next while the ordered child is ready;
 })
 
 // ---- D3: the Ready backlog
-const ready = (number, o = {}) => ({ fieldValueByName: { name: o.status ?? 'Ready' }, content: { id: `N${number}`, number, state: o.state ?? 'OPEN', title: `T${number}`, body: o.body ?? '', repository: { nameWithOwner: o.repo ?? 'o/r' }, labels: { nodes: (o.labels ?? []).map((name) => ({ name })) } } })
+const ready = (number, o = {}) => ({ fieldValueByName: { name: o.status ?? 'Ready' }, content: { id: `N${number}`, number, state: o.state ?? 'OPEN', title: `T${number}`, body: o.body ?? '', repository: { nameWithOwner: o.repo ?? 'o/r' }, labels: { nodes: (o.labels ?? []).map((name) => ({ name })), pageInfo: { hasNextPage: o.moreLabels === true } } } })
 const page = (nodes, next = null) => ({ repositoryOwner: { projectV2: { items: { nodes, pageInfo: { hasNextPage: next !== null, endCursor: next } } } } })
 
 test('--ready orders Ready tickets by Priority then number, unlabelled last, and honours --limit', () => {
@@ -177,4 +177,48 @@ test('without a project the list and tracker modes still work (closed is the onl
     assert.equal(r.status, 0, r.stderr)
     assert.match(r.stdout, /\nnext: #11\n/)
     assert.ok(!r.calls.some((c) => c.includes('graphql')))
+})
+
+test('only pull requests from this repository count: a fork PR (or a deleted fork) on a matching branch is ignored', () => {
+    const fork = (n, number) => pr(number, `x/issue-${n}-y`, { head: { ref: `x/issue-${n}-y`, sha: 'deadbeef00', repo: { full_name: 'stranger/r' } } })
+    const gone = pr(92, 'x/issue-11-z', { head: { ref: 'x/issue-11-z', sha: 'deadbeef00', repo: null } })
+    const r = run(['11', '12'], { issues: [issue(11), issue(12)], pulls: [fork(11, 90), fork(11, 91), gone, fork(12, 93), pr(94, 'a/issue-12-x', { head: { ref: 'a/issue-12-x', sha: 'abcdef1234', repo: { full_name: 'O/R' } } })] })
+    assert.match(line(r, 11), /^#11 ready T11$/)
+    assert.match(line(r, 12), /^#12 in-progress T12 \[pr: #94 open abcdef1\]$/)
+    assert.match(r.stdout, /\nnext: #11\n/)
+    assert.match(r.stdout, /\nresume: #12\n/)
+})
+
+test('without a project a merged pull request is done (the handoff cannot be seen) and says so; an open one is still in-progress', () => {
+    const r = run(['11', '12'], { issues: [issue(11), issue(12)], project: null, pulls: [pr(40, 'feat/issue-11-x', { state: 'closed', merged_at: 'x' }), pr(41, 'feat/issue-12-x')] })
+    assert.match(line(r, 11), /^#11 done T11 \[pr: #40 merged abcdef1\] \[no project: handoff not visible\]$/)
+    assert.match(line(r, 12), /^#12 in-progress /)
+    assert.match(r.stdout, /\nresume: #12\n/)
+    const withProject = run(['11'], { issues: [issue(11)], pulls: [pr(40, 'feat/issue-11-x', { state: 'closed', merged_at: 'x' })] })
+    assert.match(line(withProject, 11), /^#11 merged /)
+})
+
+test('a tracker child of another repository exits 2 with the reason and prints nothing', () => {
+    const other = { ...issue(11), repository_url: 'https://api.github.com/repos/x/y' }
+    const r = run(['--tracker', '5'], { extra: tracker([other, issue(12)]) })
+    assert.equal(r.status, 2); assert.equal(r.stdout, ''); assert.match(r.stderr, /x\/y/)
+    const same = run(['--tracker', '5'], { extra: tracker([{ ...issue(11), repository_url: 'https://api.github.com/repos/O/R' }]) })
+    assert.equal(same.status, 0, same.stderr)
+})
+
+test('Depends on: a list after the sentence counts, a ref of another repository keeps the ticket waiting, Blocks refs after ; or . do not count', () => {
+    const body = (text) => ({ issues: [issue(11), issue(12), issue(13, { body: text })] })
+    let r = run(['11', '12', '13'], body('Depends on:\n\n- #11\n- #12 (needs the API)\n\nNotes mention #99.'))
+    assert.match(line(r, 13), /^#13 waiting T13 \[after: #11, #12\]$/)
+    r = run(['11', '12', '13'], body('Part of #5. Depends on other/lib#3.'))
+    assert.match(line(r, 13), /^#13 waiting T13 \[after: other\/lib#3\]$/)
+    r = run(['11', '12', '13'], body('Depends on #11; blocks #12 and #99'))
+    assert.match(line(r, 13), /^#13 waiting T13 \[after: #11\]$/)
+    r = run(['11', '12', '13'], body('Depends on o/r#12 and X/Y#4.'))
+    assert.match(line(r, 13), /\[after: #12, X\/Y#4\]$/)
+})
+
+test('--ready: a ticket with more than 20 labels exits 2 (its Needs: label could be missed)', () => {
+    const r = run(['--ready'], { extra: { 'graphql ReadyItems': page([ready(11, { moreLabels: true })]) } })
+    assert.equal(r.status, 2); assert.equal(r.stdout, ''); assert.match(r.stderr, /labels/)
 })

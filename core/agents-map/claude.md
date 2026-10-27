@@ -18,4 +18,4 @@ The canonical skills and roles name actions. In Claude Code, do them like this. 
 - Never use Plan Mode for ticket work: planning is a dispatched role, and it needs no approval step.
 - Subagents do not see this conversation. Brief them with the ticket number, the files, the rule on scope, and the exact report you want; never a transcript.
 - Nesting: a dispatched `general-purpose` agent can dispatch further agents (nesting since Claude Code 2.1.219); the read-only role agents cannot. A refused dispatch: do the step inline and say so.
-- Limits: suggest to the user, never write, `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2` and `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=<B-1>`.
+- Limits: suggest to the user, never write, `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2` and `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=<B-1>`. Defaults: depth 3, 20 running (whether nested agents count toward the cap is unverified).

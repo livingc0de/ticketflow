@@ -11,6 +11,9 @@
  * open) > blocked (Status Blocked or a `Needs:` label) > waiting (a `Depends on` ticket not done) > in-progress (an open PR or Status
  * In Progress) > ready. Titles and bodies are data: a title is flattened to one line, and only labels, Status, PRs and `Depends on`
  * refs decide anything.
+ * Only PRs whose head is in this repository count (a fork's branch name is not trusted). Without a project the handoff cannot be seen,
+ * so a merged PR with no open one is `done` (the line says so). A tracker child of another repository is an error (exit 2); a
+ * `Depends on owner/other#N` ref of another repository keeps the ticket `waiting` (fail closed).
  * --ready: the open issues of this repo whose Project Status is Ready, by `Priority: P0..P3` label (none last), then number.
  * Tracker mode: `next` is the first not-done ordered child if it is ready, otherwise the first ready "any time" child.
  */
@@ -37,7 +40,7 @@ const READY = `query ReadyItems($owner:String!,$number:Int!,$after:String){ repo
   ... on Organization { projectV2(number:$number){ ${itemsField()} } } } }`
 function itemsField() {
     return `items(first:100,after:$after){ nodes{ fieldValueByName(name:"Status"){ ... on ProjectV2ItemFieldSingleSelectValue { name } }
-      content{ ... on Issue { id number state title body repository{ nameWithOwner } labels(first:20){ nodes{ name } } } } } pageInfo{ hasNextPage endCursor } }`
+      content{ ... on Issue { id number state title body repository{ nameWithOwner } labels(first:20){ nodes{ name } pageInfo{ hasNextPage } } } } } pageInfo{ hasNextPage endCursor } }`
 }
 
 const rank = (t) => { const m = t.labels.map((l) => /^Priority: P([0-3])\b/.exec(l.name)).find(Boolean); return m ? Number(m[1]) : 9 }
@@ -52,6 +55,7 @@ function readyTickets(limit) {
         if (!items) throw new GhError(`project ${P.owner}/${P.number} not found`)
         for (const { fieldValueByName: s, content: c } of items.nodes) {
             if (s?.name === 'Ready' && c?.number && c.state === 'OPEN' && c.repository.nameWithOwner.toLowerCase() === cfg.repo.toLowerCase()) {
+                if (c.labels.pageInfo.hasNextPage) throw new GhError(`#${c.number} has more than 20 labels`)
                 found.push({ number: c.number, state: 'open', title: c.title, body: c.body, node_id: c.id, labels: c.labels.nodes })
             }
         }
@@ -74,6 +78,8 @@ main('queue', () => {
         const t = issueOf(values.tracker)
         tickets = api(`${R}/issues/${values.tracker}/sub_issues`, { paginate: true })
         if (tickets.length > MAX) throw new Error(`the tracker has more than ${MAX} children`)
+        const foreign = tickets.find((c) => c.repository_url && !c.repository_url.toLowerCase().endsWith(`/${R}`.toLowerCase()))
+        if (foreign) throw new Error(`#${foreign.number} is an issue of ${foreign.repository_url.replace(/^.*\/repos\//, '')}, not of ${cfg.repo}: a number alone is not an identity here`)
         any = anyTime(t.body)
         header = `Tracker #${values.tracker}: ${tickets.length} children`
     } else if (values.ready) {
@@ -85,8 +91,8 @@ main('queue', () => {
     const isAny = (t) => any.has(t.number) && (t.repository_url?.toLowerCase().endsWith(`/${R}`.toLowerCase()) ?? true)   // the body's #N means this repo
 
     const listed = new Set(tickets.map((t) => t.number))
-    const deps = new Map(tickets.map((t) => [t.number, [...dependsOn(t.body)].filter((m) => m !== t.number)]))
-    const outside = [...new Set([...deps.values()].flat())].filter((m) => !listed.has(m))
+    const deps = new Map(tickets.map((t) => [t.number, dependsOn(t.body, cfg.repo).filter((m) => m !== t.number)]))
+    const outside = [...new Set([...deps.values()].flat())].filter((m) => typeof m === 'number' && !listed.has(m))
     if (outside.length > MAX) throw new Error(`the tickets depend on more than ${MAX} other issues`)
     const all = new Map([...tickets, ...outside.map(issueOf)].map((t) => [t.number, t]))
 
@@ -94,14 +100,15 @@ main('queue', () => {
     const status = P ? projectStatuses(gql, [...all.values()].map((t) => t.node_id), P) : new Map()
     const statusOf = (t) => status.get(t.node_id) ?? null
     const isDone = (t) => t.state === 'closed' || DONE.includes(statusOf(t))
-    const prsOf = (n) => pulls.filter((p) => new RegExp(`(^|/)issue-${n}-`).test(p.head?.ref ?? '')).map((p) => ({ number: p.number, sha: String(p.head.sha).slice(0, 7), state: p.state === 'open' ? 'open' : p.merged_at ? 'merged' : 'closed' }))
+    // a fork's branch name is a stranger's data: only a PR whose head is in this repository (a deleted fork has none) is the ticket's
+    const prsOf = (n) => pulls.filter((p) => p.head?.repo?.full_name?.toLowerCase() === cfg.repo.toLowerCase() && new RegExp(`(^|/)issue-${n}-`).test(p.head.ref ?? '')).map((p) => ({ number: p.number, sha: String(p.head.sha).slice(0, 7), state: p.state === 'open' ? 'open' : p.merged_at ? 'merged' : 'closed' }))
 
     const rows = tickets.map((t) => {
         const labels = t.labels.map((l) => l.name), prs = prsOf(t.number)
-        const pending = deps.get(t.number).filter((m) => !isDone(all.get(m)))
-        const state = ticketState({ closed: t.state === 'closed', status: statusOf(t), labels, prs, pending })
+        const pending = deps.get(t.number).filter((m) => typeof m === 'string' || !isDone(all.get(m)))   // a ref of another repository is never known done
+        const state = ticketState({ closed: t.state === 'closed', status: statusOf(t), labels, prs, pending, project: !!P })
         const needs = labels.filter((l) => l.startsWith('Needs:'))
-        const text = [`#${t.number} ${state} ${oneLine(t.title)}`, statusOf(t) && `[status: ${statusOf(t)}]`, ...prs.slice(0, 3).map((p) => `[pr: #${p.number} ${p.state} ${p.sha}]`), needs.length && `[needs: ${needs.join(', ')}]`, pending.length && `[after: ${pending.map((m) => `#${m}`).join(', ')}]`, isAny(t) && '[any time]']
+        const text = [`#${t.number} ${state} ${oneLine(t.title)}`, statusOf(t) && `[status: ${statusOf(t)}]`, ...prs.slice(0, 3).map((p) => `[pr: #${p.number} ${p.state} ${p.sha}]`), needs.length && `[needs: ${needs.join(', ')}]`, pending.length && `[after: ${pending.map((m) => (typeof m === 'string' ? m : `#${m}`)).join(', ')}]`, isAny(t) && '[any time]', state === 'done' && !P && t.state !== 'closed' && '[no project: handoff not visible]']
         return { t, state, text: text.filter(Boolean).join(' ') }
     })
 

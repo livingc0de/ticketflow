@@ -36,25 +36,43 @@ export function projectStatuses(gql, ids, project) {
     return status
 }
 
-/** The `#N` refs in the sentence that starts with "Depends on" (this repo's issues only: `owner/repo#N` is skipped; "Part of #T" and "Blocks #M" are not dependencies). */
-export function dependsOn(body) {
-    const out = new Set()
-    for (const line of (body ?? '').split('\n')) {
-        const at = line.search(/depends on/i)
-        if (at < 0) continue
-        const rest = line.slice(at + 10), end = rest.search(/\.(\s|$)/)
-        for (const [, n] of (end < 0 ? rest : rest.slice(0, end)).matchAll(/(?<![\w/-])#(\d+)/g)) out.add(Number(n))
+/**
+ * The dependencies of a ticket: the refs in the sentence that starts with "Depends on" (up to a `.` or `;`), or, when that sentence has
+ * none ("Depends on:"), in the list items right after it. A number is an issue of `repo`; `owner/repo#N` of another repository is kept
+ * as a string (queue treats it as not done: fail closed). "Part of #T" and "Blocks #M" are not dependencies.
+ */
+export function dependsOn(body, repo) {
+    const out = new Set(), lines = (body ?? '').split('\n')
+    const refs = (text) => {
+        const found = []
+        for (const [, where, n] of text.matchAll(/(?<![\w/-])(?:([\w.-]+\/[\w.-]+))?#(\d+)/g)) found.push(!where || where.toLowerCase() === repo.toLowerCase() ? Number(n) : `${where}#${n}`)
+        return found
     }
-    return out
+    lines.forEach((line, i) => {
+        const at = line.search(/depends on/i)
+        if (at < 0) return
+        const rest = line.slice(at + 10), end = rest.search(/\.(\s|$)|;/)
+        const found = refs(end < 0 ? rest : rest.slice(0, end))
+        if (!found.length) {
+            for (let j = i + 1; j < lines.length && found.length < 50; j++) {
+                if (/^\s*$/.test(lines[j])) continue
+                if (!/^\s*[-*]\s/.test(lines[j])) break
+                found.push(...refs(lines[j]))
+            }
+        }
+        found.forEach((r) => out.add(r))
+    })
+    return [...out]
 }
 
 /**
  * The state of one ticket, from facts only (never from free text): done | conflict | merged | blocked | waiting | in-progress | ready.
- * `prs` are { state: 'open' | 'merged' | 'closed' }; `pending` the dependencies that are not done; `labels` are names.
+ * `prs` are { state: 'open' | 'merged' | 'closed' }; `pending` the dependencies that are not done; `labels` are names; `project` is whether a Project is configured.
  */
-export function ticketState({ closed, status, labels = [], prs = [], pending = [] }) {
-    if (closed || DONE.includes(status)) return 'done'
+export function ticketState({ closed, status, labels = [], prs = [], pending = [], project = true }) {
     const open = prs.filter((p) => p.state === 'open').length
+    // without a project the handoff leaves no trace: a merged PR with no open one is as done as it can be seen
+    if (closed || DONE.includes(status) || (!project && open === 0 && prs.some((p) => p.state === 'merged'))) return 'done'
     if (open > 1) return 'conflict'
     if (open === 0 && prs.some((p) => p.state === 'merged')) return 'merged'
     if (status === 'Blocked' || labels.some((l) => l.startsWith('Needs:'))) return 'blocked'

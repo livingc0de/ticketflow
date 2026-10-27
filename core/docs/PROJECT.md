@@ -74,5 +74,5 @@ A `Type: Initiative` issue is a tracker; its children are GitHub sub-issues, in 
   body) are never `next` and are listed separately.
 - `queue.mjs (<N>... | --tracker <T> | --ready [--limit n])` is read-only: it prints each ticket's state (`ready`, `in-progress`, `merged`,
   `blocked`, `waiting`, `conflict`, `done`) rebuilt from the issue, its Status, labels, `Depends on #N` lines and the pull requests on its
-  `*/issue-<N>-*` branches, then `next:` and `resume:`. `--ready` lists the Ready tickets by Priority label, then number.
+  `*/issue-<N>-*` branches, then `next:` and `resume:`. `--ready` lists the Ready tickets by Priority label, then number. Only pull requests from this repository count; a tracker child of another repository is an error. Without a project, a merged pull request shows as `done`: the handoff cannot be seen.
 - Say why on the tracker when a child is added mid-flight.
