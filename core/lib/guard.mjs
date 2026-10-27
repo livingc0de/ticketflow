@@ -130,7 +130,7 @@ const CHECKS = {
         if (tokens[0] !== 'git' || tokens[1] !== 'push') return false
         const positional = tokens.slice(2).filter((t) => !t.startsWith('-'))
         if (!(positional.length <= 1 || (positional.length === 2 && positional[1] === 'HEAD'))) return false
-        // ponytail: reads the hook's cwd only; `git -C <dir> push` is not followed
+        // shortcut: reads the hook's cwd only (a `git -C <dir> push` is not followed), parse -C when a host runs git from another directory
         try { return execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() === cfg.default_branch } catch { return false }
     },
 }
@@ -183,7 +183,8 @@ export const FORMATS = {
         input: (raw) => (typeof raw?.tool_name !== 'string' || raw.tool_name === 'run_shell_command' ? shell(raw?.tool_input?.command, raw?.cwd) : { tool_name: raw.tool_name }),   // the matcher sends shell calls only: no tool name is a changed protocol, so it is checked
         output: (d) => (d.block ? out('', `guard: blocked: ${d.reason}\n`, 2) : d.ask ? out('', `guard: blocked: ${d.reason} Gemini CLI cannot ask for this: ask the owner to run it\n`, 2) : out('{}\n')),
     },
-    copilot: {   // PreToolUse: any payload that carries a command string is a shell call, whatever the harness calls the tool (shortcut: tool-name guesses for a payload without one, revisit when the harness docs fix the names)
+    // shortcut: tool-name guesses for a payload without a command string, drop them when the harness docs fix the names
+    copilot: {   // PreToolUse: any payload that carries a command string is a shell call, whatever the harness calls the tool
         input(raw) {
             const args = asJson(raw?.tool_input ?? raw?.toolArgs)
             const name = raw?.tool_name ?? raw?.toolName

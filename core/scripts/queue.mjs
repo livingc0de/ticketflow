@@ -39,7 +39,7 @@ const PULLS = `${R}/pulls?state=all&per_page=100&sort=updated&direction=desc`
 // shortcut: the first 100 cross-references of an issue; more than that is an error (exit 2), page them when a ticket really has that many
 const XREFS = `query TicketPulls($ids:[ID!]!){ nodes(ids:$ids){ ... on Issue { timelineItems(itemTypes:[CROSS_REFERENCED_EVENT],first:100){ totalCount nodes{ ... on CrossReferencedEvent {
   source{ ... on PullRequest { number state headRefName headRefOid repository{ nameWithOwner databaseId } headRepository{ databaseId } } } } } } } } }`
-// shortcut: Ready items are read in at most 10 pages of 100 (exit 2 beyond), and dependencies outside the list are fetched one by one up to 50; page or batch them when a backlog outgrows this
+// shortcut: Ready items in at most 10 pages of 100 and outside dependencies one by one up to 50 (exit 2 beyond either), page or batch them when a backlog outgrows this
 const READY = `query ReadyItems($owner:String!,$number:Int!,$after:String){ repositoryOwner(login:$owner){
   ... on User { projectV2(number:$number){ ${itemsField()} } }
   ... on Organization { projectV2(number:$number){ ${itemsField()} } } } }`
@@ -127,7 +127,7 @@ main('queue', () => {
     const status = P ? projectStatuses(gql, [...all.values()].map((t) => t.node_id), P) : new Map()
     const statusOf = (t) => status.get(t.node_id) ?? null
     // a fork's branch name is a stranger's data: only a PR whose head repo is its base repo (a deleted fork has none) is the ticket's
-    // shortcut: ids, not names, so a renamed repo keeps its PRs; a PR list entry without ids (an old API shape) reads as a fork
+    // ids, not names, so a renamed repo keeps its PRs; a PR list entry without ids (an old API shape) reads as a fork
     const listed100 = api(PULLS).filter((p) => p.head?.repo?.id != null && p.head.repo.id === p.base?.repo?.id)
         .map((p) => ({ number: p.number, ref: p.head.ref, sha: p.head.sha, state: p.state === 'open' ? 'open' : p.merged_at ? 'merged' : 'closed' }))
     // one PR once (a PR can reference several tickets): the REST entries (latest updated first), then the older cross-references

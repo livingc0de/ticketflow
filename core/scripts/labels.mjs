@@ -60,7 +60,7 @@ main('labels', () => {
     // every read comes before the first write
     const extras = live.filter((l) => !wantedNames.has(lower(l.name))).map((l) => ({
         name: l.name,
-        // ponytail: per_page=1 tells used from unused, not how many; a comma in a name would split the labels filter, so it counts as used.
+        // shortcut: per_page=1 tells used from unused but not how many (a comma in a name would split the labels filter so it counts as used), count them if a prune needs the number.
         // Labels used only on discussions are not seen by the issues endpoint.
         used: l.name.includes(',') || api(`${R}/issues?labels=${encodeURIComponent(l.name)}&state=all&per_page=1`).length > 0,
     }))

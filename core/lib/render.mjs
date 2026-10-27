@@ -316,8 +316,8 @@ function overlaps(a, b) {
  * after a deny would turn that deny into a prompt (and `opencode --auto` approves prompts): a pattern is skipped, with one note for the
  * render, when ANY deny of the owner's could match a command the pattern also matches (`overlaps`). Otherwise an ask that already
  * decides the pattern is left alone, and anything else gets the ask rule last (a V1 key moves to the end), so a later broader allow cannot win.
- * ponytail: a pattern the guard drops later stays an ask rule; remove it by hand.
- * shortcut: any overlapping deny skips the whole pattern (a `git push --force *` deny also skips `git push * main`): an ask is lost, never a deny; revisit if owners with such denies ask for the ask rules to be placed before them. V1 patterns match parsed commands, V2 each part of a compound command.
+ * V1 patterns match parsed commands, V2 each part of a compound command. A pattern the guard drops later stays an ask rule; remove it by hand.
+ * shortcut: any overlapping deny skips the whole pattern (a `git push --force *` deny also skips `git push * main`; an ask is lost but a deny never is), place the ask rules before such denies if owners ask for it
  */
 export function mergeOpencodeAsk(existing, patterns, base) {
     const obj = existing === null ? { ...base } : parseJson(existing)
@@ -360,7 +360,7 @@ export function mergeOpencodeAsk(existing, patterns, base) {
  * The job-level `runs-on` entry of a managed block in the existing workflow, verbatim: the key line at the job's indent (4 spaces)
  * and the lines under it, more-indented or a compact `- item` list at the key's indent. The runner is the repo's choice and is kept on
  * every render. `null` when there is no file or no such block yet (render then uses the job's runner, or `ubuntu-latest`).
- * ponytail: a blank line inside a multi-line value ends it; write the value without blank lines.
+ * A blank line inside a multi-line value ends it; write the value without blank lines.
  */
 export function runsOn(existing, part) {
     const body = existing === null ? null : parseBlocks(existing.replaceAll('\r\n', '\n')).find((s) => s.part === part)?.body

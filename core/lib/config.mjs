@@ -39,21 +39,21 @@ const regex = (flags = '') => (v, p) => {
     const source = str(v, p)
     try { return new RegExp(source, flags) } catch (e) { return fail(`${p} is not a valid regex: ${e.message}`) }
 }
-// ponytail: a source check, not a parse: a pattern that merely mentions `(?<sha>` in a character class would pass; pr-wait then finds no sha and the reviewer stays pending
+// shortcut: a source check for `(?<sha>` that a character class can fool (pr-wait then finds no sha and the reviewer stays pending), parse the pattern if a config trips on it
 const donePattern = (v, p) => {
     const re = regex()(v, p)
     return /\(\?<sha>/.test(re.source) ? re : fail(`${p} must contain a named group (?<sha>...)`)
 }
 const ref = (v, p) => {
-    // ponytail: a conservative subset of git ref names; no leading dash, so it can never be read as an option
+    // a conservative subset of git ref names; no leading dash, so it can never be read as an option
     const ok = typeof v === 'string' && /^[\w][\w./-]*$/.test(v) && !/\.\.|\/\/|\/$|\.$|\.lock(\/|$)|\/\.|(^|\/)HEAD$/.test(v)
     return ok ? v : fail(`${p} must be a branch name`)
 }
-// ponytail: a conservative relative path; no `..`, no leading slash, no control characters
+// a conservative relative path; no `..`, no leading slash, no control characters
 const dirPath = (v, p) => (typeof v === 'string' && /^[\w.-]+(\/[\w.-]+)*$/.test(v) && !v.split('/').some((s) => /^\.+$/.test(s)) ? v : fail(`${p} must be a relative directory path without ..`))
 const area = (v, p) => (typeof v === 'string' && v.length >= 1 && v.length <= 44 && v.trim() === v && !/[\u0000-\u001f\u007f\u0085\u2028\u2029,{}]/.test(v) && v.toLowerCase() !== 'none' ? v : fail(`${p} must be 1-44 characters without commas, braces or control characters`))
 const glob = (v, p) => (typeof v === 'string' && v !== '' && !/[\u0000-\u001f\u007f\u0085\u2028\u2029]|\$\{\{/.test(v) ? v : fail(`${p} must be a non-empty path glob`))
-// ponytail: a name that is written into a workflow file, a comment and a shell variable: a conservative charset, so no line break or `${{ }}` can get in
+// a name that is written into a workflow file, a comment and a shell variable: a conservative charset, so no line break or `${{ }}` can get in
 const gateName = (v, p) => (typeof v === 'string' && /^[\w .\/:()#+@&-]+$/.test(v) && v.trim() === v ? v : fail(`${p} must be letters, digits, spaces and . / : ( ) # + @ & - only`))
 // a shell command is written into a `run: |` block: no lone CR, no unicode line break, no control character, and no `${{` (put those steps in the CI file's own section)
 const shellText = (v, p) => {

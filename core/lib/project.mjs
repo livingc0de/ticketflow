@@ -82,7 +82,7 @@ const sameOption = (a, b) => a.id === b.id && a.name === b.name && a.color === b
 export function plan(state, repo, std = STANDARD, optionalViews = []) {
     const actions = [], notes = []
     const fill = (s) => s.replaceAll('{repo}', repo)
-    // ponytail: the item count is read once; an item added in the seconds before the writes could lose a dropped option's value
+    // shortcut: the item count is read once (an item added in the seconds before the writes could lose a dropped option's value), read it again if that race is ever seen
     const fresh = state.itemCount === 0
 
     if (!state.repos.some((r) => r.toLowerCase() === repo.toLowerCase())) actions.push({ op: 'link-repo' })

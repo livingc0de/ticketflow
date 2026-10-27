@@ -91,7 +91,7 @@ main('gen-stubs', () => {
     }
     for (const p of remove) {
         rmSync(join(target, p))
-        try { rmdirSync(dirname(join(target, p))) } catch { /* not empty, or a shared directory */ }   // ponytail: a skill's own directory goes with it
+        try { rmdirSync(dirname(join(target, p))) } catch { /* not empty, or a shared directory */ }   // a skill's own directory goes with it
         console.log(`removed ${p}`)
     }
 })

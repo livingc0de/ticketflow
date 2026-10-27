@@ -20,7 +20,7 @@ import { CI_FILE_FLOOR, configPath, loadConfig } from './config.mjs'
 import { docsOnly } from './docs-only.mjs'
 
 const CAP = 300       // the compare and commit APIs list at most 300 files and cut silently: a list that long is code
-const MAX_MAIN = 20   // ponytail: more incoming default-branch commits is a normal run
+const MAX_MAIN = 20   // more incoming default-branch commits is a normal run
 // a real run: Actions or a local verify; never a docs-only or inherited one. An unrecognized description is never inherited from (a normal run).
 const FULL_RUN = /^(Actions run #\d+|Local run on \S.*)$/
 

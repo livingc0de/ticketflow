@@ -44,11 +44,11 @@ function read(u) {
     const R = `repos/${u.repo}`
     const license = api(R).license?.spdx_id ?? 'NONE'
     const head = api(`${R}/commits/${u.branch}`).sha
-    // shortcut: newest 20 releases, revisit (paginate) if a project ships more than 20 between reviews
+    // shortcut: newest 20 releases, paginate if a project ships more than 20 between reviews
     const all = api(`${R}/releases?per_page=20`).filter((r) => !r.draft)
     const cut = all.findIndex((r) => r.tag_name === u.tag)
     const releases = cut < 0 ? all : all.slice(0, cut)
-    // shortcut: compare lists at most 300 files (the report says so), revisit if a review needs the rest without a clone
+    // shortcut: compare lists at most 300 files (the report says so), clone if a review needs the rest
     const cmp = head === u.sha ? { ahead_by: 0, files: [] } : api(`${R}/compare/${u.sha}...${head}`)
     const counts = {}
     for (const f of cmp.files ?? []) counts[group(f.filename)] = (counts[group(f.filename)] ?? 0) + 1
