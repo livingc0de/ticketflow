@@ -25,14 +25,46 @@ important rules are enforced by small scripts and branch protection, not just by
 What you get out of it:
 
 - **Predictability.** Every ticket goes through the same steps, so you always know where a piece of work stands and what comes next.
-- **Safety.** Branch protection requires a green gate before anything merges, and the merge script also checks that the review is
-  done (or attested when a reviewer can't answer). Admin overrides stay yours: agents never use them on their own.
+- **Safety.** Branch protection requires a green gate before anything merges, and the merge script also checks that the review
+  findings were answered. Admin overrides stay yours: agents never use them on their own.
 - **Honesty.** A check that could not run is reported as "not verified", never claimed.
 - **Your control.** Once every gate passes, the agent merges and hands the work back to you as **In Review**: merged, waiting for
   your look. Only you mark it **Done**, and real decisions (product, data, security, money) are asked, never assumed.
 - **Several tickets, optionally.** Ask for a list, a tracker or the Ready backlog and the `orchestrate-tickets` skill hands each ticket to a fresh lead that follows the same workflow, resuming from GitHub after an interruption.
 - **One setup for every agent.** Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Antigravity and GitHub Copilot read the same skills and rules from one place in your repo; any other agent follows `AGENTS.md`.
 - **Updates on your terms.** Your repo keeps a pinned copy of TicketFlow and only changes when you run an update.
+
+---
+
+## New in 0.3.0
+
+Upgrading from 0.2.0? Read [the upgrade notes](core/docs/UPGRADING.md#from-020). The full list is in [CHANGELOG.md](CHANGELOG.md).
+
+- **Several tickets in one go.** Say *"work through #12 #13 #14"*, *"do the children of #10"* or *"work the ready backlog"*. A
+  coordinator hands each ticket to a fresh helper that follows the normal ticket journey, then shows you a table of what merged,
+  what waits for your look and what is stuck. If the session dies, ask again and it picks up from GitHub.
+  [How to use it](core/docs/WORKFLOW.md#several-tickets-optional)
+- **Merge waits until findings are answered.** A finished review used to be enough. Now every open review thread (from anyone,
+  bots included), a reviewer's "changes requested" and a "changes needed" verdict stop the merge until they are dealt with. Every
+  refusal says what to do next, and there is always a legitimate way through.
+  [When merge says no](core/docs/REVIEWERS.md#when-merge-says-no)
+- **Five more tools.** Cursor, Gemini CLI, OpenCode, Antigravity and GitHub Copilot join Claude Code and Codex, each with its own
+  install, its own generated files and its own command guard. Adding one to an existing repo is opt-in.
+  [Install steps and manual steps per tool](core/docs/TOOLS.md)
+- **A guard for every tool.** The "ask me before merging by hand or pushing to the default branch" seatbelt now exists in all
+  seven tools. Gemini CLI cannot ask, so it denies those commands and you run them yourself.
+  [The guard in plain words](core/docs/TOOLS.md#the-command-guard-in-plain-words)
+- **A built-in engineering method.** TicketFlow now carries its own rules: reproduce a bug and name its cause before fixing it,
+  write the failing test first when the behaviour is non-trivial (and skip the ceremony for trivial changes), keep changes
+  small, and have the reviewer name a concrete breaking case for every blocker. You do not need to install any other plugin.
+  [The method in detail](core/docs/WORKFLOW.md#building-tests-bugs-and-small-changes)
+- **A cheaper default.** The agent that writes the code now runs on the standard model at `high` effort. The strongest model
+  stays with the planner and the reviewer, and the implementer escalates only for genuinely hard reasoning, not because a ticket
+  is risky. [Risk tiers](core/docs/WORKFLOW.md#risk-tiers)
+- **Vague ideas are fine.** Say *"I have an idea for ..."* and the agent reads the code first, asks one question at a time,
+  offers two or three approaches with a recommendation, then writes the ticket.
+- **For maintainers of TicketFlow itself:** a small tool that checks Superpowers and Ponytail for new releases each month. It lives
+  in this repo only and is never installed in yours. [Upstream review](docs/maintainers/upstream-review.md)
 
 ---
 
@@ -70,8 +102,8 @@ Here is what happens when you say *"implement #42"*:
 5. **Review.** An independent `pr-reviewer` role reviews the pull request against the ticket, security, correctness and your own
    rules: every pull request when it is your only reviewer, the `high` and `critical` ones (or as a stand-in) when you also use an
    external reviewer such as a review bot. Findings are fixed in the same pull request.
-6. **Merge.** Only through the `merge` script, which checks the gate, the review and that the branch is up to date, then merges
-   exactly that commit.
+6. **Merge.** Only through the `merge` script. It checks the gate, that the branch is up to date and that the review was
+   answered (no open review thread, no "changes requested"), then merges exactly that commit.
 7. **Hand off.** The ticket moves to **In Review** with a summary: what changed, the evidence, decisions, anything not verified.
    You look it over and mark it **Done** when you're happy.
 
@@ -111,12 +143,16 @@ The `pr-reviewer` role is always available and works with no setup: it reviews e
 ones once you add an external reviewer (a bot or a person) in the config. TicketFlow waits for external reviewers and, when you
 give it the pattern or timeout to recognise it, notices one that is out of quota or silent and brings in the built-in reviewer as a
 stand-in.
-[More in REVIEWERS.md](core/docs/REVIEWERS.md)
+
+A finished review is not enough to merge. Findings must be answered too: the agent fixes each one, or says why it disagrees,
+then replies to the thread and resolves it. [More in REVIEWERS.md](core/docs/REVIEWERS.md)
 
 ### Merging and branch protection
 
 Merges happen only through the `merge` script. A standard branch ruleset requires `CI / Gate` and an up-to-date
-branch. Your merge methods and branch settings stay yours: the setup shows them and offers squash-only (one commit per ticket) and
+branch. The script adds what a ruleset cannot see: no unresolved review thread from anyone, no reviewer left on "changes requested",
+and the built-in reviewer's last verdict on the exact commit must be "ready to merge". When it refuses, it prints the next step
+([the ways past a refusal](core/docs/REVIEWERS.md#when-merge-says-no)). Your merge methods and branch settings stay yours: the setup shows them and offers squash-only (one commit per ticket) and
 tidy-branch settings, which you can take or leave. You, as an admin, can still override it through a pull request when you choose to; agents never do that on their own.
 [More in SECURITY.md](core/docs/SECURITY.md)
 
@@ -194,9 +230,10 @@ The setup interviews you (your verify command, your Project, optional reviewers 
 only applied after your yes. Branch protection is switched on after you merge the setup pull request. A brand-new, empty repo gets
 one confirmed direct push instead.
 
-Three small things are left for you after the setup merges: in Codex, trust the repo's hook (`/hooks`; again whenever an update
-changes it), and trust the guard hook the same way in Cursor, Gemini CLI, Copilot and Antigravity (the setup lists each); restart open agent
-sessions so they load the new skills; and turn on the Project's built-in workflows that the setup lists (GitHub's API can't).
+Three small things are left for you after the setup merges: trust the guard hook once in the tools that have one (in Codex via
+`/hooks`, again whenever an update changes it; Cursor, Gemini CLI, Copilot and Antigravity ask in their own way, and the setup
+lists each); restart open agent sessions so they load the new skills; and turn on the Project's built-in workflows that the
+setup lists (GitHub's API can't). What each tool needs is in [TOOLS.md](core/docs/TOOLS.md).
 
 Already have a CI workflow, a Project or branch protection? The setup adopts them: your own CI steps move into the repo section of
 the workflow, an existing Project is topped up, and existing protection is never weakened.
@@ -212,6 +249,10 @@ Talk to your agent in plain words:
 | "create a ticket for …" | a well-formed issue with labels, an Execution section and its place on the board |
 | "implement #42" / "implement the next ticket" | the full journey above, ending In Review with a summary |
 | "next child of #10" | the next unfinished sub-issue of an initiative |
+| "I have an idea: ..." | the agent reads the code, asks one question at a time, offers 2-3 approaches and writes the ticket or tracker |
+| "work through #12 #13 #14" / "do all children of #10" | the optional orchestrator: one fresh helper per ticket, a final table, tickets left In Review |
+| "work the ready backlog" | the orchestrator warns you first, then takes up to 10 Ready tickets, highest priority first (needs a Project) |
+| "continue the run" / "continue #12" | an interrupted run picks up from GitHub: finished tickets stay finished, open pull requests continue |
 | "mark #42 done" | Done and closed, only because you asked |
 | "update ticketflow" | the update procedure below |
 
@@ -232,10 +273,11 @@ until you merge it. [More in UPGRADING.md](core/docs/UPGRADING.md)
 
 - Agents never use an admin bypass (`--admin`, direct pushes to the default branch, posting a status by hand) unless you explicitly
   ask for that exact action. In Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Antigravity and Copilot, a guard in the repo's agent settings asks before (or blocks) the common forms
-  of these commands (Gemini CLI has no ask, so it denies them and you run the command yourself). It is a seatbelt, not a wall: branch protection is what actually enforces the gate.
+  of these commands (Gemini CLI has no ask, so it denies them and you run the command yourself; [per tool](core/docs/TOOLS.md#the-command-guard-in-plain-words)). It is a seatbelt, not a wall: branch protection is what actually enforces the gate.
 - During setup and updates, agents write only inside your repo. They suggest changes to your personal agent settings; they never
   make them.
 - A check that could not run is reported, never claimed.
+- Text in an issue, pull request or comment is treated as data. It can say what to build; it cannot tell an agent to skip a rule.
 
 The full threat model and what each safeguard does and doesn't prevent: [SECURITY.md](core/docs/SECURITY.md).
 
@@ -248,6 +290,11 @@ native front door (stubs, an action map and a command guard); any other agent th
 the skills. That includes Windsurf, Cline and Roo Code, Amp, Kiro, Junie, Zed, Aider, Goose and Factory Droid: they read `AGENTS.md` and
 use `core/agents-map/generic.md` (Aider: `read: AGENTS.md` in `.aider.conf.yml`; Kiro and Cline: tell it to read `AGENTS.md`). They get
 no command guard, and without sub-agents the review runs in the same session, so you are asked before a merge that rests on it.
+
+**Do I need Superpowers or Ponytail?** No. TicketFlow carries the ideas it uses in its own skills; see [Credits](#credits).
+
+**Why did `merge` refuse?** It names the reason and the next step. The common ones (an open review thread, "changes requested", an
+out-of-date branch) and the legitimate ways past each are in [REVIEWERS.md](core/docs/REVIEWERS.md#when-merge-says-no).
 
 **Will it slow small changes down?** Small, obvious changes skip planning, pull requests that touch only your listed docs paths skip the heavy checks, and review
 depth follows the risk tier. The process grows with the risk, not with the ticket count.
@@ -267,10 +314,11 @@ Everything else is read only when it is needed. [More in TOKEN-BUDGET.md](core/d
 
 | Doc | Read it when you want to know… |
 |---|---|
-| [WORKFLOW.md](core/docs/WORKFLOW.md) | the lifecycle in detail: tiers, planning, verifying, reviewing, merging, handoff, branching |
+| [WORKFLOW.md](core/docs/WORKFLOW.md) | the lifecycle in detail: tiers, planning, verifying, reviewing, merging, handoff, several tickets, branching |
 | [PROJECT.md](core/docs/PROJECT.md) | the board: statuses, views, labels and initiative trackers |
 | [CI-GATE.md](core/docs/CI-GATE.md) | how the merge gate works, docs-only runs, the local fallback, renaming the gate |
-| [REVIEWERS.md](core/docs/REVIEWERS.md) | the built-in reviewer and how to add external ones |
+| [REVIEWERS.md](core/docs/REVIEWERS.md) | the built-in reviewer, external reviewers, and what to do when `merge` says no |
+| [TOOLS.md](core/docs/TOOLS.md) | each supported agent: install, generated files, manual steps, its command guard |
 | [CONFIG.md](core/docs/CONFIG.md) | every setting in `.ticketflow/config.json` |
 | [EXTENDING.md](core/docs/EXTENDING.md) | how to customize: `custom/`, review guidelines, practices, domain guides |
 | [SECURITY.md](core/docs/SECURITY.md) | the threat model and the safeguards |
@@ -279,4 +327,12 @@ Everything else is read only when it is needed. [More in TOKEN-BUDGET.md](core/d
 
 These docs are also copied into every repo as `.ticketflow/docs/`, so your agent and your team always read the version you run.
 
-Contributing: [AGENTS.md](AGENTS.md). Release notes: [CHANGELOG.md](CHANGELOG.md). License: MIT.
+---
+
+## Credits
+
+TicketFlow's engineering method (plan first, test first where it pays, debug by cause) was inspired by
+[Superpowers](https://github.com/obra/superpowers), and its lean, minimal-change rules by
+[Ponytail](https://github.com/dietrichgebert/ponytail). Neither needs to be installed.
+
+Contributing: [AGENTS.md](AGENTS.md). Maintainers: [`docs/maintainers/upstream-review.md`](docs/maintainers/upstream-review.md). Release notes: [CHANGELOG.md](CHANGELOG.md). License: MIT.

@@ -35,8 +35,9 @@ never lower it. The `implement-ticket` skill holds the full definitions; in shor
   production boot or deploy config, an ambiguous spec, or three or more subsystems.
 - `critical`: `high` plus data exposure or loss, money movement, irreversible data operations, or production config.
 
-The implementer runs in the standard class at `high` by default; the strong class or `xhigh` only for genuinely hard reasoning, never
-because of the tier.
+The implementer runs in the standard class at `high` by default: it is cheaper, and the planner and the reviewer, who catch
+mistakes, stay on the strong class. The implementer moves up to the strong class or `xhigh` only for genuinely hard reasoning (a
+subtle lock order, a money state machine), never because of the tier.
 A skipped plan whose diff grows past its stated scope is re-tiered up.
 
 ## Planning
@@ -59,6 +60,24 @@ The plan ends with `Verified against <sha> on <date>`; its open decisions go to 
 
 Exactly one `Planning:` line, in the claim comment and the ticket (formats in the skill); a skip gives one reason per test.
 
+## Building: tests, bugs and small changes
+
+TicketFlow carries its own engineering method in `implement-ticket` and the two roles; no other plugin is needed.
+
+- **A bug is reproduced first** (a failing test, or captured output) and its root cause named. The fix goes where every caller
+  routes through, not at the symptom.
+- **Test first where it pays.** For non-trivial behaviour (a branch, a loop, a parser, money, security, a data write,
+  concurrency), see a test fail for the right reason, then make it pass. A trivial, docs-only or generated change gets no new test;
+  its effect is verified instead.
+- **Tests assert behaviour, not wiring,** and a trust boundary gets a case that must be refused.
+- **Small changes.** The smallest correct change wins: reuse before adding, delete before adding. A deliberate limit gets a comment
+  `shortcut: <limit>, <when to revisit>`, never over a security, data-loss or required-behaviour gap.
+- **The roles use the same lens.** The planner takes the smallest complete change, maps every acceptance criterion to the check
+  that proves it and weighs 2-3 approaches when a choice is open. The reviewer's "Lean" lens asks what can be deleted or reused,
+  names a concrete breaking case and the smallest fix for every blocker, and ends with a "Not checked" line.
+- **Findings are checked against the code** before they are acted on. After two failed attempts at the same failure, the planner is
+  asked for a targeted diagnosis instead of a third blind try.
+
 ## Verify
 
 `verify.mode` in the config:
@@ -80,8 +99,7 @@ comment, never approves, never edits. A fix to behaviour, tests, config or SQL g
 External reviewers and the stand-in rules: [REVIEWERS.md](REVIEWERS.md).
 
 Wait once, in the background (`pr-wait`), batch every finding into one push, and fix or reject each with a reason; reply to and resolve
-each review thread with `thread.mjs`. A related small
-problem found along the way is fixed in the same pull request and listed as "Also fixed"; only a big or unrelated one gets its own issue.
+each review thread with `thread.mjs`. A related small problem found along the way is fixed in the same pull request and listed as "Also fixed"; only a big or unrelated one gets its own issue.
 
 ## Merge
 
@@ -96,16 +114,66 @@ stays convention and what cannot be verified: [REVIEWERS.md](REVIEWERS.md). It m
 
 ## Several tickets (optional)
 
-`orchestrate-tickets` works through a list, a tracker's children or the Ready backlog in one run. It is a coordinator only: it never
-edits, merges or reads code. For each ticket it dispatches a fresh ticket lead (never a copy of its own conversation) that follows
-`implement-ticket` unchanged and answers with one `Result #N: ...` line. After each result it runs `queue.mjs`, which rebuilds every
-ticket's state from GitHub (issue, Status, labels, `Depends on`, pull requests), so GitHub wins over any report and an interrupted run
-resumes by starting again; there is no ledger, lock or daemon. With no list or tracker it works the Ready backlog: it first warns you,
-with the bound (10 tickets by Priority, then number) and the list; those ticket numbers are then the scope for every loop and any resume (tickets leave Ready once claimed, so the backlog is never re-read). It never marks a ticket Done.
+Most of the time you work one ticket: "implement #42". When you have a handful, the `orchestrate-tickets` skill can work through
+them in one run. It is optional, and one ticket never needs it.
 
-Three separate controls: depth (orchestrator, then leads, then specialists; nothing deeper), budget B (agents active at once including
-the orchestrator, default 3) and ticket parallelism P (default 1, at most floor((B-1)/2), because each lead keeps a slot for its own
-specialist). Parallel tickets only on request and only when independent (disjoint files, config, generated files, no order).
+### Asking for it
+
+Plain requests are enough:
+
+- *"Work through #12, #13 and #14."* A list, in the order you gave it.
+- *"Do all the children of #10."* A tracker: its sub-issues, in the tracker's order.
+- *"Work the ready backlog."* No list, no tracker: see "The Ready-backlog warning" below.
+
+### What happens
+
+The orchestrator is a coordinator only. It never edits files, merges or reads code. For each ticket it dispatches a **fresh ticket
+lead**, a helper that starts with an empty head (never a copy of the orchestrator's conversation) and follows `implement-ticket`
+unchanged: claim, plan, build, verify, review, merge, hand off. The lead answers with one line, `Result #N: ...`.
+
+After every result the orchestrator runs `queue.mjs`, which rebuilds each ticket's state from GitHub (the issue, its Status, labels,
+`Depends on` lines and pull requests): `ready`, `in-progress`, `merged`, `blocked`, `waiting`, `conflict` or `done`. GitHub wins
+over any report, so nothing depends on the orchestrator's memory. There is no ledger, lock or daemon.
+
+### What you will see
+
+- At the start: one announcement of the budget, how many tickets run at once, and when it will stop.
+- A lead cannot ask you questions. When a ticket needs a real decision, the lead labels it `Needs: Decision` with a recommended
+  default and reports `needs-decision`. In a list, the run moves on to the next ticket; in a tracker it stops, because later children
+  may depend on the answer.
+- At the end, a table: merged, In Review, blocked, needs a decision, not started, nothing to do. For each ticket: the pull request,
+  the merge commit, the review, what was not verified and any follow-ups, plus totals from the leads' Run lines.
+- Every merged ticket sits **In Review**. The orchestrator never marks anything Done; that is yours.
+
+The run also stops when nothing is ready, when you say so, or when one ticket has two open pull requests (`conflict`: it reports
+both and touches neither).
+
+### Resuming
+
+If a session ends or you stop it, ask again: *"continue the run"* or *"continue #12 #13 #14"*. State is rebuilt from GitHub: a
+ticket whose pull request merged gets its handoff finished, one with an open pull request continues from it, one not started starts
+fresh. Nothing is done twice and no second pull request is opened. Restate the tickets or the tracker when you resume; the
+orchestrator does not remember them. A single ticket resumes the same way: *"continue #42"*.
+
+### The Ready-backlog warning
+
+With no list or tracker, the orchestrator works the **Ready** column of your Project. Because that is a bigger step than naming
+tickets, it **warns you first**: it says it will work the Ready backlog, states the bound (at most the 10 highest-priority Ready
+tickets, by Priority label, P0 first, then by number) and lists them. It then starts without waiting for an answer, so say *stop*
+if that is not what you meant. Those ticket numbers are the scope from then on, since tickets leave Ready once claimed. To resume,
+restate the numbers, or ask for the backlog afresh. This mode needs a Project in the config; without one it asks for a list.
+
+### Controls
+
+Three separate controls, all with safe defaults, and each can be changed by asking ("budget 5", "two tickets at once"):
+
+- **Depth:** orchestrator, then leads, then specialists (planner, reviewer); nothing deeper.
+- **Budget B:** agents active at once, including the orchestrator. Default 3.
+- **Ticket parallelism P:** tickets worked at once. Default 1, at most floor((B-1)/2), because each lead keeps a slot for its own
+  specialist. More than one only on request, and only for independent tickets (disjoint files, config and generated files, no order
+  between them).
+
+What each tool allows (installing and enabling them: [TOOLS.md](TOOLS.md)):
 
 | Agent | Lead can dispatch roles | Concurrency cap (suggested, never written) | Fresh context | Checked on |
 |---|---|---|---|---|
@@ -120,8 +188,18 @@ specialist). Parallel tickets only on request and only when independent (disjoin
 
 Fallbacks: a lead that cannot dispatch plans inline and reports `needs-review` once CI is green; the orchestrator then dispatches the
 `pr-reviewer` and a fresh lead continues the ticket. With no dispatch at all, one ticket is run and the run stops, and says so.
-Limits: the Copilot cloud agent pushes only to a `copilot/*` branch, which the `*/issue-<N>-*` match below misses, so it is never an orchestrator or a lead; the persistence lasts as long as the session; two orchestrators can claim one ticket within seconds, which shows afterwards
-as `conflict` in the queue. `queue.mjs` ceilings: tickets are matched to pull requests by branch name (`*/issue-<N>-*`, same repository only) among the 100 latest-updated pull requests; at most 50 tickets; at most 10 pages of Ready items. Without a Project a merged ticket shows `done`, because its handoff cannot be seen. Follow-up work on a ticket after its merge needs its own ticket: the old merged PR keeps the ticket `merged`. A `Depends on owner/other#N` ref of another repository keeps the ticket `waiting` until the owner edits it out of the ticket.
+
+Limits:
+
+- The Copilot cloud agent pushes only to `copilot/*` branches, which the `*/issue-<N>-*` match misses, so it is never an orchestrator
+  or a lead.
+- A run lasts as long as its session. There is no daemon; resume by asking again.
+- Two orchestrators can claim one ticket within seconds; it shows afterwards as `conflict` in the queue.
+- `queue.mjs` matches tickets to pull requests by branch name (`*/issue-<N>-*`, same repository only) among the 100 latest-updated
+  pull requests; at most 50 tickets; at most 10 pages of Ready items.
+- Without a Project a merged ticket shows `done`, because its handoff cannot be seen.
+- Follow-up work on a ticket after its merge needs its own ticket: the old merged pull request keeps the ticket `merged`.
+- A `Depends on owner/other#N` ref to another repository keeps the ticket `waiting` until the owner edits it out of the ticket.
 
 ## Handoff and the Run line
 

@@ -14,7 +14,7 @@ Everything below is done through the API: `project.mjs`, `sub-issue.mjs`, `track
 |---|---|
 | Inbox | Not triaged. |
 | Backlog | Accepted, not ready to start. |
-| Ready | Scope is clear and nothing blocks it. Ready does not mean planned. |
+| Ready | Scope is clear and nothing blocks it. Ready does not mean planned. "Work the ready backlog" ([WORKFLOW.md](WORKFLOW.md#several-tickets-optional)) takes tickets from here. |
 | In Progress | Claimed and being worked on; set at the claim. |
 | In Review | Merged, awaiting the owner's review. The issue stays open. This is the default handoff. |
 | Blocked | Waiting on a named blocker; only with a comment naming the blocker and the next action. |

@@ -29,3 +29,4 @@ You need a shell, `git`, `gh` 2.48 or newer logged in with the `repo`, `project`
 - Ask before overwriting a file TicketFlow does not own, and before any write to GitHub (labels, Project, branch protection).
 - Never use an admin bypass. A guard or permission prompt is a question for the owner, not an obstacle.
 - Nothing reaches the default branch until the owner says so.
+- At the end, list the manual steps the owner still has (trusting a guard hook, restarting the agent): `core/docs/TOOLS.md` of the clone has them per tool.

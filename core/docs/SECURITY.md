@@ -92,11 +92,11 @@ owner are needed.
 
 ## Guard rules
 
-- A form is **blocked** (Codex hook, exit 2) only when it has no legitimate agent use: API merges, hand-posted gate statuses,
-  pushes to the default branch that no prefix rule can express, ruleset or protection writes. Everything else asks (Claude) or prompts
-  (Codex), so an explicit request of the owner stays possible.
+- A form is **blocked** (the Codex hook with exit 2; a deny in the other tools' hooks) only when it has no legitimate agent use: API merges, hand-posted gate statuses,
+  pushes to the default branch that no prefix rule can express, ruleset or protection writes. Everything else asks (Claude, Cursor, Copilot, Antigravity, OpenCode) or prompts
+  (Codex), so an explicit request of the owner stays possible. Gemini CLI cannot ask: it denies, and the owner runs the command.
 - Every block names the allowed path. Claude has no blocking hook, because it would also block the owner's explicit request.
-- Both Codex rules and hooks load only in trusted projects, and a hook must be trusted once via `/hooks`, again after a change.
+- Both Codex rules and hooks load only in trusted projects, and a hook must be trusted once via `/hooks`, again after a change. The other tools' hooks need their own one-time trust (workspace, folder or project approval): [TOOLS.md](TOOLS.md).
 - `guard.mjs --self-test` checks every example in `guard.json` against the hook.
 
 ## Per-tool guard
@@ -116,5 +116,5 @@ ask the owner to run it. A hook file ticketflow adds to is merged, never replace
 | Antigravity | `.agents/hooks.json`, entry `ticketflow-guard`, `PreToolUse` on `run_command` | `force_ask` / deny | undocumented: the guard prints the JSON deny and exits 0 | check `/hooks`; hook working directory undocumented |
 | OpenCode | ask rules in `opencode.json` (`permission.bash`, or `permissions` in V2) | ask only | n/a | no hook command exists; the rules match parsed commands (V2: each part of a compound command), and the last matching rule wins, so an ask rule goes last; an ask pattern is skipped (one note) when any deny of yours could match a command it also matches (`git push --force *` skips `git push * main`: an ask is lost, never a deny); only denies in this project's `opencode.json` are seen: a deny in a user-level `~/.config/opencode/opencode.json` loads before the project's rules and render cannot see it, so an overlapping ask would override it; put hard denies in the project file (or V2 `policies`, which always win); `opencode.jsonc` is merged by hand |
 
-None of the five hooks was run in the tool itself for this page (the live checks are listed in the pull request that added them); the
-formats come from each tool's current documentation and the guard's own tests.
+None of the four hooks (Cursor, Gemini CLI, Copilot, Antigravity) or the OpenCode ask rules was run in the tool itself for this page (the live checks are listed in the pull request that added them); the
+formats come from each tool's current documentation and the guard's own tests. The same table in plain words, with how to trust each hook: [TOOLS.md](TOOLS.md#the-command-guard-in-plain-words).
