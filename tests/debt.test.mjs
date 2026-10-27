@@ -76,6 +76,15 @@ test('a non-ASCII path and a path with ":12:" in it are printed verbatim and spl
     assert.equal(r.stdout, 'x:12:y.py:1 c; revisit: d\nä.js:1 a; revisit: b\n2 shortcuts, 0 without a trigger\n')
 })
 
+test('a user git config that forces colour in grep output does not change the rows', () => {
+    const dir = repo({ 'a.js': `// ${SC} one page, page it later\n` })
+    spawnSync('git', ['config', 'color.grep', 'always'], { cwd: dir })
+    spawnSync('git', ['config', 'color.ui', 'always'], { cwd: dir })
+    const r = debt(dir)
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(r.stdout, 'a.js:1 one page; revisit: page it later\n1 shortcuts, 0 without a trigger\n')
+})
+
 test('paths limit the scan', () => {
     const dir = repo({ 'src/a.js': `// ${SC} a, b\n`, 'lib/b.js': `// ${SC} c, d\n` })
     assert.equal(debt(dir, 'src').stdout, 'src/a.js:1 a; revisit: b\n1 shortcuts, 0 without a trigger\n')

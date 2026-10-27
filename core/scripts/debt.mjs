@@ -24,7 +24,7 @@ const inString = (before) => ['"', "'", '`'].some((q) => (before.split(q).length
 main('debt', () => {
     const { positionals } = parseArgs({ allowPositionals: true })
     for (const p of positionals) if (!existsSync(p)) throw new Error(`${p}: no such file or directory`)
-    const r = spawnSync('git', ['grep', '-z', '-n', '-I', '-E', '(shortcut|ponytail):', '--', ...(positionals.length ? positionals : ['.'])], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    const r = spawnSync('git', ['grep', '--no-color', '-z', '-n', '-I', '-E', '(shortcut|ponytail):', '--', ...(positionals.length ? positionals : ['.'])], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
     if (r.error) throw r.error
     if (r.status !== 0 && r.status !== 1) throw new Error(`git grep failed (not a git checkout, or a bad path): ${r.stderr.trim()}`)
     const rows = []
