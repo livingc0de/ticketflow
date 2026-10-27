@@ -29,7 +29,7 @@ function validate(text) {
         if (rest.length || ![owner, name].every((p) => p && SAFE.test(p) && p !== '.' && p !== '..')) bad(`repo ${u?.repo}`)
         if (typeof u.branch !== 'string' || !/^[A-Za-z0-9._/-]+$/.test(u.branch) || u.branch.includes('..')) bad(`branch of ${u.repo}`)
         if (!/^[0-9a-f]{40}$/.test(u.sha)) bad(`sha of ${u.repo}`)
-        for (const k of ['tag', 'license']) if (typeof u[k] !== 'string' || !/^[A-Za-z0-9._+-]+$/.test(u[k])) bad(`${k} of ${u.repo}`)
+        for (const k of ['tag', 'license']) if (typeof u[k] !== 'string' || !/^[A-Za-z0-9._+/-]+$/.test(u[k])) bad(`${k} of ${u.repo}`)
     }
     return b
 }
@@ -87,6 +87,7 @@ main('upstream-review', () => {
             reviewed_on: new Date().toISOString().slice(0, 10),
             upstreams: results.map((x) => ({ ...x.u, sha: x.head, tag: x.releases[0]?.tag_name ?? x.u.tag, license: x.license })),
         }
+        validate(JSON.stringify(next))   // fail closed: never record what the next run would refuse
         const tmp = `${file}.${process.pid}.tmp`
         writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`)
         renameSync(tmp, file)

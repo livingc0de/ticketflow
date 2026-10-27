@@ -40,8 +40,8 @@ jobs:
           node tools/upstream-review.mjs > "$RUNNER_TEMP/report.txt" || code=$?
           cat "$RUNNER_TEMP/report.txt"
           [ "$code" = 1 ] || exit "$code"
-          { printf 'Follow `docs/maintainers/upstream-review.md`.\n\n```\n'; cat "$RUNNER_TEMP/report.txt"; printf '```\n'; } > "$RUNNER_TEMP/body.md"
-          n=$(gh issue list --state open --search '"Upstream Review Due" in:title' --json number --jq '.[0].number // empty')
+          { printf 'Follow docs/maintainers/upstream-review.md.\n\n```\n'; cat "$RUNNER_TEMP/report.txt"; printf '```\n'; } > "$RUNNER_TEMP/body.md"
+          n=$(gh issue list --state open --author app/github-actions --search '"Upstream Review Due" in:title' --json number --jq '.[0].number // empty')
           if [ -n "$n" ]; then
             gh issue edit "$n" --body-file "$RUNNER_TEMP/body.md"
           else

@@ -12,7 +12,7 @@ Maintainer-only: this folder and `tools/` are never copied into an installed rep
    - enforcement (a script or test) over prose.
 4. Write the result as `docs/maintainers/upstream-reviews/YYYY-MM-DD.md`: versions and SHAs reviewed, then the absorb, adapt and reject lists. This is a local, git-ignored record (the repo is public): never commit it.
 5. Create a ticket for each absorb and adapt item (create-ticket skill). Ideas are re-expressed in TicketFlow's words.
-6. Run `node tools/upstream-review.mjs --record` and commit only `docs/maintainers/upstream.json` in the PR of the review's own ticket. It records only after every read succeeded.
+6. Run `node tools/upstream-review.mjs --record` and commit only `docs/maintainers/upstream.json` in the PR of the review's own ticket. It records only after every read succeeded, and saves the heads as of that run: compare the printed heads with the SHAs you actually reviewed and re-run if they moved.
 7. A license change, or any text you would copy rather than re-express, means asking the owner first and keeping the upstream MIT notice.
 
 The monthly workflow `.github/workflows/upstream-review.yml` opens or updates one open "Upstream Review Due" issue with the report. If Actions refuses to run, run step 1 by hand.

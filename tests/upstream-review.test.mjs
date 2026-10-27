@@ -90,6 +90,19 @@ test('--record writes the heads, the newest release tag and today atomically, af
     assert.ok(r.after.endsWith('\n'))
 })
 
+test('--record accepts a tag with a slash and the result re-validates; a value the validator refuses is never written', () => {
+    const ok = run({ ...repoMap('up/alpha', SHA_A, HEAD_A, { files: ['docs/a.md'], releases: [rel('rel/7.1.0')] }), ...repoMap('up/beta', SHA_B, SHA_B) }, { args: ['--record'] })
+    assert.equal(ok.status, 0, ok.stderr)
+    assert.equal(JSON.parse(ok.after).upstreams[0].tag, 'rel/7.1.0')
+    const again = spawnSync(process.execPath, [script, '--baseline', ok.file], { encoding: 'utf8', env: fakeGh(ok.dir, { ...repoMap('up/alpha', HEAD_A, HEAD_A), ...repoMap('up/beta', SHA_B, SHA_B) }).env })
+    assert.equal(again.status, 0, again.stderr)
+    const bad = run({ ...repoMap('up/alpha', SHA_A, HEAD_A, { files: ['docs/a.md'], releases: [rel('v7 1')] }), ...repoMap('up/beta', SHA_B, SHA_B) }, { args: ['--record'] })
+    assert.equal(bad.status, 2)
+    assert.match(bad.stderr, /invalid baseline: tag of up\/alpha/)
+    assert.equal(bad.after, bad.text)
+    assert.deepEqual(bad.left, ['upstream.json'])
+})
+
 test('an invalid baseline exits 2 before any call', () => {
     const bad = [
         'not json',
