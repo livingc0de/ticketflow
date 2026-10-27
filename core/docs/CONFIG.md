@@ -34,6 +34,7 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `areas` | unique list of 1-44 character names (no commas, braces or control characters): the `Area:` labels and the issue forms' Area dropdown. `[]`: no Area | `[]` | `render`, skills |
 | `practices` | unique list of names from `live-verify`, `runtime-settings`, `i18n`, `database`, `provider-adapters`, `api-endpoints`, `ui-screens`, `domain-guides`, `deploy-gating`, `analytics-events`: the optional practices copied to `.ticketflow/practices/` and wired into the stubs, the AGENTS block and the PR template | `[]` | `runtime`, `gen-stubs`, `render`, `doctor` |
 | `ci.push_paths` | `null`: the CI workflow has no push run; `[]`: it runs on every push to the default branch; a list of globs: only when one of them changes. Must be `null` or `[]` while `deploy_branch` is set (the deploy signal needs every push) | `null` | `render` |
+| `ci.node` | The Node.js version the managed CI job sets up: a major (`"24"`) or `major.minor[.patch]`, as a string | `"22"` | `render` |
 
 `gate.context` and `gate.check` must differ: the verdict is the commit status, and check runs are only read to
 detect a refused Actions run.

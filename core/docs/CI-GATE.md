@@ -11,6 +11,8 @@ The verdict is that status alone; `merge`, `pr-wait` and the branch ruleset all 
   from Actions. Check runs are read only to tell a refused run from a real red one.
 - The rendered workflow posts the status in the last step of the job, on the head commit (never the test merge commit), with
   `if: always()`, so a timeout or a cancel posts a failure too.
+- Every run, docs-only or not, first checks the agent stubs (`gen-stubs --check`, the checked-out copy): a stale or hand-edited stub
+  fails the gate. The local fallback does the same before its inherited or docs-only result or its verify command.
 - Verify mode (`ci` or `local-first`) is described in [WORKFLOW.md](WORKFLOW.md).
 
 ## Description contract

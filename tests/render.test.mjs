@@ -16,7 +16,7 @@ const LEFT = /(?<!\$)\{\{[a-z][\w.]*\}\}/
 
 // two anonymized parameter sets: A (ci mode, inherit, a filtered push run) and B (local-first, deploy signal, every push)
 const A = { verify: { mode: 'ci', install: 'npm ci', command: 'npm run verify', timeout_min: 15 }, gate: { inherit: true }, ci: { push_paths: ['package-lock.json'] }, areas: ['Provider', 'Docs: "quoted" & more'], agents: ['claude'], models: MODELS }
-const B = { verify: { mode: 'local-first', install: 'pnpm install --frozen-lockfile', command: 'pnpm verify\npnpm test:extra', timeout_min: 30 }, gate: { inherit: false }, ci: { push_paths: [] }, deploy_branch: 'ci-green', areas: [], agents: ['claude'], models: MODELS }
+const B = { verify: { mode: 'local-first', install: 'pnpm install --frozen-lockfile', command: 'pnpm verify\npnpm test:extra', timeout_min: 30 }, gate: { inherit: false }, ci: { push_paths: [], node: '24.10' }, deploy_branch: 'ci-green', areas: [], agents: ['claude'], models: MODELS }
 
 /** All files rendered fresh for a config: Map dest -> text. */
 function renderAll(over, runtimeRel = '.ticketflow') {
@@ -90,6 +90,14 @@ test('ci.yml: the draft if and ready_for_review only in local-first; the deploy 
     assert.doesNotMatch(none, /deploy:/)
 })
 
+test('ci.yml: one Node.js setup at ci.node (quoted, default 22); the stub check runs at the runtime path on every run', () => {
+    const a = renderAll(A).get('.github/workflows/ci.yml'), b = renderAll(B).get('.github/workflows/ci.yml')
+    assert.equal(a.match(/setup-node@/g).length, 1); assert.match(a, /node-version: "22"$/m)
+    assert.equal(b.match(/setup-node@/g).length, 1); assert.match(b, /node-version: "24\.10"$/m)
+    assert.match(a, /- name: Check Agent Stubs\n {8}run: node \.ticketflow\/scripts\/gen-stubs\.mjs \.ticketflow \. --check$/m)
+    assert.match(renderAll(A, 'core').get('.github/workflows/ci.yml'), /run: node core\/scripts\/gen-stubs\.mjs core \. --check$/m)
+})
+
 test('ci.yml: the inherit step only with gate.inherit; descriptions follow the gate contract; the runtime path follows runtimeRel', () => {
     const a = renderAll(A).get('.github/workflows/ci.yml'), b = renderAll(B).get('.github/workflows/ci.yml')
     assert.match(a, /node \.ticketflow\/lib\/inherit\.mjs "\$PR" "\$HEAD_SHA"/); assert.doesNotMatch(b, /inherit\.mjs/)
@@ -141,7 +149,7 @@ test('parseBlocks: nested, unbalanced, mismatched, unclosed and duplicate marker
 test('the deploy part is removed when deploy_branch becomes null, and adding it to a file that lacks it is a conflict', () => {
     const f = FILES[0]
     const withDeploy = renderAll(B).get(f.dest)
-    const cfgNo = config({ ...B, deploy_branch: undefined, ci: { push_paths: [] } })
+    const cfgNo = config({ ...B, deploy_branch: undefined })
     const no = renderFile(f, tpl(f.src), withDeploy, { cfg: cfgNo, vars: templateVars(cfgNo, { runtimeRel: '.ticketflow' }), runtimeRel: '.ticketflow' })
     assert.doesNotMatch(no.text, /deploy|ticketflow:begin deploy/)
     assert.equal(no.text.split('# ticketflow:begin post-gate')[0], withDeploy.split('# ticketflow:begin post-gate')[0].replace(/^ {4}paths.*\n/m, ''))
