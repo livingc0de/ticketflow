@@ -69,7 +69,7 @@ Here is what happens when you say *"implement #42"*:
 5. **Review.** An independent `pr-reviewer` role reviews the pull request against the ticket, security, correctness and your own
    rules: every pull request when it is your only reviewer, the `high` and `critical` ones (or as a stand-in) when you also use an
    external reviewer such as a review bot. Findings are fixed in the same pull request.
-6. **Merge.** Only through the `merge` script, which checks the gate, the review and that the branch is up to date, then squash-merges
+6. **Merge.** Only through the `merge` script, which checks the gate, the review and that the branch is up to date, then merges
    exactly that commit.
 7. **Hand off.** The ticket moves to **In Review** with a summary: what changed, the evidence, decisions, anything not verified.
    You look it over and mark it **Done** when you're happy.
@@ -114,14 +114,15 @@ stand-in.
 
 ### Merging and branch protection
 
-Merges happen only through the `merge` script. A standard branch ruleset requires `CI / Gate`, squash merges and an up-to-date
+Merges happen only through the `merge` script. A standard branch ruleset requires `CI / Gate` and an up-to-date
 branch. You, as an admin, can still override it through a pull request when you choose to; agents never do that on their own.
 [More in SECURITY.md](core/docs/SECURITY.md)
 
 ### The Project board
 
-Optional, but recommended: a GitHub Project with eight statuses: Inbox, Backlog, Ready, In Progress, In Review, Blocked, Done and Future. The Work Board and
-Roadmap views are created for you; a few more are optional. Labels cover type, priority, effort, area and what a ticket still needs.
+Optional, but recommended: a GitHub Project with eight statuses: Inbox, Backlog, Ready, In Progress, In Review, Blocked, Done and
+Future. The Work Board view is created for you; the Roadmap and a few more views are optional. Labels already in your repo are kept as
+they are; TicketFlow only adds the ones that are missing. Labels cover type, priority, effort, area and what a ticket still needs.
 [More in PROJECT.md](core/docs/PROJECT.md)
 
 ### Live verification
@@ -160,8 +161,8 @@ adapters, API endpoints, UI screens, domain guides, deploy gating and analytics 
 | `.claude/`, `.agents/`, `.codex/` | short generated stubs that point agents at the runtime | the generator |
 | `AGENTS.md`, `.claude/CLAUDE.md` | a short managed block; the rest of the file stays yours | the managed block: `sync` |
 | `.claude/settings.json`, `.codex/hooks.json`, `.codex/rules/` | the guard: ask/block rules for bypass commands; your own entries stay | TicketFlow's entries: `sync` |
-| `.github/workflows/ci.yml` | the gate job in managed blocks; your own CI steps in between | the blocks: `sync`; your steps: you |
-| `.github/ISSUE_TEMPLATE/`, PR template | forms and checklist in managed blocks | the blocks: `sync` |
+| `.github/workflows/ci.yml` | the gate job in managed blocks; your own CI steps (and your toolchain) in between | the blocks: `sync`; your steps and the `runs-on` runner: you |
+| `.github/ISSUE_TEMPLATE/`, PR template | forms and checklist in managed blocks; the issue chooser (`config.yml`) written once | the blocks: `sync`; `config.yml`: you |
 
 Nothing TicketFlow owns is ever hand-edited: you change it in `.ticketflow/custom/` or the config, and the tools regenerate the rest.
 

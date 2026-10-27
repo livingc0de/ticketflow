@@ -5,8 +5,8 @@
  * Usage: protect.mjs [--apply [--migrate-classic]] [--replace-context <old>] [--config f]   (this exact order, so one prefix rule can match `--apply`)
  *
  * Plan mode prints one line per difference (`path: current -> desired`). `--apply` first prints the current ruleset (a rollback is a
- * copy-paste), patches the repo settings, creates or updates the ruleset, then reads back: the difference must be empty and
- * `current_user_can_bypass` must be the expected one, otherwise exit 1. Existing protection is never weakened (see core/lib/protect.mjs).
+ * copy-paste), creates or updates the ruleset, then reads back: the difference must be empty and, for a ruleset created here,
+ * `current_user_can_bypass` must be the expected one, otherwise exit 1. Repo settings (merge methods, branch deletion) are never changed. Existing protection is never weakened (see core/lib/protect.mjs).
  * Classic branch protection is kept, with a warning; `--migrate-classic` adds its required contexts to the ruleset and deletes it,
  * but only after the read-back passed, and not at all when it has a setting a ruleset here does not take over.
  * `--replace-context <old>` drops `<old>` from the required contexts in the same run (never automatically; never the gate itself); a
@@ -20,7 +20,7 @@
 
 import { cli, main } from '../lib/cli.mjs'
 import { GhError, api } from '../lib/gh.mjs'
-import { CAN_BYPASS, classicBlockers, classicContexts, desiredRuleset, diff, relation, SETTINGS } from '../lib/protect.mjs'
+import { CAN_BYPASS, classicBlockers, classicContexts, desiredRuleset, diff, relation } from '../lib/protect.mjs'
 
 const ORDER = ['', '--apply', '--apply --migrate-classic']
 // The arguments before --config, which must come last: so `--config f --apply` cannot slip past the order (and the prefix rules).
@@ -40,7 +40,6 @@ if (drop === cfg.gate.context) {
 const R = `repos/${cfg.repo}`
 const branch = cfg.default_branch
 const notFound = (fn) => { try { return fn() } catch (e) { if (e instanceof GhError && e.http === 404) return null; throw e } }
-const settingsOf = (repo) => Object.fromEntries(Object.keys(SETTINGS).map((k) => [k, repo[k]]))
 const warn = (m) => console.error(`protect: warning: ${m}`)
 
 main('protect', () => {
@@ -87,20 +86,20 @@ main('protect', () => {
     if (classic?.enforce_admins?.enabled && migrate) warn('the classic protection applies to admins; the ruleset has the admin bypass, so admins can merge past the checks afterwards')
     if (classic && !migrate) warn(`classic branch protection on ${branch} stays and still applies; ${values.apply ? 'add' : 'run with'} --apply --migrate-classic to move it into the ruleset`)
 
-    const current = { settings: settingsOf(repo), ruleset: existing }
-    const desired = { settings: SETTINGS, ruleset: body }
+    const current = { ruleset: existing }
+    const desired = { ruleset: body }
     const lines = diff(current, desired)
     for (const l of lines) console.log(l)
     if (!values.apply) return lines.length ? 1 : 0
 
     if (existing) console.log(`current ruleset (rollback: PUT ${R}/rulesets/${existing.id} with this body):\n${JSON.stringify(existing, null, 2)}`)
-    if (Object.keys(SETTINGS).some((k) => repo[k] !== SETTINGS[k])) api(R, { method: 'PATCH', body: SETTINGS })
     const saved = existing ? api(`${R}/rulesets/${existing.id}`, { method: 'PUT', body }) : api(`${R}/rulesets`, { method: 'POST', body })
     const back = api(`${R}/rulesets/${saved.id}`)
-    const left = diff({ settings: settingsOf(api(R)), ruleset: back }, desired)
-    if (left.length || back.current_user_can_bypass !== CAN_BYPASS) {
+    const left = diff({ ruleset: back }, desired)
+    const bypassWrong = !existing && back.current_user_can_bypass !== CAN_BYPASS   // only the actor this script added is checked
+    if (left.length || bypassWrong) {
         for (const l of left) console.error(`protect: read-back differs: ${l}`)
-        if (back.current_user_can_bypass !== CAN_BYPASS) console.error(`protect: read-back: current_user_can_bypass is ${back.current_user_can_bypass}, expected ${CAN_BYPASS}`)
+        if (bypassWrong) console.error(`protect: read-back: current_user_can_bypass is ${back.current_user_can_bypass}, expected ${CAN_BYPASS}`)
         console.error('protect: the classic protection was not touched')
         return 1
     }

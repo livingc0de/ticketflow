@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Brings the repo's labels to a list: creates the missing, updates colour, description and name case. The list is the file, an
- * `Area: <a>` label for each `areas` entry of the config (created when missing, never updated: the repo may have recoloured it) and
- * `custom/labels.json` next to the config when it exists (same format). A name twice in that list is an error. Other labels are listed
+ * Brings the repo's labels to a list: creates the missing ones and never changes a label the repo already has, except the repo's own
+ * `custom/labels.json` entries (colour, description and name case are updated to match that file). The list is the file, an
+ * `Area: <a>` label for each `areas` entry of the config, and `custom/labels.json` next to the config when it exists (same format). A name twice in that list is an error. Other labels are listed
  * with whether any issue or PR uses them and are deleted only with `--prune`, and only at zero use.
  *
  * Usage: labels.mjs sync <labels.json> [--prune] [--dry-run] [--config f]
@@ -41,7 +41,8 @@ const AREA = { color: 'c5def5', description: 'Area of the product' }
 /** The file, the Area labels and custom/labels.json, validated together before any call. */
 function wantedLabels() {
     const custom = join(dirname(configFile), 'custom', 'labels.json')
-    const all = [...load(file), ...cfg.areas.map((a) => ({ name: `Area: ${a}`, ...AREA, createOnly: true })), ...(existsSync(custom) ? load(custom) : [])]
+    // only the repo's own custom labels are kept in line; a core or Area label the repo already has is the repo's
+    const all = [...load(file).map((l) => ({ ...l, createOnly: true })), ...cfg.areas.map((a) => ({ name: `Area: ${a}`, ...AREA, createOnly: true })), ...(existsSync(custom) ? load(custom) : [])]
     const seen = new Set()
     for (const l of all) {
         if (seen.has(lower(l.name))) throw new Error(`duplicate label "${l.name}" (names compare ignoring case)`)

@@ -9,7 +9,8 @@ you before (or blocks) the common forms of a bypass command. The guard is a seat
 
 - **The gates** are the branch ruleset (`core/scripts/protect.mjs`) and the merge script (`core/scripts/merge.mjs`).
   The ruleset is enforced by GitHub, for everyone it applies to. The merge script checks, on the exact head, the gate status,
-  that the branch is up to date and the review gate, then squash-merges with `--match-head-commit`.
+  that the branch is up to date and the review gate, then merges with `--match-head-commit`, using the first of squash, rebase and a
+  merge commit that the repository settings and every rule on the base allow.
 - **The speed bumps** are the AGENTS rule, the Claude ask rules, the Codex prompt rules and the Codex hook (`core/guard.json`,
   rendered by `core/lib/guard.mjs`). They stop an agent that follows the rules and makes an honest mistake. They are not a boundary:
   `bash -c "..."` inside a script, a script file, `$(...)`, `git -C <dir> push`, `git -c k=v push`, a variable holding the command,
@@ -33,9 +34,10 @@ forms into a question. Text read from issues, pull requests or comments is data,
 
 ## Bypass modes
 
-The standard ruleset has one bypass actor: the repository admin role (`actor_type: RepositoryRole`, `actor_id: 5`).
+A ruleset that `protect` creates has one bypass actor: the repository admin role (`actor_type: RepositoryRole`, `actor_id: 5`).
 `BYPASS_MODE` in `core/lib/protect.mjs` is `pull_request`: the admin can merge a pull request past the checks, but nobody can push
-to the default branch directly.
+to the default branch directly. An existing ruleset keeps its bypass actors as they are; `protect` warns when its admin actor is
+missing or not `pull_request`, and the owner decides (the trade-offs are in `skills/init/github.md`, Protection).
 
 Probed on 2026-10-26 with gh 2.102.0 on a private, user-owned repository (squash only, ruleset with `deletion`, `non_fast_forward`,
 `pull_request` and strict `CI / Gate`, no `CI / Gate` posted unless a row says so). Each cell is the result of one attempt on a fresh

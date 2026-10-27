@@ -23,7 +23,7 @@ const fail = (m) => { throw new RenderError(m) }
  */
 export const FILES = [
     { src: 'ci.yml', dest: '.github/workflows/ci.yml', kind: 'blocks' },
-    { src: 'ISSUE_TEMPLATE/config.yml', dest: '.github/ISSUE_TEMPLATE/config.yml', kind: 'blocks' },
+    { src: 'ISSUE_TEMPLATE/config.yml', dest: '.github/ISSUE_TEMPLATE/config.yml', kind: 'once' },   // a starting point: then the repo's
     ...['bug', 'feature', 'task', 'decision'].map((n) => ({ src: `ISSUE_TEMPLATE/${n}.yml`, dest: `.github/ISSUE_TEMPLATE/${n}.yml`, kind: 'blocks' })),
     { src: 'PULL_REQUEST_TEMPLATE.md', dest: '.github/PULL_REQUEST_TEMPLATE.md', kind: 'blocks' },
     { src: 'AGENTS-block.md', dest: 'AGENTS.md', kind: 'blocks', propose: 'h1' },
@@ -249,8 +249,18 @@ export function mergeCodexHooks(existing, entry, runtimeRel) {
  * One template to one file. `existing` is the file's text or null. `ctx`: { cfg, vars, runtimeRel, owned }.
  * Returns { text, notes, owns? } or { conflict, proposal } (`proposal` is the text ticketflow would suggest instead).
  */
+/**
+ * The `runs-on` entry of a managed block in the existing workflow, verbatim (the key line and the more-indented lines under it): the
+ * runner is the repo's choice and is kept on every render. `ubuntu-latest` when there is no file or no such block yet.
+ */
+export function runsOn(existing, part) {
+    const body = existing === null ? null : parseBlocks(existing.replaceAll('\r\n', '\n')).find((s) => s.part === part)?.body
+    return /^( +)runs-on:.*(?:\n\1 +\S.*)*/m.exec(body ?? '')?.[0] ?? '    runs-on: ubuntu-latest'
+}
+
 export function renderFile(file, tpl, existing, { cfg, vars, runtimeRel, owned = {} }) {
-    const rendered = dropParts(fill(tpl, vars), omittedParts(cfg))
+    const all = file.src === 'ci.yml' ? { ...vars, runs_on_job: runsOn(existing, 'job'), runs_on_deploy: runsOn(existing, 'deploy') } : vars
+    const rendered = dropParts(fill(tpl, all), omittedParts(cfg))
     switch (file.kind) {
         case 'blocks': {
             const r = mergeManaged(existing, rendered, omittedParts(cfg))

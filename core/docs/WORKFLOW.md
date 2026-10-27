@@ -17,7 +17,8 @@ ticket, plan, implement, verify, review, merge, handoff.
 2. **Claim.** Assign, set the status to In Progress, post a claim comment with the tier, the assumptions and one `Planning:` line.
    Work happens in a git worktree on a `<type>/issue-<N>-<slug>` branch from the up-to-date default branch.
 3. **Plan** (below), **implement** in one context with one conventional commit per task, `verify`, open the pull request.
-4. **Review** (below), then **merge** only through `merge`, which squash-merges after checking every gate on the exact head.
+4. **Review** (below), then **merge** only through `merge`, which checks every gate on the exact head, then merges with a method the
+   repo allows (squash first).
 5. **Handoff.** Status In Review, the issue stays open, and a summary comment ends with the Run line. Done only when the owner asks.
 
 Pull requests and commits say `Ticket #N` or `Refs #N`, never a closing keyword (Closes, Fixes, Resolves): nothing may close or
@@ -84,7 +85,7 @@ problem found along the way is fixed in the same pull request and listed as "Als
 
 `merge <PR>` is the only way. It requires, on the exact head: the pull request open, not a draft, based on the default branch; the
 gate status `success`; the head contains the default branch; the review gate done (a reviewer's answer, or a `--review-basis`
-comment naming the head's first 7 characters when `pr-wait` printed `standin needed` or `none configured`). It squash-merges with
+comment naming the head's first 7 characters when `pr-wait` printed `standin needed` or `none configured`). It merges (squash, else rebase, else a merge commit, as the repo allows) with
 `--match-head-commit`. When the gates pass, merge without asking, except when the only review was an inline `pr-reviewer`
 (no sub-agents): ask the owner. Never `--admin`, never `--auto`; see [SECURITY.md](SECURITY.md).
 

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Follows the repo:** `labels sync` creates missing labels and never changes one the repo has (only `custom/labels.json` entries are kept in line); `protect` no longer changes merge methods, branch deletion or update-branch settings, and keeps an existing ruleset's bypass actors (it warns when the admin actor is missing or not `pull_request`, and the owner decides); `merge` uses the first of squash, rebase and a merge commit that the repo settings and the base rules allow; the CI jobs keep the repo's `runs-on` (new files: `ubuntu-latest`); `.github/ISSUE_TEMPLATE/config.yml` is written once, then the repo's; the bug form's Environment field, the PR template's screenshots wording and the AGENTS block's "without asking" clause are gone (the last stays in the skill, which `custom/` can override); the Roadmap view and its date fields are optional (`project.views`). **Upgrade note:** after `sync`, the "After merge" GitHub steps make no change to anything the repo already has (#18).
 - **Docs:** the README is a friendly guide (why, how it works, a ticket's journey, the processes, getting started, everyday use, FAQ); every reference doc opens with what it is for; the product is called TicketFlow in prose and plugin display names (#10).
 - **gen-stubs:** a domain guide copied into an agent's rules folder keeps its relative links working (#12).
 - **Codex:** skill and role stubs point at the canonical files, like the Claude ones, instead of carrying their text (#7).

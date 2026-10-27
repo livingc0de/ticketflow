@@ -15,12 +15,13 @@ const BOT = { name: 'rb', login: 'review-bot[bot]', unavailable_pattern: 'usage 
 const MERGED = pull({ merged: true, merge_commit_sha: 'f'.repeat(40) })
 
 /** Runs the real merge.mjs and the real pr-wait.mjs against the fake gh. `pulls` is served in turn: merge, pr-wait, merge's read-back. */
-function run({ args = ['5'], pulls = seq(pull(), pull(), MERGED), gate = status('success'), behind = 0, reviews = [{ user: { login: BOT.login }, commit_id: HEAD }], comments = [], extra = {}, merge = {}, over = { reviewers: [BOT] }, config = true } = {}) {
+const FLAGS = { squashMergeAllowed: true, rebaseMergeAllowed: true, mergeCommitAllowed: true }
+function run({ args = ['5'], pulls = seq(pull(), pull(), MERGED), gate = status('success'), behind = 0, reviews = [{ user: { login: BOT.login }, commit_id: HEAD }], comments = [], extra = {}, merge = {}, over = { reviewers: [BOT] }, config = true, flags = FLAGS, rules = [] } = {}) {
     const dir = tempDir('merge-')
     const gh = fakeGh(dir, {
         [`${R}/pulls/5`]: pulls, [`${R}/commits/${HEAD}/status`]: gate, [`${R}/compare/main...${HEAD}`]: { behind_by: behind },
         [`${R}/issues/5/comments`]: comments, [`${R}/pulls/5/reviews`]: reviews, [`${R}/pulls/5/comments`]: [], [`${R}/issues/5/reactions`]: [],
-        'pr merge': merge, ...extra,
+        'pr merge': merge, 'graphql MergeMethods': { repository: flags }, [`${R}/rules/branches/main?per_page=100`]: rules, ...extra,
     })
     const cfg = config ? ['--config', writeConfig(dir, over)] : ['--config', join(dir, 'missing.json')]
     const r = spawnSync(process.execPath, [script, ...args, ...cfg], { encoding: 'utf8', env: gh.env })
@@ -29,11 +30,11 @@ function run({ args = ['5'], pulls = seq(pull(), pull(), MERGED), gate = status(
 }
 const refused = (r, re) => { assert.equal(r.status, 1, r.stderr + r.stdout); assert.deepEqual(r.merges, []); assert.match(r.stderr, re) }
 
-test('merges with the exact argv and reports the squash commit', () => {
+test('merges with the exact argv and reports the method and the merge commit', () => {
     const r = run()
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(r.merges, [['pr', 'merge', '5', '--repo', 'o/r', '--squash', '--delete-branch', '--match-head-commit', HEAD]])
-    assert.equal(r.stdout.trim(), `Merged #5 as ${'f'.repeat(40)}`)
+    assert.equal(r.stdout.trim(), `Merged #5 (squash) as ${'f'.repeat(40)}`)
     assert.ok(!r.merges[0].some((a) => /--admin|--auto/.test(a)))
 })
 
@@ -88,7 +89,7 @@ test('a stand-in for an unavailable reviewer also needs the basis; a finished re
 test('gh failing after the merge happened is a success; gh failing without a merge is exit 1', () => {
     const failed = { __stderr: 'failed to delete branch' }
     const merged = run({ merge: failed })
-    assert.equal(merged.status, 0, merged.stderr); assert.match(merged.stdout, /^Merged #5 as /)
+    assert.equal(merged.status, 0, merged.stderr); assert.match(merged.stdout, /^Merged #5 \(squash\) as /)
     const notMerged = run({ merge: { __stderr: 'head branch was modified' }, pulls: seq(pull(), pull(), pull()) })
     assert.equal(notMerged.status, 1); assert.match(notMerged.stderr, /head branch was modified/)
 })
@@ -100,4 +101,14 @@ test('a missing config exits 2 with no gh call; bad arguments exit 2', () => {
         const bad = run({ args })
         assert.equal(bad.status, 2, args.join(' ')); assert.deepEqual(bad.calls, [])
     }
+})
+
+test('the merge method follows the repo: squash, else rebase, else a merge commit, as its settings and the base rules allow', () => {
+    const method = (o) => run(o).merges[0]?.[5]
+    assert.equal(method({ flags: { ...FLAGS, squashMergeAllowed: false } }), '--rebase')
+    assert.equal(method({ flags: { squashMergeAllowed: false, rebaseMergeAllowed: false, mergeCommitAllowed: true } }), '--merge')
+    assert.equal(method({ rules: [{ type: 'pull_request', parameters: { allowed_merge_methods: ['merge'] } }, { type: 'deletion' }] }), '--merge')
+    assert.equal(method({ rules: [{ type: 'pull_request', parameters: {} }] }), '--squash')   // no list: every method
+    refused(run({ flags: { ...FLAGS, mergeCommitAllowed: false }, rules: [{ type: 'pull_request', parameters: { allowed_merge_methods: ['merge'] } }] }), /no merge method is allowed/)
+    refused(run({ extra: { 'graphql MergeMethods': { __status: 502, __stderr: 'boom' } } }), /cannot read/)
 })

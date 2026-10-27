@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * The only way an agent merges: checks every gate on the exact head, then squash-merges. Never `--admin`, never `--auto`.
+ * The only way an agent merges: checks every gate on the exact head, then merges with a method the repo allows (squash, else rebase,
+ * else a merge commit: the repo's settings and every rule on the base must allow it). Never `--admin`, never `--auto`.
  *
  * Usage: merge.mjs <pr> [--review-basis <comment-id>] [--config f]
  *
@@ -20,7 +21,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { cli } from '../lib/cli.mjs'
 import { configPath } from '../lib/config.mjs'
-import { GhError, api, isNumber } from '../lib/gh.mjs'
+import { GhError, api, gql, isNumber } from '../lib/gh.mjs'
 
 const { values, positionals: [pr], cfg } = cli(import.meta.url, 'merge', '<pr> [--review-basis <comment-id>] [--config f]', { 'review-basis': { type: 'string' } },
     (p, v) => p.length === 1 && isNumber(p[0]) && (v['review-basis'] === undefined || isNumber(v['review-basis'])))
@@ -59,11 +60,19 @@ function merge() {
         if (!String(comment.body).includes(head.slice(0, 7))) return stop(`comment ${id} does not name the head ${head.slice(0, 7)}`)
     }
 
-    const run = spawnSync('gh', ['pr', 'merge', pr, '--repo', cfg.repo, '--squash', '--delete-branch', '--match-head-commit', head], { encoding: 'utf8' })
+    // The merge method is the repo's choice: the first that its settings and every pull_request rule on the base (org rulesets too) allow.
+    const [owner, name] = cfg.repo.split('/')
+    const flags = gql('query MergeMethods($o:String!,$n:String!){ repository(owner:$o,name:$n){ squashMergeAllowed rebaseMergeAllowed mergeCommitAllowed } }', { o: owner, n: name }).repository
+    const rules = api(`${R}/rules/branches/${encodeURIComponent(base)}?per_page=100`).filter((r) => r.type === 'pull_request')
+    const allowed = { squash: flags?.squashMergeAllowed, rebase: flags?.rebaseMergeAllowed, merge: flags?.mergeCommitAllowed }
+    const method = ['squash', 'rebase', 'merge'].find((m) => allowed[m] === true && rules.every((r) => !r.parameters?.allowed_merge_methods || r.parameters.allowed_merge_methods.includes(m)))
+    if (!method) return stop(`no merge method is allowed by both the repository settings and the rules of ${base}`)
+
+    const run = spawnSync('gh', ['pr', 'merge', pr, '--repo', cfg.repo, `--${method}`, '--delete-branch', '--match-head-commit', head], { encoding: 'utf8' })
     let after   // gh can exit non-zero after the merge (for example when deleting the branch)
     try { after = api(`${R}/pulls/${pr}`) } catch { return stop(`cannot tell whether #${pr} merged: check it before anything else`) }
     if (after.merged === true) {
-        console.log(`Merged #${pr} as ${after.merge_commit_sha}`)
+        console.log(`Merged #${pr} (${method}) as ${after.merge_commit_sha}`)
         return 0
     }
     return stop(`gh pr merge failed: ${(run.stderr || run.stdout || 'no output').trim()}`)

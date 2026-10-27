@@ -51,4 +51,4 @@ Stage explicit paths, commit `chore: update ticketflow to <version>`, push, and 
 
 ## 8. After the merge, on request
 
-Clone the release again if `<TF>` is gone, run the "After merge" steps with the confirmations of `<TF>/skills/init/github.md`, then `node .ticketflow/scripts/doctor.mjs`. Finally remove `<TF>` and any `--propose` directory you created.
+Clone the release again if `<TF>` is gone, run the "After merge" steps (they only add what the workflow needs; nothing the repo already has is changed) with the confirmations of `<TF>/skills/init/github.md`, then `node .ticketflow/scripts/doctor.mjs`. Finally remove `<TF>` and any `--propose` directory you created.

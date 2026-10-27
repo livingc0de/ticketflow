@@ -87,7 +87,7 @@ const reviewer = section({
     stale_after_min: [orNull(int(1)), null],
 })
 
-const VIEWS = ['All Work', 'Initiatives', 'Open Decisions', 'P0/P1 Open']
+const VIEWS = ['Roadmap', 'All Work', 'Initiatives', 'Open Decisions', 'P0/P1 Open']
 const unique = (parse) => (v, p) => { const out = parse(v, p); return new Set(out).size === out.length ? out : fail(`${p} has a duplicate`) }
 
 const AGENTS = ['claude', 'codex']

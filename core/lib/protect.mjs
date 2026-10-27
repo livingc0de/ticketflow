@@ -2,8 +2,9 @@
  * The standard protection of the default branch and the pure functions that compare a repo with it.
  * `scripts/protect.mjs` reads, applies and reads back; nothing here calls gh.
  *
- * The ruleset: no deletion, no force push, a pull request (0 approvals, squash only), the gate status required on an up-to-date
- * branch. One bypass actor: the repository admin role, so that an explicit request of the owner stays possible.
+ * The ruleset: no deletion, no force push, a pull request, the gate status required on an up-to-date branch. Everything else stays the
+ * repo's: its merge methods, branch settings, approvals and bypass actors. A ruleset created here gets one bypass actor, the
+ * repository admin role in pull-request mode, so that an explicit request of the owner stays possible.
  */
 
 // The role id of "Repository admin" and the bypass mode: GitHub accepted both on a private repo; see "Bypass modes" in core/docs/SECURITY.md.
@@ -13,9 +14,6 @@ export const BYPASS_MODE = 'pull_request'
 export const CAN_BYPASS = { always: 'always', pull_request: 'pull_requests_only' }[BYPASS_MODE]
 
 export const RULESET_NAME = 'default branch'
-export const SETTINGS = Object.freeze({
-    allow_squash_merge: true, allow_merge_commit: false, allow_rebase_merge: false, delete_branch_on_merge: true, allow_update_branch: true,
-})
 
 const PULL_REQUEST_DEFAULTS = {
     required_approving_review_count: 0, dismiss_stale_reviews_on_push: false, require_code_owner_review: false,
@@ -44,9 +42,9 @@ const sameActor = (a) => a.actor_type === actor.actor_type && a.actor_id === act
 
 /**
  * The ruleset body that brings `existing` (a full ruleset from the API, or null) to the standard without weakening it:
- * rules of other types are kept; approvals and other pull request parameters that are stricter are kept (only the merge
- * methods are forced); the required contexts are the union of the existing ones, `extraContexts` and the gate, minus `drop` (the
- * one context the caller asked to replace, never the gate); other bypass actors are kept. Returns { body, warnings }.
+ * rules of other types are kept; approvals, merge methods and other pull request parameters are kept; the required contexts are the union of the existing ones, `extraContexts` and the gate, minus `drop` (the
+ * one context the caller asked to replace, never the gate). The bypass actors of an existing ruleset are kept as they are; a new one
+ * gets the admin role in BYPASS_MODE. Returns { body, warnings }.
  */
 export function desiredRuleset(existing, cfg, extraContexts = [], drop = null) {
     if (drop === cfg.gate.context) throw new Error('the gate context cannot be dropped')
@@ -59,7 +57,7 @@ export function desiredRuleset(existing, cfg, extraContexts = [], drop = null) {
     }
     ensure('deletion')
     ensure('non_fast_forward')
-    ensure('pull_request', (r) => { r.parameters = { ...PULL_REQUEST_DEFAULTS, ...r.parameters, allowed_merge_methods: ['squash'] } })
+    ensure('pull_request', (r) => { r.parameters = { ...PULL_REQUEST_DEFAULTS, ...r.parameters } })
     ensure('required_status_checks', (r) => {
         const checks = (r.parameters?.required_status_checks ?? []).filter((c) => c.context !== drop)   // by name: an app-bound copy goes too
         for (const check of [{ context: cfg.gate.context }, ...extraContexts]) if (check.context !== drop && !checks.some((c) => c.context === check.context)) checks.push(check)
@@ -68,8 +66,11 @@ export function desiredRuleset(existing, cfg, extraContexts = [], drop = null) {
     const standard = ['deletion', 'non_fast_forward', 'pull_request', 'required_status_checks']
     const others = rules.filter((r) => !standard.includes(r.type)).map((r) => r.type)
     if (others.length) warnings.push(`kept other rules of the ruleset: ${others.join(', ')}`)
-    const bypass = (existing?.bypass_actors ?? []).map((a) => (sameActor(a) ? { ...a, bypass_mode: BYPASS_MODE } : a))
-    if (!bypass.some(sameActor)) bypass.push(actor)
+    // an existing ruleset's bypass actors are the repo's choice; only a ruleset created here gets the admin actor
+    const bypass = existing ? structuredClone(existing.bypass_actors ?? []) : [actor]
+    const admin = bypass.find(sameActor)
+    if (existing && !admin) warnings.push('the ruleset has no repository-admin bypass actor: kept as it is (the owner decides)')
+    else if (existing && admin.bypass_mode !== BYPASS_MODE) warnings.push(`the repository-admin bypass is "${admin.bypass_mode}", not "${BYPASS_MODE}": kept as it is (the owner decides)`)
     const kept = bypass.filter((a) => !sameActor(a))
     if (kept.length) warnings.push(`kept ${kept.length} other bypass actor(s) of the ruleset`)
     return {
@@ -82,10 +83,9 @@ export function desiredRuleset(existing, cfg, extraContexts = [], drop = null) {
     }
 }
 
-/** One flat { path: value } map of the parts of a repo + ruleset that the standard sets. */
-function flat({ settings, ruleset }) {
+/** One flat { path: value } map of the parts of a ruleset that the standard sets. */
+function flat({ ruleset }) {
     const out = {}
-    for (const k of Object.keys(SETTINGS)) out[`settings.${k}`] = settings?.[k]
     if (!ruleset) return out
     out['ruleset.enforcement'] = ruleset.enforcement
     out['ruleset.conditions'] = JSON.stringify([ruleset.conditions?.ref_name?.include ?? [], ruleset.conditions?.ref_name?.exclude ?? []])   // GitHub returns the keys in another order

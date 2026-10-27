@@ -56,5 +56,8 @@ removed file). `sync` reads and summarizes the sections you skip over.
 From 0.1.0: the managed CI job no longer sets up Node.js, so a repo whose steps need a particular Node.js (or any other toolchain)
 adds its own setup step to the repo section of `.github/workflows/ci.yml` in the update pull request.
 
+After an update, the "After merge" GitHub steps only add what the workflow needs: missing labels, a missing gate requirement, the
+standard Project parts. They never change the repo's merge methods, branch settings, bypass actors, existing labels or existing views.
+
 A release or a config change that renames `gate.context` needs one protection step next to its merge (before it when CI runs the
 job, after it when the local fallback does): `protect.mjs --apply --replace-context <old>` ([CI-GATE.md](CI-GATE.md#renaming-the-gate-context)).

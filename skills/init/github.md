@@ -4,7 +4,7 @@ Every write comes after a shown dry run and a yes. Run the scripts of the instal
 
 ## Labels
 
-1. `node .ticketflow/scripts/labels.mjs sync .ticketflow/templates/labels.json --dry-run` and show it (a dry run exits 1 when changes are pending; that is not a failure, exit 2 is). The list is ticketflow's labels, one `Area:` label per config area and `custom/labels.json` if present.
+1. `node .ticketflow/scripts/labels.mjs sync .ticketflow/templates/labels.json --dry-run` and show it (a dry run exits 1 when changes are pending; that is not a failure, exit 2 is). The list is TicketFlow's labels, one `Area:` label per config area and `custom/labels.json` if present. It only creates the missing ones; a label the repo already has is never changed, except the entries of `custom/labels.json`.
 2. On a yes, the same command without `--dry-run`.
 3. `--prune` removes unused labels the list does not name: only on a separate yes to the shown list.
 
@@ -25,6 +25,13 @@ When the interview chose one: `gh issue create --title "Deferred live verificati
 Only once the CI step that posts the gate is on the default branch (after the setup PR merged).
 
 1. `node .ticketflow/scripts/protect.mjs` prints the plan, one line per difference. Show it and ask.
-2. On a yes, `node .ticketflow/scripts/protect.mjs --apply`. It prints the current ruleset first, so a rollback is a copy-paste.
-3. `node .ticketflow/scripts/protect.mjs --apply --migrate-classic` (this exact order) only on a separate yes.
-4. GitHub says the plan needs Pro, or you have no admin rights: offer to skip it and record a manual step in the report. Never use a bypass.
+2. On a yes, `node .ticketflow/scripts/protect.mjs --apply`. It prints the current ruleset first, so a rollback is a copy-paste. It never
+   changes the repo's merge methods, branch settings or an existing ruleset's bypass actors.
+3. When it warns about the repository-admin bypass of an existing ruleset (`always`, or no admin actor), explain and let the owner decide;
+   keeping it is the default. `always`: an admin can push straight to the default branch, which is quick for emergencies, but nothing
+   but the agents' rules stops an agent using an admin token from doing the same; "for pull requests only" keeps the emergency path
+   (an admin merges a pull request past the checks) and blocks direct pushes. No admin actor: nobody, the owner included, can merge
+   past a missing gate (strictest; an emergency needs the ruleset disabled first). To change it, the owner edits the ruleset's bypass
+   list in the repo's Settings > Rules; record the choice in the report.
+4. `node .ticketflow/scripts/protect.mjs --apply --migrate-classic` (this exact order) only on a separate yes.
+5. GitHub says the plan needs Pro, or you have no admin rights: offer to skip it and record a manual step in the report. Never use a bypass.

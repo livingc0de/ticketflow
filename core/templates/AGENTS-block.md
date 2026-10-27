@@ -5,7 +5,7 @@
 - Read issues with `node {{runtime}}/scripts/issue.mjs <N>`, never `gh issue view`. The Project is Projects v2 only, through `project.mjs`.
 - Plan by default; plans are committed under `{{plans_dir}}`. Never claim a check that did not run.
 - Write `Ticket #N` in PRs and commits, never a closing keyword (Closes, Fixes, Resolves).
-- **Merge only with `node {{runtime}}/scripts/merge.mjs <PR>`**, and without asking once its gates pass.
+- **Merge only with `node {{runtime}}/scripts/merge.mjs <PR>`**.
 - **Never use the admin bypass on your own initiative:** `--admin`, a push to `{{default_branch}}`, a merge or a status post through the API past missing checks, a protection change. Only when the user explicitly asks for that action.
 - Hand off in In Review; Done only when the owner asks.
 - Fix findings (reviews, CI, smoke checks) in the running ticket; only a big or unrelated problem gets its own issue.
