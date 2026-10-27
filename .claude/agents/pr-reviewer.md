@@ -1,6 +1,6 @@
 ---
 name: "pr-reviewer"
-description: "Use when a pull request needs the independent review: every PR when no reviewer is configured, high and critical PRs otherwise, or a stand-in when a configured reviewer is unavailable or silent."
+description: "Use when a pull request needs the independent review: every PR when no reviewer is configured, high and critical PRs otherwise, or a stand-in when a configured reviewer is unavailable, silent or only commented."
 model: "opus"
 effort: "high"
 tools: Bash, Read, Grep, Glob, Skill

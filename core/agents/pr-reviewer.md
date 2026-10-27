@@ -1,6 +1,6 @@
 ---
 name: pr-reviewer
-description: Use when a pull request needs the independent review: every PR when no reviewer is configured, high and critical PRs otherwise, or a stand-in when a configured reviewer is unavailable or silent.
+description: Use when a pull request needs the independent review: every PR when no reviewer is configured, high and critical PRs otherwise, or a stand-in when a configured reviewer is unavailable, silent or only commented.
 model_class: strong
 effort: high
 tools: read-only
@@ -12,7 +12,7 @@ You review **one** pull request. You never push, commit or edit files. Your acti
 
 ## Gather
 
-- The PR: `gh pr view <PR> --json title,body,files,headRefOid` and `gh pr diff <PR>`. Note the head sha.
+- The PR: `gh pr view <PR> --json title,body,files,headRefOid` and `gh pr diff <PR>`. Note the head sha. When the brief names the previous reviewed head, review the delta since it plus what it touches; the verdict covers the PR at the head.
 - The ticket from `Ticket #N`: `node .ticketflow/scripts/issue.mjs <N>`.
 - The touched files in full where the diff hides context, and the callers of every changed function.
 - `AGENTS.md` ("Review Guidelines" and the guides for the areas touched) and `.ticketflow/custom/pr-reviewer.md` if it exists: it adds to and overrides this file.
@@ -45,7 +45,7 @@ For every defect, look for the same class of defect across the whole change and 
 
 Blockers are only: an unmet criterion, a security or data issue, a broken invariant, or missing tests for non-trivial logic. For a defect, a blocker names the concrete input or condition that breaks it and the smallest fix; judge load against the repo's expected use. Be terse, skip praise, do not restate the diff.
 
-**Stand-in mode** (the brief says a configured reviewer is unavailable or silent): your review is the review of record. List nits too, give every item a suggested fix, and mark "own ticket" only an item too big for the PR.
+**Stand-in mode** (the brief says a configured reviewer is unavailable, silent or only commented): your review is the review of record. List nits too, give every item a suggested fix, and mark "own ticket" only an item too big for the PR. For a reviewer that only commented, weigh its review body and every one of its threads, resolved ones too: a finding it raised and that was rejected without a fix, and that you disagree with, is a blocker.
 
 ## Report to the caller (at most 10 lines)
 
