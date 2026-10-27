@@ -3,9 +3,12 @@
   "repo": "livingc0de/ticketflow",
   "default_branch": "main",
   "verify": { "mode": "ci", "command": "npm test" },
+  "project": { "owner": "livingc0de", "number": 7, "title": "ticketflow", "views": [] },
   "agents": ["claude", "codex"],
   "models": {
     "claude": { "strong": "opus", "standard": "sonnet", "light": "haiku" },
     "codex": { "strong": null, "standard": null, "light": null }
-  }
+  },
+  "areas": ["Scripts", "Skills & Roles", "Templates", "Docs", "Practices"],
+  "practices": []
 }

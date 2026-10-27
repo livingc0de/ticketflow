@@ -1,0 +1,92 @@
+# ticketflow:begin form
+name: Feature Or Improvement
+description: Propose a new capability or a meaningful improvement.
+title: "[Feature]: "
+labels:
+  - "Type: Feature"
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Or Opportunity
+      description: What problem should be solved, and for whom?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired Outcome
+      description: The result, without prescribing the implementation unless necessary.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Proposed Scope
+      description: The minimum useful behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out Of Scope
+      description: Related behavior that should not be included yet.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - "Scripts"
+        - "Skills & Roles"
+        - "Templates"
+        - "Docs"
+        - "Practices"
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - "P0 Critical"
+        - "P1 High"
+        - "P2 Medium"
+        - "P3 Low"
+    validations:
+      required: true
+  - type: dropdown
+    id: effort
+    attributes:
+      label: Effort
+      options:
+        - "XS"
+        - "S"
+        - "M"
+        - "L"
+        - "XL"
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies And Risks
+      description: Decisions, legal input, external systems or sequencing constraints.
+  - type: textarea
+    id: execution
+    attributes:
+      label: Execution
+      description: "A recommendation the implementer re-checks against the code: the tier (low, normal, high, critical), the model and effort, and the planning choice (planner: the planner runs at claim, the default; planned earlier: <path to the committed technical plan>; or skipped, easy and straightforward because (a)-(d)), each with a one-line reason."
+      placeholder: |
+        - **Tier:** normal - ...
+        - **Model and effort:** standard class, high - ...
+        - **Planning:** planner (runs at claim) - ...
+# ticketflow:end form
