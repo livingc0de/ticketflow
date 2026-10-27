@@ -1,0 +1,38 @@
+{
+  "claude_settings": {
+    "allow": [
+      "Bash(node core/scripts/issue.mjs *)",
+      "Bash(node core/scripts/project.mjs *)",
+      "Bash(node core/scripts/sub-issue.mjs *)",
+      "Bash(node core/scripts/tracker-next.mjs *)",
+      "Bash(node core/scripts/pr-wait.mjs *)",
+      "Bash(node core/scripts/local-verify.mjs *)",
+      "Bash(node core/scripts/merge.mjs *)",
+      "Bash(node core/scripts/gen-stubs.mjs *)",
+      "Bash(node core/scripts/doctor.mjs *)"
+    ],
+    "ask": [
+      "Bash(gh pr merge)",
+      "Bash(gh pr merge *)",
+      "Bash(gh api *pulls/*/merge*)",
+      "Bash(gh api graphql *mergePullRequest*)",
+      "Bash(gh api graphql *enablePullRequestAutoMerge*)",
+      "Bash(gh api *statuses/*)",
+      "Bash(git push * main)",
+      "Bash(git push * main *)",
+      "Bash(git push *:main)",
+      "Bash(git push *:main *)",
+      "Bash(git push *+main)",
+      "Bash(git push *+main *)",
+      "Bash(git push *refs/heads/main*)",
+      "Bash(git push *--mirror*)",
+      "Bash(git push *--all*)",
+      "Bash(gh api *rulesets*)",
+      "Bash(gh api *branches/*/protection*)",
+      "Bash(gh api graphql *Ruleset*)",
+      "Bash(gh api graphql *BranchProtectionRule*)",
+      "Bash(*protect.mjs --apply*)"
+    ]
+  },
+  "manifest_version": 1
+}

@@ -1,0 +1,80 @@
+# ticketflow:begin form
+name: Decision
+description: Record a decision that blocks or materially changes delivery.
+title: "[Decision]: "
+labels:
+  - "Type: Decision"
+  - "Needs: Decision"
+body:
+  - type: textarea
+    id: decision
+    attributes:
+      label: Decision Needed
+      description: The exact question that needs an answer.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context And Constraints
+    validations:
+      required: true
+  - type: textarea
+    id: options
+    attributes:
+      label: Options Considered
+      description: The meaningful trade-offs of each option.
+    validations:
+      required: true
+  - type: textarea
+    id: recommendation
+    attributes:
+      label: Recommended Default
+      description: What implementers can assume until it is decided.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - "Scripts"
+        - "Skills & Roles"
+        - "Templates"
+        - "Docs"
+        - "Practices"
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - "P0 Critical"
+        - "P1 High"
+        - "P2 Medium"
+        - "P3 Low"
+    validations:
+      required: true
+  - type: input
+    id: owner
+    attributes:
+      label: Decision Owner
+      placeholder: GitHub username or role
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Recorded Outcome
+      description: Completed after the decision is made, with the rationale and follow-up work.
+  - type: textarea
+    id: execution
+    attributes:
+      label: Execution
+      description: "A recommendation the implementer re-checks against the code: the tier (low, normal, high, critical), the model and effort, and the planning choice (planner: the planner runs at claim, the default; planned earlier: <path to the committed technical plan>; or skipped, easy and straightforward because (a)-(d)), each with a one-line reason."
+      placeholder: |
+        - **Tier:** normal - ...
+        - **Model and effort:** standard class, high - ...
+        - **Planning:** planner (runs at claim) - ...
+# ticketflow:end form

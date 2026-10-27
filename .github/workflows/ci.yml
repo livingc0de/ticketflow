@@ -1,58 +1,108 @@
+# ticketflow:begin header
 name: CI
 
+# The merge gate is the commit status "CI / Gate" on the pull request's head commit, posted by the last step of the job.
+# No job may carry that name: a check and a status with one name would both be required.
+# No `paths:` filter on pull_request: a required workflow that is filtered out stays pending forever. Whether a pull request
+# is docs-only is decided by the `scope` step.
 on:
   pull_request:
-    branches: [main]
-  push:
-    branches: [main]
-    tags: ['v*']
+    branches: ["main"]
   workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
+# ticketflow:end header
+
+# ticketflow:begin job
 jobs:
   verify:
-    name: Verify
-    runs-on: ubuntu-latest
+    name: "Verify"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     permissions:
       contents: read
+      pull-requests: read
       statuses: write
     steps:
+      # No token in .git/config: only the scope step and the last step get one, so no install script or test can post the gate itself.
+      # A pull request that edits the workflow or the runtime runs its own copy of the scope step with that token: review is the control.
       - name: Checkout
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 2   # a pull request's test merge commit and its two parents
+
       - name: Set Up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      # Docs-only, or an update with the default branch that only brings in docs-only commits: skip the steps below.
+      # A failed step sets no output, which means a full run.
+      - name: Docs Only Or Inherited?
+        id: scope
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          [ "$(git rev-parse HEAD^2)" = "$HEAD_SHA" ]   # test merge commit: parent 1 = base, parent 2 = head
+          git diff -z --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+          if [ "$(node core/lib/docs-only.mjs < "$RUNNER_TEMP/changed")" = docs=true ]; then
+            printf 'skip=true\ndescription=Actions run #%s, docs only\n' "$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+          fi
+# ticketflow:end job
+
+      # Repo section: your own steps. Every step runs only when `steps.scope.outputs.skip != 'true'`; this is the contract
+      # with the scope step above and the gate step below.
       - name: Install Actionlint
+        if: steps.scope.outputs.skip != 'true'
         run: |
           curl -fsSL -o "$RUNNER_TEMP/actionlint.tar.gz" https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz
           echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
       - name: Lint Workflows
+        if: steps.scope.outputs.skip != 'true'
         run: actionlint
-      - name: Run Tests
-        run: npm test
+
+      - name: "Verify"
+        if: steps.scope.outputs.skip != 'true'
         env:
           TICKETFLOW_REQUIRE_ACTIONLINT: '1'
+        run: |
+          npm test
+
       - name: Check Generated Files
+        if: steps.scope.outputs.skip != 'true'
         run: node core/scripts/gen-stubs.mjs core . --check
-      # The gate is a commit status, not a check: an agent can post a status on a
-      # refused run, and a check plus a status with the same name would both be required.
+
+# ticketflow:begin post-gate
+      # The head commit, never the test merge commit. always(): a timeout or a cancel posts a failure too.
       - name: Post Gate Status
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          STATE: ${{ job.status == 'success' && 'success' || 'failure' }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          RUN_ID: ${{ github.run_id }}
+          STATE: ${{ job.status == 'success' && (steps.scope.outputs.skip != 'true' || steps.scope.outputs.description != '') && 'success' || 'failure' }}
+          DESC: ${{ job.status == 'success' && steps.scope.outputs.description || '' }}
+          CONTEXT: "CI / Gate"
+          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" \
-            -f state="$STATE" -f context="CI / Gate" \
-            -f description="Actions run #$RUN_ID" -f target_url="$RUN_URL"
+          for _ in 1 2 3; do
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$STATE" -f context="$CONTEXT" \
+              -f description="${DESC:-Actions run #$GITHUB_RUN_ID}" -f target_url="$URL" >/dev/null && exit 0
+            sleep 5
+          done
+          exit 1
+# ticketflow:end post-gate
+
