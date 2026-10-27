@@ -103,6 +103,37 @@ anything else stops the merge. So `pr-reviewer` keeps its first line and its `Ve
 the summary lines (`Review:`, `Unresolved threads:`) from text that includes GitHub content: `pr-wait` flattens that text to one line
 and `merge` accepts exactly one of each line.
 
+## When merge says no
+
+A finished review is not enough: `merge` also wants the findings answered. Every refusal names its reason and the next step. The
+usual ones, and the legitimate way past each:
+
+| `merge` says | What it means | What to do |
+|---|---|---|
+| `N unresolved review thread(s)` | A review comment thread, from anyone (a bot or an outsider too), is still open | Fix it, or decide to reject it and say why. Reply and resolve it with `node .ticketflow/scripts/thread.mjs <PR> <thread-id>` (the reply on stdin: the fix commit, or the reason), then push once if code changed. `pr-wait` lists the thread ids |
+| `unresolved review threads: unknown` | The threads could not be read, or there are more than 100 | Open the pull request, resolve what is open, run `pr-wait` again |
+| `changes requested (<names>)` | A configured reviewer's last review of this commit asks for changes | Fix and push, ask that reviewer to look again (post its `rereview_comment`), or, as the owner, dismiss the review on GitHub |
+| the last `pr-reviewer` review "has verdict ... not exactly ready to merge" | The built-in reviewer said `changes needed`, or its verdict line is misspelled or still the unfilled template | Fix and push, then run `pr-reviewer` again on the new head. Or, if the finding is wrong, run `pr-reviewer` again on the same head and give the reason; its newest review counts |
+| `review is "pending"` | A configured reviewer has not answered on this commit yet | Wait (`pr-wait` does it in the background), post the reviewer's `rereview_comment`, or set `stale_after_min` so a silent reviewer is replaced by a stand-in |
+| `no reviewer finished` | No external reviewer answered (`standin needed` or `none configured`), so `merge` wants a review basis | Run `pr-reviewer` on this head, then post `Review basis for <sha7>: <its review URL>` and pass the comment's id as `--review-basis`. When you decided yourself, the comment says `Review basis for <sha7>: owner approved ...` |
+| a basis `comment ... must ...` / `is not from the owner, a member or a collaborator` / `a later pr-reviewer review exists` | The basis is in the old format, comes from an outsider, links an old review or links a review of another commit | Post a new basis that links the **newest** `ready to merge` review of this pull request, made by an owner, member or collaborator account |
+| `review ... is on <sha>, which the head does not contain` | The branch was force-pushed after the review | Review again on the new head, then post a new basis |
+| `<base> moved (behind by n)` | The default branch has new commits | `gh pr update-branch <PR>`, wait for the new gate, then merge again |
+| `CI / Gate is ... on <sha7>` | The gate is not green on this exact commit | Wait for it or fix what failed ([CI-GATE.md](CI-GATE.md)) |
+
+What only the owner can do, and what it does not do:
+
+- `owner approved` in a basis only replaces a missing external review. It does not lift an open thread, a reviewer's `changes
+  requested`, or a `changes needed` from `pr-reviewer` on the head, which are checked first.
+- A configured reviewer's `changes requested` can be dismissed on GitHub.
+- The owner can always merge the pull request by hand on GitHub.
+
+An agent never does any of these on its own, and the script has no flag to skip a check.
+
+A `pr-reviewer` review is a comment, and GitHub cannot dismiss a comment. A `changes needed` that is wrong is answered by running
+`pr-reviewer` again on the head with the reason: its newest review counts. The agent or the owner can do that.
+If you copied a basis comment from the 0.2.0 docs on a pull request that was already open, post it again in the format above.
+
 ## What is enforced
 
 | Rule | Status | Notes |
