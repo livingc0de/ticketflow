@@ -36,36 +36,6 @@ What you get out of it:
 
 ---
 
-## New in 0.3.0
-
-Upgrading from 0.2.0? Read [the upgrade notes](core/docs/UPGRADING.md#from-020). The full list is in [CHANGELOG.md](CHANGELOG.md).
-
-- **Several tickets in one go.** Say *"work through #12 #13 #14"*, *"do the children of #10"* or *"work the ready backlog"*. A
-  coordinator hands each ticket to a fresh helper that follows the normal ticket journey, then shows you a table of what merged,
-  what waits for your look and what is stuck. If the session dies, ask again and it picks up from GitHub.
-  [How to use it](core/docs/WORKFLOW.md#several-tickets-optional)
-- **Merge waits until findings are answered.** A finished review used to be enough. Now every open review thread (from anyone,
-  bots included), a configured reviewer's "changes requested" and a "changes needed" verdict stop the merge until they are dealt with. Every
-  refusal says what to do next, and there is always a legitimate way through.
-  [When merge says no](core/docs/REVIEWERS.md#when-merge-says-no)
-- **Five more tools, each with a command guard.** Cursor, Gemini CLI, OpenCode, Antigravity and GitHub Copilot join Claude Code
-  and Codex. Each has its own install (OpenCode through `START.md`), generated files and seatbelt that asks before merging by hand
-  or pushing to the default branch (Gemini CLI cannot ask, so it denies those commands and you run them yourself). Adding one to an
-  existing repo is opt-in. [Install steps and manual steps per tool](core/docs/TOOLS.md), and [the guard in plain words](core/docs/TOOLS.md#the-command-guard-in-plain-words)
-- **A built-in engineering method.** TicketFlow now carries its own rules: reproduce a bug and name its cause before fixing it,
-  write the failing test first when the behaviour is non-trivial (and skip the ceremony for trivial changes), keep changes
-  small, and have the reviewer name a concrete breaking case for every blocker.
-  [The method in detail](core/docs/WORKFLOW.md#building-tests-bugs-and-small-changes)
-- **A cheaper default.** The agent that writes the code now runs on the standard model at `high` effort. The strongest model
-  stays with the planner and the reviewer, and the implementer escalates only for genuinely hard reasoning, not because a ticket
-  is risky. [Risk tiers](core/docs/WORKFLOW.md#risk-tiers)
-- **Vague ideas are fine.** Say *"I have an idea for ..."* and the agent reads the code first, asks one question at a time,
-  offers two or three approaches with a recommendation, then writes the ticket.
-- **For maintainers of TicketFlow itself:** a small tool that checks Superpowers and Ponytail for new releases each month. It lives
-  in this repo only and is never installed in yours. [Upstream review](docs/maintainers/upstream-review.md)
-
----
-
 ## How it works, in one picture
 
 ```
@@ -94,14 +64,15 @@ Here is what happens when you say *"implement #42"*:
    how risky it thinks the change is and whether it will plan first.
 2. **Plan (by default).** Unless the change is small and obvious, a separate planner role studies the code and writes a technical
    plan. The plan is committed to the repo, so it can be reviewed and reused.
-3. **Implement.** The agent works in its own git worktree on a branch like `feat/issue-42-export-csv`, one focused commit per task.
+3. **Implement.** The agent works in its own git worktree on a branch like `feat/issue-42-export-csv`, one focused commit per task,
+   following TicketFlow's built-in [engineering method](#building-the-engineering-method).
 4. **Verify.** CI runs your normal checks and posts `CI / Gate` on the exact commit. If GitHub Actions can't run (a billing hiccup,
    no runner), a careful local fallback runs the same checks and posts the result instead.
 5. **Review.** An independent `pr-reviewer` role reviews the pull request against the ticket, security, correctness and your own
    rules: every pull request when it is your only reviewer, the `high` and `critical` ones (or as a stand-in) when you also use an
    external reviewer such as a review bot. Findings are fixed in the same pull request.
 6. **Merge.** Only through the `merge` script. It checks the gate, that the branch is up to date and that the review was
-   answered (no open review thread, no "changes requested"), then merges exactly that commit.
+   answered (no open review thread, no "changes requested", no "changes needed" verdict), then merges exactly that commit.
 7. **Hand off.** The ticket moves to **In Review** with a summary: what changed, the evidence, decisions, anything not verified.
    You look it over and mark it **Done** when you're happy.
 
@@ -114,6 +85,9 @@ Here is what happens when you say *"implement #42"*:
 - **One ticket is one shippable unit** that a single pull request can finish. Bigger work becomes an *Initiative*: a tracker issue
   whose children are sub-issues, worked in order.
 - Every ticket has an **Execution** section: a recommended risk tier, model and effort, and whether it should be planned.
+- **Vague ideas are fine.** Say *"I have an idea for ..."* and the agent reads the code and docs first, asks one question at a
+  time, offers two or three approaches with a recommendation, then writes the ticket or tracker. No design document, no extra
+  approval step.
 - Issue forms for features, bugs, tasks and decisions come pre-made.
 - Commits and pull requests say `Ticket #42` or `Refs #42`, never "Closes #42", so merging never closes a ticket behind your back.
 
@@ -127,7 +101,32 @@ A ticket only counts as *planned* when it links a committed plan file. [More in 
 
 Every change is `low`, `normal`, `high` or `critical`. The tier decides how deep the review goes and how much effort the agent puts
 in, nothing else. Anything touching access, money, migrations, deploys or several subsystems is at least `high`.
-[More in WORKFLOW.md](core/docs/WORKFLOW.md#risk-tiers)
+
+The agent that writes the code runs on the standard model at `high` effort: it is cheaper, and the strongest model stays with the
+planner and the reviewer, who catch mistakes. The implementer moves up only for genuinely hard reasoning, never because a ticket
+is risky. [More in WORKFLOW.md](core/docs/WORKFLOW.md#risk-tiers)
+
+### Building: the engineering method
+
+TicketFlow carries its own rules for how the code gets written, so no other plugin is needed:
+
+- **A bug is reproduced first** and its cause named before anyone fixes it.
+- **Test first where it pays.** For non-trivial behaviour the agent writes the failing test first; a trivial change gets no
+  ceremony.
+- **Small changes.** The smallest correct change wins: reuse before adding, delete before adding.
+- **Concrete blockers.** The reviewer must name the case that breaks and the smallest fix for every blocker, and ends with what it
+  could not check.
+
+[The method in detail](core/docs/WORKFLOW.md#building-tests-bugs-and-small-changes)
+
+### Several tickets (optional)
+
+One ticket never needs this. When you have a handful, say *"work through #12 #13 #14"*, *"do the children of #10"* (a tracker's
+sub-issues) or *"work the ready backlog"* (the optional `orchestrate-tickets` skill). A coordinator hands each ticket to a fresh
+helper that follows the normal ticket journey, then shows a table of what merged, what waits for your look and what is stuck.
+For the backlog it first warns you and lists the tickets (up to 10 Ready ones, highest priority first; this needs a Project).
+If the session dies, ask again naming the same tickets: it picks up from GitHub, so finished tickets stay finished and open pull
+requests continue. [How to use it](core/docs/WORKFLOW.md#several-tickets-optional)
 
 ### The gate
 
@@ -142,14 +141,16 @@ ones once you add an external reviewer (a bot or a person) in the config. Ticket
 give it the pattern or timeout to recognise it, notices one that is out of quota or silent and brings in the built-in reviewer as a
 stand-in.
 
-A finished review is not enough to merge. Findings must be answered too: the agent fixes each one, or says why it disagrees,
-then replies to the thread and resolves it. [More in REVIEWERS.md](core/docs/REVIEWERS.md)
+A finished review is not enough to merge. Findings must be answered too: every open review thread (from anyone, bots included),
+a configured reviewer's "changes requested" and a "changes needed" verdict from `pr-reviewer` stop the merge until they are dealt
+with. The agent fixes each finding, or says why it disagrees, then replies to the thread and resolves it.
+[More in REVIEWERS.md](core/docs/REVIEWERS.md)
 
 ### Merging and branch protection
 
 Merges happen only through the `merge` script. A standard branch ruleset requires `CI / Gate` and an up-to-date
 branch. The script adds what a ruleset cannot see: no unresolved review thread from anyone, no configured reviewer left on "changes requested",
-and, if the built-in reviewer reviewed this exact commit, its last verdict must be "ready to merge". When it refuses, it prints the next step
+and, if the built-in reviewer reviewed this exact commit, its last verdict must be "ready to merge". When it refuses, it always prints the next step, and there is always a legitimate way through
 ([the ways past a refusal](core/docs/REVIEWERS.md#when-merge-says-no)). Your merge methods and branch settings stay yours: the setup shows them and offers squash-only (one commit per ticket) and
 tidy-branch settings, which you can take or leave. You, as an admin, can still override it through a pull request when you choose to; agents never do that on their own.
 [More in SECURITY.md](core/docs/SECURITY.md)
@@ -178,6 +179,15 @@ stated on the ticket. Bigger choices can be recorded as `Type: Decision` issues.
 Trunk-based: short-lived branches merge into the default branch. Unfinished features hide behind settings flags, not long-lived
 branches. [More in WORKFLOW.md](core/docs/WORKFLOW.md#branching)
 
+### Supported tools
+
+TicketFlow works natively with seven agents: Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Antigravity and GitHub Copilot.
+Each gets its own install, thin generated files that point at the same skills and roles, and a command guard that asks before
+(or blocks) merging by hand or pushing to the default branch. Gemini CLI cannot ask, so it denies those commands and you run them
+yourself. Adding a tool to a repo that already uses TicketFlow is opt-in: nothing changes until you list it in the config and
+update. [Install steps and manual steps per tool](core/docs/TOOLS.md), and
+[the guard in plain words](core/docs/TOOLS.md#the-command-guard-in-plain-words)
+
 ### Practices (optional)
 
 Ten opt-in rule sets for common needs: live verification in a real browser, runtime settings, i18n, database changes, provider
@@ -201,6 +211,9 @@ adapters, API endpoints, UI screens, domain guides, deploy gating and analytics 
 | `.github/ISSUE_TEMPLATE/`, PR template | forms and checklist in managed blocks; the issue chooser (`config.yml`) written once | the blocks: `sync`; `config.yml`: you |
 
 Nothing TicketFlow owns is ever hand-edited: you change it in `.ticketflow/custom/` or the config, and the tools regenerate the rest.
+
+The TicketFlow repository itself also holds a small maintainer tool that checks Superpowers and Ponytail for new releases each
+month ([upstream review](docs/maintainers/upstream-review.md)). It lives in that repo only and is never installed in yours.
 
 ---
 
@@ -263,7 +276,7 @@ You stay in charge of three things: answering real decisions (product, data, sec
 
 Ask your agent to *"update ticketflow"* (other agents: follow `skills/sync/SKILL.md` of the TicketFlow repo, as `START.md` says). It fetches the release you choose, shows what changed,
 refreshes `.ticketflow/` and the generated files, keeps everything that is yours, and opens an update pull request. Nothing changes
-until you merge it. [More in UPGRADING.md](core/docs/UPGRADING.md)
+until you merge it. [More in UPGRADING.md](core/docs/UPGRADING.md). What changed between versions is in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
