@@ -12,6 +12,11 @@
  * (billing: no runner, no steps, the billing annotation; or queued 20 minutes without a runner) from a real red one.
  * A failed read is a pending poll, never a verdict.
  *
+ * A reviewer's last review on the head decides: CHANGES_REQUESTED prints `Review: changes requested (<names>)` (settled, exit 0: merge
+ * refuses it); a dismissed or pending review counts for nothing. The summary is `pending`, else `changes requested`, else `standin
+ * needed`, else `done`. In PR mode (not `--ci-only`) it also prints `Unresolved threads: <n | unknown>` and lists them for
+ * `thread.mjs`; `unknown` is a failed read or more than 100 threads, and `merge` refuses it.
+ *
  * Exit: 0 = CI green and every reviewer done, unavailable or silent; 1 = CI red, or the PR conflicts with / is behind the default
  * branch; 2 = timed out, still pending, a draft in local-first mode, or (sha) superseded; 3 = Actions refused the run, so
  * `local-verify` may take over ("Fallback: allowed" in the summary). Usage and config errors exit 2 before any call.
@@ -22,6 +27,7 @@ import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { configPath, loadConfig } from '../lib/config.mjs'
+import { gql } from '../lib/gh.mjs'
 
 const ACTIONS_APP_ID = 15368
 const BILLING = /recent account payments have failed|spending limit/i
@@ -59,7 +65,7 @@ function api(path, paginate = false) {
 }
 
 const ms = (iso) => Date.parse(iso)
-const fresh = () => ({ head: '', draft: false, gate: null, verify: null, fallback: null, why: 'Actions has not refused the run', notes: [], reviewers: null, inline: null, since: null })
+const fresh = () => ({ head: '', draft: false, gate: null, verify: null, fallback: null, why: 'Actions has not refused the run', notes: [], reviewers: null, threads: null })
 
 /** Decides CI for the head and fills `S`. Returns green | red | pending | fallback | conflict | behind | draft | superseded. */
 function pollCi(S) {
@@ -126,8 +132,11 @@ function pollReviewers(S) {
         const out = { r, start }
         // a reviewer often edits one summary comment in place: the time that counts is its last update
         const at = (c) => c.updated_at ?? c.created_at
-        if (reviews.some((x) => mine(x) && x.commit_id === S.head)) return { ...out, state: 'done', text: `done (${S.head.slice(0, 7)})` }
-        if (r.no_findings_reaction && reactions.some((x) => mine(x) && x.content === r.no_findings_reaction && ms(x.created_at) > headDate)) {
+        // the reviewer's last answer on the head decides; a dismissed or pending review is no answer
+        const last = reviews.filter((x) => mine(x) && x.commit_id === S.head && x.state !== 'DISMISSED' && x.state !== 'PENDING').at(-1)
+        if (last?.state === 'CHANGES_REQUESTED') return { ...out, state: 'changes', text: `changes requested (${S.head.slice(0, 7)})` }
+        if (last) return { ...out, state: 'done', text: `done (${S.head.slice(0, 7)})` }
+        if (r.no_findings_reaction && reactions.some((x) => mine(x) && x.content === r.no_findings_reaction && ms(x.created_at) > Math.max(start, headDate))) {
             return { ...out, state: 'done', text: `done (${r.no_findings_reaction} after head)` }
         }
         // the last match of done_pattern (bodies as currently edited, comments by last update) names the commit the reviewer finished
@@ -140,14 +149,22 @@ function pollReviewers(S) {
         if (r.stale_after_min && quiet >= r.stale_after_min * 60_000) return { ...out, state: 'silent', text: `silent ${Math.floor(quiet / 60_000)} min` }
         return { ...out, state: 'pending', text: 'pending' }
     })
+}
+
+/** Fills S.threads with the unresolved review threads of any author, or 'unknown' when they cannot be told (a failed read, or more than 100). */
+function pollThreads(S) {
+    const [owner, name] = cfg.repo.split('/')
     try {
-        const logins = new Map(S.reviewers.map((x) => [x.r.login, x.start]))
-        S.since = new Date(Math.min(...S.reviewers.map((x) => x.start))).toISOString()
-        S.inline = api(`${R}/pulls/${target}/comments`, true)
-            .filter((c) => logins.has(c.user?.login) && ms(c.created_at) > logins.get(c.user.login))
-            .map((c) => `  [${c.id}] ${c.path}:${c.line ?? c.original_line} ${(c.body ?? '').split('\n').find((l) => /\S/.test(l))?.slice(0, 160) ?? ''}`)
+        // shortcut: the first 100 threads only, more than that reads as unknown (merge refuses); paginate when a PR really has that many
+        const t = gql('query ReviewThreads($o:String!,$n:String!,$p:Int!){ repository(owner:$o,name:$n){ pullRequest(number:$p){ reviewThreads(first:100){ totalCount nodes{ id isResolved path line originalLine comments(first:1){ nodes{ author{ login } body } } } } } } }',
+            { o: owner, n: name, p: Number(target) }).repository.pullRequest.reviewThreads
+        if (!(t.totalCount <= 100) || !Array.isArray(t.nodes)) throw new Error('too many threads')
+        S.threads = t.nodes.filter((x) => !x.isResolved).map((x) => {
+            const c = x.comments.nodes[0]
+            return `  [${x.id}] ${x.path}:${x.line ?? x.originalLine} @${c?.author?.login ?? 'unknown'} ${(c?.body ?? '').split('\n').find((l) => /\S/.test(l))?.slice(0, 160) ?? ''}`
+        })
     } catch {
-        S.inline = ["(listing failed: read the PR's review comments directly)"]
+        S.threads = 'unknown'
     }
 }
 
@@ -159,13 +176,15 @@ function print(S, timedOut) {
     console.log(S.fallback ? `Fallback: allowed (${S.fallback})` : `Fallback: not allowed (${S.why})`)
     if (S.reviewers) {
         for (const x of S.reviewers) console.log(`Review ${x.r.name}: ${x.text}`)
-        const waiting = S.reviewers.filter((x) => x.state === 'unavailable' || x.state === 'silent').map((x) => x.r.name)
-        console.log(`Review: ${S.reviewers.some((x) => x.state === 'pending') ? 'pending' : waiting.length ? `standin needed (${waiting.join(', ')})` : 'done'}`)
-        if (S.inline) {
-            console.log(`Inline findings since ${S.since}:`)
-            for (const l of S.inline) console.log(l)
-        }
+        const named = (...states) => S.reviewers.filter((x) => states.includes(x.state)).map((x) => x.r.name).join(', ')
+        console.log(`Review: ${S.reviewers.some((x) => x.state === 'pending') ? 'pending' : named('changes') ? `changes requested (${named('changes')})` : named('unavailable', 'silent') ? `standin needed (${named('unavailable', 'silent')})` : 'done'}`)
     } else if (!sha && !ciOnly && cfg.reviewers.length === 0) console.log('Review: none configured (pr-reviewer reviews)')
+    if (S.threads === 'unknown') console.log('Unresolved threads: unknown')
+    else if (S.threads) {
+        console.log(`Unresolved threads: ${S.threads.length}`)
+        for (const l of S.threads.slice(0, 20)) console.log(l)
+        if (S.threads.length > 20) console.log(`  ... ${S.threads.length - 20} more`)
+    }
     for (const n of S.notes) console.log(n)
     if (timedOut) console.log(`TIMEOUT after ${timeoutMin}m`)
 }
@@ -176,8 +195,11 @@ for (;;) {
     const S = fresh()
     let kind = 'pending'
     try { kind = pollCi(S) } catch { S.why = 'a read failed' }
-    if (!ciOnly && cfg.reviewers.length && (once || ['green', 'red', 'pending'].includes(kind)) && S.head) {
-        try { pollReviewers(S) } catch { S.reviewers = cfg.reviewers.map((r) => ({ r, state: 'pending', text: 'pending' })) }
+    if (!ciOnly && (once || ['green', 'red', 'pending'].includes(kind)) && S.head) {
+        if (cfg.reviewers.length) {
+            try { pollReviewers(S) } catch { S.reviewers = cfg.reviewers.map((r) => ({ r, state: 'pending', text: 'pending' })) }
+        }
+        pollThreads(S)
     }
     const reviewed = !S.reviewers || S.reviewers.every((x) => x.state !== 'pending')
     const settled = kind === 'green' || kind === 'red' ? once || reviewed : kind !== 'pending'   // red waits for the reviewers: all fixes go into one push

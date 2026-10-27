@@ -26,14 +26,20 @@ function baseFixtures() {
         [`commits/${HEAD}/check-runs`]: { check_runs: [] },
         'issues/7/comments': [], 'pulls/7/reviews': [], 'pulls/7/comments': [], 'issues/7/reactions': [],
         [`commits/${HEAD}`]: { commit: { committer: { date: ago(30) } } },
+        ...threads([]),
     }
+}
+const thread = (id, login, body, over = {}) => ({ id, isResolved: false, path: 'a.js', line: 3, originalLine: 9, comments: { nodes: [{ author: { login }, body }] }, ...over })
+/** The ReviewThreads fixture; `totalCount` defaults to the number of nodes. */
+function threads(nodes, totalCount = nodes.length) {
+    return { 'graphql ReviewThreads': { repository: { pullRequest: { reviewThreads: { totalCount, nodes } } } } }
 }
 // Fixture keys are relative to repos/o/r/; `pulls` is shorthand for 'pulls/7'.
 function wait(fix = {}, args = ['7', '--timeout-min', '0'], over = {}) {
     const dir = tempDir('pr-wait-')
     const { pulls, ...rest } = fix
     const map = { ...baseFixtures(), ...rest, ...(pulls ? { 'pulls/7': pulls[7] } : {}) }
-    const gh = fakeGh(dir, Object.fromEntries(Object.entries(map).map(([k, v]) => [`repos/o/r/${k}`, v])))
+    const gh = fakeGh(dir, Object.fromEntries(Object.entries(map).map(([k, v]) => [k.startsWith('graphql ') ? k : `repos/o/r/${k}`, v])))
     const r = spawnSync(process.execPath, [script, ...args, '--config', writeConfig(dir, over)], { encoding: 'utf8', env: gh.env })
     return { ...r, calls: gh.calls().map((c) => c.join(' ')), dir }
 }
@@ -285,19 +291,94 @@ test('the check-run path carries the Actions app id', () => {
     assert.ok(wait().calls.some((c) => c.endsWith('check-runs?check_name=Verify&app_id=15368')))
 })
 
-test('inline findings: only the reviewers, first non-blank line, 160 characters, only after the round start', () => {
-    const c = (id, login, min, body, line = 3) => ({ id, user: { login }, created_at: ago(min), path: 'a.js', line, original_line: 9, body })
+test('unresolved threads: the count, then up to 20 lines [id] path:line @login first line (160 characters); resolved ones are not listed', () => {
     const long = 'x'.repeat(200)
-    const r = wait({ ...status('success', 'x'), 'pulls/7/comments': [
-        c(1, 'review-bot[bot]', 5, `\n\n${long}\nsecond line`), c(2, 'someone', 5, 'not mine'), c(3, 'review-bot[bot]', 120, 'before the PR'), { ...c(4, 'review-bot[bot]', 4, 'orig'), line: null },
-    ] }, ['7', '--once'], withBot)
+    const nodes = [
+        thread('PRRT_a', 'review-bot[bot]', `\n\n${long}\nsecond line`), thread('PRRT_b', 'someone', 'not the bot'), thread('PRRT_c', 'x', 'done', { isResolved: true }),
+        thread('PRRT_d', 'review-bot[bot]', 'orig', { line: null }), thread('PRRT_e', null, 'ghost'),
+    ]
+    const r = wait({ ...status('success', 'x'), ...threads(nodes) }, ['7', '--once'], withBot)
     const out = r.stdout.split('\n')
-    const at = out.findIndex((l) => l.startsWith('Inline findings since '))
-    assert.ok(at > 0)
-    assert.deepEqual(out.slice(at + 1, at + 3), [`  [1] a.js:3 ${'x'.repeat(160)}`, '  [4] a.js:9 orig'])
-    assert.equal(out[at + 3], '')
-    const failed = wait({ ...status('success', 'x'), 'pulls/7/comments': FAIL }, ['7', '--once'], withBot)
-    assert.match(failed.stdout, /^\(listing failed: read the PR's review comments directly\)$/m)
+    const at = out.indexOf('Unresolved threads: 4')
+    assert.ok(at > 0, r.stdout)
+    assert.deepEqual(out.slice(at + 1, at + 5), [`  [PRRT_a] a.js:3 @review-bot[bot] ${'x'.repeat(160)}`, '  [PRRT_b] a.js:3 @someone not the bot', '  [PRRT_d] a.js:9 @review-bot[bot] orig', '  [PRRT_e] a.js:3 @unknown ghost'])
+    const many = wait({ ...status('success', 'x'), ...threads(Array.from({ length: 30 }, (_, i) => thread(`PRRT_${i}`, 'u', 'f'))) }, ['7', '--once'])
+    assert.match(many.stdout, /^Unresolved threads: 30$/m)
+    assert.equal(many.stdout.split('\n').filter((l) => l.startsWith('  [PRRT_')).length, 20)
+    assert.match(many.stdout, /^  \.\.\. 10 more$/m)
+})
+
+test('unresolved threads: none is 0; more than 100, a failed read or a malformed answer is unknown; it is printed with no reviewer configured too', () => {
+    assert.match(wait(status('success', 'x'), ['7', '--once']).stdout, /^Unresolved threads: 0$/m)
+    assert.match(wait({ ...status('success', 'x'), ...threads([thread('PRRT_a', 'u', 'f')], 101) }, ['7', '--once']).stdout, /^Unresolved threads: unknown$/m)
+    assert.match(wait({ ...status('success', 'x'), 'graphql ReviewThreads': { errors: [{ message: 'boom' }] } }, ['7', '--once']).stdout, /^Unresolved threads: unknown$/m)
+    assert.match(wait({ ...status('success', 'x'), 'graphql ReviewThreads': { repository: null } }, ['7', '--once']).stdout, /^Unresolved threads: unknown$/m)
+    const none = wait({ ...status('success', 'x'), ...threads([thread('PRRT_a', 'u', 'f')]) }, ['7', '--once'])
+    assert.match(none.stdout, /^Review: none configured/m)
+    assert.match(none.stdout, /^Unresolved threads: 1$/m)
+})
+
+test('unresolved threads: --ci-only and a sha make no GraphQL call and print no thread line', () => {
+    for (const args of [['7', '--ci-only', '--timeout-min', '0'], [HEAD, '--timeout-min', '0']]) {
+        const r = wait(status('success', 'x'), args, withBot)
+        assert.equal(r.status, 0)
+        assert.ok(!r.calls.some((c) => /graphql/.test(c)), r.calls.join('\n'))
+        assert.doesNotMatch(r.stdout, /Unresolved threads/)
+    }
+})
+
+test('reviewers: a CHANGES_REQUESTED review on the head is "changes requested" and settled (exit 0)', () => {
+    const review = (state, login = 'review-bot[bot]') => ({ user: { login }, commit_id: HEAD, state })
+    const r = wait({ ...status('success', 'x'), 'pulls/7/reviews': [review('CHANGES_REQUESTED')] }, undefined, withBot)
+    assert.equal(r.status, 0)
+    assert.match(r.stdout, /^Review rb: changes requested \(aaaaaaa\)$/m)
+    assert.match(r.stdout, /^Review: changes requested \(rb\)$/m)
+    assert.doesNotMatch(r.stdout, /TIMEOUT/)
+    // the last review wins
+    const fixed = wait({ ...status('success', 'x'), 'pulls/7/reviews': [review('CHANGES_REQUESTED'), review('APPROVED')] }, undefined, withBot)
+    assert.match(fixed.stdout, /^Review: done$/m)
+    const worse = wait({ ...status('success', 'x'), 'pulls/7/reviews': [review('APPROVED'), review('CHANGES_REQUESTED')] }, undefined, withBot)
+    assert.match(worse.stdout, /^Review: changes requested \(rb\)$/m)
+    // a dismissed or pending review is not an answer; the one before a dismissed one counts
+    for (const state of ['DISMISSED', 'PENDING']) {
+        const p = wait({ ...status('success', 'x'), 'pulls/7/reviews': [review(state)] }, undefined, withBot)
+        assert.equal(p.status, 2, state)
+        assert.match(p.stdout, /^Review: pending$/m)
+    }
+    const dismissed = wait({ ...status('success', 'x'), 'pulls/7/reviews': [review('APPROVED'), review('DISMISSED')] }, undefined, withBot)
+    assert.match(dismissed.stdout, /^Review: done$/m)
+    // another reviewer's review, or one of an older commit, does not decide
+    const other = wait({ ...status('success', 'x'), 'pulls/7/reviews': [review('CHANGES_REQUESTED', 'someone')] }, undefined, withBot)
+    assert.match(other.stdout, /^Review: pending$/m)
+})
+
+test('reviewers: summary precedence is pending, then changes requested, then standin needed, then done', () => {
+    const two = { reviewers: [BOT, { ...BOT, name: 'other', login: 'other-bot[bot]' }] }
+    const cr = { user: { login: 'review-bot[bot]' }, commit_id: HEAD, state: 'CHANGES_REQUESTED' }
+    const gone = { user: { login: 'other-bot[bot]' }, created_at: ago(1), body: 'usage limit reached' }
+    const pending = wait({ ...status('success', 'x'), 'pulls/7/reviews': [cr] }, undefined, two)
+    assert.equal(pending.status, 2)
+    assert.match(pending.stdout, /^Review: pending$/m)
+    const both = wait({ ...status('success', 'x'), 'pulls/7/reviews': [cr], 'issues/7/comments': [gone] }, undefined, two)
+    assert.equal(both.status, 0)
+    assert.match(both.stdout, /^Review: changes requested \(rb\)$/m)
+})
+
+test('reviewers: the reaction must be newer than the latest re-review request and the head commit', () => {
+    const react = (min) => ({ 'issues/7/reactions': [{ user: { login: 'review-bot[bot]' }, content: '+1', created_at: ago(min) }] })
+    const asked = (min) => ({ 'issues/7/comments': [{ user: { login: 'owner' }, created_at: ago(min), body: '/review' }] })
+    const before = wait({ ...status('success', 'x'), ...react(10), ...asked(5) }, undefined, withBot)   // reacted, then asked again
+    assert.equal(before.status, 2); assert.match(before.stdout, /^Review: pending$/m)
+    const after = wait({ ...status('success', 'x'), ...react(2), ...asked(5) }, undefined, withBot)
+    assert.equal(after.status, 0); assert.match(after.stdout, /^Review rb: done \(\+1 after head\)$/m)
+})
+
+test('reviewers: a done_pattern that matches only completed keeps a failed state pending', () => {
+    const pattern = 'review-state:v1 (?=[^\\n]*"commit_sha":"(?<sha>[0-9a-f]{7,40})")(?=[^\\n]*"status":"completed")'
+    const over = { reviewers: [{ name: 'rb', login: 'review-bot[bot]', done_pattern: pattern }] }
+    const note = (status) => [{ user: { login: 'review-bot[bot]' }, created_at: ago(5), updated_at: ago(5), body: `<!-- review-state:v1 {"code_review":{"status":"${status}","commit_sha":"${HEAD}"}} -->` }]
+    assert.equal(wait({ ...status('success', 'x'), 'issues/7/comments': note('failed') }, undefined, over).status, 2)
+    assert.equal(wait({ ...status('success', 'x'), 'issues/7/comments': note('completed') }, undefined, over).status, 0)
 })
 
 test('the loop sleeps and polls again until the gate is final', () => {
@@ -305,7 +386,7 @@ test('the loop sleeps and polls again until the gate is final', () => {
     const gh = fakeGh(dir, Object.fromEntries(Object.entries({
         ...baseFixtures(), 'pulls/7': seq(pull({ mergeable: null, mergeable_state: 'unknown' }).pulls[7], pull().pulls[7]),
         ...status('success', 'x'),
-    }).map(([k, v]) => [`repos/o/r/${k}`, v])))
+    }).map(([k, v]) => [k.startsWith('graphql ') ? k : `repos/o/r/${k}`, v])))
     writeFileSync(join(dir, 'bin', 'sleep'), '#!/bin/sh\necho "$@" >> ' + join(dir, 'slept') + '\n')
     chmodSync(join(dir, 'bin', 'sleep'), 0o755)
     // first poll: unknown mergeability (pending); second: clean
@@ -321,7 +402,7 @@ test('--once prints the reviewer lines for every outcome, a conflict included', 
 })
 
 test('reviewers: a state comment (done_pattern) naming the head is done; the last match wins; other logins and unfinished states are ignored', () => {
-    const pattern = 'review-state:v1 (?=[^\\n]*"commit_sha":"(?<sha>[0-9a-f]{7,40})")(?=[^\\n]*"status":"(?:completed|failed)")'
+    const pattern = 'review-state:v1 (?=[^\\n]*"commit_sha":"(?<sha>[0-9a-f]{7,40})")(?=[^\\n]*"status":"completed")'
     const over = { reviewers: [{ name: 'rb', login: 'review-bot[bot]', done_pattern: pattern }] }
     const state = (sha, status = 'completed', extra = {}) => `<!-- review-state:v1 {"security_review":{"status":null},"code_review":{"status":"${status}","commit_sha":"${sha}"},"x":1} -->`
     const note = (body, min, user = 'review-bot[bot]', updated = min) => ({ user: { login: user }, created_at: ago(min), updated_at: ago(updated), body })
