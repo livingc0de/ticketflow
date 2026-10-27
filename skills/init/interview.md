@@ -5,8 +5,8 @@ Start from `<TF>/core/templates/config.json` and write the result to `.ticketflo
 | Config row | How to detect or recommend |
 |---|---|
 | `repo`, `default_branch` | `gh repo view --json nameWithOwner,defaultBranchRef`; an empty new repo returns an empty branch name: use the local `git init -b` branch (`main`). No question |
-| `agents` | `.claude/` or CLAUDE.md: claude; `.codex/` or `.agents/`: codex; plus yourself |
-| `models` | Claude `{strong: opus, standard: sonnet, light: haiku}`; Codex `{strong: null, standard: null, light: null}` (inherit) |
+| `agents` | `.claude/` or CLAUDE.md: claude; `.codex/`: codex; `.cursor/`: cursor; `.gemini/` or GEMINI.md: gemini; `.opencode/` or `opencode.json(c)`: opencode; `.github/agents/` or `.github/copilot-instructions.md`: copilot; `.agents/hooks.json`: antigravity; plus yourself. `.agents/` alone says nothing (several tools read it) |
+| `models` | Claude `{strong: opus, standard: sonnet, light: haiku}`; every other agent `{strong: null, standard: null, light: null}` (inherit), except Antigravity `{strong: pro, standard: flash, light: flash}` and OpenCode with a `provider/model` id when the owner names one. Copilot model names contain spaces: leave `null` |
 | `verify.install` | from the lockfile: `npm ci`, `pnpm install --frozen-lockfile` or `yarn install --immutable`; the toolchain setup (for example `actions/setup-node`, `setup-python`) goes in the repo section of `ci.yml` |
 | `verify.command` | in order: the `verify` script, the `test` script, a Makefile target, `pytest`, `cargo test`, `go test ./...` |
 | `verify.mode` | `ci`; `local-first` when CI is slow, costly or needs local services (then `timeout_min` 45) |

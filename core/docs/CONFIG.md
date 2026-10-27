@@ -29,8 +29,8 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `reviewers` | list of reviewer objects | `[]` | `pr-wait` |
 | `deploy_branch` | branch name or `null`; must differ from `default_branch` | `null` | `local-verify`, `render` |
 | `project` | project object, or `null` for none | `null` | `project`, `tracker-next`, `queue` |
-| `agents` | unique list of `claude` / `codex`: the agents to generate stubs for | `[]` | `gen-stubs` |
-| `models` | `{ claude?, codex? }`, each `{ strong, standard, light }`; a value is a model id (`[\w.:/[\]-]+`) or `null` (inherit: the stub names no model). Every agent in `agents` needs all three classes | `{}` | `gen-stubs` |
+| `agents` | unique list of `claude`, `codex`, `cursor`, `gemini`, `opencode`, `antigravity` and `copilot`: the agents to generate stubs and guard files for. The agents that read the shared `.agents/skills/` folder (every one but Claude Code) share one skill stub, whose action-map line then lists them | `[]` | `gen-stubs`, `render` |
+| `models` | `{ <agent>? }` for the agents above, each `{ strong, standard, light }`; a value is a model id (`[\w.:/[\]-]+`; OpenCode `provider/model`, Antigravity `pro` or `flash`; Copilot names contain spaces, so use `null`) or `null` (inherit: the stub names no model). Every agent in `agents` needs all three classes | `{}` | `gen-stubs` |
 | `plans_dir` | repo-relative directory (no `..`, no leading `/`) where Technical plans are committed | `docs/plans` | skills, `render` |
 | `worktrees_dir` | repo-relative directory for ticket worktrees (gitignored by `init`) | `.claude/worktrees` | skills |
 | `live_verify_skill` | name of the repo's live-verification skill, or `null`; while `null` the `e2e-verifier` role gets no stub | `null` | `gen-stubs`, skills |
@@ -85,7 +85,7 @@ most 300 characters.
 ## render
 
 `render <templates-dir> <target-repo> [--check] [--keep <path>]... [--propose <dir>]` writes the CI workflow, the issue forms,
-the PR template, the AGENTS block, the Claude settings, the Codex hook and rules, and `.ticketflow/custom/README.md` from
+the PR template, the AGENTS block, `GEMINI.md` (with `gemini` in `agents`), the Claude settings, the Codex hook and rules, the guard files of the other configured agents (`.cursor/hooks.json`, `.gemini/settings.json`, `.github/hooks/ticketflow-guard.json`, `.agents/hooks.json`, `opencode.json`; merged into yours, never replacing it) and `.ticketflow/custom/README.md` from
 `core/templates/`. `<templates-dir>` is `core/templates` in the TicketFlow repo itself (the runtime is then `core/`) and any other
 directory for a user repo (the runtime is `.ticketflow/`).
 

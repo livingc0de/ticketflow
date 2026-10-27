@@ -5,7 +5,7 @@ reviewed and merged safely.**
 
 You describe what you want. Your agent turns it into a ticket, plans it, builds it in its own branch, proves it works, gets it
 reviewed, merges it, and tells you what it did. TicketFlow is the rulebook and the tooling that make every one of those steps
-the same each time, whether the agent is Claude Code, Codex or anything else that can read files and run a shell.
+the same each time, whether the agent is Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Antigravity, GitHub Copilot or anything else that can read files and run a shell.
 
 ---
 
@@ -31,7 +31,7 @@ What you get out of it:
 - **Your control.** Once every gate passes, the agent merges and hands the work back to you as **In Review**: merged, waiting for
   your look. Only you mark it **Done**, and real decisions (product, data, security, money) are asked, never assumed.
 - **Several tickets, optionally.** Ask for a list, a tracker or the Ready backlog and the `orchestrate-tickets` skill hands each ticket to a fresh lead that follows the same workflow, resuming from GitHub after an interruption.
-- **One setup for every agent.** Claude Code and Codex read the same skills and rules from one place in your repo.
+- **One setup for every agent.** Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Antigravity and GitHub Copilot read the same skills and rules from one place in your repo; any other agent follows `AGENTS.md`.
 - **Updates on your terms.** Your repo keeps a pinned copy of TicketFlow and only changes when you run an update.
 
 ---
@@ -49,8 +49,8 @@ Under the hood there are three layers:
 
 1. **The runtime** lives in your repo as `.ticketflow/`: the skills (step-by-step procedures), the reviewer and planner roles,
    small Node.js scripts, templates and these docs. It is a copy of a tagged TicketFlow release.
-2. **Agent front doors**: short generated files in `.claude/`, `.agents/` and `.codex/` that point your agents at the runtime, plus a
-   short block in your `AGENTS.md`. You never edit these by hand; a generator rebuilds them.
+2. **Agent front doors**: short generated files in the folders of the agents you use (`.claude/`, `.agents/`, `.codex/`, `.cursor/`,
+   `.gemini/`, `.opencode/`, `.github/agents/`) that point your agents at the runtime, plus a short block in your `AGENTS.md`. You never edit these by hand; a generator rebuilds them.
 3. **GitHub**: a CI workflow that posts one status called **`CI / Gate`**, a branch ruleset that requires it, a Project board, and a
    standard set of labels.
 
@@ -160,9 +160,9 @@ adapters, API endpoints, UI screens, domain guides, deploy gating and analytics 
 | `.ticketflow/config.json` | your settings: verify command, Project, reviewers, practices… | you |
 | `.ticketflow/manifest.json` | what was installed, so updates can tell your changes from TicketFlow's | `init` and `sync` |
 | `.ticketflow/custom/` | your additions and overrides to any skill or role | you |
-| `.claude/`, `.agents/`, `.codex/` | short generated stubs that point agents at the runtime | the generator |
-| `AGENTS.md`, `.claude/CLAUDE.md` | a short managed block; the rest of the file stays yours | the managed block: `sync` |
-| `.claude/settings.json`, `.codex/hooks.json`, `.codex/rules/` | the guard: ask/block rules for bypass commands; your own entries stay | TicketFlow's entries: `sync` |
+| `.claude/`, `.agents/`, `.codex/`, `.cursor/`, `.gemini/`, `.opencode/`, `.github/agents/` | short generated stubs that point agents at the runtime; only the folders of the agents in your config | the generator |
+| `AGENTS.md`, `.claude/CLAUDE.md`, `GEMINI.md` | a short managed block (`GEMINI.md` only with Gemini CLI: it imports `AGENTS.md`); the rest of the file stays yours | the managed block: `sync` |
+| `.claude/settings.json`, `.codex/hooks.json`, `.codex/rules/`, and per agent `.cursor/hooks.json`, `.gemini/settings.json`, `.github/hooks/ticketflow-guard.json`, `.agents/hooks.json`, `opencode.json` | the guard: ask/block rules for bypass commands; your own entries stay | TicketFlow's entries: `sync` |
 | `.github/workflows/ci.yml` | the gate job in managed blocks; your own CI steps (and your toolchain) in between | the blocks: `sync`; your steps and the `runs-on` runner: you |
 | `.github/ISSUE_TEMPLATE/`, PR template | forms and checklist in managed blocks; the issue chooser (`config.yml`) written once | the blocks: `sync`; `config.yml`: you |
 
@@ -180,6 +180,11 @@ Pick whichever front door suits you. They all lead to the same guided setup:
 - **Claude Code:** `/plugin marketplace add livingc0de/ticketflow`, then `/plugin install ticketflow@ticketflow`. Then ask:
   *"set up ticketflow"*.
 - **Codex:** `codex plugin marketplace add livingc0de/ticketflow`, then `codex plugin add ticketflow@ticketflow`. Then ask the same.
+- **Cursor:** Customize, then From GitHub Repository, `livingc0de/ticketflow`. **Gemini CLI:** `gemini extensions install https://github.com/livingc0de/ticketflow`.
+  **GitHub Copilot:** `copilot plugin install livingc0de/ticketflow` (VS Code: add the repo to `chat.plugins.marketplaces`).
+  **Antigravity:** `agy plugin install https://github.com/livingc0de/ticketflow`. Then ask the same.
+- **OpenCode** has no plugin: tell it to read
+  [`START.md`](https://raw.githubusercontent.com/livingc0de/ticketflow/main/START.md) and follow it. It already reads the `.agents/skills` folder the stubs go to.
 - **Any other agent:** tell it to read
   [`START.md`](https://raw.githubusercontent.com/livingc0de/ticketflow/main/START.md) and follow it.
 
@@ -189,8 +194,8 @@ only applied after your yes. Branch protection is switched on after you merge th
 one confirmed direct push instead.
 
 Three small things are left for you after the setup merges: in Codex, trust the repo's hook (`/hooks`; again whenever an update
-changes it); restart open Claude
-Code sessions so they load the new skills; and turn on the Project's built-in workflows that the setup lists (GitHub's API can't).
+changes it), and trust the guard hook the same way in Cursor, Gemini CLI, Copilot and Antigravity (the setup lists each); restart open agent
+sessions so they load the new skills; and turn on the Project's built-in workflows that the setup lists (GitHub's API can't).
 
 Already have a CI workflow, a Project or branch protection? The setup adopts them: your own CI steps move into the repo section of
 the workflow, an existing Project is topped up, and existing protection is never weakened.
@@ -225,8 +230,8 @@ until you merge it. [More in UPGRADING.md](core/docs/UPGRADING.md)
 ## Safety in short
 
 - Agents never use an admin bypass (`--admin`, direct pushes to the default branch, posting a status by hand) unless you explicitly
-  ask for that exact action. In Claude Code and Codex, a guard in the repo's agent settings asks before (or blocks) the common forms
-  of these commands. It is a seatbelt, not a wall: branch protection is what actually enforces the gate.
+  ask for that exact action. In Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Antigravity and Copilot, a guard in the repo's agent settings asks before (or blocks) the common forms
+  of these commands (Gemini CLI has no ask, so it denies them and you run the command yourself). It is a seatbelt, not a wall: branch protection is what actually enforces the gate.
 - During setup and updates, agents write only inside your repo. They suggest changes to your personal agent settings; they never
   make them.
 - A check that could not run is reported, never claimed.
@@ -237,9 +242,11 @@ The full threat model and what each safeguard does and doesn't prevent: [SECURIT
 
 ## FAQ
 
-**Do I need Claude Code or Codex?** No. They get the smoothest setup, but any agent that can read files and run a shell can follow
-`START.md` and the skills. Other agents get no command guard, and without sub-agents the review runs in the same session, so you are
-asked before a merge that rests on it.
+**Do I need one of the seven native tools?** No. Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Antigravity and GitHub Copilot have a
+native front door (stubs, an action map and a command guard); any other agent that can read files and run a shell follows `START.md` and
+the skills. That includes Windsurf, Cline and Roo Code, Amp, Kiro, Junie, Zed, Aider, Goose and Factory Droid: they read `AGENTS.md` and
+use `core/agents-map/generic.md` (Aider: `read: AGENTS.md` in `.aider.conf.yml`; Kiro and Cline: tell it to read `AGENTS.md`). They get
+no command guard, and without sub-agents the review runs in the same session, so you are asked before a merge that rests on it.
 
 **Will it slow small changes down?** Small, obvious changes skip planning, pull requests that touch only your listed docs paths skip the heavy checks, and review
 depth follows the risk tier. The process grows with the risk, not with the ticket count.

@@ -111,11 +111,16 @@ specialist). Parallel tickets only on request and only when independent (disjoin
 |---|---|---|---|---|
 | Claude Code | yes, since 2.1.219 (read-only role agents cannot) | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2`, `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=B-1` | yes, never a fork | 2026-10-27 |
 | Codex | V1: only with `agents.max_depth = 2`; V2 ignores it | `agents.max_depth = 2`, `agents.max_concurrent_threads_per_session = B-1` | yes (`fork_context` false, V2 `fork_turns: "none"`) | 2026-10-27 |
+| Cursor | yes, depth 2 at most | none documented | yes | 2026-10-27 |
+| Gemini CLI | no | none | yes | 2026-10-27 |
+| OpenCode | no (V2 depth 1) | none | yes | 2026-10-27 |
+| Antigravity | yes | none documented | yes (does not inherit history) | 2026-10-27 |
+| GitHub Copilot | VS Code only with `chat.subagents.allowInvocationsFromSubagents`; the cloud agent never | none | yes | 2026-10-27 |
 | Any other | no | none | n/a | n/a |
 
 Fallbacks: a lead that cannot dispatch plans inline and reports `needs-review` once CI is green; the orchestrator then dispatches the
 `pr-reviewer` and a fresh lead continues the ticket. With no dispatch at all, one ticket is run and the run stops, and says so.
-Limits: the persistence lasts as long as the session; two orchestrators can claim one ticket within seconds, which shows afterwards
+Limits: the Copilot cloud agent pushes only to a `copilot/*` branch, which the `*/issue-<N>-*` match below misses, so it is never an orchestrator or a lead; the persistence lasts as long as the session; two orchestrators can claim one ticket within seconds, which shows afterwards
 as `conflict` in the queue. `queue.mjs` ceilings: tickets are matched to pull requests by branch name (`*/issue-<N>-*`, same repository only) among the 100 latest-updated pull requests; at most 50 tickets; at most 10 pages of Ready items. Without a Project a merged ticket shows `done`, because its handoff cannot be seen. Follow-up work on a ticket after its merge needs its own ticket: the old merged PR keeps the ticket `merged`. A `Depends on owner/other#N` ref of another repository keeps the ticket `waiting` until the owner edits it out of the ticket.
 
 ## Handoff and the Run line
