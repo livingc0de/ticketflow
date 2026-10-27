@@ -5,7 +5,7 @@ It is installed into a repo as a `.ticketflow/` folder with thin stubs for Claud
 
 ## Before you start
 
-You need a shell, `git`, `gh` 2.48 or newer logged in with the `repo`, `project` and `workflow` scopes, `node` 18 or newer (only to run TicketFlow's own scripts), and `timeout`
+You need a shell, `git`, `gh` 2.48 or newer logged in with the `repo`, `project` and `workflow` scopes, `node` 18.9 or newer (only to run TicketFlow's own scripts), and `timeout`
 (coreutils; on macOS `brew install coreutils`). The `init` procedure checks all of this for you.
 
 ## Set up or update a repo
