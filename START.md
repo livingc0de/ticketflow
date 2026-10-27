@@ -23,6 +23,6 @@ You need a shell, `git`, `gh` 2.48 or newer logged in with the `repo`, `project`
 ## Rules for any agent
 
 - Write only inside the target repo (and the temporary clone). Suggest user-level configuration changes, never make them.
-- Ask before overwriting a file ticketflow does not own, and before any write to GitHub (labels, Project, branch protection).
+- Ask before overwriting a file TicketFlow does not own, and before any write to GitHub (labels, Project, branch protection).
 - Never use an admin bypass. A guard or permission prompt is a question for the owner, not an obstacle.
 - Nothing reaches the default branch until the owner says so.

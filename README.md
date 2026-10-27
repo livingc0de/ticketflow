@@ -25,10 +25,11 @@ important rules are enforced by small scripts and branch protection, not just by
 What you get out of it:
 
 - **Predictability.** Every ticket goes through the same steps, so you always know where a piece of work stands and what comes next.
-- **Safety.** Nothing reaches your default branch without a green gate and a review. Admin overrides stay yours: agents never use them
-  on their own.
+- **Safety.** Branch protection requires a green gate before anything merges, and the merge script also checks that the review is
+  done. Admin overrides stay yours: agents never use them on their own.
 - **Honesty.** A check that could not run is reported as "not verified", never claimed.
-- **Your control.** Agents hand work back to you as **In Review**. Only you mark it **Done**.
+- **Your control.** Once every gate passes, the agent merges and hands the work back to you as **In Review**: merged, waiting for
+  your look. Only you mark it **Done**, and real decisions (product, data, security, money) are asked, never assumed.
 - **One setup for every agent.** Claude Code and Codex read the same skills and rules from one place in your repo.
 - **Updates on your terms.** Your repo keeps a pinned copy of TicketFlow and only changes when you run an update.
 
@@ -82,7 +83,7 @@ Here is what happens when you say *"implement #42"*:
   whose children are sub-issues, worked in order.
 - Every ticket has an **Execution** section: a recommended risk tier, model and effort, and whether it should be planned.
 - Issue forms for features, bugs, tasks and decisions come pre-made.
-- Commits and pull requests say `Ticket #42`, never "Closes #42", so merging never closes a ticket behind your back.
+- Commits and pull requests say `Ticket #42` or `Refs #42`, never "Closes #42", so merging never closes a ticket behind your back.
 
 ### Planning
 
@@ -99,13 +100,15 @@ in, nothing else. Anything touching access, money, migrations, deploys or severa
 ### The gate
 
 There is exactly one thing that decides whether a pull request may merge: a green **`CI / Gate`** status on its latest commit.
-Docs-only changes get it quickly without running the heavy checks. The local fallback is fail-closed: when in doubt it posts nothing.
+Changes that touch only the paths you list as docs get it quickly without running the heavy checks. The local fallback is fail-closed: when in doubt it posts nothing.
 [More in CI-GATE.md](core/docs/CI-GATE.md)
 
 ### Reviews
 
-The `pr-reviewer` role is always available and works with no setup. You can add external reviewers (a bot or a person) in the config;
-TicketFlow knows how to wait for them, notice when they are out of quota, and bring in the built-in reviewer as a stand-in.
+The `pr-reviewer` role is always available and works with no setup: it reviews every pull request, or only the `high` and `critical`
+ones once you add an external reviewer (a bot or a person) in the config. TicketFlow waits for external reviewers and, when you
+give it the pattern or timeout to recognise it, notices one that is out of quota or silent and brings in the built-in reviewer as a
+stand-in.
 [More in REVIEWERS.md](core/docs/REVIEWERS.md)
 
 ### Merging and branch protection
@@ -116,9 +119,21 @@ branch. You, as an admin, can still override it through a pull request when you 
 
 ### The Project board
 
-A GitHub Project with eight statuses: Inbox, Backlog, Ready, In Progress, In Review, Blocked, Done and Future. The Work Board and
+Optional, but recommended: a GitHub Project with eight statuses: Inbox, Backlog, Ready, In Progress, In Review, Blocked, Done and Future. The Work Board and
 Roadmap views are created for you; a few more are optional. Labels cover type, priority, effort, area and what a ticket still needs.
 [More in PROJECT.md](core/docs/PROJECT.md)
+
+### Live verification
+
+Tests are not the whole story for user-facing changes. A UI, navigation or flow change is also checked in the running product
+(by the `e2e-verifier` role, when you point TicketFlow at your live-verify skill). A check that can't run here (a missing key, a real
+device) is recorded as not verified, in your deferred-checks issue if you have one, never quietly skipped.
+
+### Decisions
+
+When a ticket hits a real choice (product behaviour, data shape, a security or money trade-off), the agent asks you instead of
+guessing, marks the ticket `Needs: Decision`, and carries on with other unblocked work. Small details get a sensible default that is
+stated in the pull request. Bigger choices can be recorded as `Type: Decision` issues.
 
 ### Branching
 
@@ -139,9 +154,11 @@ adapters, API endpoints, UI screens, domain guides, deploy gating and analytics 
 |---|---|---|
 | `.ticketflow/` | the runtime: skills, roles, scripts, templates, docs | only `sync` |
 | `.ticketflow/config.json` | your settings: verify command, Project, reviewers, practices… | you |
+| `.ticketflow/manifest.json` | what was installed, so updates can tell your changes from TicketFlow's | `init` and `sync` |
 | `.ticketflow/custom/` | your additions and overrides to any skill or role | you |
 | `.claude/`, `.agents/`, `.codex/` | short generated stubs that point agents at the runtime | the generator |
 | `AGENTS.md`, `.claude/CLAUDE.md` | a short managed block; the rest of the file stays yours | the managed block: `sync` |
+| `.claude/settings.json`, `.codex/hooks.json`, `.codex/rules/` | the guard: ask/block rules for bypass commands; your own entries stay | TicketFlow's entries: `sync` |
 | `.github/workflows/ci.yml` | the gate job in managed blocks; your own CI steps in between | the blocks: `sync`; your steps: you |
 | `.github/ISSUE_TEMPLATE/`, PR template | forms and checklist in managed blocks | the blocks: `sync` |
 
@@ -167,6 +184,9 @@ The setup interviews you (your verify command, your Project, optional reviewers 
 only applied after your yes. Branch protection is switched on after you merge the setup pull request. A brand-new, empty repo gets
 one confirmed direct push instead.
 
+Three small things are left for you after the setup merges: in Codex, trust the repo's hook once (`/hooks`); restart open Claude
+Code sessions so they load the new skills; and turn on the Project's built-in workflows that the setup lists (GitHub's API can't).
+
 Already have a CI workflow, a Project or branch protection? The setup adopts them: your own CI steps move into the repo section of
 the workflow, an existing Project is topped up, and existing protection is never weakened.
 
@@ -191,7 +211,7 @@ You stay in charge of three things: answering real decisions (product, data, sec
 
 ## Updating
 
-Ask your agent to *"update ticketflow"* (or follow `skills/sync/SKILL.md`). It fetches the release you choose, shows what changed,
+Ask your agent to *"update ticketflow"* (other agents: follow `skills/sync/SKILL.md` of the TicketFlow repo, as `START.md` says). It fetches the release you choose, shows what changed,
 refreshes `.ticketflow/` and the generated files, keeps everything that is yours, and opens an update pull request. Nothing changes
 until you merge it. [More in UPGRADING.md](core/docs/UPGRADING.md)
 
@@ -200,8 +220,10 @@ until you merge it. [More in UPGRADING.md](core/docs/UPGRADING.md)
 ## Safety in short
 
 - Agents never use an admin bypass (`--admin`, direct pushes to the default branch, posting a status by hand) unless you explicitly
-  ask for that exact action. A guard in the agent settings asks before any such command.
-- Agents only write inside your repo. They suggest changes to your personal agent settings; they never make them.
+  ask for that exact action. In Claude Code and Codex, a guard in the repo's agent settings asks before (or blocks) the common forms
+  of these commands. It is a seatbelt, not a wall: branch protection is what actually enforces the gate.
+- During setup and updates, agents write only inside your repo. They suggest changes to your personal agent settings; they never
+  make them.
 - A check that could not run is reported, never claimed.
 
 The full threat model and what each safeguard does and doesn't prevent: [SECURITY.md](core/docs/SECURITY.md).

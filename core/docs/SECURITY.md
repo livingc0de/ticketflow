@@ -1,9 +1,9 @@
 # Security model
 
 Agents act with your GitHub credentials, so it matters what they can and cannot do on their own. This page is honest about it:
-what stops an agent from merging or pushing past the checks, what does not, and what was measured on real repositories. The short
-version: branch protection does the hard enforcing, the scripts refuse unsafe actions, and a guard asks you before any command
-that could bypass them.
+what stops an agent from merging or pushing past the checks, what does not, and what was measured on a test repository. The short
+version: branch protection does the hard enforcing, the scripts refuse unsafe actions, and in Claude Code and Codex a guard asks
+you before (or blocks) the common forms of a bypass command. The guard is a seatbelt, not a wall.
 
 ## Threat model
 
