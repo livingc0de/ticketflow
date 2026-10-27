@@ -16,5 +16,5 @@
   "deferred_checks_issue": null,
   "areas": [],
   "practices": [],
-  "ci": { "push_paths": null }
+  "ci": { "push_paths": null, "node": "22" }
 }

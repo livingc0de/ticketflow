@@ -57,8 +57,8 @@ const ghApi = (path) => {
 }
 const allowed = () => run(process.execPath, [join(here, 'pr-wait.mjs'), target, '--once', '--ci-only']).status === 3
 
-/** Verifies in a clean worktree of `sha`; returns { state, log }. A timeout or a signal posts nothing. */
-function fullRun(sha) {
+/** Checks the agent stubs and (unless `stubsOnly`) verifies in a clean worktree of `sha`; returns { state, log }. A timeout or a signal posts nothing. */
+function checkHead(sha, stubsOnly = false) {
     const wt = join(homedir(), '.cache', 'ticketflow-verify', cfg.repo.replace('/', '__'), sha.slice(0, 12))
     const log = `${wt}.log`
     mkdirSync(dirname(wt), { recursive: true })
@@ -66,6 +66,10 @@ function fullRun(sha) {
     if (git('worktree', 'add', '-q', '--detach', wt, sha).status !== 0) stop(1, 'cannot create the worktree; nothing posted')
     const fd = openSync(log, 'w')
     try {
+        // The agent stubs first, like the CI job: the head's own generator against the head's own runtime.
+        const rt = relative(realpathSync(root), dirname(realpathSync(here)))
+        const stubs = run(process.execPath, [join(rt, 'scripts', 'gen-stubs.mjs'), rt, '.', '--check'], { cwd: wt, env: { HOME: homedir(), PATH: process.env.PATH, CI: 'true' }, stdio: ['ignore', fd, fd] })
+        if (stubs.status !== 0 || stubsOnly) return { state: stubs.status === 0 ? 'success' : 'failure', log }
         const { install, command, timeout_min: min } = cfg.verify
         // A clean environment with CI=true: the caller's other variables stay out of the install scripts and tests of the code under test.
         const r = run('timeout', ['-k', '30', String(min * 60), 'bash', '-c', install ? `(${install}) && (${command})` : command], {
@@ -128,12 +132,15 @@ function main() {
     }
     if (!desc && isPr) {
         const d = git('diff', '-z', '--no-renames', '--name-only', origin, sha)
-        if (d.status === 0 && docsOnly(d.stdout.split('\0').filter(Boolean), cfg)) { desc = `Local check on ${host}, docs only`; how = `${desc}; no verify run` }
+        if (d.status === 0 && docsOnly(d.stdout.split('\0').filter(Boolean), cfg)) {
+            desc = `Local check on ${host}, docs only`; how = `${desc}; agent stubs checked, no verify run`
+            ;({ state, log } = checkHead(sha, true))
+        }
     }
     if (!desc) {
         desc = `Local run on ${host} (${machine()}, Node ${process.versions.node})`
         how = `${desc}, verify command on the exact head, Actions refused the job`
-        ;({ state, log } = fullRun(sha))
+        ;({ state, log } = checkHead(sha))
     }
 
     // 7. Recheck right before posting: the head is unchanged and the guard still says so.

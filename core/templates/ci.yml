@@ -35,15 +35,19 @@ jobs:
       # No token in .git/config: only the scope step and the last step get one, so no install script or test can post the gate itself.
       # A pull request that edits the workflow or the runtime runs its own copy of the scope step with that token: review is the control.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
           fetch-depth: 2   # a pull request's test merge commit and its two parents
 
       - name: Set Up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: {{node_version_json}}
+
+      # The agent stubs are generated from the runtime: a stale or hand-edited one fails the run, docs-only or not.
+      - name: Check Agent Stubs
+        run: node {{runtime}}/scripts/gen-stubs.mjs {{runtime}} . --check
 
       # Docs-only, or an update with the default branch that only brings in docs-only commits: skip the steps below.
       # A failed step sets no output, which means a full run.
@@ -101,7 +105,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Push Deploy Branch

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { FAIL, fakeGh, rawConfig, seq, tempDir } from './helpers.mjs'
 
@@ -40,6 +40,11 @@ const f = s + '/prwait.n', n = existsSync(f) ? Number(readFileSync(f, 'utf8')) :
 writeFileSync(f, String(n + 1))
 const seq = process.env.PRWAIT_SEQ.split(',')
 process.exit(Number(seq[Math.min(n, seq.length - 1)]))
+`)
+        put('.ticketflow/scripts/gen-stubs.mjs', `import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+const s = process.env.HOME   // the clean environment keeps only HOME, PATH and CI
+appendFileSync(s + '/stubs.log', 'pwd=' + process.cwd() + ' ' + process.argv.slice(2).join(' ') + '\\n')
+process.exit(existsSync(s + '/rc-gen-stubs') ? Number(readFileSync(s + '/rc-gen-stubs', 'utf8')) : 0)
 `)
         put('.ticketflow/config.json', JSON.stringify(rawConfig({ default_branch: branch, verify: { install, command }, docs_only: { docs: ['^docs/', '\\.md$'] }, deploy_branch: 'deploy', ...config })))
         g(repo, 'add', '-A'); g(repo, 'commit', '-qm', 'runtime')
@@ -83,6 +88,7 @@ exit $(cat ${state}/rc-${name} 2>/dev/null || echo 0)`)
         file: (f) => (existsSync(join(state, f)) ? readFileSync(join(state, f), 'utf8').trim().split('\n') : []),
         statuses: () => gh.calls().filter((c) => c[0] === 'api' && /\/statuses\//.test(c[1])).map((c) => ({ path: c[1], ...Object.fromEntries(c.filter((a) => /^(state|context|description|target_url)=/.test(a)).map((a) => [a.split('=')[0], a.slice(a.indexOf('=') + 1)])) })),
         runlog: () => h.file('runlog'),
+        stubsLog: () => (existsSync(join(home, 'stubs.log')) ? readFileSync(join(home, 'stubs.log'), 'utf8').trim().split('\n') : []),
         gitLog: () => h.file('git.log'),
     }
     return h
@@ -159,6 +165,7 @@ test('success: one comment and one status with exact args, the worktree is creat
     const wt = `${h.home}/.cache/ticketflow-verify/o__r/${h.head.slice(0, 12)}`
     assert.match(h.runlog()[0], new RegExp(`^fake-install pwd=${wt}`))
     assert.match(h.runlog()[1], new RegExp(`^fake-verify pwd=${wt}`))
+    assert.deepEqual(h.stubsLog(), [`pwd=${realpathSync(h.home)}/.cache/ticketflow-verify/o__r/${h.head.slice(0, 12)} .ticketflow . --check`])
     assert.ok(!existsSync(wt))
     assert.equal(h.originRef('refs/heads/deploy'), null, 'a PR run never moves the deploy branch')
     assert.ok(!h.gitLog().some((l) => / push /.test(l)))
@@ -209,12 +216,12 @@ test('a timeout posts nothing and the worktree is removed', () => {
     assert.ok(!existsSync(`${h.home}/.cache/ticketflow-verify/o__r/${h.head.slice(0, 12)}`))
 })
 
-test('a docs-only head posts "Local check on <host>, docs only" without running anything; the diff runs against origin/<default> and the head', () => {
+test('a docs-only head posts "Local check on <host>, docs only" after the stub check alone; the diff runs against origin/<default> and the head', () => {
     const h = setup({ prFiles: { 'docs/a.md': 'x', 'NOTES.md': 'y' } })
     const r = h.run()
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(h.runlog(), [])
-    assert.ok(!h.gitLog().some((l) => l.includes('worktree add')))
+    assert.equal(h.stubsLog().length, 1)
     assert.match(h.statuses()[0].description, /^Local check on \S+, docs only$/)
     assert.match(h.gh.comments()[0], /\*\*success\*\*\. Local check on /)
     assert.ok(h.gitLog().some((l) => l.endsWith(`diff -z --no-renames --name-only refs/remotes/origin/main ${h.head}`)), h.gitLog().join('\n'))
@@ -232,6 +239,16 @@ test('a code, mixed, empty or unreadable diff, or a floor path, runs the full ve
     u.set('fail-diff-z', 128)
     u.run()
     assert.equal(u.runlog().length, 2)
+})
+
+test('stale agent stubs post a failure without running the install or the command, docs-only or not', () => {
+    for (const prFiles of [{ 'src/a.js': 'x' }, { 'docs/a.md': 'x' }]) {
+        const h = setup({ prFiles })
+        writeFileSync(join(h.home, 'rc-gen-stubs'), '1')
+        assert.equal(h.run().status, 1)
+        assert.deepEqual(h.runlog(), [], JSON.stringify(prFiles))
+        assert.equal(h.statuses()[0].state, 'failure')
+    }
 })
 
 test('a docs-only head still goes through the recheck', () => {

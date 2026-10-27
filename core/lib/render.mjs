@@ -93,6 +93,7 @@ export function templateVars(cfg, { runtimeRel, practices = [] }) {
         gate_context_json: q(cfg.gate.context),
         gate_check_json: q(cfg.gate.check),
         timeout_min: String(cfg.verify.timeout_min),
+        node_version_json: q(cfg.ci.node),
         pr_types: local ? '    types: [opened, synchronize, reopened, ready_for_review]' : '',
         push_trigger: push,
         job_if: local ? `    if: \${{ !github.event.pull_request.draft && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/${cfg.default_branch}') }}` : '',

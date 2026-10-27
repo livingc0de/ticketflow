@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **CI:** the managed job sets up Node.js at the new `ci.node` key (default `"22"`), with `actions/checkout` and `actions/setup-node` at v7 (#4).
+- **CI:** every gate run, and the local fallback, checks the agent stubs with `gen-stubs --check`, so a stale or hand-edited stub fails the gate in every repo, not only here (#4).
+
 ## 0.1.0
 
 First release. ticketflow is an agent-neutral, ticket-driven delivery workflow for GitHub repos, installed into a repo as a canonical `.ticketflow/` runtime with generated stubs for Claude Code and Codex.
