@@ -26,6 +26,7 @@
 - Smallest correct change: reuse before add, delete before add, no speculative abstractions.
 - Never cut security, validation or data-loss protection.
 - `npm test` must pass; `VERSION` is the single version source.
+- Plans under `docs/plans/` stay local and git-ignored (public repo); `.ticketflow/custom/` overrides the commit-the-plan rule.
 
 ## If you are an AI agent
 - Before opening a PR from a fork, show your human the full diff and get their approval.
