@@ -89,6 +89,41 @@ You never edit these files. `sync` and the generators rebuild them; your own cha
 - **Guard:** a hook asks before the common forms. The Copilot cloud agent cannot be asked, so there the guarded commands are
   denied. The cloud agent also pushes only to `copilot/*` branches, so it is never an orchestrator or a ticket lead.
 
+## What is verified
+
+"Supported" can mean very different things, so this matrix says what was actually checked, per tool (as of 2026-10-27).
+
+- **live**: run inside the tool and the result observed.
+- **fixture**: covered by TicketFlow's tests with fakes, or by the tool's own checker, but never run inside the tool.
+- **documented**: written from the tool's documentation, never run.
+- **unsupported**: the tool cannot do it; the fallback is in the notes.
+
+| | Claude Code | Codex | Cursor | Gemini CLI | OpenCode | Antigravity | Copilot | Any other |
+|---|---|---|---|---|---|---|---|---|
+| Install path | documented | documented | documented | documented | documented | documented | documented | documented |
+| Generated files | fixture | fixture | fixture | fixture | fixture | fixture | fixture | documented |
+| Skills load and are followed | live | documented | documented | documented | documented | documented | documented | documented |
+| Roles (planner, reviewer) | live | documented | documented | documented | documented | documented | documented | unsupported |
+| A lead dispatches roles | documented | documented | documented | unsupported | unsupported | documented | documented | unsupported |
+| Command guard | live | fixture | fixture | fixture | fixture | fixture | fixture | unsupported |
+| The method without a ticket | documented | documented | documented | documented | documented | documented | documented | documented |
+
+Evidence and fallbacks:
+
+- **Live** is Claude Code only. This repository's own tickets (#32 onward) are delivered with the skills and the planner and reviewer
+  roles, and in a checkout with the rendered rules the ask rules refused `gh pr merge --admin`, a push to the default branch and
+  `protect --apply` (not checked under `bypassPermissions`; [SECURITY.md](SECURITY.md#agent-side-checks)).
+- **Generated files** are fixture-tested for every tool (`gen-stubs`, `render` and an end-to-end chain with `doctor --local` in the
+  tests); the plugin install commands themselves were not run in any tool.
+- **Codex guard:** `codex execpolicy check` loads the generated rules and decides as the guard's examples say; the hook itself was not
+  run end to end. **The other five guards:** the hook scripts and the OpenCode ask rules are tested against the same examples; none
+  was run inside its tool.
+- **Antigravity** has no role files; its roles run as built-in subagents. **Any other agent** has no sub-agents and no guard: the
+  review runs in the same session and you are asked before a merge that rests on it.
+- **A lead dispatches roles** follows each tool's documentation ([WORKFLOW.md](WORKFLOW.md#several-tickets-optional)); no run has
+  counted nested agents. Where it is unsupported, a lead plans inline and reports `needs-review`.
+- **The method without a ticket** (the `engineering-method` skill) is new in 0.3.5; no paid agent run has measured it yet.
+
 ## Adding a tool to a repo that already uses TicketFlow
 
 Nothing changes until you ask. A repo set up for Claude Code and Codex gets none of the new tools' files after an update. To add a tool:
