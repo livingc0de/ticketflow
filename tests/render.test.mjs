@@ -190,7 +190,7 @@ test('claude settings: union with existing first, foreign entries and deny untou
 
 test('the Claude allow rules are relative to the working directory: no pattern that a path prefix can slip a command into', () => {
     const allow = JSON.parse(renderAll(A).get('.claude/settings.json')).permissions.allow
-    assert.equal(allow.length, 10)
+    assert.equal(allow.length, 11)
     assert.ok(allow.every((r) => r.startsWith('Bash(node .ticketflow/scripts/')))
 })
 
@@ -349,7 +349,7 @@ test('render.mjs records the settings entries it owns in the manifest, keeps the
     assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /wrote \.ticketflow\/manifest\.json/)
     const m = JSON.parse(t.read('.ticketflow/manifest.json'))
     assert.deepEqual([m.version, m.held], ['1.2.3', ['x/y']])
-    assert.equal(m.claude_settings.allow.length, 10); assert.deepEqual(m.claude_settings.ask, JSON.parse(t.read('.claude/settings.json')).permissions.ask)
+    assert.equal(m.claude_settings.allow.length, 11); assert.deepEqual(m.claude_settings.ask, JSON.parse(t.read('.claude/settings.json')).permissions.ask)
     const bytes = t.read('.ticketflow/manifest.json')
     assert.equal(t.run('--check').status, 0)
     assert.doesNotMatch(t.run().stdout, /manifest/); assert.equal(t.read('.ticketflow/manifest.json'), bytes)

@@ -30,6 +30,7 @@ What you get out of it:
 - **Honesty.** A check that could not run is reported as "not verified", never claimed.
 - **Your control.** Once every gate passes, the agent merges and hands the work back to you as **In Review**: merged, waiting for
   your look. Only you mark it **Done**, and real decisions (product, data, security, money) are asked, never assumed.
+- **Several tickets, optionally.** Ask for a list, a tracker or the Ready backlog and the `orchestrate-tickets` skill hands each ticket to a fresh lead that follows the same workflow, resuming from GitHub after an interruption.
 - **One setup for every agent.** Claude Code and Codex read the same skills and rules from one place in your repo.
 - **Updates on your terms.** Your repo keeps a pinned copy of TicketFlow and only changes when you run an update.
 

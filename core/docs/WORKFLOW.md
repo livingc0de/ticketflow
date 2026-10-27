@@ -94,6 +94,30 @@ stays convention and what cannot be verified: [REVIEWERS.md](REVIEWERS.md). It m
 `--match-head-commit`. When the gates pass, merge without asking, except when the only review was an inline `pr-reviewer`
 (no sub-agents): ask the owner. Never `--admin`, never `--auto`; see [SECURITY.md](SECURITY.md).
 
+## Several tickets (optional)
+
+`orchestrate-tickets` works through a list, a tracker's children or the Ready backlog in one run. It is a coordinator only: it never
+edits, merges or reads code. For each ticket it dispatches a fresh ticket lead (never a copy of its own conversation) that follows
+`implement-ticket` unchanged and answers with one `Result #N: ...` line. After each result it runs `queue.mjs`, which rebuilds every
+ticket's state from GitHub (issue, Status, labels, `Depends on`, pull requests), so GitHub wins over any report and an interrupted run
+resumes by starting again; there is no ledger, lock or daemon. With no list or tracker it works the Ready backlog: it first warns you,
+with the bound (10 tickets by Priority, then number) and the list. It never marks a ticket Done.
+
+Three separate controls: depth (orchestrator, then leads, then specialists; nothing deeper), budget B (agents active at once including
+the orchestrator, default 3) and ticket parallelism P (default 1, at most floor((B-1)/2), because each lead keeps a slot for its own
+specialist). Parallel tickets only on request and only when independent (disjoint files, config, generated files, no order).
+
+| Agent | Lead can dispatch roles | Concurrency cap (suggested, never written) | Fresh context | Checked on |
+|---|---|---|---|---|
+| Claude Code | yes, since 2.1.219 (read-only role agents cannot) | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2`, `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=B-1` | yes, never a fork | 2026-10-27 |
+| Codex | V1: only with `agents.max_depth = 2`; V2 ignores it | `agents.max_depth = 2`, `max_concurrent_threads_per_session = B-1` | yes (`fork_context` false, V2 `fork_turns: "none"`) | 2026-10-27 |
+| Any other | no | none | n/a | n/a |
+
+Fallbacks: a lead that cannot dispatch plans inline and reports `needs-review` once CI is green; the orchestrator then dispatches the
+`pr-reviewer` and a fresh lead continues the ticket. With no dispatch at all, one ticket is run and the run stops, and says so.
+Limits: the persistence lasts as long as the session; two orchestrators can claim one ticket within seconds, which shows afterwards
+as `conflict` in the queue.
+
 ## Handoff and the Run line
 
 After the merge: status In Review, a summary comment (what merged, the evidence, decisions, assumptions, "Also fixed",

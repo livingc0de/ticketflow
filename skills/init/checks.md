@@ -7,7 +7,7 @@
    - the labels, the Project URL and the protection state;
    - anything unverified or skipped, and why.
 3. Manual steps, as they apply (suggest them, never do them for the user):
-   - Codex: trust the project and `.codex/hooks.json` through `/hooks` (again after any sync that changes it), and consider enabling `multi_agent` under `[features]` in the user config.
+   - Codex: trust the project and `.codex/hooks.json` through `/hooks` (again after any sync that changes it), and for leads that dispatch their own planner and reviewer, suggest `agents.max_depth = 2` under `[agents]` in the user config.
    - Claude Code: restart the session, so the new skills and agents load.
    - `timeout` missing: install coreutils.
    - Protection skipped: say why and how to do it later.

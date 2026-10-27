@@ -28,7 +28,7 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `docs_only.code` | list of regexes: paths that are code even if they match `docs` | `[]` | `docs-only`, `inherit`, `local-verify` |
 | `reviewers` | list of reviewer objects | `[]` | `pr-wait` |
 | `deploy_branch` | branch name or `null`; must differ from `default_branch` | `null` | `local-verify`, `render` |
-| `project` | project object, or `null` for none | `null` | `project`, `tracker-next` |
+| `project` | project object, or `null` for none | `null` | `project`, `tracker-next`, `queue` |
 | `agents` | unique list of `claude` / `codex`: the agents to generate stubs for | `[]` | `gen-stubs` |
 | `models` | `{ claude?, codex? }`, each `{ strong, standard, light }`; a value is a model id (`[\w.:/[\]-]+`) or `null` (inherit: the stub names no model). Every agent in `agents` needs all three classes | `{}` | `gen-stubs` |
 | `plans_dir` | repo-relative directory (no `..`, no leading `/`) where Technical plans are committed | `docs/plans` | skills, `render` |
@@ -54,7 +54,7 @@ A project object (the GitHub Project, Projects v2, that tracks the repo's issues
 | `views` | the optional views to create, a unique subset of `All Work`, `Initiatives`, `Open Decisions`, `P0/P1 Open` | `[]` |
 
 `project setup` does not edit the config: after it creates a project, put the printed number in `project.number`.
-`project add`, `project status` and `tracker-next` need `number` above `0`.
+`project add`, `project status` and `tracker-next` need `number` above `0`, and so does `queue --ready`.
 
 ## Manifest, runtime, doctor and migration
 
