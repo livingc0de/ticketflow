@@ -49,3 +49,6 @@ Exit 1 when a check failed, 2 on usage.
 
 Every release lists in its `CHANGELOG.md` what changed, and any step that needs a decision (a renamed default, a
 removed file). `sync` reads and summarizes the sections you skip over.
+
+A release or a config change that renames `gate.context` needs one protection step before its pull request merges:
+`protect.mjs --apply --replace-context <old>` ([CI-GATE.md](CI-GATE.md#renaming-the-gate-context)).
