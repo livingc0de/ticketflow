@@ -84,27 +84,35 @@ new push its old reaction is not "after the head", and a clean second round show
 
 - **Reviewer configured and done**: nothing more is needed unless the pull request is `high` or `critical`, which also gets a
   `pr-reviewer` pass.
-- **`standin needed`**: dispatch `pr-reviewer` in stand-in mode (the brief says so; it lists nits too and gives every item a fix),
-  unless it already reviewed this head.
+- **`standin needed`**: a reviewer is unavailable, silent or **only commented**. Dispatch `pr-reviewer` in stand-in mode (the brief
+  says so; it lists nits too and gives every item a fix), unless it already reviewed this head after the reviewer's comment. For a
+  reviewer that only commented, the brief carries that review and all its threads, resolved ones too: the stand-in weighs them, and a
+  finding that was rejected without a fix, and that it disagrees with, is a blocker.
 - **`none configured`**: the `pr-reviewer` review from when the pull request opened is the one.
 
 In both of the last two cases `merge` needs a basis, because no external reviewer finished. Post a comment on the pull request and
 pass its id as `--review-basis`. It starts with `Review basis for <sha7>:` (the first 7 characters of the head) and then has exactly one of:
 
-- a link to the `pr-reviewer` review: `Review basis for <sha7>: <why>, reviewed by pr-reviewer <review URL>; since then: <trivial fixes or none>`.
+- a link to the `pr-reviewer` review: `Review basis for <sha7>: <why>, reviewed by pr-reviewer <review URL>`.
   The URL is `.../pull/<PR>#pullrequestreview-<id>`. `merge` reads that review from the pull request's own list: it must be the
   **newest** `pr-reviewer` review of the pull request (a later `changes needed` defeats an older `ready to merge`), submitted as
   COMMENTED or APPROVED (not pending or dismissed), start with `Reviewed head: <sha>` where `<sha>` prefixes the commit it was posted
   on (a review gathered before a force-push is refused), have exactly one `**Verdict:**` line whose value is exactly `ready to merge`,
-  and be on the head or an ancestor of it (a force-push needs a new review);
+  and be posted on **exactly the head**: after any push, an update-branch included, the basis needs a new review (a delta review
+  since the previous one is enough, so it stays cheap);
 - `owner approved` right after the colon (for example `Review basis for <sha7>: owner approved the setup PR`): the owner's decision,
-  used for the setup and update pull requests of `init` and `sync`. `merge` accepts it and says so in its output.
+  used for the setup and update pull requests of `init` and `sync`. It must come from an account with `admin` permission (the
+  owner's). `merge` accepts it and says so in its output, naming the account.
 
-Only accounts that GitHub reports as `OWNER`, `MEMBER` or `COLLABORATOR` count: the basis comment, the linked review and every
-`pr-reviewer` verdict. `MEMBER` is any member of the owning organization and `COLLABORATOR` includes collaborators with read-only
-access, so this keeps out outsiders, not every untrusted insider. On a public repository anyone can comment or post a review, so an
-outsider's review can neither lift a `changes needed` nor serve as a basis, and it does not set a verdict. An outsider's unresolved
-review thread still blocks the merge (any author counts).
+Only accounts that GitHub reports as `OWNER`, `MEMBER` or `COLLABORATOR` count, and `merge` then reads the account's repository
+permission (`collaborators/<login>/permission`): a ready `pr-reviewer` verdict on the head and a link basis need `admin` or `write`,
+`owner approved` needs `admin`. `MEMBER` is any member of the owning organization and `COLLABORATOR` includes read-only access, which
+is why the permission is read: a read-only account can neither lift a `changes needed` with a later `ready to merge` nor serve as a
+basis. A failed read, an account without a login (deleted) and an agent on a GitHub App account (permission `none`) are refused.
+`changes needed` from any of the trusted associations still blocks. On a public repository anyone can comment or post a review,
+so an outsider's review can neither lift a `changes needed` nor serve as a basis, and it does not set a verdict. An outsider's
+unresolved review thread still blocks the merge (any author counts): answer it with a reason and resolve it with `thread.mjs`; for
+a flood, use GitHub's interaction limits or lock the conversation first, then resolve with a reason.
 
 `merge` also looks at the `pr-reviewer` reviews of the head, whichever path got there (a `pr-reviewer` review is a submitted review of
 such an account with a verdict line; the label may be spelled `**Verdict:**`, `**Verdict**:`, `Verdict:`, indented or in any case, so a
@@ -125,11 +133,13 @@ usual ones, and the legitimate way past each:
 | `unresolved review threads: unknown` | The threads could not be read, or there are more than 100 | Open the pull request, resolve what is open, run `pr-wait` again |
 | `changes requested (<names>)` | A configured reviewer's last review of this commit asks for changes | Fix and push, ask that reviewer to look again (post its `rereview_comment`), or, as the owner, dismiss the review on GitHub |
 | the last `pr-reviewer` review "has verdict ... not exactly ready to merge" | The built-in reviewer said `changes needed`, or its verdict line is misspelled or still the unfilled template | Fix and push, then run `pr-reviewer` again on the new head. Or, if the finding is wrong, run `pr-reviewer` again on the same head and give the reason; its newest review counts |
+| `standin needed (<names>)` | A reviewer only commented on this commit (a comment is not an approval), or is unavailable or silent | Dispatch `pr-reviewer` in stand-in mode (with the commenting reviewer's review and threads), then post the basis as below |
 | `review is "pending"` | A configured reviewer has not answered on this commit yet | Wait (`pr-wait` does it in the background), post the reviewer's `rereview_comment`, or set `stale_after_min` so a silent reviewer is replaced by a stand-in |
 | `no reviewer finished` | No external reviewer answered (`standin needed` or `none configured`), so `merge` wants a review basis | Run `pr-reviewer` on this head, then post `Review basis for <sha7>: <its review URL>` and pass the comment's id as `--review-basis`. When you decided yourself, the comment says `Review basis for <sha7>: owner approved ...` |
 | a basis `comment ... must ...` / `is not from the owner, a member or a collaborator` / `a later pr-reviewer review exists` | The basis is in the old format, comes from an outsider, links an old review or links a review of another commit | Post a new basis that links the **newest** `ready to merge` review of this pull request, made by an owner, member or collaborator account |
-| `review ... is on <sha>, which the head does not contain` | The branch was force-pushed after the review | Review again on the new head, then post a new basis |
-| `<base> moved (behind by n)` | The default branch has new commits | `gh pr update-branch <PR>`, wait for the new gate, then merge again |
+| `review ... is on <sha>, not the head <sha>` | The basis links a review of an older commit: any push since, an update-branch included, moved the head | Run `pr-reviewer` on the head (a delta review since its last one is enough), then post a new basis |
+| `... has <permission> access: ... needs write access` / `only an admin account can approve for the owner` | A verdict, a basis or an `owner approved` came from an account without the needed repository permission | Post it again from an account with write access; `owner approved` from an admin (the owner's) account |
+| `<base> moved (behind by n)` | The default branch has new commits (checked early, and again right before the merge) | `gh pr update-branch <PR>`, wait for the new gate, run `pr-reviewer` on the new head if a basis is needed, then merge again |
 | `CI / Gate is ... on <sha7>` | The gate is not green on this exact commit | Wait for it or fix what failed ([CI-GATE.md](CI-GATE.md)) |
 
 What only the owner can do, and what it does not do:
@@ -152,12 +162,13 @@ If you copied a basis comment from the 0.2.0 docs on a pull request that was alr
 | The gate status is `success` on the exact head, the branch is up to date | enforced by `merge` (and the ruleset) | |
 | No unresolved review thread, from any author; `unknown` refuses | enforced by `merge`, from `pr-wait` | Ceiling: 100 threads |
 | No configured reviewer has `CHANGES_REQUESTED` on the head | enforced by `merge`, from `pr-wait` | The reviewer's last review of the head wins |
-| The last `pr-reviewer` review of the head says exactly `ready to merge` | enforced by `merge` | Reviews of OWNER, MEMBER or COLLABORATOR accounts only |
-| A basis is `owner approved`, or the newest `pr-reviewer` review: `ready to merge`, on the head or an ancestor | enforced by `merge` | The comment and the review must be of such an account |
-| A reviewer ran, and was independent of the author | **not verifiable** | The review and the basis are posted with the agent's own credentials: `merge` proves which review was named and what it says, not who wrote it |
-| `owner approved` really came from the owner | **not verifiable** | Anyone with the agent's credentials can post it |
+| A configured reviewer accepted the head: `APPROVED`, or a no-findings reaction or state | enforced by `merge`, from `pr-wait` | A review that only commented (even with no thread) needs a stand-in and a basis |
+| The last `pr-reviewer` review of the head says exactly `ready to merge` | enforced by `merge` | Reviews of OWNER, MEMBER or COLLABORATOR accounts only, with `write` or `admin` permission |
+| A basis is `owner approved`, or the newest `pr-reviewer` review: `ready to merge`, on exactly the head | enforced by `merge` | The comment and the review need `write` access; `owner approved` needs `admin` |
+| A reviewer ran, and was independent of the author | **not verifiable** | The review and the basis are posted with the agent's own credentials (standard mode): `merge` proves which review was named and what it says, not who wrote it. High-assurance mode: [SECURITY.md](SECURITY.md#two-ways-to-run) |
+| `owner approved` really came from the owner | **not verifiable** | A comment shows which account posted it, not who typed it: with the owner's admin token the agent can post it. High-assurance mode keeps the agent off that token |
 | A review was not edited afterwards by the account that wrote it | **not verifiable** | `merge` reads the body as it is now |
-| Findings are fixed and answered with a reason | convention | Only the threads are gated; a finding left in a review body is not |
+| Findings are fixed and answered with a reason | convention | Only the threads are gated; a finding left in a review body is not. A finding rejected without a fix, about security, data or correctness, gets a `pr-reviewer` pass on the head (the skill says so) |
 | The owner is asked before an inline (non-independent) review is the only one | convention | The skill and the action map say so |
 
 Owner exceptions are explicit: `owner approved` for a basis, and dismissing a review on GitHub. Admin rights and a hand-posted gate

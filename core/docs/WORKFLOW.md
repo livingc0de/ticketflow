@@ -94,7 +94,7 @@ The gate itself: [CI-GATE.md](CI-GATE.md).
 
 The `pr-reviewer` role is always available and is never listed in `reviewers`. With no external reviewer configured, it reviews
 every pull request; with one configured, it reviews `high` and `critical` pull requests, and stands in when the configured reviewer
-is unavailable or silent. Its effort follows the tier (the skill sets it). It posts one review
+is unavailable, silent or only commented. Its effort follows the tier (the skill sets it). It posts one review
 comment, never approves, never edits. A fix to behaviour, tests, config or SQL gets one more pass; a trivial fix does not.
 External reviewers and the stand-in rules: [REVIEWERS.md](REVIEWERS.md).
 
@@ -106,8 +106,9 @@ each review thread with `thread.mjs`. A related small problem found along the wa
 `merge <PR>` is the only way. It requires, on the exact head: the pull request open, not a draft, based on the default branch; the
 gate status `success`; the head contains the default branch; no unresolved review thread (any author); the review gate done and not
 `changes requested` (a reviewer's answer, or a `--review-basis` comment `Review basis for <sha7>: ...` that links a `ready to merge`
-`pr-reviewer` review of this PR, or says `owner approved`, when `pr-wait` printed `standin needed` or `none configured`); and the last
-`pr-reviewer` review of the head saying exactly `ready to merge` (owner, member or collaborator accounts only). What that proves, what
+`pr-reviewer` review of this PR posted on the exact head, or says `owner approved`, when `pr-wait` printed `standin needed` (a reviewer
+that only commented included) or `none configured`); and the last `pr-reviewer` review of the head saying exactly `ready to merge`
+(accounts with write access only; `owner approved` needs an admin account). What that proves, what
 stays convention and what cannot be verified: [REVIEWERS.md](REVIEWERS.md). It merges (squash, else rebase, else a merge commit, as the repo allows) with
 `--match-head-commit`. When the gates pass, merge without asking, except when the only review was an inline `pr-reviewer`
 (no sub-agents): ask the owner. Never `--admin`, never `--auto`; see [SECURITY.md](SECURITY.md).
