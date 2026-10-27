@@ -130,7 +130,7 @@ main('queue', () => {
     // shortcut: ids, not names, so a renamed repo keeps its PRs; a PR list entry without ids (an old API shape) reads as a fork
     const listed100 = api(PULLS).filter((p) => p.head?.repo?.id != null && p.head.repo.id === p.base?.repo?.id)
         .map((p) => ({ number: p.number, ref: p.head.ref, sha: p.head.sha, state: p.state === 'open' ? 'open' : p.merged_at ? 'merged' : 'closed' }))
-    const pulls = [...new Map([...crossReferenced([...all.values()].map((t) => t.node_id)), ...listed100].map((p) => [p.number, p])).values()]   // one PR once, the REST entry first
+    const pulls = [...new Map([...crossReferenced([...all.values()].map((t) => t.node_id)), ...listed100].map((p) => [p.number, p])).values()]   // one PR once; the REST entry wins
     const prsOf = (n) => pulls.filter((p) => new RegExp(`(^|/)issue-${n}-`).test(p.ref ?? '')).map((p) => ({ number: p.number, sha: String(p.sha).slice(0, 7), state: p.state }))
 
     // one definition of done for a listed ticket and for a dependency
