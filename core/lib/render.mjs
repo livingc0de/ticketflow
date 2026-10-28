@@ -66,8 +66,6 @@ function runBlock(cmd, indent) {
     return `${pad}run: |\n${cmd.trim().split('\n').map((l) => (l.trim() === '' ? '' : pad + '  ' + l)).join('\n')}`
 }
 
-const dropdown = (id, label, options) => `  - type: dropdown\n    id: ${id}\n    attributes:\n      label: ${label}\n      options:\n${options.map((o) => `        - ${q(o)}`).join('\n')}\n    validations:\n      required: true`
-
 /** The non-empty lines of a practice snippet file; each must start with `prefix` and carry no marker, so a snippet cannot break the managed block. */
 function snippet(text, prefix, at) {
     const out = text.replaceAll('\r\n', '\n').split('\n').filter((l) => l.trim() !== '')
@@ -85,15 +83,6 @@ export function templateVars(cfg, { runtimeRel, practices = [] }) {
         : `  push:\n    branches: [${q(cfg.default_branch)}]${unfiltered ? '' : `\n    paths: [${cfg.ci.push_paths.map(q).join(', ')}]`}`
     const step = (name, cmd) => `      - name: ${q(name)}\n        if: steps.scope.outputs.skip != 'true'\n${runBlock(cmd, 8)}`
     const steps = [cfg.verify.install.trim() === '' ? null : step('Install Dependencies', cfg.verify.install), step('Verify', cfg.verify.command)].filter(Boolean).join('\n\n')
-    const execution = `  - type: textarea
-    id: execution
-    attributes:
-      label: Execution
-      description: "A recommendation the implementer re-checks against the code: the tier (low, normal, high, critical), the model and effort, and the planning choice (planner: the planner runs at claim, the default; planned earlier: <path to the committed technical plan>; or skipped, easy and straightforward because (a)-(d)), each with a one-line reason."
-      placeholder: |
-        - **Tier:** normal - ...
-        - **Model and effort:** standard class, high - ...
-        - **Planning:** planner (runs at claim) - ...`
     return {
         runtime: runtimeRel,
         default_branch: cfg.default_branch,
@@ -110,10 +99,6 @@ export function templateVars(cfg, { runtimeRel, practices = [] }) {
             ? `          elif d=$(node ${runtimeRel}/lib/inherit.mjs "$PR" "$HEAD_SHA") && [[ $d =~ ^description=Inherited\\ from\\ [0-9a-f]{7}:\\  ]]; then\n            printf 'skip=true\\n%s\\n' "$d" >> "$GITHUB_OUTPUT"`
             : '',
         verify_steps: steps,
-        area_field: cfg.areas.length ? dropdown('area', 'Area', cfg.areas) : '',
-        priority_field: dropdown('priority', 'Priority', ['P0 Critical', 'P1 High', 'P2 Medium', 'P3 Low']),
-        effort_field: dropdown('effort', 'Effort', ['XS', 'S', 'M', 'L', 'XL']),
-        execution_field: execution,
         practice_agents: rules.length ? `\nEnabled practices (procedures in \`${runtimeRel}/practices/\`):\n\n${rules.join('\n')}` : '',
         practice_pr: checks.length ? `\n### Practice checks\n\n${checks.join('\n')}` : '',
         codex_rules: codexRules(cfg, { scriptsDir: `${runtimeRel}/scripts` }).replace(/\n$/, ''),

@@ -28,6 +28,7 @@
       "light": null
     }
   },
+  "worktrees_dir": ".worktrees",
   "areas": [
     "Scripts",
     "Skills & Roles",

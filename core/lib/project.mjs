@@ -48,7 +48,7 @@ export const STANDARD = Object.freeze({
         'Status flow: Inbox (not triaged), Backlog (accepted), Ready (scope clear, unblocked), In Progress (claimed),',
         'In Review (merged, awaiting the owner), Done (accepted by the owner), Blocked (a named blocker), Future (deferred).',
         '',
-        'Type, Priority and Effort are labels. Pull requests say `Ticket #N`, never a closing keyword.',
+        'Type, Priority, Effort, AI Model, AI Effort and configured Environment values are labels. Pull requests say `Ticket #N`, never a closing keyword.',
     ].join('\n'),
     shortDescription: 'Work tracking for {repo}',
 })

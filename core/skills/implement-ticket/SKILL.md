@@ -24,12 +24,12 @@ description: Use when asked to implement, continue or fix a GitHub ticket ("impl
 
 **Planned earlier** means the ticket's `Planning:` line links a committed plan file. Model or effort text, "plan ready" or a detailed description never counts. A linked plan is still re-verified: by the planner, or by you only when its files are unchanged since its sha (`git diff <sha>..origin/<default_branch> -- <files>` is empty) and (a)-(d) hold.
 
-**State exactly one `Planning:` line** in the claim comment (edit the ticket's Execution section only if it says otherwise), one reason per test when skipping:
+**State exactly one `Planning:` line** in the claim comment, one reason per test when skipping:
 - `Planning: planner (strong class, effort X)`, plus the plan's path once committed
 - `Planning: planned earlier: <path>, re-verified because ... by <planner | main session: files unchanged since <sha>, (a)-(d) hold>`
 - `Planning: skipped, easy and straightforward because: (a) ... (b) ... (c) ... (d) ...`
 
-**Tier** (review depth and verification only; classify up when unsure; the ticket's Execution section can raise it, never lower it):
+**Tier** (review depth and verification only; classify up when unsure; labels do not lower it):
 - `low`: copy, docs or config value in one file.
 - `normal`: logic in one subsystem, already tested.
 - `high`: auth, permissions, grants or row-level rules; billing or money; data deletion or migrations that rewrite rows; locks, queues, transactions, idempotency, webhooks or async jobs; legal, consent or kids' data; external write integrations; production boot, deploy scripts or config, admin grants or startup gates; scripts, config, deploy and docs together; three or more subsystems or about 8 files; an ambiguous or conflicting spec.

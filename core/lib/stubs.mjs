@@ -153,7 +153,7 @@ export function renderStubs({ skills, roles, adapters, cfg, runtimeRel, version,
         if (!a.role) continue
         for (const r of [...roles].sort(by)) {
             if (r.needs_config && (!Object.hasOwn(cfg, r.needs_config) ? fail(`${r.src}: needs_config ${r.needs_config} is not a config key`) : cfg[r.needs_config] == null)) continue
-            const model = cfg.models[a.name]?.[r.model_class] ?? null
+            const model = (cfg.models[a.name] ?? cfg.models.default)?.[r.model_class] ?? null
             const map = `Your action map: \`${runtimeRel}/agents-map/${a.name}.md\`.`
             const text = note(runtimeRel) + (a.role.body === 'inline' ? `${r.body}\n${map}\n` : `You are the \`${r.name}\` role. Read \`${runtimeRel}/agents/${r.name}.md\` and follow it; it is your full instruction. ${map}\n`)
             put(target(a.role.target, r.name), a.role.format === 'toml'

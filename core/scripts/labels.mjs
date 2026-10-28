@@ -3,7 +3,7 @@
  * Brings the repo's labels to a list: creates the missing ones and never changes a label the repo already has, except the repo's own
  * `custom/labels.json` entries (colour, description and name case are updated to match that file). A TicketFlow label the repo has
  * with another look is listed as `differs:`; `--restyle` (the owner's choice) updates those too. The list is the file, an
- * `Area: <a>` label for each `areas` entry of the config, and `custom/labels.json` next to the config when it exists (same format). A name twice in that list is an error. Other labels are listed
+ * `Area: <a>` label for each `areas` entry, an `Environment: <e>` label for each `environments` entry of the config, and `custom/labels.json` next to the config when it exists (same format). A name twice in that list is an error. Other labels are listed
  * with whether any issue or PR uses them and are deleted only with `--prune`, and only at zero use.
  *
  * Usage: labels.mjs sync <labels.json> [--restyle] [--prune] [--dry-run] [--config f]
@@ -39,11 +39,12 @@ function load(path) {
 }
 
 const AREA = { color: 'c5def5', description: 'Area of the product' }
-/** The file, the Area labels and custom/labels.json, validated together before any call. */
+const ENVIRONMENT = { color: 'c5def5', description: 'Deployment environment' }
+/** The file, the Area and Environment labels, and custom/labels.json, validated together before any call. */
 function wantedLabels() {
     const custom = join(dirname(configFile), 'custom', 'labels.json')
-    // only the repo's own custom labels are kept in line; a core or Area label the repo already has is the repo's
-    const all = [...load(file).map((l) => ({ ...l, createOnly: values.restyle !== true, core: true })), ...cfg.areas.map((a) => ({ name: `Area: ${a}`, ...AREA, createOnly: true })), ...(existsSync(custom) ? load(custom) : [])]
+    // only the repo's own custom labels are kept in line; a core, Area or Environment label the repo already has is the repo's
+    const all = [...load(file).map((l) => ({ ...l, createOnly: values.restyle !== true, core: true })), ...cfg.areas.map((a) => ({ name: `Area: ${a}`, ...AREA, createOnly: true })), ...cfg.environments.map((e) => ({ name: `Environment: ${e}`, ...ENVIRONMENT, createOnly: true })), ...(existsSync(custom) ? load(custom) : [])]
     const seen = new Set()
     for (const l of all) {
         if (seen.has(lower(l.name))) throw new Error(`duplicate label "${l.name}" (names compare ignoring case)`)

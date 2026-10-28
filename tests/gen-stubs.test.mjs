@@ -57,6 +57,24 @@ test('mapping: a full role has no tools line, a null model has no model key, a c
     assert.doesNotMatch(t.read('.codex/agents/judge.toml'), /^model =/m)
 })
 
+test('mapping: the universal default fills an agent without an entry, while an explicit entry wins', () => {
+    const fallback = { strong: 'fallback-strong', standard: 'fallback-standard', light: 'fallback-light' }
+    const t = setup({ over: { agents: ['codex'], models: { default: fallback }, deploy_branch: 'ci-green' } })
+    assert.equal(run(t).status, 0)
+    assert.match(t.read('.codex/agents/judge.toml'), /^model = "fallback-strong"$/m)
+    assert.match(t.read('.codex/agents/driver.toml'), /^model = "fallback-standard"$/m)
+
+    const explicitNull = setup({ over: { agents: ['codex'], models: { default: fallback, codex: { strong: null, standard: null, light: null } } } })
+    assert.equal(run(explicitNull).status, 0)
+    assert.doesNotMatch(explicitNull.read('.codex/agents/judge.toml'), /^model =/m)
+})
+
+test('mapping: Copilot model display names with spaces are emitted as valid frontmatter', () => {
+    const t = setup({ over: { agents: ['copilot'], models: { copilot: { strong: 'GPT-6 Astra', standard: 'GPT-5.6 Sol', light: 'GPT-5.6 Luna' } } } })
+    assert.equal(run(t).status, 0)
+    assert.match(t.read('.github/agents/judge.agent.md'), /^model: "GPT-6 Astra"$/m)
+})
+
 test('needs_config: a null config key means no stub for that role', () => {
     const t = setup()
     assert.equal(run(t).status, 0)

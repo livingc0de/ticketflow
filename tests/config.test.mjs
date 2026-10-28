@@ -14,7 +14,7 @@ test('a minimal config loads, with defaults applied and deeply frozen', () => {
     assert.deepEqual(
         cfg,
         { schema_version: 2, repo: 'o/r', default_branch: 'main', verify: { mode: 'ci', install: '', command: 'npm test', timeout_min: 45 },
-            gate: { context: 'CI / Gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, deploy_branch: null, project: null, agents: [], models: {}, plans_dir: 'docs/plans', worktrees_dir: '.claude/worktrees', live_verify_skill: null, deferred_checks_issue: null, areas: [], practices: [], ci: { push_paths: null } })
+            gate: { context: 'CI / Gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, deploy_branch: null, project: null, agents: [], models: {}, plans_dir: 'docs/plans', worktrees_dir: '.worktrees', live_verify_skill: null, deferred_checks_issue: null, areas: [], environments: [], practices: [], ci: { push_paths: null } })
     assert.ok(Object.isFrozen(cfg) && Object.isFrozen(cfg.verify) && Object.isFrozen(cfg.gate) && Object.isFrozen(cfg.gate.ci_files))
     assert.throws(() => { 'use strict'; cfg.repo = 'x/y' }, TypeError)
 })
@@ -131,17 +131,21 @@ test('project: owner and number are required, title is required while the number
 
 test('agents are a unique list of known agents; each one needs a model per class (null inherits)', () => {
     const M = { strong: 'opus', standard: 'sonnet', light: null }
+    const D = { strong: null, standard: null, light: null }
     const ok = validate(rawConfig({ agents: ['claude', 'codex'], models: { claude: M, codex: { strong: 'gpt-5.1-codex', standard: 'gpt-5:x[1m]', light: null } } }))
     assert.deepEqual(ok.models.claude, M)
     assert.deepEqual(validate(rawConfig({ agents: ['codex'], models: { codex: M } })).agents, ['codex'])
+    assert.deepEqual(validate(rawConfig({ agents: ['codex'], models: { default: D } })).models.default, D)
     bad({ agents: ['claude', 'claude'] }, /agents has a duplicate/)
     bad({ agents: ['windsurf'] }, /agents\[0\] must be one of/)
-    bad({ agents: ['claude'] }, /models\.claude is required/)
-    bad({ agents: ['claude'], models: { codex: M } }, /models\.claude is required/)
+    bad({ agents: ['claude'] }, /models\.claude or models\.default is required/)
+    bad({ agents: ['claude'], models: { codex: M } }, /models\.claude or models\.default is required/)
     bad({ models: { windsurf: M } }, /unknown key models\.windsurf/)
     bad({ models: { claude: { strong: 'a', standard: 'b' } } }, /missing models\.claude\.light/)
+    bad({ models: { default: { strong: 'a', standard: 'b' } } }, /missing models\.default\.light/)
     bad({ models: { claude: { ...M, extra: 'x' } } }, /unknown key models\.claude\.extra/)
-    for (const m of ['', 'a b', 'a;b', 3, '$(x)']) bad({ models: { claude: { ...M, light: m } } }, /models\.claude\.light must be a model id/)
+    assert.equal(validate(rawConfig({ models: { claude: { ...M, light: 'GPT-5.6 Sol' } } })).models.claude.light, 'GPT-5.6 Sol')
+    for (const m of ['', ' a', 'a ', 'a;b', 3, '$(x)', 'a\nb']) bad({ models: { claude: { ...M, light: m } } }, /models\.claude\.light must be a model id/)
     bad({ models: [] }, /models must be an object/)
 })
 
@@ -151,7 +155,7 @@ test('all seven agents are accepted; AGENTS is exactly the shipped adapters; a n
     assert.deepEqual([...AGENTS], all)
     assert.deepEqual(validate(rawConfig({ agents: all, models: Object.fromEntries(all.map((a) => [a, M])) })).agents, all)
     assert.deepEqual(readdirSync(new URL('../core/adapters/', import.meta.url)).map((f) => f.replace(/\.json$/, '')).sort(), [...all].sort())
-    bad({ agents: ['cursor'] }, /models\.cursor is required/)
+    bad({ agents: ['cursor'] }, /models\.cursor or models\.default is required/)
     bad({ agents: ['windsurf'], models: { windsurf: M } }, /agents\[0\] must be one of/)
     assert.equal(validate(rawConfig({ agents: ['antigravity'], models: { antigravity: { strong: 'pro', standard: 'flash', light: 'flash' } } })).models.antigravity.strong, 'pro')
     assert.equal(validate(rawConfig({ agents: ['opencode'], models: { opencode: { ...M, strong: 'anthropic/claude-opus' } } })).models.opencode.strong, 'anthropic/claude-opus')
@@ -165,10 +169,13 @@ test('plans_dir and worktrees_dir are safe relative paths; live_verify_skill is 
     for (const v of [0, -1, 1.5, '3']) bad({ deferred_checks_issue: v }, /deferred_checks_issue/)
 })
 
-test('areas are unique labels of at most 44 characters; ci.push_paths is null, [] or globs, and unfiltered while deploy_branch is set', () => {
+test('areas and environments are unique label values; ci.push_paths is null, [] or globs, and unfiltered while deploy_branch is set', () => {
     assert.deepEqual(validate(rawConfig({ areas: ['API & Data', 'Docs: "x"', 'a'.repeat(44)] })).areas.length, 3)
     for (const a of [[''], ['a'.repeat(45)], ['a,b'], ['a\nb'], ['{{x}}'], [3], ['a', 'a']]) bad({ areas: a }, /areas/)
     bad({ areas: 'x' }, /areas must be a list/)
+    assert.deepEqual(validate(rawConfig({ environments: ['Production', 'Staging', 'a'.repeat(37)] })).environments.length, 3)
+    for (const e of [[''], ['a'.repeat(38)], ['a,b'], ['a\nb'], ['{{x}}'], [3], ['a', 'a']]) bad({ environments: e }, /environments/)
+    bad({ environments: 'x' }, /environments must be a list/)
     for (const v of [null, [], ['package-lock.json', 'src/**']]) assert.deepEqual(validate(rawConfig({ ci: { push_paths: v } })).ci.push_paths, v)
     for (const v of ['x', [''], [1], ['a\nb']]) bad({ ci: { push_paths: v } }, /ci\.push_paths/)
     bad({ ci: { extra: 1 } }, /unknown key ci\.extra/)
@@ -187,8 +194,9 @@ test('values written into the CI workflow are refused when they could break out 
 })
 
 test('ci.push_paths, areas and gate names refuse expressions, line breaks and padding', () => {
-    for (const g of ['${{ github.token }}', 'a\u0085b', 'a b']) bad({ ci: { push_paths: [g] } }, /push_paths/)
+    for (const g of ['${{ github.token }}', 'a\u0085b', 'a\u2028b']) bad({ ci: { push_paths: [g] } }, /push_paths/)
     for (const a of [' x', 'x ', ' None ', 'none', ' ', 'a\u0085b']) bad({ areas: [a] }, /areas/)
+    for (const e of [' x', 'x ', ' ', 'a\u0085b']) bad({ environments: [e] }, /environments/)
     for (const g of [' Verify', 'Verify ', ' ']) bad({ gate: { check: g } }, /gate\.check/)
 })
 

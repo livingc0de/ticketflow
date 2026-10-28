@@ -31,9 +31,6 @@ body:
     attributes:
       label: Out Of Scope
       description: Related behavior that should not be included yet.
-{{area_field}}
-{{priority_field}}
-{{effort_field}}
   - type: textarea
     id: acceptance
     attributes:
@@ -48,5 +45,4 @@ body:
     attributes:
       label: Dependencies And Risks
       description: Decisions, legal input, external systems or sequencing constraints.
-{{execution_field}}
 # ticketflow:end form

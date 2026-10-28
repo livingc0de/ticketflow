@@ -33,8 +33,6 @@ body:
       description: What implementers can assume until it is decided.
     validations:
       required: true
-{{area_field}}
-{{priority_field}}
   - type: input
     id: owner
     attributes:
@@ -47,5 +45,4 @@ body:
     attributes:
       label: Recorded Outcome
       description: Completed after the decision is made, with the rationale and follow-up work.
-{{execution_field}}
 # ticketflow:end form

@@ -87,7 +87,7 @@ Here is what happens when you say *"implement #42"*:
 
 - **One ticket is one shippable unit** that a single pull request can finish. Bigger work becomes an *Initiative*: a tracker issue
   whose children are sub-issues, worked in order.
-- Every ticket has an **Execution** section: a recommended risk tier, model and effort, and whether it should be planned.
+- Ticket labels carry the stable metadata; the agent records its risk tier, model, effort and planning decision when it claims the ticket.
 - **Vague ideas are fine.** Say *"I have an idea for ..."* and the agent reads the code and docs first, asks one question at a
   time, offers two or three approaches with a recommendation, then writes the ticket or tracker. No design document, no extra
   approval step.
@@ -173,7 +173,8 @@ tidy-branch settings, which you can take or leave. You, as an admin, can still o
 
 Optional, but recommended: a GitHub Project with eight statuses: Inbox, Backlog, Ready, In Progress, In Review, Blocked, Done and
 Future. The Work Board and Roadmap views are created for you (dates on the Roadmap are never required); a few more views are optional. Labels already in your repo are kept as
-they are; TicketFlow only adds the ones that are missing. Labels cover type, priority, effort, area and what a ticket still needs.
+they are; TicketFlow only adds the ones that are missing. Labels cover type, priority, effort, model class, AI effort, area,
+environment and what a ticket still needs.
 [More in PROJECT.md](core/docs/PROJECT.md)
 
 ### Live verification
@@ -273,7 +274,7 @@ Talk to your agent in plain words:
 
 | You say | What happens |
 |---|---|
-| "create a ticket for …" | a well-formed issue with labels, an Execution section and its place on the board |
+| "create a ticket for …" | a well-formed issue with labels and its place on the board |
 | "implement #42" / "implement the next ticket" | the full journey above, ending In Review with a summary |
 | "next child of #10" | the next unfinished sub-issue of an initiative |
 | "I have an idea: ..." | the agent reads the code, asks one question at a time, offers 2-3 approaches and writes the ticket or tracker |

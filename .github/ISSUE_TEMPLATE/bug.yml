@@ -12,17 +12,6 @@ body:
       description: What is wrong, and who is affected?
     validations:
       required: true
-  - type: dropdown
-    id: environment
-    attributes:
-      label: Environment
-      description: Where it happened (optional).
-      options:
-        - Production
-        - Staging
-        - Development
-    validations:
-      required: false
   - type: textarea
     id: steps
     attributes:
@@ -45,41 +34,6 @@ body:
       label: Actual Behavior
     validations:
       required: true
-  - type: dropdown
-    id: area
-    attributes:
-      label: Area
-      options:
-        - "Scripts"
-        - "Skills & Roles"
-        - "Templates"
-        - "Docs"
-        - "Practices"
-    validations:
-      required: true
-  - type: dropdown
-    id: priority
-    attributes:
-      label: Priority
-      options:
-        - "P0 Critical"
-        - "P1 High"
-        - "P2 Medium"
-        - "P3 Low"
-    validations:
-      required: true
-  - type: dropdown
-    id: effort
-    attributes:
-      label: Effort
-      options:
-        - "XS"
-        - "S"
-        - "M"
-        - "L"
-        - "XL"
-    validations:
-      required: true
   - type: textarea
     id: evidence
     attributes:
@@ -94,13 +48,4 @@ body:
         - [ ] A test covers it.
     validations:
       required: true
-  - type: textarea
-    id: execution
-    attributes:
-      label: Execution
-      description: "A recommendation the implementer re-checks against the code: the tier (low, normal, high, critical), the model and effort, and the planning choice (planner: the planner runs at claim, the default; planned earlier: <path to the committed technical plan>; or skipped, easy and straightforward because (a)-(d)), each with a one-line reason."
-      placeholder: |
-        - **Tier:** normal - ...
-        - **Model and effort:** standard class, high - ...
-        - **Planning:** planner (runs at claim) - ...
 # ticketflow:end form

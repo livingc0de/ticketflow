@@ -11,11 +11,13 @@ const OWN = `${NAMES[2]}/ticketflow`
 const OWN_PROJECT = `"owner": "${NAMES[2]}"`
 const root = new URL('..', import.meta.url).pathname
 const SKIP = new Set(['.git', 'node_modules', 'LICENSE'])   // LICENSE names the copyright holder, the owner's choice
+const SKIP_DIRS = new Set(['.worktrees', '.claude/worktrees'])   // ignored worktrees are other checkouts, not source files
 
-function files(dir) {
+function files(dir, prefix = '') {
     return readdirSync(dir).flatMap((name) => {
         const path = join(dir, name)
-        return SKIP.has(name) ? [] : statSync(path).isDirectory() ? files(path) : [path]
+        const rel = prefix ? `${prefix}/${name}` : name
+        return SKIP.has(name) || SKIP_DIRS.has(rel) ? [] : statSync(path).isDirectory() ? files(path, rel) : [path]
     })
 }
 

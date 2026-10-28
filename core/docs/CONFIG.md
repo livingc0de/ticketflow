@@ -29,17 +29,23 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `deploy_branch` | branch name or `null`; must differ from `default_branch` | `null` | `local-verify`, `render` |
 | `project` | project object, or `null` for none | `null` | `project`, `tracker-next`, `queue` |
 | `agents` | unique list of `claude`, `codex`, `cursor`, `gemini`, `opencode`, `antigravity` and `copilot`: the agents to generate stubs and guard files for. The agents that read the shared `.agents/skills/` folder (every one but Claude Code) share one skill stub, whose action-map line then lists them | `[]` | `gen-stubs`, `render` |
-| `models` | `{ <agent>? }` for the agents above, each `{ strong, standard, light }`; a value is a model id (`[\w.:/[\]-]+`; OpenCode `provider/model`, Antigravity `pro` or `flash`; Copilot names contain spaces, so use `null`) or `null` (inherit: the stub names no model). Every agent in `agents` needs all three classes | `{}` | `gen-stubs` |
+| `models` | `{ default?, <agent>? }`, each `{ strong, standard, light }`; a value is a model id or tool-native selector (`[\w][\w .:/[\]-]*`, without leading or trailing spaces) or `null` (inherit: the stub names no model). OpenCode values are `provider/model`; Gemini and Antigravity accept their native aliases; Copilot accepts supported model display names, including spaces. `default` is the universal fallback; an agent-specific entry wins over it. Every active agent needs either its own entry or `default`. The config template includes versionless examples for all built-in agents; entries for agents not in `agents` are ignored | `{}` | `gen-stubs` |
 | `plans_dir` | repo-relative directory (no `..`, no leading `/`) where Technical plans are committed | `docs/plans` | skills, `render` |
-| `worktrees_dir` | repo-relative directory for ticket worktrees (gitignored by `init`) | `.claude/worktrees` | skills |
+| `worktrees_dir` | repo-relative directory for ticket worktrees (gitignored by `init`) | `.worktrees` | skills |
 | `live_verify_skill` | name of the repo's live-verification skill, or `null`; while `null` the `e2e-verifier` role gets no stub | `null` | `gen-stubs`, skills |
 | `deferred_checks_issue` | number of the issue that lists deferred checks, or `null` | `null` | skills |
-| `areas` | unique list of 1-44 character names (no commas, braces or control characters): the `Area:` labels and the issue forms' Area dropdown. `[]`: no Area | `[]` | `render`, skills |
+| `areas` | unique list of 1-44 character names (no commas, braces or control characters): the `Area:` labels. `[]`: no Area | `[]` | `labels`, skills |
+| `environments` | unique list of 1-37 character names (no commas, braces or control characters): the `Environment:` labels. `[]`: no Environment labels | `[]` | `labels`, skills |
 | `practices` | unique list of names from `live-verify`, `runtime-settings`, `i18n`, `database`, `provider-adapters`, `api-endpoints`, `ui-screens`, `domain-guides`, `deploy-gating`, `analytics-events`: the optional practices copied to `.ticketflow/practices/` and wired into the stubs, the AGENTS block and the PR template | `[]` | `runtime`, `gen-stubs`, `render`, `doctor` |
 | `ci.push_paths` | `null`: the CI workflow has no push run; `[]`: it runs on every push to the default branch; a list of globs: only when one of them changes. Must be `null` or `[]` while `deploy_branch` is set (the deploy signal needs every push) | `null` | `render` |
 
 `gate.context` and `gate.check` must differ: the verdict is the commit status, and check runs are only read to
 detect a refused Actions run.
+
+The template's model entries are working examples, not an assertion that every account has access to every model. They use
+versionless model-family or tier hints for the built-in tools. Each tool's action map keeps a native alias when possible and
+resolves the hint to a full model id only when the runtime requires it. Replace an example with a model your account can access
+when needed; use `null` only to inherit the tool's selected model.
 
 A project object (the GitHub Project, Projects v2, that tracks the repo's issues; see [PROJECT.md](PROJECT.md)):
 
@@ -97,7 +103,7 @@ nothing and exits 1 on drift. Exit 2: config or template error.
 
 The install and verify steps are written into `ci.yml` only when the file is created (they are the repo section): later edits of
 `verify.install` or `verify.command` do not reach it, and `--check` does not flag that. `gate.context` and `gate.check` accept letters, digits,
-spaces and `. / : ( ) # + @ & -`; `verify.install` and `verify.command` accept no control character, lone CR, unicode line break (U+0085, U+2028, U+2029) or `${{`; an area is not `None` (issue forms reserve it) and has no surrounding spaces. A file with a
+spaces and `. / : ( ) # + @ & -`; `verify.install` and `verify.command` accept no control character, lone CR, unicode line break (U+0085, U+2028, U+2029) or `${{`; an area is not `None` and has no surrounding spaces. A file with a
 CRLF marker line merges (the managed block is rewritten with LF). Invalid JSON in a settings or hooks file is a conflict.
 
 How the rendered workflow decides and posts the gate: [CI-GATE.md](CI-GATE.md).

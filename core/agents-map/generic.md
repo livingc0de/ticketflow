@@ -11,7 +11,7 @@ The canonical skills and roles name actions. Without sub-agents, do them like th
 | Ask the user | Ask one targeted question and wait for the answer |
 | Track tasks | A checklist in your reply, updated as you go |
 | Load a skill | Open `.ticketflow/skills/<name>/SKILL.md` and follow it |
-| Models | Use whatever model you run on; `config.models` does not apply |
+| Models | Universal fallback: use whatever model the tool runs on; add no `config.models` entry |
 
 ## Rules
 

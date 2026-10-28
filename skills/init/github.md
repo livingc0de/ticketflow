@@ -4,7 +4,7 @@ Every write comes after a shown dry run and a yes. Run the scripts of the instal
 
 ## Labels
 
-1. `node .ticketflow/scripts/labels.mjs sync .ticketflow/templates/labels.json --dry-run` and show it (a dry run exits 1 when changes are pending; that is not a failure, exit 2 is). The list is TicketFlow's labels, one `Area:` label per config area and `custom/labels.json` if present. It only creates the missing ones; a label the repo already has is never changed, except the entries of `custom/labels.json`.
+1. `node .ticketflow/scripts/labels.mjs sync .ticketflow/templates/labels.json --dry-run` and show it (a dry run exits 1 when changes are pending; that is not a failure, exit 2 is). The list is TicketFlow's labels, one `Area:` label per config area, one `Environment:` label per configured environment, and `custom/labels.json` if present. It only creates the missing ones; a label the repo already has is never changed, except the entries of `custom/labels.json`.
 2. On a yes, the same command without `--dry-run`.
 3. Labels the repo already has are kept. When the dry run lists `differs:` lines (a TicketFlow label the repo styled differently), show
    them and ask: keep the repo's look (default), or use TicketFlow's (`--restyle`, same command): one consistent look across repos,
