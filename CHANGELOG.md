@@ -1,6 +1,49 @@
 # Changelog
 
-## Unreleased
+## 0.3.5
+
+### Highlights
+
+- **A comment is not an approval.** A reviewer that only comments on the latest commit (many review bots do) no longer counts as
+  "done". A stand-in `pr-reviewer` looks at it and the merge needs a review basis, so a blocking remark can no longer slip
+  through because it came without an open thread.
+- **The review you merge on belongs to the exact commit.** A review basis must link a ready review of the commit that merges. After
+  any push, an update-branch too, the review is done again (a short delta review is enough).
+- **Trust follows repository permission.** A ready verdict or a link basis needs write access, `owner approved` needs admin. A
+  read-only collaborator can no longer lift a block, and an agent that posts as a GitHub App account is refused.
+- **Older pull requests are found.** `queue` also follows a ticket's cross-references, so an old merged or open PR is no longer
+  mistaken for "not started".
+- **The same engineering method with or without a ticket.** "Fix this bug", "review this diff" or "audit the repo" follow it with no
+  ticket, branch or PR, and `debt.mjs` lists every deliberate shortcut with the moment to revisit it.
+- **Evals you can run.** Maintainers get a small harness and four local scenarios to measure how real agents behave under
+  TicketFlow (never installed in your repo; no paid run was made for this release).
+
+### What you need to do when upgrading from 0.3.0
+
+Nothing in your config needs migrating (`schema_version` stays 1), and no GitHub setting changes. The update pull request adds the
+stubs of the new `engineering-method` skill, one allow line in `.claude/settings.json` (for `debt.mjs`) and one line in the
+`AGENTS.md` block (any code change, review or audit follows that skill, with or without a ticket). The steps by hand:
+
+1. **Pull requests that are already open.** `merge` is stricter now ([REVIEWERS.md](core/docs/REVIEWERS.md#when-merge-says-no)).
+   - A reviewer that only commented used to count as done. Now `pr-wait` prints `commented, not approved` and `standin needed`:
+     dispatch `pr-reviewer` as a stand-in (with that review and its threads) and post a review basis.
+   - A basis must link a ready `pr-reviewer` review posted on the exact head. One that names an older commit is refused: review
+     the new head (a delta review is enough) and post the basis again. Re-do this after every push, an update-branch included.
+   - The ready verdict and a link basis must come from an account with `write` or `admin` access, and `owner approved` from an
+     `admin` account (yours). A read-only collaborator's comment is refused, and so is an agent that posts as a GitHub App account
+     (its permission reads `none`): use an account with write access for the agent, or have an admin post the `owner approved` basis.
+2. **A copied `done_pattern`.** If you copied the example from the REVIEWERS docs, tighten it: it must also require
+   `has_any_findings:false`, with every condition scoped to its own object (`[^}]*`). A copy that accepts `completed` alone also
+   accepts a run that has findings. The current example is in [REVIEWERS.md](core/docs/REVIEWERS.md#external-reviewers).
+3. **Your `custom/` files.** If one repeats the old test, debug or delegation text of `implement-ticket`, it can go: that text now
+   lives in the `engineering-method` skill. A `custom/engineering-method.md` adapts it, like any other skill.
+   `.ticketflow/custom/README.md` is written once and never rewritten, so it does not list `engineering-method.md`: add the line by
+   hand if you keep that list.
+4. **High-assurance mode, optional.** If you want GitHub, not a script, to stop an agent from merging without you, apply the
+   ruleset settings of "Two ways to run" in [SECURITY.md](core/docs/SECURITY.md#two-ways-to-run) by hand. No agent writes them.
+
+What you may notice without doing anything: a pull request that merges on a review basis needs a new one after an update-branch,
+and `queue` exits 2 for a ticket with more than 100 cross-references instead of guessing.
 
 ### Changes
 
@@ -19,9 +62,11 @@
   (delta) review is needed. The base is compared again right before `gh pr merge`.
 - **`queue` finds older ticket PRs.** It also reads the pull requests each ticket's timeline cross-references (same repository, head
   in the repository, branch `issue-<N>-`), so an older merged or open PR is no longer missed; more than 100 references exits 2.
-- **Docs.** SECURITY gains "Two ways to run" (standard, high-assurance); REVIEWERS, WORKFLOW, the `implement-ticket` steps, the
-  `pr-reviewer` stand-in mode and `init` are updated. A ticket in progress with no PR reuses its branch and worktree, and the PR
-  step checks the queue once more before creating a second PR.
+- **Docs and skills.** SECURITY gains "Two ways to run" (standard, high-assurance); REVIEWERS and WORKFLOW describe the new gate
+  and the `pr-reviewer` stand-in mode covers a reviewer that only commented. In `implement-ticket` a ticket in progress with no PR
+  reuses its branch and worktree, the PR step checks the queue once more before creating a second PR, and a finding rejected
+  without a fix about security, data or correctness gets a `pr-reviewer` pass on the head. `init` says `owner approved` comes from
+  an admin account.
 
 #### Engineering method everywhere (#39)
 
@@ -43,9 +88,22 @@
 - **Docs.** TOOLS gains "What is verified" (live, fixture, documented or unsupported, per tool and capability); WORKFLOW gains
   "Without a ticket"; EXTENDING gains `engineering-method.md` and "Testing a rule you add"; TOKEN-BUDGET shows the measured size
   change; the AGENTS block gains one line and the PR template asks for deviations from the plan.
-- **If you update.** The update pull request adds the `engineering-method` stubs, one allow line in `.claude/settings.json`
-  (`debt.mjs`) and one line in the `AGENTS.md` block. A `custom/` file that repeated the old test or debug text of `implement-ticket`
-  can go; your `custom/engineering-method.md` is read first.
+
+#### Runnable agent evals (#40)
+
+These are for this repo only and are never installed in yours.
+
+- **`tools/agent-eval.mjs`.** Runs one scenario with a real `claude` or `codex` CLI in a fresh temp git repo, either with
+  TicketFlow installed the way `init` does (arm `ticketflow`; `--source` takes any checkout, such as a `v0.3.0` worktree for a
+  comparison) or without it (arm `bare`). A hidden check scores the result and one JSON row is appended: the check, diff size,
+  dependencies added, turns, tokens, cost, time and the TicketFlow revision. A failed check is recorded, never dropped; a bad
+  scenario or a missing CLI exits 2 before any paid run.
+- **Four local scenarios** in `docs/evals/scenarios/`: a trivial copy fix (L1), a shared root cause (L2), a feature that tempts you to
+  over-build (L3) and a diff review with a planted bug (L4).
+- **`docs/evals/agent-scenarios.md` rewritten.** The fixed-revision rule, the exact commands, the GitHub sandbox procedures (E3 to
+  E9, with the expected outcomes of the review gate), a results template and an honest list of what ran and what did not: the
+  harness and scenarios are covered by fake-CLI tests only; no paid agent session and no sandbox run was made for 0.3.5.
+
 
 ## 0.3.0
 

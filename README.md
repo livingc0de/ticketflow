@@ -133,7 +133,7 @@ sub-issues) or *"work the ready backlog"* (the optional `orchestrate-tickets` sk
 helper that follows the normal ticket journey, then shows a table of what merged, what waits for your look and what is stuck.
 For the backlog it first warns you and lists the tickets (up to 10 Ready ones, highest priority first; this needs a Project).
 If the session dies, ask again naming the same tickets: it picks up from GitHub, so finished tickets stay finished and open pull
-requests continue. [How to use it](core/docs/WORKFLOW.md#several-tickets-optional)
+requests continue (a ticket's pull requests are found by branch name and by the references on the ticket, however old). [How to use it](core/docs/WORKFLOW.md#several-tickets-optional)
 
 ### The gate
 
@@ -145,8 +145,8 @@ Changes that touch only the paths you list as docs get it quickly without runnin
 
 The `pr-reviewer` role is always available and works with no setup: it reviews every pull request, or only the `high` and `critical`
 ones once you add an external reviewer (a bot or a person) in the config. TicketFlow waits for external reviewers and, when you
-give it the pattern or timeout to recognise it, notices one that is out of quota or silent and brings in the built-in reviewer as a
-stand-in.
+give it the pattern or timeout to recognise it, notices one that is out of quota or silent, or that only left a comment (a comment
+is not an approval), and brings in the built-in reviewer as a stand-in.
 
 A finished review is not enough to merge. Findings must be answered too: every open review thread (from anyone, bots included),
 a configured reviewer's "changes requested" and a "changes needed" verdict from `pr-reviewer` stop the merge until they are dealt
@@ -157,7 +157,8 @@ with. The agent fixes each finding, or says why it disagrees, then replies to th
 
 Merges happen only through the `merge` script. A standard branch ruleset requires `CI / Gate` and an up-to-date
 branch. The script adds what a ruleset cannot see: no unresolved review thread from anyone, no configured reviewer left on "changes requested",
-and, if the built-in reviewer reviewed this exact commit, its last verdict must be "ready to merge". When it refuses, it always prints the next step, and there is always a legitimate way through
+and, if the built-in reviewer reviewed this exact commit, its last verdict must be "ready to merge". A review the merge rests on must be
+of this exact commit and come from an account with write access; an `owner approved` basis needs an admin account. When it refuses, it always prints the next step, and there is always a legitimate way through
 ([the ways past a refusal](core/docs/REVIEWERS.md#when-merge-says-no)). Your merge methods and branch settings stay yours: the setup shows them and offers squash-only (one commit per ticket) and
 tidy-branch settings, which you can take or leave. You, as an admin, can still override it through a pull request when you choose to; agents never do that on their own.
 [More in SECURITY.md](core/docs/SECURITY.md)
@@ -220,8 +221,9 @@ adapters, API endpoints, UI screens, domain guides, deploy gating and analytics 
 
 Nothing TicketFlow owns is ever hand-edited: you change it in `.ticketflow/custom/` or the config, and the tools regenerate the rest.
 
-The TicketFlow repository itself also holds a small maintainer tool that checks Superpowers and Ponytail for new releases each
-month ([upstream review](docs/maintainers/upstream-review.md)). It lives in that repo only and is never installed in yours.
+The TicketFlow repository itself also holds two small maintainer tools: one checks Superpowers and Ponytail for new releases each
+month ([upstream review](docs/maintainers/upstream-review.md)), the other runs agent evals ([evals](docs/evals/agent-scenarios.md)).
+They live in that repo only and are never installed in yours.
 
 ---
 

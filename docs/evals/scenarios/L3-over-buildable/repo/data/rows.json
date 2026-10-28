@@ -1,0 +1,5 @@
+[
+    { "name": "Ada Lovelace", "team": "Core", "hours": 12 },
+    { "name": "Smith, Jane", "team": "Ops", "hours": 7 },
+    { "name": "Bo \"B\" Chen", "team": "Core", "hours": 3 }
+]

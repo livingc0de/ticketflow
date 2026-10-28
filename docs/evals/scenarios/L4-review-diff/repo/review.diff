@@ -1,0 +1,32 @@
+diff --git a/src/files.js b/src/files.js
+index 4a315f1..a97ab0e 100644
+--- a/src/files.js
++++ b/src/files.js
+@@ -1,8 +1,10 @@
+-import { readFileSync } from 'node:fs'
+-import { basename, join } from 'node:path'
++import { existsSync, readFileSync } from 'node:fs'
++import { join } from 'node:path'
+ 
+ // Returns the text of an uploaded file, or null when there is none.
++// Uploads may live in sub-folders such as 2026/report.txt.
+ export function readUpload(root, name) {
+-    const file = join(root, basename(name))
+-    try { return readFileSync(file, 'utf8') } catch { return null }
++    const file = join(root, name)
++    if (!existsSync(file)) return null
++    return readFileSync(file, 'utf8')
+ }
+diff --git a/src/handler.js b/src/handler.js
+index ef4ebe0..effd1ee 100644
+--- a/src/handler.js
++++ b/src/handler.js
+@@ -3,6 +3,6 @@ import { readUpload } from './files.js'
+ // GET /uploads/<name>: the response for one request.
+ export function handleDownload(root, name) {
+     const text = readUpload(root, name)
+-    if (text === null) return { status: 404, body: 'not found' }
+-    return { status: 200, body: text }
++    if (text === null) return { status: 404, body: 'not found', type: 'text/plain' }
++    return { status: 200, body: text, type: 'text/plain' }
+ }

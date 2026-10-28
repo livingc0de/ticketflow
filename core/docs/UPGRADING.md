@@ -62,6 +62,37 @@ job, after it when the local fallback does): `protect.mjs --apply --replace-cont
 
 Per release, newest first:
 
+### From 0.3.0
+
+No config migration (`schema_version` stays 1) and no change to GitHub settings. The update pull request adds the `engineering-method`
+skill stubs, regenerates the planner and reviewer role stubs, adds one allow line in `.claude/settings.json` (it allows `debt.mjs`)
+and one line to the AGENTS block (any code change, review or audit follows that skill, with or without a ticket), and rewords one
+comment line in the pull request template's Review Notes block. The full list is in the `## 0.3.5` section of `CHANGELOG.md` in the
+TicketFlow repo; what you do by hand:
+
+1. **Pull requests already open.** `merge` is stricter about the review it merges on ([REVIEWERS.md](REVIEWERS.md#when-merge-says-no)).
+   - A reviewer that only *commented* (a `COMMENTED` review, which many bots post even with findings) used to count as done. `pr-wait`
+     now prints `commented, not approved` and `standin needed`: dispatch `pr-reviewer` as a stand-in, with that review and its
+     threads, then post the review basis ([Stand-in and review basis](REVIEWERS.md#stand-in-and-review-basis)).
+   - A basis must link a ready `pr-reviewer` review posted on the **exact head**. A basis that names an earlier commit is refused:
+     run `pr-reviewer` on the head (a delta review since its last one is enough) and post the basis again. Do this again after any
+     push, an update-branch included.
+   - A ready verdict and a link basis need an account with `write` or `admin` access; `owner approved` needs `admin` (yours). A
+     read-only collaborator's comment is refused. So is an agent on a GitHub App account (its permission reads `none`): give the
+     agent a user account with write access, or have an admin post `owner approved`.
+2. **A copied `done_pattern`.** If you copied the example from the REVIEWERS docs, tighten it: a finished run with findings is not an
+   acceptance, so it must also require `has_any_findings:false`, with every condition scoped to its own object (`[^}]*`) so another
+   object's key cannot satisfy it. The current example is in [REVIEWERS.md](REVIEWERS.md#external-reviewers). Until then a run with findings
+   reads as done.
+3. **Your `custom/` files.** One that repeats the old test, debug or delegation text of `implement-ticket` can go: that text now lives
+   in the `engineering-method` skill, and a `custom/engineering-method.md` adapts it ([EXTENDING.md](EXTENDING.md)).
+   `.ticketflow/custom/README.md` is written once and never rewritten, so the update does not add its new list entry: if you keep the
+   list, add ``- `engineering-method.md`: the engineering-method skill (your test, review and lean-code conventions, ticket or no ticket).``
+   by hand.
+4. **High-assurance mode, optional.** In the standard mode the agent works with your credentials, so it can post the review of record
+   and, with an admin token, `owner approved`. If you want GitHub rather than a script to stop a merge you did not approve, apply the
+   ruleset settings of [Two ways to run](SECURITY.md#two-ways-to-run) yourself; no agent ever writes them.
+
 ### From 0.2.0
 
 No config migration (`schema_version` stays 1) and no change to GitHub settings. The update pull request adds the
