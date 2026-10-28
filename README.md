@@ -158,7 +158,7 @@ with. The agent fixes each finding, or says why it disagrees, then replies to th
 Merges happen only through the `merge` script. A standard branch ruleset requires `CI / Gate` and an up-to-date
 branch. The script adds what a ruleset cannot see: no unresolved review thread from anyone, no configured reviewer left on "changes requested",
 and, if the built-in reviewer reviewed this exact commit, its last verdict must be "ready to merge". A review the merge rests on must be
-of this exact commit and come from an account with write access. When it refuses, it always prints the next step, and there is always a legitimate way through
+of this exact commit and come from an account with write access; an `owner approved` basis needs an admin account. When it refuses, it always prints the next step, and there is always a legitimate way through
 ([the ways past a refusal](core/docs/REVIEWERS.md#when-merge-says-no)). Your merge methods and branch settings stay yours: the setup shows them and offers squash-only (one commit per ticket) and
 tidy-branch settings, which you can take or leave. You, as an admin, can still override it through a pull request when you choose to; agents never do that on their own.
 [More in SECURITY.md](core/docs/SECURITY.md)

@@ -65,8 +65,9 @@ Per release, newest first:
 ### From 0.3.0
 
 No config migration (`schema_version` stays 1) and no change to GitHub settings. The update pull request adds the `engineering-method`
-skill stubs, one allow line in `.claude/settings.json` (it allows `debt.mjs`) and one line to the AGENTS block (any code change,
-review or audit follows that skill, with or without a ticket). The full list is in the `## 0.3.5` section of `CHANGELOG.md` in the
+skill stubs, regenerates the planner and reviewer role stubs, adds one allow line in `.claude/settings.json` (it allows `debt.mjs`)
+and one line to the AGENTS block (any code change, review or audit follows that skill, with or without a ticket), and rewords one
+comment line in the pull request template's Review Notes block. The full list is in the `## 0.3.5` section of `CHANGELOG.md` in the
 TicketFlow repo; what you do by hand:
 
 1. **Pull requests already open.** `merge` is stricter about the review it merges on ([REVIEWERS.md](REVIEWERS.md#when-merge-says-no)).
