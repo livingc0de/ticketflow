@@ -31,7 +31,7 @@ if (run(dir, 'npm', 'test', '--silent').status !== 0) fail('the repo\'s own test
 
 run(dir, 'git', 'add', '-A')   // the repo is a throwaway: stage everything so new files count
 const root = run(dir, 'git', 'rev-list', '--max-parents=0', 'HEAD').stdout.trim()
-const tests = run(dir, 'git', 'diff', '--cached', '--name-only', '--diff-filter=AM', root).stdout.split('\n').filter((f) => /(^|\/)(spec|tests?)\/.+\.[cm]?js$/.test(f))
+const tests = run(dir, 'git', 'diff', '--cached', '--name-only', '--diff-filter=AM', root).stdout.split('\n').filter((f) => /(^|\/)(spec|tests?)\/.+\.[cm]?js$|\.(test|spec)\.[cm]?js$/.test(f))   // a test dir, or a test file next to the code
 if (!tests.length) fail('no test was added or changed')
 // `npm test` runs only spec/*.spec.js: a test the agent put elsewhere must pass on the repaired source, run here, before it can count
 if (run(dir, process.execPath, '--test', ...tests).status !== 0) fail(`${tests.join(', ')} fails on the repaired src/: a new test must pass on the fix`)

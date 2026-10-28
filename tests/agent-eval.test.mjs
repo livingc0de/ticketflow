@@ -98,6 +98,10 @@ test('L2: needs both callers right, the suite green and a new test that fails on
     edit(placed, 'src/money.js', 'return Math.round(amount * 100) / 100', EXACT)
     put(placed, 'test/regression.test.js', "import test from 'node:test'\nimport assert from 'node:assert/strict'\nimport { roundMoney } from '../src/money.js'\ntest('half cents round up', () => assert.equal(roundMoney(1.005), 1.01))\n")
     passing(L2, placed)
+    const colocated = fixture(L2)   // a regression test next to the code it tests counts as a test
+    edit(colocated, 'src/money.js', 'return Math.round(amount * 100) / 100', EXACT)
+    put(colocated, 'src/money.test.js', "import test from 'node:test'\nimport assert from 'node:assert/strict'\nimport { roundMoney } from './money.js'\ntest('half cents round up', () => assert.equal(roundMoney(1.005), 1.01))\n")
+    passing(L2, colocated)
     const inSrc = fixture(L2)   // a do-nothing test under src/ must not count as "fails on the original" just because the original src/ lacks it
     edit(inSrc, 'src/money.js', 'return Math.round(amount * 100) / 100', EXACT)
     put(inSrc, 'src/test/noop.test.js', "import test from 'node:test'\ntest('noop', () => {})\n")
@@ -288,6 +292,11 @@ test('--source installs another checkout (an older tag) and records its revision
     assert.equal(r.status, 0, r.stdout + r.stderr)
     assert.equal(r.row.ticketflow_sha, git(src, 'rev-parse', 'HEAD')); assert.equal(r.row.ticketflow_version, '0.0.1'); assert.equal(r.row.ticketflow_dirty, false); assert.equal(r.row.eval_sha, sha)
     assert.equal(JSON.parse(readFileSync(join(r.row.workdir, 'repo/.ticketflow/manifest.json'), 'utf8')).version, '0.0.1')
+    // the harness's own result file inside the source checkout is not a change to it, also on a repeated run; anything else is
+    mkdirSync(join(src, 'results'))   // as the documented commands do
+    for (let i = 0; i < 2; i++) assert.equal(run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', src, '--out', join(src, 'results/rows.jsonl')], { FAKE_FIX: '1' }).row.ticketflow_dirty, false)
+    writeFileSync(join(src, 'core/stray.txt'), 'x\n')
+    assert.equal(run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', src, '--out', join(src, 'results/rows.jsonl')], { FAKE_FIX: '1' }).row.ticketflow_dirty, true)
     const bad = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', tempDir('empty-')])
     assert.equal(bad.status, 2); assert.match(bad.stderr, /is not a ticketflow checkout/)
 })

@@ -65,6 +65,7 @@ main('agent-eval', () => {
     const id = readdirSync(SCENARIOS).find((d) => d === positionals[0] || d.startsWith(`${positionals[0]}-`))   // only a listed name, never a path
     if (!id) throw new Error(`unknown scenario ${positionals[0]}`)
     const src = resolve(v.source ?? ROOT)
+    const outFile = v.out && resolve(v.out)   // the harness's own result file is not a change to a source checkout it sits in
     if (v.out) try { appendFileSync(v.out, '') } catch (e) { throw new Error(`--out ${v.out} cannot be written (${e.code})`) }   // before the paid run, not after it
     if (v.arm === 'ticketflow' && !existsSync(join(src, 'core/scripts/runtime.mjs'))) throw new Error(`${src} is not a ticketflow checkout`)
     const version = run(v.agent, ['--version'])
@@ -95,7 +96,7 @@ main('agent-eval', () => {
     const row = {
         scenario: id, agent: v.agent, agent_version: version.stdout.trim(), model: got.model, arm: v.arm,
         eval_sha: orNull(() => git(ROOT, 'rev-parse', 'HEAD')),   // the revision of this tool and its scenarios
-        ticketflow_sha: tf(() => git(src, 'rev-parse', 'HEAD')), ticketflow_dirty: tf(() => git(src, 'status', '--porcelain') !== ''),
+        ticketflow_sha: tf(() => git(src, 'rev-parse', 'HEAD')), ticketflow_dirty: tf(() => git(src, 'status', '--porcelain', '--untracked-files=all').split('\n').some((l) => l && resolve(src, l.slice(3)) !== outFile)),
         ticketflow_version: tf(() => readFileSync(join(src, 'VERSION'), 'utf8').trim()),
         check: { pass, why: `${c.stdout ?? ''}${c.stderr ?? ''}`.trim().split('\n')[0].slice(0, 300) || `check exited ${c.status}` },
         diff: { added: stat.reduce((n, s) => n + (+s[0] || 0), 0), removed: stat.reduce((n, s) => n + (+s[1] || 0), 0), files: stat.map((s) => s[2]) },
