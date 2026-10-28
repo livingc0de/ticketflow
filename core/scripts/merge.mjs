@@ -14,8 +14,8 @@
  * last such review of every account must be exactly `ready to merge` (only that account lifts its own "changes needed"). Then the review
  * of the head is either this account's own pr-reviewer review (it starts `Reviewed head: <sha>` naming the head), or, with
  * `--reviewed-by <login>`, that reviewer's `result` on the head in the pr-wait summary, never its unedited `first comment` while its 15
- * minutes run (it may be a status note): the agent read what it says and acted on it, merge only proves where and when it was posted. Merge reads no repository permission: GitHub's own rules (a ruleset, branch
- * protection, required reviews) are what enforce who may merge.
+ * minutes run (it may be a status note): the agent read what it says and acted on it; merge only proves where and when it was posted.
+ * Merge reads no repository permission: GitHub's own rules (a ruleset, branch protection, required reviews) are what enforce who may merge.
  * The merge passes `--match-head-commit`, so a push after the checks fails the merge; the base is read again right before it, so a base
  * that moved after the slow reads is refused.
  *

@@ -41,11 +41,13 @@ No list, no login, no re-request comment: `pr-wait` reads what GitHub shows on t
   whole result, so it is shown at once, as `result first comment`, while it is unchanged and the 15 minutes run: it may also be the
   status note of a review still running, so `merge --reviewed-by <that login>` waits for its next answer. The runs in one checkout
   share what they saw (a file in the git dir, never committed), so `merge`'s own check knows an edit the wait already saw as the
-  answer; without it (another machine, a fresh clone) a reused summary stays unconfirmed up to 15 minutes after its last edit. A
-  status note the bot edits again while its review runs reads as an answer (documented limit).
+  answer; without it (another machine, another worktree, or a fresh clone) a reused summary stays unconfirmed up to 15 minutes after
+  its last edit. A status note the bot edits again while its review runs reads as an answer (documented limit).
   When it is only a status note, wait again with `--more '<login>'`: the edit of that comment or a review after that is the result,
   within the same 15 minutes (a slow run ends `late`, and `pr-reviewer` takes over). A comment that names commits but not the head
-  (a late receipt for an older commit) is a sign, never the result. It ends only that reviewer's own wait; another account's "looks good" neither starts nor ends it.
+  (a late receipt for an older commit) is a sign, never the result. A bot whose only head activity is a reaction, or a comment naming
+  other hex values but not the head, can therefore keep merge pending for up to 15 minutes from its first sign; the window does not
+  restart. It ends only that reviewer's own wait; another account's "looks good" neither starts nor ends it.
 - **Window.** At most 15 minutes from its start, not from its latest edit. After that it is `late` and the wait moves on without it.
   A reviewer that said more is coming: `pr-wait.mjs <PR> --more '<login>'` counts only what it posts after that run started.
 - **Changes requested.** A last review of the head that asks for changes ends the wait at once and is a refusal for `merge`.

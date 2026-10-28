@@ -7,8 +7,10 @@
 - **Review bots and teammates are noticed, not configured.** While CI runs, `pr-wait` watches the pull request for anyone who starts
   reviewing the exact commit (a reaction, a comment, a review) and waits for that reviewer's result, at most 15 minutes from its
   start. Any bot counts, whatever it writes (the agent judges whether its comment is a review), and its result counts as soon as it
-  lands: a review, a comment (the first one too) or its edit. Activity from older commits or from unrelated accounts is ignored. The
-  `reviewers` config section and its seven keys are gone.
+  lands: a review, a comment (the first one too) or its edit. Activity from older commits or from humans who only commented is ignored.
+  A comment is about another commit only when it contains a standalone 7-40-character hex value that does not name the head. `pr-wait`
+  keeps what it saw in `ticketflow-pr-wait.json` in the git dir (never committed, pruned after 2 days), and `merge --reviewed-by` waits on
+  a first comment that may be a status note. The `reviewers` config section and its seven keys are gone.
 - **The built-in reviewer is the fallback, and it reports straight to the agent.** When no external reviewer started, or none gave a
   usable result, `pr-reviewer` reviews the commit once CI settles (never a red one), and the agent acts on its report instead of
   reading it back from GitHub. It reviews only the delta after a push. `critical` pull requests get it even after an external

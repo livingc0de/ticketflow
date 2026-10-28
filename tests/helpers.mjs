@@ -115,8 +115,10 @@ else if (args[0] === 'api') {
     writeFileSync(join(bin, 'gh'), script)
     chmodSync(join(bin, 'gh'), 0o755)
     const log = () => (existsSync(join(state, 'calls.jsonl')) ? readFileSync(join(state, 'calls.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [])
+    const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` }
+    delete env.GIT_DIR
     return {
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+        env,
         calls: () => log().map((c) => c.args),
         log,
         comments: () => readdirSync(state).filter((f) => f.startsWith('comment-')).sort().map((f) => readFileSync(join(state, f), 'utf8')),

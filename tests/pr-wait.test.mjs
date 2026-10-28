@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, writeFileSync } from 'node:fs'
+import { chmodSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { FAIL, fakeGh, seq, tempDir, writeConfig } from './helpers.mjs'
 
@@ -50,7 +50,7 @@ const NOW = { user: { login: 'me' } }
 /** A review, a comment and a reaction by an app; a reaction reports an app as type User. */
 const app = (login = RB) => ({ login, type: 'Bot' })
 const rev = (state, over = {}) => ({ id: 1, user: app(), commit_id: HEAD, state, submitted_at: ago(5), html_url: 'https://x/r1', body: 'review body', author_association: 'NONE', ...over })
-const note = (min, body = 'status', over = {}) => ({ id: 9, user: app(), created_at: ago(min), updated_at: ago(min), html_url: 'https://x/c', body, author_association: 'NONE', ...over })
+const note = (min, body = 'status', over = {}) => { const t = ago(min); return { id: 9, user: app(), created_at: t, updated_at: t, html_url: 'https://x/c', body, author_association: 'NONE', ...over } }
 const react = (min, content = 'eyes', login = RB) => ({ user: { login, type: 'User' }, content, created_at: ago(min) })
 const green = status('success', 'x')
 const reviewLines = (r) => r.stdout.split('\n').filter((l) => l.startsWith('Review'))
@@ -352,6 +352,17 @@ test('the wait remembers a reviewer\'s first answer in the git dir, so a fresh r
     const gitDir = spawnSync('git', ['-C', dir, 'rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim()
     writeFileSync(join(gitDir, 'ticketflow-pr-wait.json'), '{oops')
     assert.match(wait(summary(1), undefined, {}, { dir }).stdout, /^Review cx\[bot\]: result first comment /m)
+})
+
+test('the shared wait cache prunes entries older than two days', () => {
+    const dir = tempDir('pr-wait-prune-')
+    spawnSync('git', ['init', '-q', dir])
+    const gitDir = spawnSync('git', ['-C', dir, 'rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim()
+    const cache = join(gitDir, 'ticketflow-pr-wait.json')
+    writeFileSync(cache, JSON.stringify({ stale: Date.now() - 3 * 86_400_000 }))
+    const r = wait(green, undefined, {}, { dir })
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(JSON.parse(readFileSync(cache, 'utf8')), {})
 })
 
 test('a review of the head that arrived while CI ran is the result: CI pending shows it, green with it exits 0 with results', () => {
