@@ -6,7 +6,7 @@
 
 - **Review bots and teammates are noticed, not configured.** While CI runs, `pr-wait` watches the pull request for anyone who starts
   reviewing the exact commit (a reaction, a comment, a review) and waits for that reviewer's result, at most 15 minutes from its
-  start. Activity from older commits or from unrelated accounts is ignored. The `reviewers` config section and its seven keys are gone.
+  start. A bot that starts with a summary comment is seen at once, and a first comment that already holds the findings is the result. Activity from older commits or from unrelated accounts is ignored. The `reviewers` config section and its seven keys are gone.
 - **The built-in reviewer is the fallback, and it reports straight to the agent.** When no external reviewer started, or none gave a
   usable result, `pr-reviewer` reviews the commit once CI settles (never a red one), and the agent acts on its report instead of
   reading it back from GitHub. It reviews only the delta after a push. `critical` pull requests get it even after an external
