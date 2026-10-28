@@ -273,17 +273,60 @@ test('an app\'s reaction after the push starts it: pending, with its window, and
     assert.equal(wait({ ...green, 'issues/7/reactions': [react(2)] }, ['7', '--once']).status, 0)   // --once: CI decides the code
 })
 
-test('a reviewer\'s first comment is its status note, never a result; a later comment of it is', () => {
-    const base = { ...green, 'issues/7/reactions': [react(8)] }
-    const one = wait({ ...base, 'issues/7/comments': [note(8, 'Reviewing...')] })
-    assert.match(one.stdout, /^Review: pending \(rb\[bot\]\)$/m)
-    const two = wait({ ...base, 'issues/7/comments': [note(8, 'Reviewing...'), note(3, 'Found nothing\n\nall good', { id: 10, html_url: 'https://x/c2' })] })
-    assert.equal(two.status, 0, two.stdout)
-    assert.match(two.stdout, /^Review rb\[bot\]: result comment https:\/\/x\/c2 Found nothing$/m)
-    assert.match(two.stdout, /^Review: results \(rb\[bot\]\)$/m)
-    // an empty comment (only an HTML marker) is no result
-    const marker = wait({ ...base, 'issues/7/comments': [note(8), note(3, '<!-- state -->')] })
-    assert.match(marker.stdout, /^Review: pending/m)
+test('a comment-only review app starts a wait from its first comment; that comment can be the whole result; deploy and coverage bots start nothing', () => {
+    const CX = 'cx[bot]'
+    const by = (min, body, over = {}) => note(min, body, { user: app(CX), ...over })
+    // PR #45: the summary comment comes while CI runs, with no reaction and no review yet; CI settles first
+    const hidden = wait({ ...green, 'issues/7/comments': [by(8, '<!-- cx-pull-request-review-summary -->')] })
+    assert.equal(hidden.status, 2)   // hidden markup only: started, no result, the wait goes on
+    assert.match(hidden.stdout, /^Review: pending \(cx\[bot\]\)$/m)
+    const summary = by(8, '<!-- cx-pull-request-review-summary -->\n## Review Summary\n\n| Review | Status |\n| Code | Running |')
+    const seen = wait({ ...green, 'issues/7/comments': [summary] })
+    assert.match(seen.stdout, /^Review cx\[bot\]: result first comment https:\/\/x\/c ## Review Summary$/m)   // never none: the agent reads it as a status note and waits with --more (merge waits for more too)
+    const more = ['7', '--more', CX, '--timeout-min', '0']
+    assert.match(wait({ ...green, 'issues/7/comments': [summary] }, more).stdout, /^Review: pending \(cx\[bot\]\)$/m)
+    // its result: the edit of that comment, or a review, after the wait started; a review of the head wins over a comment
+    const edited = wait({ ...green, 'issues/7/comments': [{ ...summary, updated_at: ago(-1) }] }, more)
+    assert.match(edited.stdout, /^Review cx\[bot\]: result comment /m)
+    const reviewed = wait({ ...green, 'issues/7/comments': [{ ...summary, updated_at: ago(-1) }], 'pulls/7/reviews': [rev('COMMENTED', { user: app(CX), submitted_at: ago(-1) })] }, more)
+    assert.match(reviewed.stdout, /^Review cx\[bot\]: result review COMMENTED https:\/\/x\/r1 review body$/m)
+    // no result 15 minutes after that first comment: late, and pr-reviewer takes over
+    assert.match(wait({ ...green, 'issues/7/comments': [by(16, '<!-- cx-pull-request-review-summary -->')] }).stdout, /^Review: none \(no result in time: cx\[bot\]\)$/m)
+    // a single first comment with the findings is the result at once
+    const whole = wait({ ...green, 'issues/7/comments': [by(3, '## Code review\n2 findings\n- a.js:3 off by one')] })
+    assert.equal(whole.status, 0)
+    assert.match(whole.stdout, /^Review cx\[bot\]: result first comment https:\/\/x\/c ## Code review$/m)
+    // 15 minutes with nothing more: the first comment is the whole answer
+    assert.match(wait({ ...green, 'issues/7/comments': [by(16, '## Code review\n2 findings')] }).stdout, /^Review cx\[bot\]: result comment https:\/\/x\/c ## Code review$/m)
+    // automation that does not review: a deploy preview, a coverage report, a plain status comment
+    const bots = [note(5, 'Deploy Preview for site ready!', { user: app('deploy[bot]') }), note(4, '## Coverage Report\n93%', { user: app('cov[bot]'), id: 11 }), note(3, 'Build passed', { user: app('ci[bot]'), id: 12 }),
+        note(2, '## [Codecov](https://app.codecov.io/gh/o/r/pull/7) Report\nAll modified lines are covered.\n\n[Continue to review full report in Codecov by Sentry](https://app.codecov.io/gh/o/r/pull/7).', { user: app('codecov[bot]'), id: 13 }),
+        note(2, 'Thanks! A maintainer will review this soon.\n<!-- greeting -->', { user: app('github-actions[bot]'), id: 14 })]
+    assert.deepEqual(reviewLines(wait({ ...green, 'issues/7/comments': bots })), ['Review: none'])
+})
+
+test('PR #47: a summary comment and eyes while it runs, then the edit when done: the edit is the result at once; a reaction is never a result', () => {
+    const CX = 'cx[bot]'
+    const summary = (text, over = {}) => note(14, `<!-- cx-pull-request-review-summary -->\n## Review Summary\n\n| Code Review | ${text} |`, { user: app(CX), ...over })
+    const running = { ...green, 'issues/7/comments': [summary('Running')], 'issues/7/reactions': [react(14, 'eyes', CX)] }
+    // CI green while it runs: its first comment is shown, marked as unconfirmed (merge waits); with --more the wait goes on
+    assert.match(wait(running).stdout, /^Review cx\[bot\]: result first comment https:\/\/x\/c ## Review Summary$/m)
+    const more = ['7', '--more', CX, '--timeout-min', '0']
+    assert.match(wait(running, more).stdout, /^Review: pending \(cx\[bot\]\)$/m)
+    // done: the edit of that comment is the result, no longer marked
+    const done = wait({ ...green, 'issues/7/comments': [summary('Completed', { updated_at: ago(-1) })], 'issues/7/reactions': [react(-1, '+1', CX)] }, more)
+    assert.match(done.stdout, /^Review cx\[bot\]: result comment https:\/\/x\/c ## Review Summary$/m)
+    // a later head: the same summary comment (created at the PR's start) edited to "Running" after this push is still unconfirmed;
+    // a bot that posts a new comment for this head too
+    assert.match(wait({ ...green, 'issues/7/comments': [summary('Running', { created_at: ago(60), updated_at: ago(5) })] }).stdout, /^Review cx\[bot\]: result first comment /m)
+    assert.match(wait({ ...green, 'issues/7/comments': [summary('Done', { created_at: ago(60), updated_at: ago(50) }), note(4, '## Review\nRunning', { id: 21, user: app(CX) })] }).stdout, /^Review cx\[bot\]: result first comment /m)
+    // a comment that can never be a result (a late receipt naming the old head, or hidden markup only) does not count as its first answer
+    const receipt = note(60, 'Reviewed commit: `bbbbbbbbbb`', { id: 22, user: app(CX), updated_at: ago(10) })
+    const hiddenEdit = note(60, '<!-- cx-review-state -->', { id: 23, user: app(CX), updated_at: ago(9) })
+    assert.match(wait({ ...green, 'issues/7/comments': [receipt, hiddenEdit, note(4, '## Review\nRunning', { id: 21, user: app(CX) })] }).stdout, /^Review cx\[bot\]: result first comment /m)
+    // a reaction after the push, for example a +1 that belongs to an older head, is a sign only
+    const stale = wait({ ...green, 'issues/7/comments': [summary('Completed', { created_at: ago(60), updated_at: ago(45) })], 'issues/7/reactions': [react(5, '+1', CX)] })
+    assert.match(stale.stdout, /^Review: pending \(cx\[bot\]\)$/m)
 })
 
 test('a review of the head that arrived while CI ran is the result: CI pending shows it, green with it exits 0 with results', () => {
@@ -296,13 +339,15 @@ test('a review of the head that arrived while CI ran is the result: CI pending s
     assert.match(done.stdout, /^Review: results \(rb\[bot\]\)$/m)
 })
 
-test('an edited result is still the result: a comment edited after the push counts, an edited status note does not', () => {
+test('an edited result is still the result: a comment edited after the push counts at its edit, the latest comment wins', () => {
     const base = { ...green, 'issues/7/reactions': [react(10)] }
-    const status = note(10, 'Reviewing', { updated_at: ago(1) })
+    const status = note(10, 'Reviewing', { updated_at: ago(3) })
     const findings = note(10, 'P1 found', { id: 10, created_at: ago(40), updated_at: ago(2), html_url: 'https://x/c2' })   // created before the push, edited after it
-    assert.match(wait({ ...base, 'issues/7/comments': [status] }).stdout, /^Review: pending/m)
+    assert.match(wait({ ...base, 'issues/7/comments': [status] }).stdout, /^Review rb\[bot\]: result comment https:\/\/x\/c Reviewing$/m)
     const r = wait({ ...base, 'issues/7/comments': [status, findings] })
     assert.match(r.stdout, /^Review rb\[bot\]: result comment https:\/\/x\/c2 P1 found$/m)
+    // a comment from before the push, never edited since, is no result of this head
+    assert.match(wait({ ...base, 'issues/7/comments': [note(40, 'old findings')] }).stdout, /^Review: pending/m)
 })
 
 test('activity before the push, and reviews of another commit, decide nothing; the push time is the first check suite, else the committer date', () => {
@@ -349,7 +394,7 @@ test('a changes-requested review of the head settles at once (exit 0); the last 
     assert.match(wait({ ...green, 'pulls/7/reviews': [rev('APPROVED'), rev('DISMISSED', { id: 2 })] }).stdout, /^Review: results/m)
 })
 
-test('the PR author, this account, a commenter who never reviewed, a comment-only app and an outsider\'s review never start a wait; an unrelated "looks good" neither starts nor ends another\'s wait', () => {
+test('the PR author, this account, a commenter who never reviewed, an app whose comments show no review and an outsider\'s review never start a wait; an unrelated "looks good" neither starts nor ends another\'s wait', () => {
     const human = (login, association = 'NONE') => ({ login, type: 'User' })
     const quiet = {
         ...green,
@@ -368,7 +413,7 @@ test('the PR author, this account, a commenter who never reviewed, a comment-onl
 
 test('a comment about another commit is a sign, never the result; a review of the head counts whatever its time', () => {
     const suites = { [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(10) }] } }
-    const receipt = (sha) => ({ ...green, ...suites, 'issues/7/reactions': [react(8)], 'issues/7/comments': [note(60, 'summary', { updated_at: ago(8) }), note(3, `<!-- receipt -->\nNo major issues.\n**Reviewed commit:** \`${sha}\``, { id: 10 })] })
+    const receipt = (sha) => ({ ...green, ...suites, 'issues/7/reactions': [react(8)], 'issues/7/comments': [note(60, '<!-- summary -->', { updated_at: ago(8) }), note(3, `<!-- receipt -->\nNo major issues.\n**Reviewed commit:** \`${sha}\``, { id: 10 })] })
     assert.match(wait(receipt('b'.repeat(10))).stdout, /^Review: pending \(rb\[bot\]\)$/m)   // a late receipt for the old head
     assert.match(wait(receipt('a'.repeat(10))).stdout, /^Review: results \(rb\[bot\]\)$/m)   // names this head
     assert.match(wait({ ...receipt('b'.repeat(10)), 'issues/7/comments': [note(60, 'summary'), note(3, 'no commit named', { id: 10 })] }).stdout, /^Review: results/m)
@@ -379,7 +424,7 @@ test('a comment about another commit is a sign, never the result; a review of th
 
 test('the window is 15 minutes from the first sign, not the latest; --more ignores a result before this run', () => {
     const suites = { [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(40) }] } }
-    const sign = (min, edit) => ({ ...green, ...suites, 'issues/7/reactions': [react(min)], 'issues/7/comments': [note(min, 'status', { updated_at: ago(edit) })] })
+    const sign = (min, edit) => ({ ...green, ...suites, 'issues/7/reactions': [react(min)], 'issues/7/comments': [note(min, '<!-- status -->', { updated_at: ago(edit) })] })   // an edit that shows no text is a sign, no result
     assert.match(wait(sign(16, 1)).stdout, /^Review: none \(no result in time: rb\[bot\]\)$/m)
     assert.equal(wait(sign(16, 1)).status, 0)
     const inside = wait(sign(14, 1))

@@ -266,6 +266,17 @@ test('M3: a reviewer that started and has not answered blocks the merge until it
     refused(run({ extra: { [`${R}/issues/5/comments`]: { __status: 500, __stderr: 'boom' } } }), /pending \(the review activity could not be read\): run again/)
 })
 
+test('M3b: a reviewer\'s unedited first comment may be the status note of a review still running: merge waits for its next answer or 15 minutes', () => {
+    const first = (min, over = {}) => ({ id: 31, user: APP, author_association: 'NONE', created_at: ago(min), updated_at: ago(min), html_url: 'https://x/c31', body: '<!-- rb-review-summary -->\n## Review\n| Code | Running |', ...over })
+    refused(run({ comments: [first(4)] }), /rb\[bot\]'s only answer on abcdef1 is its first comment.*at most 15 minutes from its start/)
+    refused(run({ args: by('rb[bot]'), comments: [first(4)], reviews: [] }), /rb\[bot\]'s only answer on abcdef1 is its first comment/)
+    // its edit, or a review, is its answer; 15 minutes with nothing more and the first comment stands as its whole answer
+    assert.equal(run({ args: by('rb[bot]'), comments: [first(4, { updated_at: ago(1) })], reviews: [] }).status, 0)
+    assert.equal(run({ args: by('rb[bot]'), comments: [first(4)], reviews: [ext()] }).status, 0)
+    assert.equal(run({ comments: [first(16)] }).status, 0)
+    assert.equal(run({ args: by('rb[bot]'), comments: [first(16)], reviews: [] }).status, 0)
+})
+
 test('M6: the owner\'s GitHub approval can be named; GitHub\'s refusal of the merge is reported', () => {
     const approval = ext({ id: 12, user: { login: 'boss', type: 'User' }, author_association: 'OWNER', state: 'APPROVED', body: '' })
     const r = run({ args: by('boss'), reviews: [approval] })

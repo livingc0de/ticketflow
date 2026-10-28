@@ -134,8 +134,9 @@ The gate itself: [CI-GATE.md](CI-GATE.md).
 ## Review
 
 External reviewers (a review bot, a teammate) are never configured or asked. While CI runs, `pr-wait` notices any that start on the
-exact head (a reaction, a comment, a review) and waits for each one's result, at most 15 minutes from its start; the agent reads and
-fixes what it finds. If none started by the time CI settles, or none gave a usable result, the built-in `pr-reviewer` role reviews the
+exact head (a reaction, a comment, a review) and waits for each one's result, at most 15 minutes from its start, ending as soon as
+it lands (a review, a comment or its edit); the agent reads and fixes what it finds. If none started by the time CI settles, or
+none gave a usable result, the built-in `pr-reviewer` role reviews the
 head and reports its findings straight to the agent; its posted review is what `merge` reads. A `critical` pull request gets
 `pr-reviewer` after an external result as well; a `high` one only where that result does not cover the risky part. Its effort follows
 the tier. It never approves or edits. A red CI is fixed first, with no review of a red head. Diff and audit mode review without a
