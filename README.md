@@ -37,28 +37,6 @@ What you get out of it:
 
 ---
 
-## New in 0.3.5
-
-Upgrading from 0.3.0? Read [the upgrade notes](core/docs/UPGRADING.md#from-030). The full list is in [CHANGELOG.md](CHANGELOG.md).
-
-- **A comment is not an approval.** A reviewer that only comments on your latest commit (many review bots do) no longer counts as
-  done, even with no open thread. The built-in `pr-reviewer` steps in as a stand-in and `merge` asks for a review basis.
-  [When merge says no](core/docs/REVIEWERS.md#when-merge-says-no)
-- **The review belongs to the exact commit, and to someone who may give it.** A review basis must link a ready review of the commit
-  that merges: after any push, an update-branch included, a short delta review is needed. A ready verdict needs write access to
-  the repository and `owner approved` needs admin, so a read-only collaborator, an outsider or an agent on a GitHub App account
-  cannot lift a block. [Stand-in and review basis](core/docs/REVIEWERS.md#stand-in-and-review-basis)
-- **Older pull requests are found.** `queue` follows a ticket's cross-references, so a ticket whose pull request is old is no longer
-  mistaken for "not started".
-- **The method works without a ticket.** "Fix this bug", "review this diff" or "audit the repo" follow the same engineering method,
-  with no ticket, branch or pull request unless you ask, and `debt.mjs` lists every deliberate shortcut with the moment to revisit it.
-  [Without a ticket](core/docs/WORKFLOW.md#without-a-ticket)
-- **For maintainers of TicketFlow itself:** a small harness runs four local scenarios with a real agent to measure cost and
-  behaviour, and a written procedure checks the review gate on a GitHub sandbox. They live in this repo only and are never
-  installed in yours; no paid run was made for this release. [Evals](docs/evals/agent-scenarios.md)
-
----
-
 ## How it works, in one picture
 
 ```
@@ -155,7 +133,7 @@ sub-issues) or *"work the ready backlog"* (the optional `orchestrate-tickets` sk
 helper that follows the normal ticket journey, then shows a table of what merged, what waits for your look and what is stuck.
 For the backlog it first warns you and lists the tickets (up to 10 Ready ones, highest priority first; this needs a Project).
 If the session dies, ask again naming the same tickets: it picks up from GitHub, so finished tickets stay finished and open pull
-requests continue. [How to use it](core/docs/WORKFLOW.md#several-tickets-optional)
+requests continue (a ticket's pull requests are found by branch name and by the references on the ticket, however old). [How to use it](core/docs/WORKFLOW.md#several-tickets-optional)
 
 ### The gate
 

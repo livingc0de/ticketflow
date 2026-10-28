@@ -1,7 +1,5 @@
 # Changelog
 
-## Unreleased
-
 ## 0.3.5
 
 ### Highlights
