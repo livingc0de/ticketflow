@@ -75,8 +75,8 @@ main('agent-eval', () => {
     const answerFile = join(work, 'answer.txt')
     const prompt = readFileSync(join(sdir, 'prompt.md'), 'utf8'), claude = v.agent === 'claude'
     const args = claude
-        ? ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--allowedTools', TOOLS, ...(v.model ? ['--model', v.model] : [])]
-        : ['exec', '--json', '--sandbox', 'workspace-write', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), '-']   // codex reads the prompt from stdin
+        ? ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--setting-sources', 'project,local', '--allowedTools', TOOLS, ...(v.model ? ['--model', v.model] : [])]
+        : ['exec', '--json', '--ignore-user-config', '--sandbox', 'workspace-write', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), '-']   // codex reads the prompt from stdin
     const t0 = Date.now()
     const r = run(v.agent, args, { cwd: dir, timeout: AGENT_TIMEOUT_MS, ...(claude ? { stdio: ['ignore', 'pipe', 'pipe'] } : { input: prompt }) })
     const wall_s = Math.round((Date.now() - t0) / 100) / 10
@@ -86,7 +86,8 @@ main('agent-eval', () => {
     writeFileSync(answerFile, got.answer)
 
     git(dir, 'add', '-A')   // the repo is a throwaway: staging counts new files and commits the agent made are diffed against the base too
-    const stat = git(dir, 'diff', '--cached', '--numstat', base).split('\n').filter(Boolean).map((l) => l.split('\t'))
+    // npm install output is not the agent's change: the lockfile and node_modules are left out of the diff (new dependencies are counted from package.json)
+    const stat = git(dir, 'diff', '--cached', '--numstat', base, '--', '.', ':(exclude)package-lock.json', ':(exclude,glob)**/node_modules/**').split('\n').filter(Boolean).map((l) => l.split('\t'))
     const before = depNames(orNull(() => git(dir, 'show', `${base}:package.json`)) ?? ''), after = depNames(orNull(() => readFileSync(join(dir, 'package.json'), 'utf8')) ?? '')
     const c = run(process.execPath, [join(sdir, 'check.mjs'), dir, answerFile], { timeout: 5 * 60 * 1000 })
     const pass = c.status === 0

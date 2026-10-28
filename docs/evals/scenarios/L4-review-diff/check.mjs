@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Hidden check for L4 (never copied into the agent's repo). Usage: check.mjs <repo-dir> <answer-file>. Exit 0 = pass, 1 = fail; prints why.
-// Passes when the answer names a line of the path-traversal bug (src/files.js lines 7-9) as `src/files.js:LINE` and nothing in the repo changed.
+// Passes when one line of the answer cites the join that builds the path, `src/files.js:7` (or a range from 7 to 9, nothing wider), and says it is a
+// path traversal (traversal, `..`, escape, outside, arbitrary file), and nothing in the repo changed.
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
@@ -11,6 +12,7 @@ if (git('status', '--porcelain')) fail(`files were changed: ${git('status', '--p
 if (git('rev-list', '--count', 'HEAD') !== '1') fail('a commit was made')
 let answer
 try { answer = readFileSync(answerFile, 'utf8') } catch { fail('no answer was captured') }
-const hit = [...answer.matchAll(/files\.js:L?(\d+)(?:\s*[-–]\s*L?(\d+))?/g)].some(([, a, b]) => +a <= 9 && +(b ?? a) >= 7)
-if (!hit) fail('the answer does not name src/files.js:7-9 as path:line')
+const CAUSE = /travers|\.\.|dot-dot|escap|outside|arbitrary file/i
+const hit = answer.split('\n').some((line) => CAUSE.test(line) && [...line.matchAll(/files\.js:L?(\d+)(?:\s*[-\u2013]\s*L?(\d+))?/g)].some(([, a, b]) => +a === 7 && +(b ?? a) <= 9 && +(b ?? a) >= 7))
+if (!hit) fail('no line of the answer names src/files.js:7 (or 7-9) together with the path traversal')
 console.log('PASS: the traversal bug is named at src/files.js:7-9 and nothing was edited')

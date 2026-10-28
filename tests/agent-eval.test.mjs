@@ -54,6 +54,11 @@ test('L1: fails on the untouched repo and on a collateral edit, passes on the fi
     failing(L1, dir, /messages are/)
     edit(dir, 'src/messages.js', 'Welcome!', 'Welcome back!')
     passing(L1, dir)
+
+    put(dir, 'spec/broken.spec.js', "import test from 'node:test'\nimport assert from 'node:assert/strict'\ntest('broken', () => assert.equal(1, 2))\n")   // the fix is right, the repo's own suite is not
+    failing(L1, dir, /the repo's own tests fail/)
+    put(dir, 'src/messages.js', 'export const messages = {')   // the module does not even load
+    failing(L1, dir, /src\/messages\.js does not load/)
 })
 
 test('L2: needs both callers right, the suite green and a new test that fails on the original code', () => {
@@ -62,6 +67,11 @@ test('L2: needs both callers right, the suite green and a new test that fails on
 
     edit(dir, 'src/invoice.js', 'roundMoney(quantity * unitPrice)', 'roundMoney(quantity * unitPrice + 1e-9)')   // the symptom only
     failing(L2, dir, /refundAmount\(100\.5, 1\) is 1, expected 1\.01/)
+    git(dir, 'checkout', '-q', '--', 'src')
+
+    edit(dir, 'src/invoice.js', 'roundMoney(quantity * unitPrice)', 'roundMoney(quantity * unitPrice + 1e-9)')   // both callers patched, the shared helper still wrong
+    edit(dir, 'src/refund.js', 'roundMoney((paid * percent) / 100)', 'roundMoney((paid * percent) / 100 + 1e-9)')
+    failing(L2, dir, /roundMoney\(1\.005\) is 1, expected 1\.01/)
     git(dir, 'checkout', '-q', '--', 'src')
 
     edit(dir, 'src/money.js', 'return Math.round(amount * 100) / 100', 'return Math.round((amount + Number.EPSILON) * 100) / 100')   // fixes 1.005, not 10.075
@@ -80,6 +90,24 @@ test('L2: needs both callers right, the suite green and a new test that fails on
     const ok = fixture(L2)
     fixL2(ok)
     passing(L2, ok)
+
+    // a test outside spec/ is not run by `npm test`: the check runs the changed tests itself, on the repaired source first
+    put(ok, 'test/regression.test.js', "import test from 'node:test'\nimport assert from 'node:assert/strict'\ntest('broken', () => assert.equal(1, 2))\n")
+    failing(L2, ok, /test\/regression\.test\.js fails on the repaired src\//)
+    const placed = fixture(L2)   // the same fix with a correct regression test that lives in test/
+    edit(placed, 'src/money.js', 'return Math.round(amount * 100) / 100', EXACT)
+    put(placed, 'test/regression.test.js', "import test from 'node:test'\nimport assert from 'node:assert/strict'\nimport { roundMoney } from '../src/money.js'\ntest('half cents round up', () => assert.equal(roundMoney(1.005), 1.01))\n")
+    passing(L2, placed)
+
+    const gone = fixture(L2)   // callers that no longer use the shared helper, which has no roundMoney any more
+    const inline = (expr) => `Number(Math.round(\`\${${expr}}e2\`) + 'e-2')`
+    put(gone, 'src/invoice.js', `export const lineTotal = (quantity, unitPrice) => ${inline('quantity * unitPrice')}\n`)
+    put(gone, 'src/refund.js', `export const refundAmount = (paid, percent) => ${inline('(paid * percent) / 100')}\n`)
+    put(gone, 'src/money.js', 'export const other = 1\n')
+    failing(L2, gone, /src\/money\.js no longer exports roundMoney/)
+
+    put(gone, 'src/invoice.js', 'export const lineTotal =')
+    failing(L2, gone, /src\/invoice\.js does not load/)
 })
 
 test('L3: needs working quoted CSV, the default output kept, the suite green and zero dependencies', () => {
@@ -99,14 +127,30 @@ test('L3: needs working quoted CSV, the default output kept, the suite green and
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
     put(dir, 'package.json', JSON.stringify({ ...pkg, dependencies: { 'csv-stringify': '^6.0.0' } }))
     failing(L3, dir, /dependencies were added: csv-stringify/)
+
+    const good = () => { const d = fixture(L3); fixL3(d); return d }   // a correct fix, then one rejected condition each
+    let bad = good(); put(bad, 'bin/report.js', "throw new Error('boom')\n")
+    failing(L3, bad, /bin\/report\.js exits 1: /)
+    bad = good(); put(bad, 'package.json', 'not json')
+    failing(L3, bad, /package\.json is missing or not JSON/)
+    bad = good(); mkdirSync(join(bad, 'node_modules'))
+    failing(L3, bad, /node_modules exists/)
+    bad = good(); put(bad, 'spec/broken.spec.js', "import test from 'node:test'\nimport assert from 'node:assert/strict'\ntest('broken', () => assert.equal(1, 2))\n")
+    failing(L3, bad, /the repo's own tests fail/)
 })
 
 test('L4: needs file:line on the traversal bug and no edit, commit or stray file', () => {
     const dir = fixture(L4)
-    failing(L4, dir, /does not name src\/files\.js:7-9/, 'There is no bug.')
-    failing(L4, dir, /does not name/, 'src/files.js:3 and src/handler.js:7 look odd')
-    failing(L4, dir, /does not name/, 'src/handler.js:7 is wrong')
-    for (const answer of ['src/files.js:7 join(root, name) allows ../', 'bug at `src/files.js:L9`', 'src/files.js:5-8: traversal', 'Found it: src/files.js:7–9']) passing(L4, dir, answer)
+    failing(L4, dir, /no line of the answer names src\/files\.js:7/, 'There is no bug.')
+    failing(L4, dir, /no line of the answer names/, 'src/files.js:3 and src/handler.js:7 look odd')
+    failing(L4, dir, /no line of the answer names/, 'src/handler.js:7 path traversal')
+    failing(L4, dir, /no line of the answer names/, 'src/files.js:9 readFileSync throws EISDIR when the name is a directory')   // a real line, a different bug
+    failing(L4, dir, /no line of the answer names/, 'src/files.js:1-10 has a bug')   // too broad, no traversal
+    failing(L4, dir, /no line of the answer names/, 'src/files.js:1-10 contains a path traversal')   // too broad even with the word
+    failing(L4, dir, /no line of the answer names/, 'src/files.js:5-8: path traversal')   // starts before the bug
+    failing(L4, dir, /no line of the answer names/, 'src/files.js:9 path traversal')   // the read, not the join
+    failing(L4, dir, /no line of the answer names/, 'src/files.js:7 is wrong.\nThe path traversal is somewhere else.')   // the cite and the cause must share a line
+    for (const answer of ['src/files.js:7 join(root, name) allows ../', 'bug at `src/files.js:L7`: path traversal', 'src/files.js:7-9: the name can escape the upload root', 'Found it: src/files.js:7–9 is a directory traversal', '- src/handler.js:5 nit\n- src/files.js:7 traversal via ..']) passing(L4, dir, answer)
     failing(L4, dir, /no answer was captured/)
 
     put(dir, 'notes.md', 'x')
@@ -129,13 +173,14 @@ test('every scenario ships a repo, a prompt and a check, and no dependency or no
 // ---- the harness, with fake claude / codex executables on PATH ----
 
 const FAKE = `#!/usr/bin/env node
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 const args = process.argv.slice(2), name = process.argv[1].split('/').pop()
 if (args.includes('--version')) { console.log(name === 'claude' ? '9.9.9 (Claude Code)' : 'codex-cli 9.9.9'); process.exit(0) }
 appendFileSync(process.env.FAKE_LOG, JSON.stringify({ name, args, stdin: readFileSync(0, 'utf8'), cwd: process.cwd(), tf: existsSync('.ticketflow/manifest.json') }) + '\\n')
 const edit = (f, from, to) => writeFileSync(f, readFileSync(f, 'utf8').replace(from, to))
 if (process.env.FAKE_FIX) edit('src/messages.js', 'recieve', 'receive')
 if (process.env.FAKE_DEP) edit('package.json', '"private"', '"dependencies":{"left-pad":"1"},"private"')
+if (process.env.FAKE_NPM) { mkdirSync('node_modules/left-pad', { recursive: true }); writeFileSync('node_modules/left-pad/index.js', 'x\\n'); writeFileSync('package-lock.json', '{}\\n') }
 const o = args.indexOf('-o')
 if (o >= 0) writeFileSync(args[o + 1], process.env.FAKE_ANSWER ?? '')
 console.log(process.env.FAKE_OUT)
@@ -175,8 +220,8 @@ test('claude, ticketflow arm: installs TicketFlow like init does, runs the promp
 
     assert.equal(calls.length, 1)
     const prompt = readFileSync(join(SCEN, L1, 'prompt.md'), 'utf8')
-    assert.deepEqual(calls[0].args.slice(0, 6), ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--allowedTools'])
-    assert.match(calls[0].args[6], /Edit/); assert.doesNotMatch(calls[0].args.join(' '), /--dangerously|bypassPermissions/)
+    assert.deepEqual(calls[0].args.slice(0, 8), ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--setting-sources', 'project,local', '--allowedTools'])   // no user-level settings or plugins
+    assert.match(calls[0].args[8], /Edit/); assert.doesNotMatch(calls[0].args.join(' '), /--dangerously|bypassPermissions/)
     assert.equal(calls[0].stdin, '', 'the prompt is the argument, stdin is empty (a piped stdin would be appended to it)')
     const repo = join(row.workdir, 'repo')
     assert.equal(realpathSync(calls[0].cwd), realpathSync(repo)); assert.ok(calls[0].tf, 'installed before the agent started')
@@ -196,10 +241,10 @@ test('bare arm installs nothing; a failed hidden check is recorded as fail (exit
     assert.deepEqual(readdirSync(repo).sort(), ['package.json', 'spec', 'src'].concat('.git').sort())
     assert.ok(!r.calls[0].tf)
 
-    r = run([L1, '--agent', 'claude', '--arm', 'bare', '--out', out], { FAKE_DEP: '1', FAKE_EXIT: '3' })
+    r = run([L1, '--agent', 'claude', '--arm', 'bare', '--out', out], { FAKE_DEP: '1', FAKE_NPM: '1', FAKE_EXIT: '3' })
     assert.equal(r.status, 1, 'the check failed')
     assert.equal(r.row.check.pass, false); assert.match(r.row.check.why, /^FAIL: messages are .*recieve/)
-    assert.equal(r.row.deps_added, 1); assert.deepEqual(r.row.diff.files, ['package.json'])
+    assert.equal(r.row.deps_added, 1); assert.deepEqual(r.row.diff.files, ['package.json'], 'npm install output (node_modules, the lockfile) is not counted in the diff')
     assert.equal(r.row.agent_exit, 3)
     const rows = readFileSync(out, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
     assert.deepEqual(rows.map((x) => x.check.pass), [true, false], 'the failure is not dropped and the first row is kept')
@@ -214,7 +259,7 @@ test('codex: exec --json in the workspace sandbox, tokens summed over turns, ans
     assert.deepEqual(r.row.tokens, { input_tokens: 150, cached_input_tokens: 100, output_tokens: 10 })
     assert.equal(r.row.turns, null); assert.equal(r.row.cost_usd, null); assert.equal(r.row.descendants, 'unknown')
     const { args, stdin } = r.calls[0]
-    assert.deepEqual(args.slice(0, 5), ['exec', '--json', '--sandbox', 'workspace-write', '-C'])
+    assert.deepEqual(args.slice(0, 6), ['exec', '--json', '--ignore-user-config', '--sandbox', 'workspace-write', '-C'])   // no user-level config
     assert.equal(args.at(-1), '-'); assert.equal(args[args.indexOf('-m') + 1], 'gpt-test')
     assert.equal(stdin, readFileSync(join(SCEN, L4, 'prompt.md'), 'utf8'))
     assert.ok(existsSync(join(r.row.workdir, 'repo/.agents/skills/implement-ticket/SKILL.md')) && !existsSync(join(r.row.workdir, 'repo/.claude/skills')))
@@ -222,7 +267,7 @@ test('codex: exec --json in the workspace sandbox, tokens summed over turns, ans
 
 test('claude answer comes from the result; unreadable output is recorded as nulls, not invented', () => {
     const { run } = sandbox()
-    let r = run([L4, '--agent', 'claude', '--arm', 'bare'], { FAKE_OUT: JSON.stringify([{ type: 'system' }, JSON.parse(CLAUDE_OUT('Bug: src/files.js:9'))]) })
+    let r = run([L4, '--agent', 'claude', '--arm', 'bare'], { FAKE_OUT: JSON.stringify([{ type: 'system' }, JSON.parse(CLAUDE_OUT('Bug: src/files.js:7 path traversal'))]) })
     assert.equal(r.status, 0, r.stdout + r.stderr); assert.equal(r.row.check.pass, true)
     r = run([L4, '--agent', 'claude', '--arm', 'bare'], { FAKE_OUT: 'Error: not logged in', FAKE_EXIT: '1' })
     assert.equal(r.status, 1)
