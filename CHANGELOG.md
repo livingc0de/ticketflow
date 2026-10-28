@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.5
+
+### Highlights
+
+- **Ticket metadata has one clear home.** Type, priority, effort, model class, AI effort, area and environment are labels, while
+  claim-time decisions capture the risk tier, model, effort and planning choice. Issue forms no longer duplicate that information.
+- **Model defaults are easier to share.** Configure a universal `models.default` mapping and override it only for agents that need
+  something different. Model hints can also use versionless display names, while provider-specific resolution stays in each action map.
+- **Environments are part of the label set.** Configure them once and `labels sync` creates the missing `Environment: ...` labels without
+  changing labels that already exist.
+- **New worktrees are neutral by default.** Fresh installs use `.worktrees`, while existing custom worktree directories remain supported.
+  Generated guidance, templates, agent maps and documentation now describe the same model and label workflow.
+
+### What You Need To Do When Upgrading From 0.4.0
+
+Existing configurations remain valid and no GitHub protection change is required. Ask your agent to update TicketFlow; `sync` preserves
+your custom settings, refreshes generated files, and offers any edited managed files as conflicts. New installs use `.worktrees`; an
+existing configured worktree directory is left alone.
+
 ## 0.4.0
 
 ### Highlights

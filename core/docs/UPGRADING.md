@@ -62,6 +62,12 @@ job, after it when the local fallback does): `protect.mjs --apply --replace-cont
 
 Per release, newest first:
 
+### From 0.4.0
+
+The config schema stays at version 2, and existing configurations remain valid. `sync` refreshes the generated issue forms, skills,
+agent maps and documentation, and adds any configured `Environment: ...` labels without changing existing labels. New installs use
+`.worktrees`; an existing `worktrees_dir` setting remains in place. The full list is in the `## 0.4.5` section of `CHANGELOG.md`.
+
 ### From 0.3.5
 
 `schema_version` goes from 1 to 2: `sync` migrates the config (it drops the `reviewers` key, nothing else changes; the file is written back as 2-space JSON, so its diff also shows the new formatting) and the update pull
