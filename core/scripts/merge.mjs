@@ -63,8 +63,8 @@ function merge() {
     const configFile = values.config ?? configPath(here)
     const wait = spawnSync(process.execPath, [join(here, 'pr-wait.mjs'), pr, '--once', '--config', configFile], { encoding: 'utf8' })
     const summary = (wait.stdout ?? '').trim()
-    if (wait.status !== 0) return stop(`pr-wait exited ${wait.status}\n${summary}`)
-    if (!summary.includes(`head ${head.slice(0, 7)} `)) return stop(`pr-wait looked at another head than ${head.slice(0, 7)}: run again\n${summary}`)
+    if (wait.status !== 0) return stop(`pr-wait exited ${wait.status}\n${summary}${wait.stderr?.trim() ? `\n${wait.stderr.trim()}` : ''}`)
+    if (!summary.split('\n')[0].startsWith(`PR #${pr} head ${head.slice(0, 7)} `)) return stop(`pr-wait looked at another head than ${head.slice(0, 7)}: run again\n${summary}`)
     // The summary carries text from GitHub (pr-wait flattens it to one line each); only an exact single line counts.
     const lines = summary.split('\n')
     const only = (key) => { const m = lines.filter((l) => l.startsWith(key)); return m.length === 1 ? m[0].slice(key.length) : null }

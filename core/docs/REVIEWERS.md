@@ -63,7 +63,7 @@ for changes, and a review of the head:
 - **Or `--reviewed-by '<login>'`**, naming the external reviewer whose result on the head you acted on. `merge` checks that
   `pr-wait` lists that account with a result on this head, then prints a note. It cannot check what the result says: the agent read it.
 - **Every trusted account's last verdict on the head must be ready.** A `changes needed` from any account blocks until that same
-  account reviews again (or the owner merges by hand). An outsider's review sets no verdict and lifts none. The label may be spelled
+  account reviews again, a push moves the head (verdicts are per head), or the owner merges by hand. An outsider's review sets no verdict and lifts none. The label may be spelled
   `**Verdict:**`, `**Verdict**:`, `Verdict:`, indented or in any case, so a `changes needed` is never missed; only the exact bold line is ready.
 
 `merge` reads no repository permission and posts no comment. GitHub's own rules (a ruleset, required approvals, branch protection)

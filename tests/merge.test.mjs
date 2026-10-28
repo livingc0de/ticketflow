@@ -241,8 +241,8 @@ test('M2: --reviewed-by names the reviewer whose result on this head was acted o
     refused(run({ args: by('nobody[bot]'), reviews: [ext()] }), /nobody\[bot\] has no result/)
     refused(run({ args: by('me'), reviews: [ext()] }), /me has no result/)   // this account's own activity is never a reviewer's
     refused(run({ args: by('author'), reviews: [ext({ user: { login: 'author', type: 'User' }, author_association: 'OWNER' })] }), /author has no result/)   // nor the PR author's
-    // its result before the push is no result of this head
-    refused(run({ args: by('rb[bot]'), reviews: [ext({ submitted_at: ago(40) })] }), /rb\[bot\] has no result/)
+    // a review of the exact head can only exist after its push, so it counts even when the first check suite came later
+    assert.equal(run({ args: by('rb[bot]'), reviews: [ext({ submitted_at: ago(40) })] }).status, 0)
     // a reviewer that only reacted has started but has no result: merge waits for it
     refused(run({ args: by('rb[bot]'), reactions: [eyes()], reviews: [] }), /started on abcdef1 and has not answered/)
     // threads, the verdict of an account and the base still gate a merge on a named result
@@ -280,7 +280,7 @@ test('M6: the owner\'s GitHub approval can be named; GitHub\'s refusal of the me
 test('a failing `gh api user` is an unreadable gate, not a merge', () => {
     const head = `PR #5 head ${SHA7} draft=false\nReview: none\nUnresolved threads: 0\n`
     refused(run({ script: stubbedWait(head), user: { __status: 401, __stderr: 'bad credentials' } }), /cannot read/)
-    refused(run({ user: { __status: 401, __stderr: 'bad credentials' } }), /could not be read/)   // pr-wait cannot tell who it runs as: pending
+    refused(run({ user: { __status: 401, __stderr: 'bad credentials' } }), /pr-wait exited 2[\s\S]*cannot read the account running this/)   // pr-wait cannot tell who it runs as: it stops
 })
 
 test('the removed review basis: --review-basis, "Review basis" comments and permission reads are gone', () => {

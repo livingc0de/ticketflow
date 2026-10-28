@@ -162,7 +162,6 @@ function pushedAt(head) {
  * on the PR, or a trusted human that reviewed, and has a sign since the push (a review of the head, a comment, a reaction).
  */
 function pollReviewers(S) {
-    me ??= api('user').login
     const since = pushedAt(S.head)
     const comments = api(`${R}/issues/${target}/comments`, true)
     const reactions = api(`${R}/issues/${target}/reactions`, true)
@@ -172,11 +171,15 @@ function pollReviewers(S) {
     const known = new Set([...reviews.filter((x) => isApp(x.user) || TRUSTED.has(x.author_association)), ...reactions.filter((x) => isApp(x.user))].map((x) => x.user?.login).filter(outside))
     // a comment counts when it was posted after the push, else when it was edited after it
     const at = (c) => (ms(c.created_at) > since ? ms(c.created_at) : ms(c.updated_at))
+    const edited = (c) => Math.max(ms(c.created_at), ms(c.updated_at ?? c.created_at))
+    // shortcut: a comment that names commits (7-40 hex, hidden markup too) but not this head is about another commit: a sign, never the
+    // result; a hex word ("defaced") makes a result wait out its window, the safe side; revisit if a reviewer names commits unrelated to its review
+    const aboutOther = (c) => { const named = String(c.body ?? '').match(/\b[0-9a-f]{7,40}\b/g) ?? []; return named.length > 0 && !named.some((x) => S.head.startsWith(x)) }
     S.reviewers = [...known].sort().map((login) => {
         const mine = (x) => x.user?.login === login
         const onHead = reviews.filter((x) => mine(x) && x.commit_id === S.head)
         const own = comments.filter(mine)
-        const signs = [...onHead.map((x) => ms(x.submitted_at)), ...own.map(at), ...reactions.filter(mine).map((x) => ms(x.created_at))].filter((t) => t > since)
+        const signs = [...onHead.map((x) => ms(x.submitted_at)), ...[...own.map(at), ...reactions.filter(mine).map((x) => ms(x.created_at))].filter((t) => t > since)]   // a review of the head counts whatever its time
         if (!signs.length) return null
         const key = `${S.head} ${since} ${login}`
         const start = Math.min(firstSeen.get(key) ?? Infinity, ...signs)
@@ -186,8 +189,9 @@ function pollReviewers(S) {
         const after = more.has(login) ? launched : since
         // shortcut: a reviewer's first comment on the PR is its status note, so a one-comment reviewer waits its 15 minutes; revisit if a common bot posts its whole result as its only comment
         const said = [
-            ...onHead.filter((x) => ms(x.submitted_at) > after).map((x) => [ms(x.submitted_at), `review ${x.state} ${x.html_url} ${firstLine(x.body)}`]),
-            ...own.slice(1).filter((c) => at(c) > after && visible(c.body)).map((c) => [at(c), `comment ${c.html_url} ${firstLine(c.body)}`]),
+            ...onHead.filter((x) => !more.has(login) || ms(x.submitted_at) > launched).map((x) => [ms(x.submitted_at), `review ${x.state} ${x.html_url} ${firstLine(x.body)}`]),
+            // a result is as fresh as its last edit (the start above keeps the first sign)
+            ...own.slice(1).filter((c) => edited(c) > after && visible(c.body) && !aboutOther(c)).map((c) => [edited(c), `comment ${c.html_url} ${firstLine(c.body)}`]),
         ].sort((a, b) => a[0] - b[0]).at(-1)
         if (said) return { login, state: 'result', text: `result ${said[1]}` }
         const iso = (t) => new Date(t).toISOString()
@@ -237,6 +241,11 @@ function print(S, timedOut) {
 }
 
 const CODE = { green: 0, red: 1, conflict: 1, behind: 1, pending: 2, draft: 2, superseded: 2, fallback: 3 }
+if (!ciOnly) {
+    try { me = api('user').login } catch { me = null }
+    // an app token cannot read its own user: fail now instead of waiting the whole timeout on an unreadable review state
+    if (!me) { console.error('pr-wait: cannot read the account running this (gh api user); run it with a user token, or --ci-only'); process.exit(2) }
+}
 const deadline = Date.now() + timeoutMin * 60_000
 for (;;) {
     const S = fresh()

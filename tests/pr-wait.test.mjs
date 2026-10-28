@@ -366,6 +366,17 @@ test('the PR author, this account, a commenter who never reviewed, a comment-onl
     assert.match(withDone.stdout, /^Review: pending \(rb\[bot\]\)$/m)
 })
 
+test('a comment about another commit is a sign, never the result; a review of the head counts whatever its time', () => {
+    const suites = { [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(10) }] } }
+    const receipt = (sha) => ({ ...green, ...suites, 'issues/7/reactions': [react(8)], 'issues/7/comments': [note(60, 'summary', { updated_at: ago(8) }), note(3, `<!-- receipt -->\nNo major issues.\n**Reviewed commit:** \`${sha}\``, { id: 10 })] })
+    assert.match(wait(receipt('b'.repeat(10))).stdout, /^Review: pending \(rb\[bot\]\)$/m)   // a late receipt for the old head
+    assert.match(wait(receipt('a'.repeat(10))).stdout, /^Review: results \(rb\[bot\]\)$/m)   // names this head
+    assert.match(wait({ ...receipt('b'.repeat(10)), 'issues/7/comments': [note(60, 'summary'), note(3, 'no commit named', { id: 10 })] }).stdout, /^Review: results/m)
+    // a changes-requested review of the exact head, submitted before the head's first check suite, still decides
+    const early = wait({ ...green, ...suites, 'pulls/7/reviews': [rev('CHANGES_REQUESTED', { submitted_at: ago(12) })] })
+    assert.match(early.stdout, /^Review: changes requested \(rb\[bot\]\)$/m)
+})
+
 test('the window is 15 minutes from the first sign, not the latest; --more ignores a result before this run', () => {
     const suites = { [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(40) }] } }
     const sign = (min, edit) => ({ ...green, ...suites, 'issues/7/reactions': [react(min)], 'issues/7/comments': [note(min, 'status', { updated_at: ago(edit) })] })
@@ -380,6 +391,9 @@ test('the window is 15 minutes from the first sign, not the latest; --more ignor
     assert.equal(more.status, 2)
     assert.match(more.stdout, /^Review: pending \(rb\[bot\]\)$/m)
     assert.match(wait(said, ['7', '--more', 'other[bot]', '--timeout-min', '0']).stdout, /^Review: results/m)   // naming another login changes nothing
+    // a result comment edited after this run started (the rest of the findings) is the awaited result, though it was created before
+    const edited = { ...said, 'issues/7/comments': [note(8), note(4, 'part one, then the rest', { id: 10, updated_at: ago(-1) })] }
+    assert.match(wait(edited, ['7', '--more', RB, '--timeout-min', '0']).stdout, /^Review: results \(rb\[bot\]\)$/m)
 })
 
 test('red CI waits for a reviewer that started (all fixes in one push) and returns at once when nobody did', () => {
@@ -396,7 +410,13 @@ test('red CI waits for a reviewer that started (all fixes in one push) and retur
 })
 
 test('a failed read of the review activity keeps a green PR pending, never none', () => {
-    for (const key of ['user', 'pulls/7/reviews', 'issues/7/comments', 'issues/7/reactions', `commits/${HEAD}/check-suites`]) {
+    // the account running this is read once, up front: an app token cannot, so it stops at once instead of waiting out the timeout
+    const app = wait({ ...green, user: FAIL }, ['7'])
+    assert.equal(app.status, 2)
+    assert.match(app.stderr, /cannot read the account running this/)
+    assert.equal(app.stdout, '')
+    assert.equal(wait({ ...green, user: FAIL }, ['7', '--ci-only', '--timeout-min', '0']).status, 0)
+    for (const key of ['pulls/7/reviews', 'issues/7/comments', 'issues/7/reactions', `commits/${HEAD}/check-suites`]) {
         const r = wait({ ...green, [key]: FAIL })
         assert.equal(r.status, 2, key)
         assert.match(r.stdout, /^Review: pending \(the review activity could not be read\)$/m, key)

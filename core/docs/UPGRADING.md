@@ -64,7 +64,7 @@ Per release, newest first:
 
 ### From 0.3.5
 
-`schema_version` goes from 1 to 2: `sync` migrates the config (it drops the `reviewers` key, nothing else changes) and the update pull
+`schema_version` goes from 1 to 2: `sync` migrates the config (it drops the `reviewers` key, nothing else changes; the file is written back as 2-space JSON, so its diff also shows the new formatting) and the update pull
 request regenerates the skill and role stubs. No change to GitHub settings. The full list is in the `## 0.4.0` section of `CHANGELOG.md`
 in the TicketFlow repo; what you do by hand:
 
