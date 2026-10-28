@@ -200,7 +200,7 @@ function pollReviewers(S) {
         const own = comments.filter(mine)
         const signs = [...onHead.map((x) => ms(x.submitted_at)), ...[...own.map(at), ...reactions.filter(mine).map((x) => ms(x.created_at))].filter((t) => t > since)]   // a review of the head counts whatever its time
         if (!signs.length) return null
-        const key = `${S.head} ${since} ${login}`
+        const key = `${cfg.repo}#${target} ${S.head} ${since} ${login}`   // per repo and PR: the cache is shared by every run in the checkout
         const start = Math.min(firstSeen.get(key) ?? Infinity, ...signs)
         firstSeen.set(key, start)
         const last = onHead.at(-1)
