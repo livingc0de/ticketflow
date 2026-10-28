@@ -320,6 +320,10 @@ test('PR #47: a summary comment and eyes while it runs, then the edit when done:
     // a bot that posts a new comment for this head too
     assert.match(wait({ ...green, 'issues/7/comments': [summary('Running', { created_at: ago(60), updated_at: ago(5) })] }).stdout, /^Review cx\[bot\]: result first comment /m)
     assert.match(wait({ ...green, 'issues/7/comments': [summary('Done', { created_at: ago(60), updated_at: ago(50) }), note(4, '## Review\nRunning', { id: 21, user: app(CX) })] }).stdout, /^Review cx\[bot\]: result first comment /m)
+    // a comment that can never be a result (a late receipt naming the old head, or hidden markup only) does not count as its first answer
+    const receipt = note(60, 'Reviewed commit: `bbbbbbbbbb`', { id: 22, user: app(CX), updated_at: ago(10) })
+    const hiddenEdit = note(60, '<!-- cx-review-state -->', { id: 23, user: app(CX), updated_at: ago(9) })
+    assert.match(wait({ ...green, 'issues/7/comments': [receipt, hiddenEdit, note(4, '## Review\nRunning', { id: 21, user: app(CX) })] }).stdout, /^Review cx\[bot\]: result first comment /m)
     // a reaction after the push, for example a +1 that belongs to an older head, is a sign only
     const stale = wait({ ...green, 'issues/7/comments': [summary('Completed', { created_at: ago(60), updated_at: ago(45) })], 'issues/7/reactions': [react(5, '+1', CX)] })
     assert.match(stale.stdout, /^Review: pending \(cx\[bot\]\)$/m)

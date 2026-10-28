@@ -207,7 +207,7 @@ function pollReviewers(S) {
         // unchanged since; a fresh run knows only the last edit, so a reused summary stays unconfirmed up to 15 minutes after it, and a
         // status note edited while the review runs reads as an answer; revisit if a review app edits its note mid-run
         const firstKey = `${key} comment`
-        const firstAnswer = Math.min(firstSeen.get(firstKey) ?? Infinity, ...own.map(at).filter((t) => t > since))
+        const firstAnswer = Math.min(firstSeen.get(firstKey) ?? Infinity, ...own.filter((c) => visible(c.body) && !aboutOther(c)).map(at).filter((t) => t > since))
         firstSeen.set(firstKey, firstAnswer)
         const kind = (c) => (edited(c) <= firstAnswer && Date.now() < start + WINDOW_MS ? 'first comment' : 'comment')
         const said = latest(onHead.filter((x) => !more.has(login) || ms(x.submitted_at) > launched).map((x) => [ms(x.submitted_at), `review ${x.state} ${x.html_url} ${firstLine(x.body)}`]))
