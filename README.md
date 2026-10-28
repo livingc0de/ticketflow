@@ -28,7 +28,7 @@ What you get out of it:
 - **Safety.** Branch protection requires a green gate before anything merges, and the merge script also checks that the review
   findings were answered. Admin overrides stay yours: agents never use them on their own.
 - **Honesty.** A check that could not run is reported as "not verified", never claimed.
-- **One method, with or without a ticket.** Understand first, the smallest complete change, test first where it pays, evidence before "done", and reviews, audits and a shortcut-debt list on demand: also for a plain "fix this bug", with no ticket, branch or PR unless you ask.
+- **One method, with or without a ticket.** Understand first, the smallest complete change, test first where it pays, evidence before "done", and reviews, audits and a shortcut-debt list on demand. Asking for a fix or a feature starts its ticket; investigations, reviews, audits and local experiments need no ticket, branch or PR unless you ask.
 - **Your control.** Once every gate passes, the agent merges and hands the work back to you as **In Review**: merged, waiting for
   your look. Only you mark it **Done**, and real decisions (product, data, security, money) are asked, never assumed.
 - **Several tickets, optionally.** Ask for a list, a tracker or the Ready backlog and the `orchestrate-tickets` skill hands each ticket to a fresh lead that follows the same workflow, resuming from GitHub after an interruption.
@@ -69,11 +69,13 @@ Here is what happens when you say *"implement #42"*:
    following TicketFlow's built-in [engineering method](#building-the-engineering-method).
 4. **Verify.** CI runs your normal checks and posts `CI / Gate` on the exact commit. If GitHub Actions can't run (a billing hiccup,
    no runner), a careful local fallback runs the same checks and posts the result instead.
-5. **Review.** An independent `pr-reviewer` role reviews the pull request against the ticket, security, correctness and your own
-   rules: every pull request when it is your only reviewer, the `high` and `critical` ones (or as a stand-in) when you also use an
-   external reviewer such as a review bot. Findings are fixed in the same pull request.
+5. **Review.** While CI runs, TicketFlow watches for a review bot or a person that starts on the pull request and waits for its
+   result (at most 15 minutes). If none does, or none gives a usable result, the independent `pr-reviewer` role reviews the pull
+   request against the ticket, security, correctness and your own rules; `critical` pull requests get it either way. Findings are fixed
+   in the same pull request.
 6. **Merge.** Only through the `merge` script. It checks the gate, that the branch is up to date and that the review was
-   answered (no open review thread, no "changes requested", no "changes needed" verdict), then merges exactly that commit.
+   answered (no open review thread, no reviewer left waiting or on "changes requested", no "changes needed" verdict) and that the
+   exact commit was reviewed, then merges exactly that commit.
 7. **Hand off.** The ticket moves to **In Review** with a summary: what changed, the evidence, decisions, anything not verified.
    You look it over and mark it **Done** when you're happy.
 
@@ -143,22 +145,23 @@ Changes that touch only the paths you list as docs get it quickly without runnin
 
 ### Reviews
 
-The `pr-reviewer` role is always available and works with no setup: it reviews every pull request, or only the `high` and `critical`
-ones once you add an external reviewer (a bot or a person) in the config. TicketFlow waits for external reviewers and, when you
-give it the pattern or timeout to recognise it, notices one that is out of quota or silent, or that only left a comment (a comment
-is not an approval), and brings in the built-in reviewer as a stand-in.
+You configure nothing. While CI runs, TicketFlow notices any review bot or teammate that starts on the exact commit (a reaction, a
+comment, a review) and waits for that reviewer's result, at most 15 minutes from its start; activity from older commits or from
+unrelated accounts is ignored. The agent reads the result and fixes what it finds. With no external review, the built-in
+`pr-reviewer` role reviews the commit and reports its findings straight to the agent; a `critical` pull request gets it as well, and a `high` one
+where the external result missed the risky part.
 
 A finished review is not enough to merge. Findings must be answered too: every open review thread (from anyone, bots included),
-a configured reviewer's "changes requested" and a "changes needed" verdict from `pr-reviewer` stop the merge until they are dealt
+a reviewer's "changes requested" and a "changes needed" verdict from `pr-reviewer` stop the merge until they are dealt
 with. The agent fixes each finding, or says why it disagrees, then replies to the thread and resolves it.
 [More in REVIEWERS.md](core/docs/REVIEWERS.md)
 
 ### Merging and branch protection
 
 Merges happen only through the `merge` script. A standard branch ruleset requires `CI / Gate` and an up-to-date
-branch. The script adds what a ruleset cannot see: no unresolved review thread from anyone, no configured reviewer left on "changes requested",
-and, if the built-in reviewer reviewed this exact commit, its last verdict must be "ready to merge". A review the merge rests on must be
-of this exact commit and come from an account with write access; an `owner approved` basis needs an admin account. When it refuses, it always prints the next step, and there is always a legitimate way through
+branch. The script adds what a ruleset cannot see: no unresolved review thread from anyone, no reviewer left waiting or on "changes
+requested", every trusted account's last verdict on this commit "ready to merge", and a review of this exact commit (the agent's own
+`pr-reviewer` review, or the external reviewer's result it names). When it refuses, it always prints the next step, and there is always a legitimate way through
 ([the ways past a refusal](core/docs/REVIEWERS.md#when-merge-says-no)). Your merge methods and branch settings stay yours: the setup shows them and offers squash-only (one commit per ticket) and
 tidy-branch settings, which you can take or leave. You, as an admin, can still override it through a pull request when you choose to; agents never do that on their own.
 [More in SECURITY.md](core/docs/SECURITY.md)
@@ -210,7 +213,7 @@ adapters, API endpoints, UI screens, domain guides, deploy gating and analytics 
 | Where | What | Who edits it |
 |---|---|---|
 | `.ticketflow/` | the runtime: skills, roles, scripts, templates, docs | only `sync` |
-| `.ticketflow/config.json` | your settings: verify command, Project, reviewers, practices… | you |
+| `.ticketflow/config.json` | your settings: verify command, Project, practices… | you |
 | `.ticketflow/manifest.json` | what was installed, so updates can tell your changes from TicketFlow's | `init` and `sync` |
 | `.ticketflow/custom/` | your additions and overrides to any skill or role | you |
 | `.claude/`, `.agents/`, `.codex/`, `.cursor/`, `.gemini/`, `.opencode/`, `.github/agents/` | short generated stubs that point agents at the runtime; only the folders of the agents in your config | the generator |
@@ -246,7 +249,7 @@ Pick whichever front door suits you. They all lead to the same guided setup:
 - **Any other agent:** tell it to read
   [`START.md`](https://raw.githubusercontent.com/livingc0de/ticketflow/main/START.md) and follow it.
 
-The setup interviews you (your verify command, your Project, optional reviewers and practices), writes the files, and opens a
+The setup interviews you (your verify command, your Project, optional practices), writes the files, and opens a
 **setup pull request** for you to review. Every GitHub change (labels, Project, branch protection) is shown as a dry run first and
 only applied after your yes. Branch protection is switched on after you merge the setup pull request. A brand-new, empty repo gets
 one confirmed direct push instead.
@@ -271,7 +274,7 @@ Talk to your agent in plain words:
 | "implement #42" / "implement the next ticket" | the full journey above, ending In Review with a summary |
 | "next child of #10" | the next unfinished sub-issue of an initiative |
 | "I have an idea: ..." | the agent reads the code, asks one question at a time, offers 2-3 approaches and writes the ticket or tracker |
-| "fix this bug" / "build X" (no ticket) | the same method without the ceremony: understand, reproduce or test first, the smallest change, a short report with what was not checked; no branch, commit or PR unless you ask |
+| "fix this bug" / "build X" | its ticket (found or created), then the full journey with the same method: understand, reproduce or test first, the smallest change, a short report with what was not checked. Say "no ticket, just try it here" and there is no ticket, branch, commit or PR unless you ask |
 | "review this diff" / "review my branch" | an independent `pr-reviewer` pass with no pull request: blockers with the concrete case and the smallest fix; nothing is posted |
 | "audit the repo" | a mapped, ranked list (at most 20) of what to delete, simplify or fix, each with `path:line` and the cost of skipping it, ending with what was not checked |
 | "list the shortcuts" | `debt.mjs`: every `shortcut:` comment with its limit and trigger; the ones without a trigger are flagged |
@@ -316,7 +319,7 @@ the skills. That includes Windsurf, Cline and Roo Code, Amp, Kiro, Junie, Zed, A
 use `core/agents-map/generic.md` (Aider: `read: AGENTS.md` in `.aider.conf.yml`; Kiro and Cline: tell it to read `AGENTS.md`). They get
 no command guard, and without sub-agents the review runs in the same session, so you are asked before a merge that rests on it.
 
-**Why did `merge` refuse?** It names the reason and the next step. The common ones (an open review thread, "changes requested", an
+**Why did `merge` refuse?** It names the reason and the next step. The common ones (an open review thread, "changes requested", a reviewer still answering, an
 out-of-date branch) and the legitimate ways past each are in [REVIEWERS.md](core/docs/REVIEWERS.md#when-merge-says-no).
 
 **Will it slow small changes down?** Small, obvious changes skip planning, pull requests that touch only your listed docs paths skip the heavy checks, and review

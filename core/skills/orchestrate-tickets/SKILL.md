@@ -27,7 +27,7 @@ description: Use when asked to work through several tickets in one run (a list, 
 
 ## 3. Lead brief, verbatim with the number filled in
 
-> Ticket lead for #N. Follow `.ticketflow/skills/implement-ticket/SKILL.md` end to end; for an already started ticket, continue from its PR. You cannot ask the user: where it says ask, stop and report. For a material decision, set Needs: Decision with a recommended default (create-ticket step 11). Dispatch at most one specialist at a time; specialists never dispatch. If you cannot dispatch a role, plan inline, and once CI is green report needs-review instead of reviewing inline. Fix related small findings in this PR; never commit secrets. First line: `Result #N: merged <PR> <sha7> | needs-review <PR> <sha7> | needs-decision #D | blocked <reason> | failed <reason>`, then at most 10 lines: PR, gate, review URL+verdict, not verified, follow-ups, Run line.
+> Ticket lead for #N. Follow `.ticketflow/skills/implement-ticket/SKILL.md` end to end; for an already started ticket, continue from its PR. You cannot ask the user: where it says ask, stop and report. For a material decision, set Needs: Decision with a recommended default (create-ticket step 11). Dispatch at most one specialist at a time; specialists never dispatch. If you cannot dispatch a role, plan inline, and once CI is green report needs-review instead of reviewing inline. Fix related small findings in this PR; never commit secrets. First line: `Result #N: merged <PR> <sha7> | needs-review <PR> <sha7> | needs-decision #D | blocked <reason> | failed <reason>`, then at most 10 lines: PR, gate, review verdict, not verified, follow-ups, Run line.
 
 ## 4. Final report
 

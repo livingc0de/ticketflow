@@ -39,7 +39,7 @@ function workspace(sdir, agent, arm, work, src) {
     if (arm === 'ticketflow') {
         mkdirSync(join(dir, '.ticketflow'))
         const none = { strong: null, standard: null, light: null }
-        writeFileSync(join(dir, '.ticketflow/config.json'), JSON.stringify({ schema_version: 1, repo: 'eval/fixture', default_branch: 'main', verify: { mode: 'local-first', command: 'npm test' }, agents: [agent], models: { [agent]: none } }))
+        writeFileSync(join(dir, '.ticketflow/config.json'), JSON.stringify({ schema_version: 2, repo: 'eval/fixture', default_branch: 'main', verify: { mode: 'local-first', command: 'npm test' }, agents: [agent], models: { [agent]: none } }))
         node(dir, join(src, 'core/scripts/runtime.mjs'), src, '.')
         node(dir, '.ticketflow/scripts/gen-stubs.mjs', '.ticketflow', '.')
         node(dir, '.ticketflow/scripts/render.mjs', '.ticketflow/templates', '.')

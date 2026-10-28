@@ -12,7 +12,6 @@ Start from `<TF>/core/templates/config.json` and write the result to `.ticketflo
 | `verify.mode` | `ci`; `local-first` when CI is slow, costly or needs local services (then `timeout_min` 45) |
 | `gate` | `CI / Gate` and `Verify`, or the context already required (`gh api repos/<R>/rules/branches/<b>` and `gh api repos/<R>/branches/<b> --jq .protection.required_status_checks.contexts`). `inherit` false |
 | `docs_only` | docs = `^docs/` and `^[^/]+\.md$`; ask which of those are really code |
-| `reviewers` | see below |
 | `areas` | existing `Area:` labels, else the top-level source directories. Labels in use outside the core set go to `custom/labels.json` |
 | UI | front-end dependencies, `playwright.config.*` or `e2e/` found: the `live-verify` practice is recommended through the Practices questions; when it is enabled set `live_verify_skill` to `live-verify` (otherwise the `e2e-verifier` role gets no stub). Also recommend a `deferred_checks_issue` (create one). A repo that keeps its own live-verification skill leaves the practice off and names that skill in `live_verify_skill` |
 | `deploy_branch` | a non-default branch in the workflows' `on.push.branches`, else null. `ci.push_paths` null |
@@ -23,10 +22,7 @@ Start from `<TF>/core/templates/config.json` and write the result to `.ticketflo
 
 ## Reviewers
 
-- Candidates: bot authors in `gh pr list --state all --limit 20 --json reviews,comments`, without CI and dependency bots.
-- The exact login from `gh api repos/<R>/pulls/<n>/reviews --jq '.[].user.login'` (the REST form, with `[bot]`).
-- `rereview_comment`: the most common human comment that mentions the bot. `no_findings_reaction`: from its reactions. `unavailable_pattern`: from its comments about a limit. `stale_after_min`: 30.
-- The independent `pr-reviewer` role is always on and is never listed.
+Review bots and people need no configuration: they are observed from GitHub activity (`<TF>/core/docs/REVIEWERS.md`), and the `pr-reviewer` role covers a PR no one else reviews.
 
 ## Practices
 

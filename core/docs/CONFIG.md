@@ -1,7 +1,7 @@
 # Configuration
 
 All of TicketFlow's settings for your repo live in one small file, `.ticketflow/config.json`. The setup writes it for you after a
-short interview; afterwards you edit it whenever something changes (a new verify command, a review bot, an extra practice) and run
+short interview; afterwards you edit it whenever something changes (a new verify command, an extra practice) and run
 the generators so the rest follows. This page lists every key.
 
 The file sits in the repo's git toplevel. Every script loads it with `core/lib/config.mjs`
@@ -13,7 +13,7 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 
 | Key | Type | Default | Read by |
 |---|---|---|---|
-| `schema_version` | integer, must equal the core's (`1`) | required | `config`, `sync` |
+| `schema_version` | integer, must equal the core's (`2`) | required | `config`, `sync` |
 | `repo` | `owner/name` | required | all scripts |
 | `default_branch` | branch name | required | `inherit`, `local-verify`, `merge`, `pr-wait`, `render` |
 | `verify.mode` | `ci` or `local-first` | required | `pr-wait` (a draft in `local-first` is not CI-checked), `render` |
@@ -26,7 +26,6 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `gate.ci_files` | list of regexes | `[]` | `inherit` |
 | `docs_only.docs` | list of regexes: paths that are documentation | `[]` | `docs-only`, `inherit`, `local-verify` |
 | `docs_only.code` | list of regexes: paths that are code even if they match `docs` | `[]` | `docs-only`, `inherit`, `local-verify` |
-| `reviewers` | list of reviewer objects | `[]` | `pr-wait` |
 | `deploy_branch` | branch name or `null`; must differ from `default_branch` | `null` | `local-verify`, `render` |
 | `project` | project object, or `null` for none | `null` | `project`, `tracker-next`, `queue` |
 | `agents` | unique list of `claude`, `codex`, `cursor`, `gemini`, `opencode`, `antigravity` and `copilot`: the agents to generate stubs and guard files for. The agents that read the shared `.agents/skills/` folder (every one but Claude Code) share one skill stub, whose action-map line then lists them | `[]` | `gen-stubs`, `render` |
@@ -41,8 +40,6 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 
 `gate.context` and `gate.check` must differ: the verdict is the commit status, and check runs are only read to
 detect a refused Actions run.
-
-A reviewer object (`reviewers`): see [REVIEWERS.md](REVIEWERS.md).
 
 A project object (the GitHub Project, Projects v2, that tracks the repo's issues; see [PROJECT.md](PROJECT.md)):
 

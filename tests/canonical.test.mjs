@@ -136,8 +136,26 @@ test('engineering-method: the method has one home (implement-ticket and create-t
     assert.doesNotMatch(text('skills/implement-ticket/SKILL.md'), /see a test fail for the right reason|shortcut: <limit>|Never delegate a deterministic command/)
     for (const p of ['skills/implement-ticket/SKILL.md', 'skills/create-ticket/SKILL.md']) assert.match(text(p), /\.ticketflow\/skills\/engineering-method\/SKILL\.md|engineering-method skill/, p)
     const reviewer = text('agents/pr-reviewer.md')
-    for (const re of [/\*\*Diff mode\*\*/, /\*\*Audit mode\*\*/, /Lean: -N lines possible/, /at most 20/, /never a PR's review of record and never a `Review basis`/, /Verdict: no blockers \| blockers found/]) assert.match(reviewer, re)
+    for (const re of [/\*\*Diff mode\*\*/, /\*\*Audit mode\*\*/, /Lean: -N lines possible/, /at most 20/, /never counts as the review `merge` needs/, /Verdict: no blockers \| blockers found/]) assert.match(reviewer, re)
     assert.match(text('agents/ticket-planner.md'), /`review: task`/)
+})
+
+test('engineering-method routes a change that ships to its ticket; ticketless stays for local work, investigation, review and audit', () => {
+    const skill = text('skills/engineering-method/SKILL.md')
+    assert.match(skill, /A request to ship a change \(fix a bug, build, refactor\) is ticket work: find or create its ticket \(`create-ticket` searches first\), then `implement-ticket`/)
+    assert.match(skill, /Without a ticket \(the user says so, or nothing ships: an investigation, a diff review, an audit, a local experiment\)/)
+    assert.doesNotMatch(skill.split('\n')[2], /with or without a ticket/)
+    assert.match(text('skills/create-ticket/SKILL.md'), /A `low`-tier ticket has only Goal, Acceptance criteria and Execution/)
+    assert.match(text('skills/implement-ticket/SKILL.md'), /--reviewed-by/)
+})
+
+test('the removed review mechanisms appear only in the upgrade history and the changelog', () => {
+    const removed = /Review basis|review-basis|owner approved|standin needed|none configured|done_pattern|no_findings_reaction|rereview_comment|unavailable_pattern|stale_after_min/
+    const root = new URL('../', import.meta.url).pathname
+    const walk = (dir) => readdirSync(join(root, dir), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]))
+    const files = [...['core/skills', 'core/agents', 'core/agents-map', 'core/scripts', 'core/lib', 'core/templates', 'skills'].flatMap(walk), ...readdirSync(join(core, 'docs')).filter((f) => f !== 'UPGRADING.md').map((f) => `core/docs/${f}`), 'README.md']
+    assert.ok(files.length > 40)
+    for (const f of files) assert.doesNotMatch(readFileSync(join(root, f), 'utf8'), removed, f)
 })
 
 test('the ticketflow repo root has no plugin.json, hooks.json, rules/ or GEMINI.md: agents that scan the root would load them as their own', () => {

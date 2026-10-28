@@ -1,26 +1,39 @@
 #!/usr/bin/env node
 /**
- * One blocking wait for a pull request (or a default-branch commit): returns when the merge gate is final and the configured
- * reviewers are done, asked for changes, commented, unavailable or silent, then prints one summary. Run it in the background instead of polling in turns.
+ * One blocking wait for a pull request (or a default-branch commit): returns when the merge gate is final and every external reviewer
+ * that started has answered, asked for changes or run out of time, then prints one summary. Run it in the background instead of polling in turns.
  *
- * Usage: pr-wait.mjs <pr | 40-hex sha> [--once] [--ci-only] [--timeout-min N] [--config f]
+ * Usage: pr-wait.mjs <pr | 40-hex sha> [--once] [--ci-only] [--timeout-min N] [--more <login>]... [--config f]
  *   --once         one poll; the exit code comes from CI only (reviewer lines are still printed unless --ci-only)
  *   --ci-only      do not read or wait for reviewers. A sha (a default-branch commit) implies it and makes no PR calls.
  *   --timeout-min  how long to wait (default 45)
+ *   --more         this reviewer said more is coming: only what it posts after this run started counts as its result
  *
  * The verdict is the commit status `gate.context`. Check runs of the Actions app are read only to tell a run that Actions refused
  * (billing: no runner, no steps, the billing annotation; or queued 20 minutes without a runner) from a real red one.
  * A failed read is a pending poll, never a verdict.
  *
- * A reviewer's last review on the head decides: CHANGES_REQUESTED prints `Review: changes requested (<names>)` (settled, exit 0: merge
- * refuses it); APPROVED is done; any other state (COMMENTED, unknown, missing) is `commented`, which needs a stand-in: a comment
- * reports findings, it does not accept them. A dismissed or pending review counts for nothing. The summary is `pending`, else
- * `changes requested`, else `standin needed` (unavailable, silent or commented), else `done`. In PR mode (not `--ci-only`) it also prints `Unresolved threads: <n | unknown>` and lists them for
+ * External reviewers are observed, never configured or invoked. One counts when it is an app (a `[bot]` login, or type Bot) that reviewed
+ * or reacted on the PR, or an OWNER, MEMBER or COLLABORATOR that reviewed it, other than the PR author and the account running this, and
+ * it has a sign on this head: a review of it, a comment or a reaction made, or a comment edited, after the head was pushed (the first
+ * check suite of the head, else its committer date). Its start is its first sign; it is waited for at most 15 minutes from that start,
+ * and only its own result ends its wait: a review of the head (whatever its time: it can only exist after the push), or a comment of it
+ * after its first one (which is taken as its status note) with visible text, counted at its last edit, that names the head or no commit
+ * at all. A comment that names only other commits starts the wait but never ends it. A later edit does not restart the window. A last
+ * review of the head that is CHANGES_REQUESTED is `changes requested` (settled, exit 0: merge refuses it). Activity before the push, a
+ * review of another commit, and anyone else's activity are ignored.
+ * It prints one `Review <login>: <state>` line per such reviewer (`pending since ..`, `result <kind> <url> <first line>`,
+ * `changes requested (<sha7>) <url>`, `no result 15 min after its start ..`), then `Review:`: `pending (<logins>)`, else `changes requested (<logins>)`,
+ * else `results (<logins>)`, else `none`, with ` (no result in time: <logins>)` after results or none. A failed read prints
+ * `Review: pending (the review activity could not be read)`. A result says that a reviewer answered, not what it concluded: the
+ * agent reads it. In PR mode (not `--ci-only`) it also prints `Unresolved threads: <n | unknown>` and lists them for
  * `thread.mjs`; `unknown` is a failed read or more than 100 threads, and `merge` refuses it.
  *
- * Exit: 0 = CI green and every reviewer done, changes requested, commented, unavailable or silent; 1 = CI red, or the PR conflicts with / is behind the default
- * branch; 2 = timed out, still pending, a draft in local-first mode, or (sha) superseded; 3 = Actions refused the run, so
- * `local-verify` may take over ("Fallback: allowed" in the summary). Usage and config errors exit 2 before any call.
+ * Exit: 0 = CI green and no started reviewer pending (results, changes requested, late or none); 1 = CI red (after the started
+ * reviewers answered or ran out of time), or the PR conflicts with / is behind the default branch; 2 = timed out, still pending, a draft
+ * in local-first mode, (sha) superseded, or, at once, the account running this cannot be read (`gh api user`, e.g. an app token;
+ * `--ci-only` skips that read); 3 = Actions refused the run, so `local-verify` may take over ("Fallback: allowed" in the summary).
+ * Usage and config errors exit 2 before any call.
  */
 
 import { spawnSync } from 'node:child_process'
@@ -36,17 +49,19 @@ const BILLING = /recent account payments have failed|spending limit/i
 const STUCK_MS = 20 * 60_000
 const POLL_SEC = '60'
 
-const usage = 'usage: pr-wait.mjs <pr | 40-hex sha> [--once] [--ci-only] [--timeout-min N] [--config f]'
-let cfg, target, once, ciOnly, timeoutMin
+const usage = 'usage: pr-wait.mjs <pr | 40-hex sha> [--once] [--ci-only] [--timeout-min N] [--more <login>]... [--config f]'
+let cfg, target, once, ciOnly, timeoutMin, more
 try {
     const { values, positionals } = parseArgs({
-        options: { once: { type: 'boolean' }, 'ci-only': { type: 'boolean' }, 'timeout-min': { type: 'string' }, config: { type: 'string' } },
+        options: { once: { type: 'boolean' }, 'ci-only': { type: 'boolean' }, 'timeout-min': { type: 'string' }, more: { type: 'string', multiple: true }, config: { type: 'string' } },
         allowPositionals: true,
     })
     ;[target] = positionals
     if (positionals.length !== 1 || !/^(\d+|[0-9a-f]{40})$/.test(target)) throw new Error(usage)
     if (values['timeout-min'] !== undefined && !/^\d+$/.test(values['timeout-min'])) throw new Error(usage)
     timeoutMin = Number(values['timeout-min'] ?? 45)
+    if ((values.more ?? []).some((l) => !/^[\w.[\]-]+$/.test(l))) throw new Error(usage)
+    more = new Set(values.more ?? [])
     once = values.once === true
     ciOnly = values['ci-only'] === true || target.length === 40
     cfg = loadConfig(values.config ?? configPath(dirname(fileURLToPath(import.meta.url))))
@@ -69,7 +84,7 @@ function api(path, paginate = false) {
 /** Text from GitHub that is printed in the summary: control characters and line separators become one space, so it can never forge a summary line. */
 const flat = (v) => String(v ?? '').replace(/[\p{Cc}\u2028\u2029]+/gu, ' ')
 const ms = (iso) => Date.parse(iso)
-const fresh = () => ({ head: '', draft: false, gate: null, verify: null, fallback: null, why: 'Actions has not refused the run', notes: [], reviewers: null, threads: null })
+const fresh = () => ({ head: '', draft: false, gate: null, verify: null, fallback: null, why: 'Actions has not refused the run', notes: [], reviewers: null, threads: null, author: null })
 
 /** Decides CI for the head and fills `S`. Returns green | red | pending | fallback | conflict | behind | draft | superseded. */
 function pollCi(S) {
@@ -79,7 +94,7 @@ function pollCi(S) {
         pull = api(`${R}/pulls/${target}`)
         S.head = pull.head.sha
         S.draft = pull.draft === true
-        S.created = pull.created_at
+        S.author = pull.user?.login
         if (cfg.verify.mode === 'local-first' && S.draft) { S.notes.push(`Draft: CI skips drafts; gh pr ready ${target}`); return 'draft' }
         if (pull.mergeable === false) { S.notes.push(`PR #${target} conflicts with ${base}: merge ${base} into the branch`); return 'conflict' }
     }
@@ -123,38 +138,70 @@ function pollCi(S) {
     return 'pending'
 }
 
-/** Fills S.reviewers: one { r, state, text } per configured reviewer, from the round that started at the latest re-review request. */
+/** The first line of text with visible content; the text is HTML-comment free and cut to 160 characters. */
+const strip = (b) => String(b ?? '').replace(/<!--[\s\S]*?-->/g, '')
+const visible = (b) => /\S/.test(strip(b))
+const firstLine = (b) => strip(b).split(/[\n\r\u2028\u2029\u0085]/).find((l) => /\S/.test(l))?.slice(0, 160) ?? ''
+// a reaction reports an app as type User, so the login decides
+const isApp = (u) => u?.type === 'Bot' || /\[bot\]$/.test(u?.login ?? '')
+
+const WINDOW_MS = 15 * 60_000
+const launched = Date.now()
+const firstSeen = new Map()
+const pushed = new Map()
+let me
+
+/** When this head was pushed: the first check suite created for it (a later run does not move it), else the committer date. */
+function pushedAt(head) {
+    if (!pushed.has(head)) {
+        const t = Math.min(...(api(`${R}/commits/${head}/check-suites?per_page=100`).check_suites ?? []).map((x) => ms(x.created_at)).filter((x) => x > 0))
+        if (t === Infinity) return ms(api(`${R}/commits/${head}`).commit.committer.date)   // shortcut: no suite (no CI yet) falls back to the committer date, which can predate the push; read the push event if a repo runs PRs without checks
+        pushed.set(head, t)
+    }
+    return pushed.get(head)
+}
+
+/**
+ * Fills S.reviewers with one { login, state, text } per external reviewer that started on this head: an app that reviewed or reacted
+ * on the PR, or a trusted human that reviewed, and has a sign since the push (a review of the head, a comment, a reaction).
+ */
 function pollReviewers(S) {
+    const since = pushedAt(S.head)
     const comments = api(`${R}/issues/${target}/comments`, true)
-    const reviews = api(`${R}/pulls/${target}/reviews`, true)
-    const reactions = cfg.reviewers.some((r) => r.no_findings_reaction) ? api(`${R}/issues/${target}/reactions`, true) : []
-    const headDate = cfg.reviewers.some((r) => r.no_findings_reaction || r.stale_after_min) ? ms(api(`${R}/commits/${S.head}`).commit.committer.date) : NaN
-    S.reviewers = cfg.reviewers.map((r) => {
-        // only a request of the owner, a member or a collaborator moves the round: on a public repo anyone can comment
-        const asked = r.rereview_comment ? comments.filter((c) => TRUSTED.has(c.author_association) && c.body?.trim().startsWith(r.rereview_comment)).map((c) => ms(c.created_at)) : []
-        const start = asked.length ? Math.max(...asked) : ms(S.created)
-        const mine = (x) => x.user?.login === r.login
-        const out = { r, start }
-        // a reviewer often edits one summary comment in place: the time that counts is its last update
-        const at = (c) => c.updated_at ?? c.created_at
-        // the reviewer's last answer on the head decides; a dismissed or pending review is no answer
-        const last = reviews.filter((x) => mine(x) && x.commit_id === S.head && x.state !== 'DISMISSED' && x.state !== 'PENDING').at(-1)
-        if (last?.state === 'CHANGES_REQUESTED') return { ...out, state: 'changes', text: `changes requested (${S.head.slice(0, 7)})` }
-        if (last?.state === 'APPROVED') return { ...out, state: 'done', text: `approved (${S.head.slice(0, 7)})` }
-        if (last) return { ...out, state: 'commented', text: `commented, not approved (${S.head.slice(0, 7)})` }
-        if (r.no_findings_reaction && reactions.some((x) => mine(x) && x.content === r.no_findings_reaction && ms(x.created_at) > Math.max(start, headDate))) {
-            return { ...out, state: 'done', text: `done (${r.no_findings_reaction} after head)` }
-        }
-        // the last match of done_pattern (bodies as currently edited, comments by last update) names the commit the reviewer finished
-        const all = r.done_pattern ? new RegExp(r.done_pattern.source, `${r.done_pattern.flags}g`) : null
-        const sha = all && comments.filter(mine).sort((a, b) => ms(at(a)) - ms(at(b))).flatMap((c) => [...(c.body ?? '').matchAll(all)]).at(-1)?.groups?.sha?.toLowerCase()
-        if (sha?.length >= 7 && S.head.startsWith(sha)) return { ...out, state: 'done', text: `done (state ${sha.slice(0, 7)})` }
-        const gone = r.unavailable_pattern && comments.find((c) => mine(c) && ms(at(c)) > start && r.unavailable_pattern.test(c.body ?? ''))
-        if (gone) return { ...out, state: 'unavailable', text: `unavailable since ${at(gone)}` }
-        const quiet = Date.now() - Math.max(start, headDate)
-        if (r.stale_after_min && quiet >= r.stale_after_min * 60_000) return { ...out, state: 'silent', text: `silent ${Math.floor(quiet / 60_000)} min` }
-        return { ...out, state: 'pending', text: 'pending' }
-    })
+    const reactions = api(`${R}/issues/${target}/reactions`, true)
+    const reviews = api(`${R}/pulls/${target}/reviews`, true).filter((x) => x.state !== 'PENDING' && x.state !== 'DISMISSED')
+    const outside = (l) => l && l !== me && l !== S.author
+    // an app that only comments (a deploy or coverage bot) is no reviewer until it reviews or reacts on this PR
+    const known = new Set([...reviews.filter((x) => isApp(x.user) || TRUSTED.has(x.author_association)), ...reactions.filter((x) => isApp(x.user))].map((x) => x.user?.login).filter(outside))
+    // a comment counts when it was posted after the push, else when it was edited after it
+    const at = (c) => (ms(c.created_at) > since ? ms(c.created_at) : ms(c.updated_at))
+    const edited = (c) => Math.max(ms(c.created_at), ms(c.updated_at ?? c.created_at))
+    // shortcut: a comment that names commits (7-40 hex, hidden markup too) but not this head is about another commit: a sign, never the
+    // result; a hex word ("defaced") makes a result wait out its window, the safe side; revisit if a reviewer names commits unrelated to its review
+    const aboutOther = (c) => { const named = String(c.body ?? '').match(/\b[0-9a-f]{7,40}\b/g) ?? []; return named.length > 0 && !named.some((x) => S.head.startsWith(x)) }
+    S.reviewers = [...known].sort().map((login) => {
+        const mine = (x) => x.user?.login === login
+        const onHead = reviews.filter((x) => mine(x) && x.commit_id === S.head)
+        const own = comments.filter(mine)
+        const signs = [...onHead.map((x) => ms(x.submitted_at)), ...[...own.map(at), ...reactions.filter(mine).map((x) => ms(x.created_at))].filter((t) => t > since)]   // a review of the head counts whatever its time
+        if (!signs.length) return null
+        const key = `${S.head} ${since} ${login}`
+        const start = Math.min(firstSeen.get(key) ?? Infinity, ...signs)
+        firstSeen.set(key, start)
+        const last = onHead.at(-1)
+        if (last?.state === 'CHANGES_REQUESTED') return { login, state: 'changes', text: `changes requested (${S.head.slice(0, 7)}) ${last.html_url}` }
+        const after = more.has(login) ? launched : since
+        // shortcut: a reviewer's first comment on the PR is its status note, so a one-comment reviewer waits its 15 minutes; revisit if a common bot posts its whole result as its only comment
+        const said = [
+            ...onHead.filter((x) => !more.has(login) || ms(x.submitted_at) > launched).map((x) => [ms(x.submitted_at), `review ${x.state} ${x.html_url} ${firstLine(x.body)}`]),
+            // a result is as fresh as its last edit (the start above keeps the first sign)
+            ...own.slice(1).filter((c) => edited(c) > after && visible(c.body) && !aboutOther(c)).map((c) => [edited(c), `comment ${c.html_url} ${firstLine(c.body)}`]),
+        ].sort((a, b) => a[0] - b[0]).at(-1)
+        if (said) return { login, state: 'result', text: `result ${said[1]}` }
+        const iso = (t) => new Date(t).toISOString()
+        if (Date.now() >= start + WINDOW_MS) return { login, state: 'late', text: `no result 15 min after its start ${iso(start)}` }
+        return { login, state: 'pending', text: `pending since ${iso(start)} (at most until ${iso(start + WINDOW_MS)})` }
+    }).filter(Boolean)
 }
 
 /** Fills S.threads with the unresolved review threads of any author, or 'unknown' when they cannot be told (a failed read, or more than 100). */
@@ -167,7 +214,7 @@ function pollThreads(S) {
         if (!(t.totalCount <= 100) || !Array.isArray(t.nodes)) throw new Error('too many threads')
         S.threads = t.nodes.filter((x) => !x.isResolved).map((x) => {
             const c = x.comments.nodes[0]
-            return flat(`  [${x.id}] ${x.path}:${x.line ?? x.originalLine} @${c?.author?.login ?? 'unknown'} ${(c?.body ?? '').split(/[\n\r\u2028\u2029\u0085]/).find((l) => /\S/.test(l))?.slice(0, 160) ?? ''}`)
+            return flat(`  [${x.id}] ${x.path}:${x.line ?? x.originalLine} @${c?.author?.login ?? 'unknown'} ${firstLine(c?.body)}`)
         })
     } catch {
         S.threads = 'unknown'
@@ -180,11 +227,13 @@ function print(S, timedOut) {
     console.log(`${cfg.gate.context}: ${g ? flat([g.state, g.description, g.target_url].filter(Boolean).join(' ')) : 'none'}`)
     console.log(`Verify: ${S.verify ?? 'none'}`)
     console.log(S.fallback ? `Fallback: allowed (${S.fallback})` : `Fallback: not allowed (${S.why})`)
-    if (S.reviewers) {
-        for (const x of S.reviewers) console.log(flat(`Review ${x.r.name}: ${x.text}`))
-        const named = (...states) => S.reviewers.filter((x) => states.includes(x.state)).map((x) => x.r.name).join(', ')
-        console.log(`Review: ${S.reviewers.some((x) => x.state === 'pending') ? 'pending' : named('changes') ? `changes requested (${named('changes')})` : named('unavailable', 'silent', 'commented') ? `standin needed (${named('unavailable', 'silent', 'commented')})` : 'done'}`)
-    } else if (!sha && !ciOnly && cfg.reviewers.length === 0) console.log('Review: none configured (pr-reviewer reviews)')
+    if (S.reviewers === 'unknown') console.log('Review: pending (the review activity could not be read)')
+    else if (S.reviewers) {
+        for (const x of S.reviewers) console.log(flat(`Review ${x.login}: ${x.text}`))
+        const named = (state) => S.reviewers.filter((x) => x.state === state).map((x) => x.login).join(', ')
+        const late = named('late') ? ` (no result in time: ${named('late')})` : ''
+        console.log(flat(`Review: ${named('pending') ? `pending (${named('pending')})` : named('changes') ? `changes requested (${named('changes')})` : named('result') ? `results (${named('result')})${late}` : `none${late}`}`))
+    }
     if (S.threads === 'unknown') console.log('Unresolved threads: unknown')
     else if (S.threads) {
         console.log(`Unresolved threads: ${S.threads.length}`)
@@ -196,18 +245,21 @@ function print(S, timedOut) {
 }
 
 const CODE = { green: 0, red: 1, conflict: 1, behind: 1, pending: 2, draft: 2, superseded: 2, fallback: 3 }
+if (!ciOnly) {
+    try { me = api('user').login } catch { me = null }
+    // an app token cannot read its own user: fail now instead of waiting the whole timeout on an unreadable review state
+    if (!me) { console.error('pr-wait: cannot read the account running this (gh api user); run it with a user token, or --ci-only'); process.exit(2) }
+}
 const deadline = Date.now() + timeoutMin * 60_000
 for (;;) {
     const S = fresh()
     let kind = 'pending'
     try { kind = pollCi(S) } catch { S.why = 'a read failed' }
     if (!ciOnly && (once || ['green', 'red', 'pending'].includes(kind)) && S.head) {
-        if (cfg.reviewers.length) {
-            try { pollReviewers(S) } catch { S.reviewers = cfg.reviewers.map((r) => ({ r, state: 'pending', text: 'pending' })) }
-        }
+        try { pollReviewers(S) } catch { S.reviewers = 'unknown' }
         pollThreads(S)
     }
-    const reviewed = !S.reviewers || S.reviewers.every((x) => x.state !== 'pending')
+    const reviewed = S.reviewers !== 'unknown' && !(S.reviewers ?? []).some((x) => x.state === 'pending')
     const settled = kind === 'green' || kind === 'red' ? once || reviewed : kind !== 'pending'   // red waits for the reviewers: all fixes go into one push
     const timedOut = !settled && !once && Date.now() >= deadline
     if (settled || once || timedOut) {

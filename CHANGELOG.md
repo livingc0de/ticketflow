@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.4.0
+
+### Highlights
+
+- **Review bots and teammates are noticed, not configured.** While CI runs, `pr-wait` watches the pull request for anyone who starts
+  reviewing the exact commit (a reaction, a comment, a review) and waits for that reviewer's result, at most 15 minutes from its
+  start. Activity from older commits or from unrelated accounts is ignored. The `reviewers` config section and its seven keys are gone.
+- **The built-in reviewer is the fallback, and it reports straight to the agent.** When no external reviewer started, or none gave a
+  usable result, `pr-reviewer` reviews the commit once CI settles (never a red one), and the agent acts on its report instead of
+  reading it back from GitHub. It reviews only the delta after a push. `critical` pull requests get it even after an external
+  result; a `high` one only where that result missed the risky part.
+- **Less merge ceremony, the same guarantees.** The review basis comment, `--review-basis`, `owner approved` and every permission
+  lookup are gone. `merge` still needs a green gate on the exact commit, an up-to-date branch, no open thread, no "changes requested",
+  `--match-head-commit` and no admin bypass; the review of the commit is the agent's own `pr-reviewer` review, or `--reviewed-by <login>`
+  naming the external reviewer whose result it acted on. A started reviewer that has not answered blocks the merge until its result
+  or 15 minutes. A "changes needed" verdict is lifted only by the account that wrote it.
+- **Asking for a fix or a feature starts a ticket.** "Fix this bug" and "build X" go through `create-ticket` and `implement-ticket`;
+  investigations, reviews, audits and local experiments stay ticketless. A `low`-tier ticket has only a goal, acceptance criteria and
+  an execution line.
+- **Leaner instructions.** The review flow in `implement-ticket`, `pr-reviewer` and `REVIEWERS.md` is shorter, with one home for each rule.
+
+### What you need to do when upgrading from 0.3.5
+
+`schema_version` goes from 1 to 2 (`sync` migrates it: the `reviewers` key is dropped). No GitHub setting changes. The steps by hand:
+
+1. **Review bots.** Nothing to configure any more. If you asked a bot for another look after a fix with `rereview_comment`, TicketFlow no
+   longer posts that: add the rule to `.ticketflow/custom/implement-ticket.md` if you want it.
+2. **Pull requests that are already open.** `Review basis for ...` comments are ignored. Merge on the account's own `pr-reviewer` review of
+   the exact head, or pass `--reviewed-by '<login>'` for the external reviewer whose result you acted on.
+3. **Setup and update pull requests** (`init`, `sync`) are reviewed and merged like any pull request, only after you say so in chat. You no
+   longer post an approval comment.
+4. **Details:** [UPGRADING.md](core/docs/UPGRADING.md#from-035) and [REVIEWERS.md](core/docs/REVIEWERS.md).
+
 ## 0.3.5
 
 ### Highlights

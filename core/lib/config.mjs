@@ -14,15 +14,16 @@ export class ConfigError extends Error {
     name = 'ConfigError'
 }
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 /** `{ n: (config at n) => config at n + 1 }`. Only `sync` migrates; `loadConfig` never does. */
-export const MIGRATIONS = {}
+export const MIGRATIONS = {
+    1: ({ reviewers, ...rest }) => rest,   // 1 -> 2: external reviewers are observed from GitHub, no longer configured
+}
 
 /** Built-in floors: the config can add to them, never remove them. */
 export const NEVER_DOCS = Object.freeze([/^\.ticketflow\//, /^\.github\/workflows\//])
 export const CI_FILE_FLOOR = Object.freeze([/^\.github\//, /^\.ticketflow\//, /^core\//])
 
-const REACTIONS = ['+1', '-1', 'laugh', 'confused', 'heart', 'hooray', 'rocket', 'eyes']
 const REQUIRED = Symbol('required')
 
 const fail = (message) => { throw new ConfigError(message) }
@@ -38,11 +39,6 @@ const list = (parse) => (v, p) => (Array.isArray(v) ? v.map((x, i) => parse(x, `
 const regex = (flags = '') => (v, p) => {
     const source = str(v, p)
     try { return new RegExp(source, flags) } catch (e) { return fail(`${p} is not a valid regex: ${e.message}`) }
-}
-// shortcut: a source check for `(?<sha>` that a character class can fool (pr-wait then finds no sha and the reviewer stays pending), parse the pattern if a config trips on it
-const donePattern = (v, p) => {
-    const re = regex()(v, p)
-    return /\(\?<sha>/.test(re.source) ? re : fail(`${p} must contain a named group (?<sha>...)`)
 }
 const ref = (v, p) => {
     // a conservative subset of git ref names; no leading dash, so it can never be read as an option
@@ -77,16 +73,6 @@ const section = (shape) => (v, p) => {
     return out
 }
 
-const reviewer = section({
-    name: [str, REQUIRED],
-    login: [(v, p) => (typeof v === 'string' && /^[\w.[\]-]+$/.test(v) ? v : fail(`${p} must be a GitHub login`)), REQUIRED],
-    rereview_comment: [orNull(str), null],
-    no_findings_reaction: [orNull(oneOf(...REACTIONS)), null],
-    unavailable_pattern: [orNull(regex('i')), null],
-    done_pattern: [orNull(donePattern), null],
-    stale_after_min: [orNull(int(1)), null],
-})
-
 const VIEWS = ['All Work', 'Initiatives', 'Open Decisions', 'P0/P1 Open']
 const unique = (parse) => (v, p) => { const out = parse(v, p); return new Set(out).size === out.length ? out : fail(`${p} has a duplicate`) }
 
@@ -119,7 +105,6 @@ const parse = section({
         ci_files: [list(regex()), []],
     }), {}],
     docs_only: [section({ docs: [list(regex()), []], code: [list(regex()), []] }), {}],
-    reviewers: [list(reviewer), []],
     deploy_branch: [orNull(ref), null],
     project: [orNull(section({
         owner: [str, REQUIRED],

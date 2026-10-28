@@ -32,7 +32,7 @@ Follow `interview.md`. It ends with a confirmed `.ticketflow/config.json`; then 
 
 Exit 1 from a step: resolve the conflicts as `existing-repo.md` section Conflicts says, then run the same step again. Exit 2: stop and report.
 
-Then add `<worktrees_dir>/` from the config to `.gitignore`, and write the `custom/` drafts the owner approved in the interview.
+Then add `<worktrees_dir>/` from the config to `.gitignore`, and write the `custom/` drafts the owner confirmed in the interview.
 
 ## 4. GitHub side
 
@@ -44,8 +44,8 @@ A new repo lands as `new-repo.md` says. Otherwise:
 
 1. Stage explicit paths (never `git add -A`) and commit `chore: set up ticketflow <version>`.
 2. Push the branch and open a pull request from the repo's PR template: `Ticket: none (setup)`, plus the conflicts, the held files and the unverified items.
-3. Run `node .ticketflow/scripts/pr-wait.mjs <PR>` once, in the background, and wait. Exit 1: fix and push once. Exit 3: Actions refused the run and the local fallback cannot take over yet (the default branch has no runtime), so tell the owner and let them land it. Exit 0: ask the owner to review.
-4. **Merge only when the owner says so**, with `node .ticketflow/scripts/merge.mjs <PR>`. When it reports `standin needed` or `none configured`, first post the comment `Review basis for <sha7>: owner approved the setup PR` from an admin account (the owner's) and pass its id as `--review-basis` (`merge` also needs every review thread resolved: `thread.mjs`). The PR carries its own gate scripts, which is why the owner decides.
+3. Run `node .ticketflow/scripts/pr-wait.mjs <PR>` once, in the background, and wait. Exit 1: fix and push once. Exit 3: Actions refused the run and the local fallback cannot take over yet (the default branch has no runtime), so tell the owner and let them land it. Exit 0: go on to step 4.
+4. Review and merge it like any PR (`implement-ticket` steps 5 and 6: CI on the head, an external result or a `pr-reviewer` review, every review thread resolved with `thread.mjs`, then `node .ticketflow/scripts/merge.mjs <PR>`), but **only after the owner says so in chat**: the PR carries its own gate scripts, so the owner decides.
 
 ## 6. Protect and check
 

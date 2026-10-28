@@ -9,14 +9,14 @@ const script = new URL('../core/scripts/pr-wait.mjs', import.meta.url).pathname
 const HEAD = 'a'.repeat(40)
 const BILLING = 'The job was not started because recent account payments have failed or your spending limit needs to be increased.'
 const ago = (minutes) => new Date(Date.now() - minutes * 60_000).toISOString()
-const BOT = { name: 'rb', login: 'review-bot[bot]', rereview_comment: '/review', no_findings_reaction: '+1', unavailable_pattern: 'usage limit', stale_after_min: null }
+const RB = 'rb[bot]'
 
 const status = (state, description, target_url = 'u') => ({ [`commits/${HEAD}/status`]: { statuses: [{ context: 'other', state: 'failure', description: 'x' }, { context: 'CI / Gate', state, description, target_url }] } })
 const runs = (...rs) => ({ [`commits/${HEAD}/check-runs`]: { check_runs: rs } })
 const run = (id, st, conclusion = null) => ({ id, status: st, conclusion })
 const job = (id, extra) => ({ [`actions/jobs/${id}`]: extra })
 const notes = (id, ...messages) => ({ [`check-runs/${id}/annotations`]: messages.map((message) => ({ message })) })
-const pull = (extra) => ({ pulls: { 7: { head: { sha: HEAD }, draft: false, mergeable: true, mergeable_state: 'blocked', created_at: ago(60), ...extra } } })
+const pull = (extra) => ({ pulls: { 7: { head: { sha: HEAD }, draft: false, mergeable: true, mergeable_state: 'blocked', user: { login: 'author' }, ...extra } } })
 const refused = (id = 5) => ({ ...runs(run(id, 'completed', 'failure')), ...job(id, { runner_id: 0, steps: [], created_at: ago(1), run_id: 9 }), ...notes(id, BILLING) })
 
 function baseFixtures() {
@@ -25,7 +25,9 @@ function baseFixtures() {
         [`commits/${HEAD}/status`]: { statuses: [] },
         [`commits/${HEAD}/check-runs`]: { check_runs: [] },
         'issues/7/comments': [], 'pulls/7/reviews': [], 'pulls/7/comments': [], 'issues/7/reactions': [],
-        [`commits/${HEAD}`]: { commit: { committer: { date: ago(30) } } },
+        [`commits/${HEAD}`]: { commit: { committer: { date: ago(40) } } },
+        [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(30) }, { created_at: ago(29) }] },   // pushed 30 minutes ago
+        user: { login: 'me' },
         ...threads([]),
     }
 }
@@ -34,18 +36,25 @@ const thread = (id, login, body, over = {}) => ({ id, isResolved: false, path: '
 function threads(nodes, totalCount = nodes.length) {
     return { 'graphql ReviewThreads': { repository: { pullRequest: { reviewThreads: { totalCount, nodes } } } } }
 }
-// Fixture keys are relative to repos/o/r/; `pulls` is shorthand for 'pulls/7'.
+// Fixture keys are relative to repos/o/r/ (except `user` and `graphql ...`); `pulls` is shorthand for 'pulls/7'.
 function wait(fix = {}, args = ['7', '--timeout-min', '0'], over = {}) {
     const dir = tempDir('pr-wait-')
     const { pulls, ...rest } = fix
     const map = { ...baseFixtures(), ...rest, ...(pulls ? { 'pulls/7': pulls[7] } : {}) }
-    const gh = fakeGh(dir, Object.fromEntries(Object.entries(map).map(([k, v]) => [k.startsWith('graphql ') ? k : `repos/o/r/${k}`, v])))
+    const gh = fakeGh(dir, Object.fromEntries(Object.entries(map).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' ? k : `repos/o/r/${k}`, v])))
     const r = spawnSync(process.execPath, [script, ...args, '--config', writeConfig(dir, over)], { encoding: 'utf8', env: gh.env })
     return { ...r, calls: gh.calls().map((c) => c.join(' ')), dir }
 }
 const code = (fix, args, over) => wait(fix, args, over).status
 const notAllowed = (r) => assert.match(r.stdout, /^Fallback: not allowed/m)
-const withBot = { reviewers: [BOT] }
+const NOW = { user: { login: 'me' } }
+/** A review, a comment and a reaction by an app; a reaction reports an app as type User. */
+const app = (login = RB) => ({ login, type: 'Bot' })
+const rev = (state, over = {}) => ({ id: 1, user: app(), commit_id: HEAD, state, submitted_at: ago(5), html_url: 'https://x/r1', body: 'review body', author_association: 'NONE', ...over })
+const note = (min, body = 'status', over = {}) => ({ id: 9, user: app(), created_at: ago(min), updated_at: ago(min), html_url: 'https://x/c', body, author_association: 'NONE', ...over })
+const react = (min, content = 'eyes', login = RB) => ({ user: { login, type: 'User' }, content, created_at: ago(min) })
+const green = status('success', 'x')
+const reviewLines = (r) => r.stdout.split('\n').filter((l) => l.startsWith('Review'))
 
 test('a job refused for billing (no runner, no steps, the billing annotation) allows the fallback, exit 3', () => {
     const r = wait(refused())
@@ -151,113 +160,6 @@ test('PR checks: a draft in local-first is exit 2 with the hint; a draft in ci m
     assert.equal(code({ ...status('success', 'x'), ...pull({ mergeable: true, mergeable_state: 'clean' }) }), 0)
 })
 
-test('--once: the exit code comes from CI only; green says not allowed, refused 3, running 2; reviewers are still printed unless --ci-only', () => {
-    const green = wait(status('success', 'x'), ['7', '--once'], withBot)
-    assert.equal(green.status, 0); notAllowed(green)
-    assert.match(green.stdout, /^Review rb: pending$/m)
-    assert.doesNotMatch(green.stdout, /TIMEOUT/)
-    const ciOnly = wait(status('success', 'x'), ['7', '--once', '--ci-only'], withBot)
-    assert.equal(ciOnly.status, 0)
-    assert.doesNotMatch(ciOnly.stdout, /Review/)
-    assert.equal(code(refused(), ['7', '--once']), 3)
-    assert.equal(code({ ...runs(run(1, 'in_progress')), ...job(1, { runner_id: 5, steps: [{}], created_at: ago(1) }) }, ['7', '--once']), 2)
-    assert.equal(code(status('failure', 'Actions run #1'), ['7', '--once'], withBot), 1)
-})
-
-test('reviewers: a review of the head, or the configured reaction after the head, is done; none configured prints so', () => {
-    const none = wait(status('success', 'x'))
-    assert.equal(none.status, 0)
-    assert.match(none.stdout, /^Review: none configured \(pr-reviewer reviews\)$/m)
-    assert.equal(code(status('success', 'x'), undefined, withBot), 2)   // nothing yet
-    const reviewed = wait({ ...status('success', 'x'), 'pulls/7/reviews': [{ user: { login: 'review-bot[bot]' }, commit_id: HEAD, state: 'APPROVED' }] }, undefined, withBot)
-    assert.equal(reviewed.status, 0)
-    assert.doesNotMatch(reviewed.stdout, /TIMEOUT/)
-    assert.match(reviewed.stdout, /^Review rb: approved \(aaaaaaa\)$/m)
-    assert.match(reviewed.stdout, /^Review: done$/m)
-    const thumbs = wait({ ...status('success', 'x'), 'issues/7/reactions': [{ user: { login: 'review-bot[bot]' }, content: '+1', created_at: ago(5) }] }, undefined, withBot)
-    assert.equal(thumbs.status, 0)
-    assert.match(thumbs.stdout, /^Review rb: done \(\+1 after head\)$/m)
-})
-
-test('reviewers: wrong commit, wrong login, old or foreign reactions stay pending', () => {
-    const rev = (login, commit_id) => ({ 'pulls/7/reviews': [{ user: { login }, commit_id, state: 'APPROVED' }] })
-    const react = (login, content, min) => ({ 'issues/7/reactions': [{ user: { login }, content, created_at: ago(min) }] })
-    for (const extra of [rev('review-bot[bot]', 'b'.repeat(40)), rev('someone', HEAD), react('review-bot[bot]', '+1', 45), react('someone', '+1', 5), react('review-bot[bot]', 'heart', 5)]) {
-        const r = wait({ ...status('success', 'x'), ...extra }, undefined, withBot)
-        assert.equal(r.status, 2, JSON.stringify(extra))
-        assert.match(r.stdout, /^Review: pending$/m)
-        assert.match(r.stdout, /^TIMEOUT after 0m$/m)
-    }
-})
-
-test('reviewers: unavailable after the round start means a stand-in is needed (exit 0); before the latest re-review comment it is pending', () => {
-    const limit = (min) => ({ user: { login: 'review-bot[bot]' }, created_at: ago(min), body: 'You have reached your Usage Limit' })
-    const r = wait({ ...status('success', 'x'), 'issues/7/comments': [limit(10)] }, undefined, withBot)
-    assert.equal(r.status, 0)
-    assert.match(r.stdout, /^Review rb: unavailable since \d{4}-/m)
-    assert.match(r.stdout, /^Review: standin needed \(rb\)$/m)
-    const reRequested = { user: { login: 'owner' }, author_association: 'OWNER', created_at: ago(5), body: '/review please\n' }
-    const stale = wait({ ...status('success', 'x'), 'issues/7/comments': [limit(10), reRequested] }, undefined, withBot)
-    assert.equal(stale.status, 2)
-    assert.match(stale.stdout, /^Review rb: pending$/m)
-    const other = wait({ ...status('success', 'x'), 'issues/7/comments': [{ ...limit(10), user: { login: 'someone' } }] }, undefined, withBot)
-    assert.equal(other.status, 2)
-    // the latest request counts, not the first: an older request before the limit comment must not hide a newer one after it
-    const older = { user: { login: 'owner' }, author_association: 'OWNER', created_at: ago(20), body: '/review' }
-    const latest = wait({ ...status('success', 'x'), 'issues/7/comments': [older, limit(10), reRequested] }, undefined, withBot)
-    assert.equal(latest.status, 2)
-    // a summary comment created before the round and edited after it is a failure of this round
-    const edited = { ...limit(90), updated_at: ago(10) }
-    const viaEdit = wait({ ...status('success', 'x'), 'issues/7/comments': [edited] }, undefined, withBot)
-    assert.equal(viaEdit.status, 0)
-    assert.match(viaEdit.stdout, /^Review rb: unavailable since \d{4}-/m)
-    const untouched = wait({ ...status('success', 'x'), 'issues/7/comments': [limit(90)] }, undefined, withBot)
-    assert.equal(untouched.status, 2)
-})
-
-test('reviewers: silent after stale_after_min since the later of the round start and the head', () => {
-    const over = { reviewers: [{ ...BOT, stale_after_min: 20 }] }
-    const silent = wait(status('success', 'x'), undefined, over)   // head 30 min old, PR 60 min old
-    assert.equal(silent.status, 0)
-    assert.match(silent.stdout, /^Review rb: silent 30 min$/m)
-    assert.match(silent.stdout, /^Review: standin needed \(rb\)$/m)
-    const fresh = wait({ ...status('success', 'x'), [`commits/${HEAD}`]: { commit: { committer: { date: ago(5) } } } }, undefined, over)
-    assert.equal(fresh.status, 2)
-    const asked = wait({ ...status('success', 'x'), 'issues/7/comments': [{ user: { login: 'o' }, author_association: 'MEMBER', created_at: ago(3), body: '/review' }] }, undefined, over)
-    assert.equal(asked.status, 2)
-})
-
-test('two reviewers, one pending: exit 2; red with a pending reviewer waits for the timeout, then exits 1', () => {
-    const two = { reviewers: [BOT, { ...BOT, name: 'other', login: 'other-bot[bot]' }] }
-    const reviewed = { 'pulls/7/reviews': [{ user: { login: 'review-bot[bot]' }, commit_id: HEAD, state: 'APPROVED' }] }
-    const r = wait({ ...status('success', 'x'), ...reviewed }, undefined, two)
-    assert.equal(r.status, 2)
-    assert.match(r.stdout, /^Review rb: approved/m)
-    assert.match(r.stdout, /^Review other: pending$/m)
-    const red = wait(status('failure', 'Actions run #1'), undefined, withBot)
-    assert.equal(red.status, 1)
-    assert.match(red.stdout, /^TIMEOUT after 0m$/m)
-    assert.equal(code({ ...status('failure', 'Actions run #1'), 'pulls/7/reviews': [{ user: { login: 'review-bot[bot]' }, commit_id: HEAD, state: 'APPROVED' }] }, undefined, withBot), 1)
-})
-
-test('a failed reviewer read keeps a green PR pending, never done', () => {
-    for (const key of ['pulls/7/reviews', 'issues/7/comments', 'issues/7/reactions', `commits/${HEAD}`]) {
-        const r = wait({ ...status('success', 'x'), [key]: FAIL }, undefined, withBot)
-        assert.equal(r.status, 2, key)
-        assert.match(r.stdout, /^Review: pending$/m)
-    }
-})
-
-test('--ci-only makes no reviewer reads; a sha makes no PR, review or reaction calls', () => {
-    const r = wait(status('success', 'x'), ['7', '--ci-only', '--timeout-min', '0'], withBot)
-    assert.equal(r.status, 0)
-    assert.ok(!r.calls.some((c) => /issues\/7|reviews|reactions|pulls\/7\/comments|commits\/a+$/.test(c)), r.calls.join('\n'))
-    const s = wait(status('success', 'x'), [HEAD, '--timeout-min', '0'], withBot)
-    assert.equal(s.status, 0)
-    assert.match(s.stdout, /^main commit aaaaaaa$/m)
-    assert.ok(!s.calls.some((c) => /pulls|reactions|reviews|issues/.test(c)), s.calls.join('\n'))
-})
-
 test('sha mode: the same outcomes, and a cancelled run is superseded (exit 2 with the hint)', () => {
     assert.equal(code(status('failure', 'Actions run #1'), [HEAD, '--timeout-min', '0']), 1)
     assert.equal(code(refused(), [HEAD, '--timeout-min', '0']), 3)
@@ -268,7 +170,7 @@ test('sha mode: the same outcomes, and a cancelled run is superseded (exit 2 wit
 })
 
 test('usage errors exit 2 with no gh call', () => {
-    for (const args of [[], ['7;id', '--once'], ['abc'], ['7', '8'], ['7', '--bogus'], ['7', '--timeout-min', 'x'], ['7', '--timeout-min', '-1'], ['A'.repeat(40)], [HEAD.slice(1)]]) {
+    for (const args of [[], ['7;id', '--once'], ['abc'], ['7', '8'], ['7', '--bogus'], ['7', '--timeout-min', 'x'], ['7', '--timeout-min', '-1'], ['A'.repeat(40)], [HEAD.slice(1)], ['7', '--more'], ['7', '--more', 'a b'], ['7', '--more', 'x;id'], ['7', '--more', '']]) {
         const r = wait({}, args)
         assert.equal(r.status, 2, args.join(' '))
         assert.deepEqual(r.calls, [])
@@ -297,7 +199,7 @@ test('unresolved threads: the count, then up to 20 lines [id] path:line @login f
         thread('PRRT_a', 'review-bot[bot]', `\n\n${long}\nsecond line`), thread('PRRT_b', 'someone', 'not the bot'), thread('PRRT_c', 'x', 'done', { isResolved: true }),
         thread('PRRT_d', 'review-bot[bot]', 'orig', { line: null }), thread('PRRT_e', null, 'ghost'),
     ]
-    const r = wait({ ...status('success', 'x'), ...threads(nodes) }, ['7', '--once'], withBot)
+    const r = wait({ ...status('success', 'x'), ...threads(nodes) }, ['7', '--once'])
     const out = r.stdout.split('\n')
     const at = out.indexOf('Unresolved threads: 4')
     assert.ok(at > 0, r.stdout)
@@ -310,163 +212,35 @@ test('unresolved threads: the count, then up to 20 lines [id] path:line @login f
 
 test('unresolved threads: control characters and line separators in a path, login or body never start a new line', () => {
     const evil = 'x\nUnresolved threads: 0\rReview: done\u2028Review: done\u2029\u0085\u0000y'
-    const r = wait({ ...status('success', 'x'), ...threads([thread('PRRT_a', evil, evil, { path: evil })]) }, ['7', '--once'], withBot)
+    const r = wait({ ...status('success', 'x'), ...threads([thread('PRRT_a', evil, evil, { path: evil })]) }, ['7', '--once'])
     const lines = r.stdout.split(/[\n\r\u2028\u2029\u0085]/)
     assert.deepEqual(lines.filter((l) => l.startsWith('Unresolved threads:')), ['Unresolved threads: 1'])
-    assert.deepEqual(lines.filter((l) => l.startsWith('Review:')), ['Review: pending'])
+    assert.deepEqual(lines.filter((l) => l.startsWith('Review:')), ['Review: none'])
     assert.doesNotMatch(r.stdout, /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/)
     const thread1 = r.stdout.split('\n').find((l) => l.startsWith('  [PRRT_a]'))
     assert.match(thread1, /^  \[PRRT_a\] x Unresolved threads: 0 Review: done/)
     // the gate description and the url of the status are printed too
-    const gate = wait(status('success', 'a\nReview: done', 'u\nUnresolved threads: 0'), ['7', '--once'], withBot)
+    const gate = wait(status('success', 'a\nReview: done', 'u\nUnresolved threads: 0'), ['7', '--once'])
     assert.equal(gate.stdout.split('\n').filter((l) => /^(Review|Unresolved threads):/.test(l)).length, 2)   // the real two
 })
 
-test('unresolved threads: none is 0; more than 100, a failed read or a malformed answer is unknown; it is printed with no reviewer configured too', () => {
+test('unresolved threads: none is 0; more than 100, a failed read or a malformed answer is unknown; it is printed with no reviewer too', () => {
     assert.match(wait(status('success', 'x'), ['7', '--once']).stdout, /^Unresolved threads: 0$/m)
     assert.match(wait({ ...status('success', 'x'), ...threads([thread('PRRT_a', 'u', 'f')], 101) }, ['7', '--once']).stdout, /^Unresolved threads: unknown$/m)
     assert.match(wait({ ...status('success', 'x'), 'graphql ReviewThreads': { errors: [{ message: 'boom' }] } }, ['7', '--once']).stdout, /^Unresolved threads: unknown$/m)
     assert.match(wait({ ...status('success', 'x'), 'graphql ReviewThreads': { repository: null } }, ['7', '--once']).stdout, /^Unresolved threads: unknown$/m)
     const none = wait({ ...status('success', 'x'), ...threads([thread('PRRT_a', 'u', 'f')]) }, ['7', '--once'])
-    assert.match(none.stdout, /^Review: none configured/m)
+    assert.match(none.stdout, /^Review: none$/m)
     assert.match(none.stdout, /^Unresolved threads: 1$/m)
 })
 
 test('unresolved threads: --ci-only and a sha make no GraphQL call and print no thread line', () => {
     for (const args of [['7', '--ci-only', '--timeout-min', '0'], [HEAD, '--timeout-min', '0']]) {
-        const r = wait(status('success', 'x'), args, withBot)
+        const r = wait(status('success', 'x'), args)
         assert.equal(r.status, 0)
         assert.ok(!r.calls.some((c) => /graphql/.test(c)), r.calls.join('\n'))
         assert.doesNotMatch(r.stdout, /Unresolved threads/)
     }
-})
-
-test('reviewers: a CHANGES_REQUESTED review on the head is "changes requested" and settled (exit 0)', () => {
-    const review = (state, login = 'review-bot[bot]') => ({ user: { login }, commit_id: HEAD, state })
-    const r = wait({ ...status('success', 'x'), 'pulls/7/reviews': [review('CHANGES_REQUESTED')] }, undefined, withBot)
-    assert.equal(r.status, 0)
-    assert.match(r.stdout, /^Review rb: changes requested \(aaaaaaa\)$/m)
-    assert.match(r.stdout, /^Review: changes requested \(rb\)$/m)
-    assert.doesNotMatch(r.stdout, /TIMEOUT/)
-    // the last review wins
-    const fixed = wait({ ...status('success', 'x'), 'pulls/7/reviews': [review('CHANGES_REQUESTED'), review('APPROVED')] }, undefined, withBot)
-    assert.match(fixed.stdout, /^Review: done$/m)
-    const worse = wait({ ...status('success', 'x'), 'pulls/7/reviews': [review('APPROVED'), review('CHANGES_REQUESTED')] }, undefined, withBot)
-    assert.match(worse.stdout, /^Review: changes requested \(rb\)$/m)
-    // a dismissed or pending review is not an answer; the one before a dismissed one counts
-    for (const state of ['DISMISSED', 'PENDING']) {
-        const p = wait({ ...status('success', 'x'), 'pulls/7/reviews': [review(state)] }, undefined, withBot)
-        assert.equal(p.status, 2, state)
-        assert.match(p.stdout, /^Review: pending$/m)
-    }
-    const dismissed = wait({ ...status('success', 'x'), 'pulls/7/reviews': [review('APPROVED'), review('DISMISSED')] }, undefined, withBot)
-    assert.match(dismissed.stdout, /^Review: done$/m)
-    // another reviewer's review, or one of an older commit, does not decide
-    const other = wait({ ...status('success', 'x'), 'pulls/7/reviews': [review('CHANGES_REQUESTED', 'someone')] }, undefined, withBot)
-    assert.match(other.stdout, /^Review: pending$/m)
-})
-
-test('reviewers: summary precedence is pending, then changes requested, then standin needed, then done', () => {
-    const two = { reviewers: [BOT, { ...BOT, name: 'other', login: 'other-bot[bot]' }] }
-    const cr = { user: { login: 'review-bot[bot]' }, commit_id: HEAD, state: 'CHANGES_REQUESTED' }
-    const gone = { user: { login: 'other-bot[bot]' }, created_at: ago(1), body: 'usage limit reached' }
-    const pending = wait({ ...status('success', 'x'), 'pulls/7/reviews': [cr] }, undefined, two)
-    assert.equal(pending.status, 2)
-    assert.match(pending.stdout, /^Review: pending$/m)
-    const both = wait({ ...status('success', 'x'), 'pulls/7/reviews': [cr], 'issues/7/comments': [gone] }, undefined, two)
-    assert.equal(both.status, 0)
-    assert.match(both.stdout, /^Review: changes requested \(rb\)$/m)
-})
-
-test('reviewers: a review of the head that is not an approval (COMMENTED, an unknown or missing state) reports findings, it never accepts them: standin needed, exit 0', () => {
-    for (const state of ['COMMENTED', 'SOMETHING_NEW', undefined]) {
-        const r = wait({ ...status('success', 'x'), 'pulls/7/reviews': [{ user: { login: 'review-bot[bot]' }, commit_id: HEAD, state }] }, undefined, withBot)
-        assert.equal(r.status, 0, String(state))
-        assert.match(r.stdout, /^Review rb: commented, not approved \(aaaaaaa\)$/m)
-        assert.match(r.stdout, /^Review: standin needed \(rb\)$/m)
-        assert.match(r.stdout, /^Unresolved threads: 0$/m)   // no thread does not turn a comment into an acceptance
-    }
-})
-
-test('reviewers: a later reaction or a matching done_pattern state does not turn a COMMENTED review of the head into done', () => {
-    const pattern = 'review-state:v1 (?=[^\\n]*"commit_sha":"(?<sha>[0-9a-f]{7,40})")'
-    const over = { reviewers: [{ ...BOT, done_pattern: pattern }] }
-    const commented = { 'pulls/7/reviews': [{ user: { login: 'review-bot[bot]' }, commit_id: HEAD, state: 'COMMENTED' }] }
-    const thumbs = { 'issues/7/reactions': [{ user: { login: 'review-bot[bot]' }, content: '+1', created_at: ago(1) }] }
-    const state = { 'issues/7/comments': [{ user: { login: 'review-bot[bot]' }, created_at: ago(1), updated_at: ago(1), body: `review-state:v1 {"commit_sha":"${HEAD}"}` }] }
-    for (const extra of [thumbs, state, { ...thumbs, ...state }]) {
-        const r = wait({ ...status('success', 'x'), ...commented, ...extra }, undefined, over)
-        assert.equal(r.status, 0, JSON.stringify(extra))
-        assert.match(r.stdout, /^Review rb: commented, not approved \(aaaaaaa\)$/m)
-        assert.match(r.stdout, /^Review: standin needed \(rb\)$/m)
-    }
-})
-
-test('reviewers: a COMMENTED review of an older head decides nothing; the reaction and the state still can', () => {
-    const old = { 'pulls/7/reviews': [{ user: { login: 'review-bot[bot]' }, commit_id: 'b'.repeat(40), state: 'COMMENTED' }] }
-    const thumbs = { 'issues/7/reactions': [{ user: { login: 'review-bot[bot]' }, content: '+1', created_at: ago(1) }] }
-    assert.match(wait({ ...status('success', 'x'), ...old }, undefined, withBot).stdout, /^Review: pending$/m)
-    assert.match(wait({ ...status('success', 'x'), ...old, ...thumbs }, undefined, withBot).stdout, /^Review rb: done \(\+1 after head\)$/m)
-})
-
-test('reviewers: standin needed covers unavailable, silent and commented; pending beats it, changes requested beats it', () => {
-    const two = { reviewers: [BOT, { ...BOT, name: 'other', login: 'other-bot[bot]' }] }
-    const commented = { user: { login: 'review-bot[bot]' }, commit_id: HEAD, state: 'COMMENTED' }
-    const gone = { user: { login: 'other-bot[bot]' }, created_at: ago(1), body: 'usage limit reached' }
-    const both = wait({ ...status('success', 'x'), 'pulls/7/reviews': [commented], 'issues/7/comments': [gone] }, undefined, two)
-    assert.equal(both.status, 0)
-    assert.match(both.stdout, /^Review: standin needed \(rb, other\)$/m)
-    const waiting = wait({ ...status('success', 'x'), 'pulls/7/reviews': [commented] }, undefined, two)
-    assert.equal(waiting.status, 2)
-    assert.match(waiting.stdout, /^Review: pending$/m)
-    const cr = wait({ ...status('success', 'x'), 'pulls/7/reviews': [commented, { ...commented, user: { login: 'other-bot[bot]' }, state: 'CHANGES_REQUESTED' }] }, undefined, two)
-    assert.match(cr.stdout, /^Review: changes requested \(other\)$/m)
-})
-
-test('reviewers: only a re-review comment of an OWNER, MEMBER or COLLABORATOR moves the round start', () => {
-    const limit = { user: { login: 'review-bot[bot]' }, created_at: ago(10), body: 'You have reached your Usage Limit' }
-    const asked = (author_association) => ({ user: { login: 'someone' }, author_association, created_at: ago(5), body: '/review' })
-    for (const trusted of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
-        const r = wait({ ...status('success', 'x'), 'issues/7/comments': [limit, asked(trusted)] }, undefined, withBot)
-        assert.equal(r.status, 2, trusted)   // the request is newer than the limit comment: pending again
-        assert.match(r.stdout, /^Review rb: pending$/m)
-    }
-    for (const other of ['NONE', 'CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR', 'FIRST_TIMER', 'MANNEQUIN', undefined]) {
-        const r = wait({ ...status('success', 'x'), 'issues/7/comments': [limit, asked(other)] }, undefined, withBot)
-        assert.equal(r.status, 0, String(other))   // the round did not move: the limit comment still stands
-        assert.match(r.stdout, /^Review rb: unavailable since /m)
-    }
-    // an outsider's request does not hide a reaction either
-    const react = { 'issues/7/reactions': [{ user: { login: 'review-bot[bot]' }, content: '+1', created_at: ago(8) }] }
-    const r = wait({ ...status('success', 'x'), ...react, 'issues/7/comments': [asked('NONE')] }, undefined, withBot)
-    assert.match(r.stdout, /^Review rb: done \(\+1 after head\)$/m)
-})
-
-test('reviewers: a done_pattern scoped to its own object with a no-findings condition keeps a state with findings, or another object\'s flag, pending', () => {
-    const pattern = 'review-state:v1 [^\\n]*"code_review":\\{(?=[^}]*"commit_sha":"(?<sha>[0-9a-f]{7,40})")(?=[^}]*"status":"completed")(?=[^}]*"has_any_findings":false)'
-    const over = { reviewers: [{ name: 'rb', login: 'review-bot[bot]', done_pattern: pattern }] }
-    const state = (findings, other = 'null') => `<!-- review-state:v1 {"security_review":{"has_any_findings":${other}},"code_review":{"status":"completed","commit_sha":"${HEAD}","has_any_findings":${findings}}} -->`
-    const run = (body) => wait({ ...status('success', 'x'), 'issues/7/comments': [{ user: { login: 'review-bot[bot]' }, created_at: ago(5), updated_at: ago(5), body }] }, undefined, over).status
-    assert.equal(run(state('false')), 0)
-    assert.equal(run(state('true', 'false')), 2)   // the security_review object saying false does not count for the code review
-    assert.equal(run(state('true')), 2)
-})
-
-test('reviewers: the reaction must be newer than the latest re-review request and the head commit', () => {
-    const react = (min) => ({ 'issues/7/reactions': [{ user: { login: 'review-bot[bot]' }, content: '+1', created_at: ago(min) }] })
-    const asked = (min) => ({ 'issues/7/comments': [{ user: { login: 'owner' }, author_association: 'COLLABORATOR', created_at: ago(min), body: '/review' }] })
-    const before = wait({ ...status('success', 'x'), ...react(10), ...asked(5) }, undefined, withBot)   // reacted, then asked again
-    assert.equal(before.status, 2); assert.match(before.stdout, /^Review: pending$/m)
-    const after = wait({ ...status('success', 'x'), ...react(2), ...asked(5) }, undefined, withBot)
-    assert.equal(after.status, 0); assert.match(after.stdout, /^Review rb: done \(\+1 after head\)$/m)
-})
-
-test('reviewers: a done_pattern that matches only completed keeps a failed state pending', () => {
-    const pattern = 'review-state:v1 (?=[^\\n]*"commit_sha":"(?<sha>[0-9a-f]{7,40})")(?=[^\\n]*"status":"completed")'
-    const over = { reviewers: [{ name: 'rb', login: 'review-bot[bot]', done_pattern: pattern }] }
-    const note = (status) => [{ user: { login: 'review-bot[bot]' }, created_at: ago(5), updated_at: ago(5), body: `<!-- review-state:v1 {"code_review":{"status":"${status}","commit_sha":"${HEAD}"}} -->` }]
-    assert.equal(wait({ ...status('success', 'x'), 'issues/7/comments': note('failed') }, undefined, over).status, 2)
-    assert.equal(wait({ ...status('success', 'x'), 'issues/7/comments': note('completed') }, undefined, over).status, 0)
 })
 
 test('the loop sleeps and polls again until the gate is final', () => {
@@ -474,7 +248,7 @@ test('the loop sleeps and polls again until the gate is final', () => {
     const gh = fakeGh(dir, Object.fromEntries(Object.entries({
         ...baseFixtures(), 'pulls/7': seq(pull({ mergeable: null, mergeable_state: 'unknown' }).pulls[7], pull().pulls[7]),
         ...status('success', 'x'),
-    }).map(([k, v]) => [k.startsWith('graphql ') ? k : `repos/o/r/${k}`, v])))
+    }).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' ? k : `repos/o/r/${k}`, v])))
     writeFileSync(join(dir, 'bin', 'sleep'), '#!/bin/sh\necho "$@" >> ' + join(dir, 'slept') + '\n')
     chmodSync(join(dir, 'bin', 'sleep'), 0o755)
     // first poll: unknown mergeability (pending); second: clean
@@ -483,31 +257,194 @@ test('the loop sleeps and polls again until the gate is final', () => {
     assert.equal(gh.calls().filter((c) => c[1].endsWith('/pulls/7')).length, 2)
 })
 
-test('--once prints the reviewer lines for every outcome, a conflict included', () => {
-    const r = wait({ ...pull({ mergeable: false, mergeable_state: 'dirty' }) }, ['7', '--once'], withBot)
-    assert.equal(r.status, 1)
-    assert.match(r.stdout, /^Review rb: pending$/m)
+test('no external reviewer: Review: none and exit 0 once CI is green, with no wait', () => {
+    const r = wait(green, ['7', '--timeout-min', '5'])
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(reviewLines(r), ['Review: none'])
+    assert.equal(r.calls.filter((c) => c.endsWith('/pulls/7')).length, 1)
 })
 
-test('reviewers: a state comment (done_pattern) naming the head is done; the last match wins; other logins and unfinished states are ignored', () => {
-    const pattern = 'review-state:v1 (?=[^\\n]*"commit_sha":"(?<sha>[0-9a-f]{7,40})")(?=[^\\n]*"status":"completed")'
-    const over = { reviewers: [{ name: 'rb', login: 'review-bot[bot]', done_pattern: pattern }] }
-    const state = (sha, status = 'completed', extra = {}) => `<!-- review-state:v1 {"security_review":{"status":null},"code_review":{"status":"${status}","commit_sha":"${sha}"},"x":1} -->`
-    const note = (body, min, user = 'review-bot[bot]', updated = min) => ({ user: { login: user }, created_at: ago(min), updated_at: ago(updated), body })
-    const run = (comments) => wait({ ...status('success', 'x'), 'issues/7/comments': comments }, undefined, over)
-    const done = run([note(state(HEAD), 5)])
+test('an app\'s reaction after the push starts it: pending, with its window, and the wait goes on (exit 2)', () => {
+    const r = wait({ ...green, 'issues/7/reactions': [react(2)] })
+    assert.equal(r.status, 2)
+    assert.match(r.stdout, /^Review rb\[bot\]: pending since \d{4}-.* \(at most until \d{4}-/m)
+    assert.match(r.stdout, /^Review: pending \(rb\[bot\]\)$/m)
+    assert.match(r.stdout, /^TIMEOUT after 0m$/m)
+    assert.equal(wait({ ...green, 'issues/7/reactions': [react(2)] }, ['7', '--once']).status, 0)   // --once: CI decides the code
+})
+
+test('a reviewer\'s first comment is its status note, never a result; a later comment of it is', () => {
+    const base = { ...green, 'issues/7/reactions': [react(8)] }
+    const one = wait({ ...base, 'issues/7/comments': [note(8, 'Reviewing...')] })
+    assert.match(one.stdout, /^Review: pending \(rb\[bot\]\)$/m)
+    const two = wait({ ...base, 'issues/7/comments': [note(8, 'Reviewing...'), note(3, 'Found nothing\n\nall good', { id: 10, html_url: 'https://x/c2' })] })
+    assert.equal(two.status, 0, two.stdout)
+    assert.match(two.stdout, /^Review rb\[bot\]: result comment https:\/\/x\/c2 Found nothing$/m)
+    assert.match(two.stdout, /^Review: results \(rb\[bot\]\)$/m)
+    // an empty comment (only an HTML marker) is no result
+    const marker = wait({ ...base, 'issues/7/comments': [note(8), note(3, '<!-- state -->')] })
+    assert.match(marker.stdout, /^Review: pending/m)
+})
+
+test('a review of the head that arrived while CI ran is the result: CI pending shows it, green with it exits 0 with results', () => {
+    const during = { 'pulls/7/reviews': [rev('COMMENTED')], ...runs(run(5, 'in_progress')), ...job(5, { runner_id: 3, steps: [{}], created_at: ago(1) }) }
+    const r = wait(during)
+    assert.equal(r.status, 2)
+    assert.match(r.stdout, /^Review rb\[bot\]: result review COMMENTED https:\/\/x\/r1 review body$/m)
+    const done = wait({ ...green, 'pulls/7/reviews': [rev('APPROVED')] })
     assert.equal(done.status, 0)
-    assert.match(done.stdout, /^Review rb: done \(state aaaaaaa\)$/m)
-    assert.equal(run([note(state(HEAD.slice(0, 7)), 5)]).status, 0)   // a short sha is a prefix of the head
-    assert.equal(run([note(state(HEAD.slice(0, 6)), 5)]).status, 2)    // shorter than 7 does not match the pattern
-    for (const comments of [[note(state('b'.repeat(40)), 5)], [note(state(HEAD, 'running'), 5)], [note(state(HEAD), 5, 'someone')], [note('no state here', 5)], []]) {
-        const r = run(comments)
-        assert.equal(r.status, 2, JSON.stringify(comments))
-        assert.match(r.stdout, /^Review rb: pending$/m)
+    assert.match(done.stdout, /^Review: results \(rb\[bot\]\)$/m)
+})
+
+test('an edited result is still the result: a comment edited after the push counts, an edited status note does not', () => {
+    const base = { ...green, 'issues/7/reactions': [react(10)] }
+    const status = note(10, 'Reviewing', { updated_at: ago(1) })
+    const findings = note(10, 'P1 found', { id: 10, created_at: ago(40), updated_at: ago(2), html_url: 'https://x/c2' })   // created before the push, edited after it
+    assert.match(wait({ ...base, 'issues/7/comments': [status] }).stdout, /^Review: pending/m)
+    const r = wait({ ...base, 'issues/7/comments': [status, findings] })
+    assert.match(r.stdout, /^Review rb\[bot\]: result comment https:\/\/x\/c2 P1 found$/m)
+})
+
+test('activity before the push, and reviews of another commit, decide nothing; the push time is the first check suite, else the committer date', () => {
+    const old = { 'issues/7/reactions': [react(20)], 'issues/7/comments': [note(20), note(19, 'old result', { id: 10 })], 'pulls/7/reviews': [rev('APPROVED', { commit_id: 'b'.repeat(40), submitted_at: ago(35) })] }
+    const pushed = wait({ ...green, ...old, [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(10) }] } })
+    assert.equal(pushed.status, 0)
+    assert.deepEqual(reviewLines(pushed), ['Review: none'])
+    // no check suite: the committer date (40 minutes ago) is the push time, so the same activity counts
+    const unknown = wait({ ...green, ...old, [`commits/${HEAD}/check-suites`]: { check_suites: [] } })
+    assert.match(unknown.stdout, /^Review rb\[bot\]: result comment/m)
+    // the earliest suite is the push, a later suite (a re-run) does not move it
+    const rerun = wait({ ...green, ...old, [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(3) }, { created_at: ago(10) }] } })
+    assert.deepEqual(reviewLines(rerun), ['Review: none'])
+})
+
+test('two reviewers: pending beats changes requested beats results; one result is enough when the other is late', () => {
+    const A = 'a-bot[bot]', B = 'b-bot[bot]'
+    const both = { ...green, 'pulls/7/reviews': [rev('COMMENTED', { user: app(A) })], 'issues/7/reactions': [react(2, 'eyes', B)] }
+    const pending = wait(both)
+    assert.equal(pending.status, 2)
+    assert.match(pending.stdout, /^Review a-bot\[bot\]: result review COMMENTED/m)
+    assert.match(pending.stdout, /^Review b-bot\[bot\]: pending since/m)
+    assert.match(pending.stdout, /^Review: pending \(b-bot\[bot\]\)$/m)
+    const cr = wait({ ...both, 'pulls/7/reviews': [rev('CHANGES_REQUESTED', { user: app(A) })] })
+    assert.match(cr.stdout, /^Review: pending \(b-bot\[bot\]\)$/m)   // a started reviewer's answer is still awaited
+    const late = wait({ ...both, [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(40) }] }, 'issues/7/reactions': [react(16, 'eyes', B)] })
+    assert.equal(late.status, 0)
+    assert.match(late.stdout, /^Review b-bot\[bot\]: no result 15 min after its start \d{4}-/m)
+    assert.match(late.stdout, /^Review: results \(a-bot\[bot\]\) \(no result in time: b-bot\[bot\]\)$/m)
+    const onlyLate = wait({ ...green, 'issues/7/reactions': [react(16)] })
+    assert.equal(onlyLate.status, 0)
+    assert.match(onlyLate.stdout, /^Review: none \(no result in time: rb\[bot\]\)$/m)
+})
+
+test('a changes-requested review of the head settles at once (exit 0); the last review of the account wins; dismissed and pending reviews are no answer', () => {
+    const r = wait({ ...green, 'pulls/7/reviews': [rev('CHANGES_REQUESTED')] })
+    assert.equal(r.status, 0)
+    assert.match(r.stdout, /^Review rb\[bot\]: changes requested \(aaaaaaa\) https:\/\/x\/r1$/m)
+    assert.match(r.stdout, /^Review: changes requested \(rb\[bot\]\)$/m)
+    assert.match(wait({ ...green, 'pulls/7/reviews': [rev('CHANGES_REQUESTED'), rev('APPROVED', { id: 2 })] }).stdout, /^Review: results \(rb\[bot\]\)$/m)
+    assert.match(wait({ ...green, 'pulls/7/reviews': [rev('APPROVED'), rev('CHANGES_REQUESTED', { id: 2 })] }).stdout, /^Review: changes requested/m)
+    // the reviewer is known from a review of the PR, whichever commit; a dismissed or pending one on the head starts nothing
+    for (const state of ['DISMISSED', 'PENDING']) assert.match(wait({ ...green, 'pulls/7/reviews': [rev(state)] }).stdout, /^Review: none$/m, state)
+    assert.match(wait({ ...green, 'pulls/7/reviews': [rev('APPROVED'), rev('DISMISSED', { id: 2 })] }).stdout, /^Review: results/m)
+})
+
+test('the PR author, this account, a commenter who never reviewed, a comment-only app and an outsider\'s review never start a wait; an unrelated "looks good" neither starts nor ends another\'s wait', () => {
+    const human = (login, association = 'NONE') => ({ login, type: 'User' })
+    const quiet = {
+        ...green,
+        'issues/7/reactions': [react(2, '+1', 'author'), react(2, 'eyes', 'me'), react(2, '+1', 'someone')],   // humans reacting: not reviewers
+        'issues/7/comments': [note(5, 'status', { user: app('deploy[bot]') }), note(4, 'looks good', { user: human('someone') }), note(3, 'lgtm', { user: human('someone'), author_association: 'MEMBER' })],
+        'pulls/7/reviews': [rev('COMMENTED', { user: human('drive-by'), author_association: 'NONE' }), rev('APPROVED', { user: app('author'), id: 4 }), rev('APPROVED', { user: app('me'), id: 5 })],
     }
-    // the last match wins: a comment edited to a newer sha beats an older matching one, and an older sha edited last loses
-    assert.equal(run([note(state('b'.repeat(40)), 30, undefined, 2), note(state(HEAD), 10)]).status, 2)
-    assert.equal(run([note(state(HEAD), 30, undefined, 2), note(state('b'.repeat(40)), 10)]).status, 0)
-    assert.equal(run([note(`${state(HEAD)}\n${state('b'.repeat(40))}`, 5)]).status, 2)
-    assert.equal(run([note(`${state('b'.repeat(40))}\n${state(HEAD)}`, 5)]).status, 0)
+    assert.deepEqual(reviewLines(wait(quiet)), ['Review: none'])
+    const started = wait({ ...quiet, 'issues/7/reactions': [react(2)] })
+    assert.match(started.stdout, /^Review: pending \(rb\[bot\]\)$/m)
+    assert.doesNotMatch(started.stdout, /someone|drive-by|deploy/)
+    const withDone = wait({ ...quiet, 'issues/7/reactions': [react(2)], 'pulls/7/reviews': [...quiet['pulls/7/reviews'], rev('COMMENTED', { id: 6, user: human('boss', 'OWNER'), author_association: 'OWNER' })] })
+    assert.match(withDone.stdout, /^Review boss: result review COMMENTED/m)   // a trusted human who reviewed is a reviewer
+    assert.match(withDone.stdout, /^Review: pending \(rb\[bot\]\)$/m)
+})
+
+test('a comment about another commit is a sign, never the result; a review of the head counts whatever its time', () => {
+    const suites = { [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(10) }] } }
+    const receipt = (sha) => ({ ...green, ...suites, 'issues/7/reactions': [react(8)], 'issues/7/comments': [note(60, 'summary', { updated_at: ago(8) }), note(3, `<!-- receipt -->\nNo major issues.\n**Reviewed commit:** \`${sha}\``, { id: 10 })] })
+    assert.match(wait(receipt('b'.repeat(10))).stdout, /^Review: pending \(rb\[bot\]\)$/m)   // a late receipt for the old head
+    assert.match(wait(receipt('a'.repeat(10))).stdout, /^Review: results \(rb\[bot\]\)$/m)   // names this head
+    assert.match(wait({ ...receipt('b'.repeat(10)), 'issues/7/comments': [note(60, 'summary'), note(3, 'no commit named', { id: 10 })] }).stdout, /^Review: results/m)
+    // a changes-requested review of the exact head, submitted before the head's first check suite, still decides
+    const early = wait({ ...green, ...suites, 'pulls/7/reviews': [rev('CHANGES_REQUESTED', { submitted_at: ago(12) })] })
+    assert.match(early.stdout, /^Review: changes requested \(rb\[bot\]\)$/m)
+})
+
+test('the window is 15 minutes from the first sign, not the latest; --more ignores a result before this run', () => {
+    const suites = { [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(40) }] } }
+    const sign = (min, edit) => ({ ...green, ...suites, 'issues/7/reactions': [react(min)], 'issues/7/comments': [note(min, 'status', { updated_at: ago(edit) })] })
+    assert.match(wait(sign(16, 1)).stdout, /^Review: none \(no result in time: rb\[bot\]\)$/m)
+    assert.equal(wait(sign(16, 1)).status, 0)
+    const inside = wait(sign(14, 1))
+    assert.match(inside.stdout, /^Review: pending \(rb\[bot\]\)$/m)
+    assert.equal(inside.status, 2)
+    const said = { ...green, 'issues/7/reactions': [react(8)], 'issues/7/comments': [note(8), note(4, 'part one of findings', { id: 10 })] }
+    assert.match(wait(said).stdout, /^Review: results \(rb\[bot\]\)$/m)
+    const more = wait(said, ['7', '--more', RB, '--timeout-min', '0'])
+    assert.equal(more.status, 2)
+    assert.match(more.stdout, /^Review: pending \(rb\[bot\]\)$/m)
+    assert.match(wait(said, ['7', '--more', 'other[bot]', '--timeout-min', '0']).stdout, /^Review: results/m)   // naming another login changes nothing
+    // a result comment edited after this run started (the rest of the findings) is the awaited result, though it was created before
+    const edited = { ...said, 'issues/7/comments': [note(8), note(4, 'part one, then the rest', { id: 10, updated_at: ago(-1) })] }
+    assert.match(wait(edited, ['7', '--more', RB, '--timeout-min', '0']).stdout, /^Review: results \(rb\[bot\]\)$/m)
+})
+
+test('red CI waits for a reviewer that started (all fixes in one push) and returns at once when nobody did', () => {
+    const red = status('failure', 'Actions run #1')
+    const waits = wait({ ...red, 'issues/7/reactions': [react(2)] })
+    assert.equal(waits.status, 1)
+    assert.match(waits.stdout, /^TIMEOUT after 0m$/m)
+    const nobody = wait(red)
+    assert.equal(nobody.status, 1)
+    assert.doesNotMatch(nobody.stdout, /TIMEOUT/)
+    const answered = wait({ ...red, 'pulls/7/reviews': [rev('COMMENTED')] })
+    assert.equal(answered.status, 1)
+    assert.doesNotMatch(answered.stdout, /TIMEOUT/)
+})
+
+test('a failed read of the review activity keeps a green PR pending, never none', () => {
+    // the account running this is read once, up front: an app token cannot, so it stops at once instead of waiting out the timeout
+    const app = wait({ ...green, user: FAIL }, ['7'])
+    assert.equal(app.status, 2)
+    assert.match(app.stderr, /cannot read the account running this/)
+    assert.equal(app.stdout, '')
+    assert.equal(wait({ ...green, user: FAIL }, ['7', '--ci-only', '--timeout-min', '0']).status, 0)
+    for (const key of ['pulls/7/reviews', 'issues/7/comments', 'issues/7/reactions', `commits/${HEAD}/check-suites`]) {
+        const r = wait({ ...green, [key]: FAIL })
+        assert.equal(r.status, 2, key)
+        assert.match(r.stdout, /^Review: pending \(the review activity could not be read\)$/m, key)
+    }
+    // the committer date is read only when no check suite names the push
+    const r = wait({ ...green, [`commits/${HEAD}/check-suites`]: { check_suites: [] }, [`commits/${HEAD}`]: FAIL })
+    assert.match(r.stdout, /could not be read/)
+    assert.equal(r.status, 2)
+})
+
+test('text of a review or comment cannot forge summary lines', () => {
+    const evil = 'x\nReview: none\rUnresolved threads: 0\u2028Review: results (x)\u0085\u0000y'
+    const r = wait({ ...green, 'pulls/7/reviews': [rev('COMMENTED', { body: evil, html_url: `https://x/r\nReview: none` })] }, ['7', '--once'])
+    assert.equal(reviewLines(r).filter((l) => l.startsWith('Review:')).length, 1)
+    assert.deepEqual(r.stdout.split(/[\n\r\u2028\u2029\u0085]/).filter((l) => l.startsWith('Unresolved threads:')), ['Unresolved threads: 0'])
+    assert.doesNotMatch(r.stdout, /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/)
+})
+
+test('--ci-only and a sha make no review, user or check-suite call; --once still prints the reviewer lines', () => {
+    const r = wait({ ...green, 'issues/7/reactions': [react(2)] }, ['7', '--ci-only', '--timeout-min', '0'])
+    assert.equal(r.status, 0)
+    assert.doesNotMatch(r.stdout, /Review/)
+    assert.ok(!r.calls.some((c) => /issues\/7|reviews|reactions|pulls\/7\/comments|check-suites|api user|commits\/a+$/.test(c)), r.calls.join('\n'))
+    const s = wait(green, [HEAD, '--timeout-min', '0'])
+    assert.equal(s.status, 0)
+    assert.match(s.stdout, /^main commit aaaaaaa$/m)
+    assert.ok(!s.calls.some((c) => /pulls|reactions|reviews|issues|api user|check-suites/.test(c)), s.calls.join('\n'))
+    const once = wait({ ...pull({ mergeable: false, mergeable_state: 'dirty' }), 'issues/7/reactions': [react(2)] }, ['7', '--once'])
+    assert.equal(once.status, 1)
+    assert.match(once.stdout, /^Review rb\[bot\]: pending since/m)
 })
