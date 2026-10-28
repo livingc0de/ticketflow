@@ -151,7 +151,7 @@ let me
 function pushedAt(head) {
     if (!pushed.has(head)) {
         const t = Math.min(...(api(`${R}/commits/${head}/check-suites?per_page=100`).check_suites ?? []).map((x) => ms(x.created_at)).filter((x) => x > 0))
-        if (t === Infinity) return ms(api(`${R}/commits/${head}`).commit.committer.date)   // ponytail: no suite (no CI yet), the committer date can predate the push
+        if (t === Infinity) return ms(api(`${R}/commits/${head}`).commit.committer.date)   // shortcut: no suite (no CI yet) falls back to the committer date, which can predate the push; read the push event if a repo runs PRs without checks
         pushed.set(head, t)
     }
     return pushed.get(head)
@@ -184,7 +184,7 @@ function pollReviewers(S) {
         const last = onHead.at(-1)
         if (last?.state === 'CHANGES_REQUESTED') return { login, state: 'changes', text: `changes requested (${S.head.slice(0, 7)}) ${last.html_url}` }
         const after = more.has(login) ? launched : since
-        // ponytail: a reviewer's first comment on the PR is taken as its status note, so a reviewer with one comment waits its 15 minutes
+        // shortcut: a reviewer's first comment on the PR is its status note, so a one-comment reviewer waits its 15 minutes; revisit if a common bot posts its whole result as its only comment
         const said = [
             ...onHead.filter((x) => ms(x.submitted_at) > after).map((x) => [ms(x.submitted_at), `review ${x.state} ${x.html_url} ${firstLine(x.body)}`]),
             ...own.slice(1).filter((c) => at(c) > after && visible(c.body)).map((c) => [at(c), `comment ${c.html_url} ${firstLine(c.body)}`]),
