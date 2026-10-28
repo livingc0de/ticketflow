@@ -13,20 +13,17 @@ test('a minimal config loads, with defaults applied and deeply frozen', () => {
     const cfg = loadConfig(writeConfig(dir))
     assert.deepEqual(
         cfg,
-        { schema_version: 1, repo: 'o/r', default_branch: 'main', verify: { mode: 'ci', install: '', command: 'npm test', timeout_min: 45 },
-            gate: { context: 'CI / Gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, reviewers: [], deploy_branch: null, project: null, agents: [], models: {}, plans_dir: 'docs/plans', worktrees_dir: '.claude/worktrees', live_verify_skill: null, deferred_checks_issue: null, areas: [], practices: [], ci: { push_paths: null } })
-    assert.ok(Object.isFrozen(cfg) && Object.isFrozen(cfg.verify) && Object.isFrozen(cfg.gate) && Object.isFrozen(cfg.gate.ci_files) && Object.isFrozen(cfg.reviewers))
+        { schema_version: 2, repo: 'o/r', default_branch: 'main', verify: { mode: 'ci', install: '', command: 'npm test', timeout_min: 45 },
+            gate: { context: 'CI / Gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, deploy_branch: null, project: null, agents: [], models: {}, plans_dir: 'docs/plans', worktrees_dir: '.claude/worktrees', live_verify_skill: null, deferred_checks_issue: null, areas: [], practices: [], ci: { push_paths: null } })
+    assert.ok(Object.isFrozen(cfg) && Object.isFrozen(cfg.verify) && Object.isFrozen(cfg.gate) && Object.isFrozen(cfg.gate.ci_files))
     assert.throws(() => { 'use strict'; cfg.repo = 'x/y' }, TypeError)
 })
 
-test('a full config compiles its regexes and fills reviewer defaults', () => {
+test('a full config compiles its regexes', () => {
     const cfg = validate(rawConfig({
         gate: { ci_files: ['^scripts/'], inherit: true }, docs_only: { docs: ['\\.md$'], code: ['^x'] }, deploy_branch: 'deploy',
-        reviewers: [{ name: 'bot', login: 'review-bot[bot]', rereview_comment: '@review-bot review', no_findings_reaction: '+1', unavailable_pattern: 'usage LIMIT', stale_after_min: 30 }, { name: 'b2', login: 'b2' }],
     }))
     assert.ok(cfg.gate.ci_files[0] instanceof RegExp && cfg.docs_only.docs[0].test('a.md'))
-    assert.ok(cfg.reviewers[0].unavailable_pattern.test('Usage limit reached'))
-    assert.deepEqual(cfg.reviewers[1], { name: 'b2', login: 'b2', rereview_comment: null, no_findings_reaction: null, unavailable_pattern: null, done_pattern: null, stale_after_min: null })
     assert.equal(cfg.deploy_branch, 'deploy')
 })
 
@@ -42,11 +39,11 @@ test('a missing or unreadable file and bad JSON fail closed', () => {
 
 test('unknown keys, missing required keys and wrong types fail closed', () => {
     bad({ extra: 1 }, /unknown key extra/)
-    for (const k of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) assert.throws(() => validate(JSON.parse(`{"${k}":{},"schema_version":1,"repo":"o/r","default_branch":"main","verify":{"mode":"ci","command":"x"}}`)), /unknown key/, k)
+    for (const k of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) assert.throws(() => validate(JSON.parse(`{"${k}":{},"schema_version":2,"repo":"o/r","default_branch":"main","verify":{"mode":"ci","command":"x"}}`)), /unknown key/, k)
     bad({ verify: { constructor: 1 } }, /unknown key verify\.constructor/)
     bad({ verify: { extra: 1 } }, /unknown key verify\.extra/)
     bad({ gate: { extra: 1 } }, /unknown key gate\.extra/)
-    bad({ reviewers: [{ name: 'a', login: 'a', extra: 1 }] }, /unknown key reviewers\[0\]\.extra/)
+    bad({ reviewers: [] }, /unknown key reviewers/)   // removed in schema 2: external reviewers are observed, not configured
     for (const k of ['repo', 'default_branch', 'verify']) bad({ [k]: undefined }, new RegExp(`missing ${k}`))
     bad({ verify: { mode: undefined } }, /missing verify\.mode/)
     bad({ verify: { command: undefined } }, /missing verify\.command/)
@@ -60,10 +57,6 @@ test('unknown keys, missing required keys and wrong types fail closed', () => {
     bad({ gate: { ci_files: '^a' } }, /gate\.ci_files must be a list/)
     bad({ gate: { ci_files: [1] } }, /gate\.ci_files\[0\]/)
     bad({ docs_only: [] }, /docs_only must be an object/)
-    bad({ reviewers: {} }, /reviewers must be a list/)
-    bad({ reviewers: [{ name: 'a' }] }, /missing reviewers\[0\]\.login/)
-    for (const login of ['a b', null, true, 42, ['bot']]) bad({ reviewers: [{ name: 'a', login }] }, /login/)
-    bad({ reviewers: [{ name: 'a', login: 'a', stale_after_min: 0 }] }, /stale_after_min/)
     for (const r of ['o/r/x', 'o', '../..', 'o/..', 'o r/x', '', 5]) bad({ repo: r }, /repo/)
     for (const b of ['-x', 'a..b', 'a/', 'a b', 'x.lock', 'a.lock/b', 'a/.b', 'a.', 'HEAD', 'a/HEAD', '', 'a//b']) bad({ default_branch: b }, /default_branch/)
 })
@@ -72,27 +65,21 @@ test('a bad regex fails closed, in each place a regex is accepted', () => {
     bad({ gate: { ci_files: ['('] } }, /gate\.ci_files\[0\] is not a valid regex/)
     bad({ docs_only: { docs: ['['] } }, /docs_only\.docs\[0\]/)
     bad({ docs_only: { code: ['*'] } }, /docs_only\.code\[0\]/)
-    bad({ reviewers: [{ name: 'a', login: 'a', unavailable_pattern: '(' }] }, /unavailable_pattern/)
-    bad({ reviewers: [{ name: 'a', login: 'a', done_pattern: '(' }] }, /done_pattern/)
-    bad({ reviewers: [{ name: 'a', login: 'a', done_pattern: 'state (?<other>[0-9a-f]+)' }] }, /done_pattern must contain a named group \(\?<sha>/)
-    assert.equal(validate(rawConfig({ reviewers: [{ name: 'a', login: 'a', done_pattern: 'state (?<sha>[0-9a-f]{7,40})' }] })).reviewers[0].done_pattern.exec('state abcdef1').groups.sha, 'abcdef1')
 })
 
 test('the schema version must equal the core: older says run sync, newer says core older than config', () => {
-    assert.equal(SCHEMA_VERSION, 1)
-    bad({ schema_version: 0 }, /older.*run sync/)
-    bad({ schema_version: 2 }, /newer.*core older than config: sync/)
-    bad({ schema_version: '1' }, /schema_version/)
+    assert.equal(SCHEMA_VERSION, 2)
+    bad({ schema_version: 1 }, /older.*run sync/)
+    bad({ schema_version: 3 }, /newer.*core older than config: sync/)
+    bad({ schema_version: '2' }, /schema_version/)
     bad({ schema_version: undefined }, /missing schema_version/)
 })
 
-test('deploy_branch, gate.context and reaction have cross-field and enum checks', () => {
+test('deploy_branch and gate.context have cross-field checks', () => {
     bad({ deploy_branch: 'main' }, /deploy_branch must differ/)
     bad({ gate: { context: 'Verify' } }, /context must differ/)
     bad({ gate: { context: 'X', check: 'X' } }, /context must differ/)
     bad({ deploy_branch: 'a b' }, /deploy_branch/)
-    bad({ reviewers: [{ name: 'a', login: 'a', no_findings_reaction: 'thumbsup' }] }, /no_findings_reaction/)
-    for (const r of ['+1', '-1', 'laugh', 'confused', 'heart', 'hooray', 'rocket', 'eyes', null]) validate(rawConfig({ reviewers: [{ name: 'a', login: 'a', no_findings_reaction: r }] }))
 })
 
 test('migrate applies the steps in order and throws on a gap; loadConfig never migrates', () => {
@@ -104,10 +91,20 @@ test('migrate applies the steps in order and throws on a gap; loadConfig never m
     assert.throws(() => migrate({ schema_version: 4 }, steps, 3), /newer/)
     assert.throws(() => migrate({ schema_version: 1 }, { 1: () => undefined }, 2), /did not return a config/)
     assert.throws(() => migrate({}, steps, 3), /integer/)
-    assert.deepEqual(migrate({ ...BASE_CONFIG }), BASE_CONFIG)   // the real table is empty at schema 1
+    assert.deepEqual(migrate({ ...BASE_CONFIG }), BASE_CONFIG)   // already at the current schema
     const dir = tempDir()
     writeFileSync(join(dir, 'old.json'), JSON.stringify({ ...BASE_CONFIG, schema_version: 0 }))
     assert.throws(() => loadConfig(join(dir, 'old.json')), /run sync/)
+})
+
+test('schema 1 -> 2 drops the reviewers key, keeps the rest and validates; reviewers is unknown in 2', () => {
+    const v1 = { ...BASE_CONFIG, schema_version: 1, reviewers: [{ name: 'bot', login: 'review-bot[bot]', rereview_comment: '/review', stale_after_min: 30 }], areas: ['Docs'] }
+    assert.throws(() => validate(v1), /older.*run sync/)
+    const next = migrate(v1)
+    assert.deepEqual(next, { ...BASE_CONFIG, areas: ['Docs'] })
+    assert.equal(validate(next).areas[0], 'Docs')
+    assert.equal(v1.reviewers.length, 1)   // the input is not touched
+    assert.deepEqual(migrate({ ...BASE_CONFIG, schema_version: 1 }), BASE_CONFIG)   // no reviewers key: still fine
 })
 
 test('configPath is .ticketflow/config.json in the git toplevel, from any subdirectory', () => {
@@ -223,10 +220,10 @@ test('config.mjs migrate: a current config is left byte for byte; a gap or a new
     const before = readFileSync(file, 'utf8')
     for (const flags of [[], ['--write']]) {
         const r = cli('migrate', file, ...flags)
-        assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /already at schema_version 1/)
+        assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /already at schema_version 2/)
         assert.equal(readFileSync(file, 'utf8'), before)
     }
-    for (const version of [0, 2]) {
+    for (const version of [0, 3]) {
         put({ ...BASE_CONFIG, schema_version: version })
         const stale = readFileSync(file, 'utf8')
         const r = cli('migrate', file, '--write')
@@ -235,6 +232,20 @@ test('config.mjs migrate: a current config is left byte for byte; a gap or a new
     }
     writeFileSync(file, '{nope')
     assert.equal(cli('migrate', file, '--write').status, 2)
+})
+
+test('config.mjs migrate --write turns a schema 1 file with reviewers into a valid schema 2 file; without --write it only prints', () => {
+    const dir = tempDir()
+    const file = join(dir, 'config.json')
+    writeFileSync(file, JSON.stringify({ ...BASE_CONFIG, schema_version: 1, reviewers: [{ name: 'bot', login: 'review-bot[bot]' }] }))
+    const before = readFileSync(file, 'utf8')
+    const dry = cli('migrate', file)
+    assert.equal(dry.status, 0, dry.stderr); assert.equal(JSON.parse(dry.stdout).schema_version, 2); assert.equal(readFileSync(file, 'utf8'), before)
+    const r = cli('migrate', file, '--write')
+    assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /migrated .* to schema_version 2/)
+    const out = JSON.parse(readFileSync(file, 'utf8'))
+    assert.equal(out.schema_version, 2); assert.ok(!('reviewers' in out))
+    assert.equal(cli('validate', file).stdout, 'config valid\n')
 })
 
 test('the CLI also runs through a symlinked path (macOS temp directories are under /var, a symlink)', () => {

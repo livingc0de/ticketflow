@@ -15,7 +15,7 @@ export const tempDir = (prefix = 'tf-') => {
     return dir
 }
 
-export const BASE_CONFIG = { schema_version: 1, repo: 'o/r', default_branch: 'main', verify: { mode: 'ci', command: 'npm test' } }
+export const BASE_CONFIG = { schema_version: 2, repo: 'o/r', default_branch: 'main', verify: { mode: 'ci', command: 'npm test' } }
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v) && !(v instanceof RegExp)
 /** Merges plain objects recursively; arrays and scalars replace; `undefined` deletes the key. */
