@@ -282,7 +282,7 @@ test('a comment-only review app starts a wait from its first comment; that comme
     assert.match(hidden.stdout, /^Review: pending \(cx\[bot\]\)$/m)
     const summary = by(8, '<!-- cx-pull-request-review-summary -->\n## Review Summary\n\n| Review | Status |\n| Code | Running |')
     const seen = wait({ ...green, 'issues/7/comments': [summary] })
-    assert.match(seen.stdout, /^Review cx\[bot\]: result comment https:\/\/x\/c ## Review Summary$/m)   // never none: the agent reads it as a status note and waits with --more
+    assert.match(seen.stdout, /^Review cx\[bot\]: result first comment https:\/\/x\/c ## Review Summary$/m)   // never none: the agent reads it as a status note and waits with --more (merge waits for more too)
     const more = ['7', '--more', CX, '--timeout-min', '0']
     assert.match(wait({ ...green, 'issues/7/comments': [summary] }, more).stdout, /^Review: pending \(cx\[bot\]\)$/m)
     // its result: the edit of that comment, or a review, after the wait started; a review of the head wins over a comment
@@ -293,27 +293,32 @@ test('a comment-only review app starts a wait from its first comment; that comme
     // no result 15 minutes after that first comment: late, and pr-reviewer takes over
     assert.match(wait({ ...green, 'issues/7/comments': [by(16, '<!-- cx-pull-request-review-summary -->')] }).stdout, /^Review: none \(no result in time: cx\[bot\]\)$/m)
     // a single first comment with the findings is the result at once
-    const whole = wait({ ...green, 'issues/7/comments': [by(3, 'Code review: 2 findings\n- a.js:3 off by one')] })
+    const whole = wait({ ...green, 'issues/7/comments': [by(3, '## Code review\n2 findings\n- a.js:3 off by one')] })
     assert.equal(whole.status, 0)
-    assert.match(whole.stdout, /^Review cx\[bot\]: result comment https:\/\/x\/c Code review: 2 findings$/m)
+    assert.match(whole.stdout, /^Review cx\[bot\]: result first comment https:\/\/x\/c ## Code review$/m)
+    // 15 minutes with nothing more: the first comment is the whole answer
+    assert.match(wait({ ...green, 'issues/7/comments': [by(16, '## Code review\n2 findings')] }).stdout, /^Review cx\[bot\]: result comment https:\/\/x\/c ## Code review$/m)
     // automation that does not review: a deploy preview, a coverage report, a plain status comment
-    const bots = [note(5, 'Deploy Preview for site ready!', { user: app('deploy[bot]') }), note(4, '## Coverage Report\n93%', { user: app('cov[bot]'), id: 11 }), note(3, 'Build passed', { user: app('ci[bot]'), id: 12 })]
+    const bots = [note(5, 'Deploy Preview for site ready!', { user: app('deploy[bot]') }), note(4, '## Coverage Report\n93%', { user: app('cov[bot]'), id: 11 }), note(3, 'Build passed', { user: app('ci[bot]'), id: 12 }),
+        note(2, '## [Codecov](https://app.codecov.io/gh/o/r/pull/7) Report\nAll modified lines are covered.\n\n[Continue to review full report in Codecov by Sentry](https://app.codecov.io/gh/o/r/pull/7).', { user: app('codecov[bot]'), id: 13 }),
+        note(2, 'Thanks! A maintainer will review this soon.\n<!-- greeting -->', { user: app('github-actions[bot]'), id: 14 })]
     assert.deepEqual(reviewLines(wait({ ...green, 'issues/7/comments': bots })), ['Review: none'])
 })
 
-test('PR #47: a summary comment, an eyes reaction while it runs, then the edit and a reaction when done: the result comes at once, never after 15 minutes', () => {
+test('PR #47: a summary comment and eyes while it runs, then the edit when done: the edit is the result at once; a reaction is never a result', () => {
     const CX = 'cx[bot]'
-    const summary = (edit, text) => note(14, `<!-- cx-pull-request-review-summary -->\n## Review Summary\n\n| Code Review | ${text} |`, { user: app(CX), updated_at: ago(edit) })
-    // while it runs: the summary is visible, so the agent reads it as a status note and waits with --more
+    const summary = (text, over = {}) => note(14, `<!-- cx-pull-request-review-summary -->\n## Review Summary\n\n| Code Review | ${text} |`, { user: app(CX), ...over })
+    const running = { ...green, 'issues/7/comments': [summary('Running')], 'issues/7/reactions': [react(14, 'eyes', CX)] }
+    // CI green while it runs: its first comment is shown, marked as unconfirmed (merge waits); with --more the wait goes on
+    assert.match(wait(running).stdout, /^Review cx\[bot\]: result first comment https:\/\/x\/c ## Review Summary$/m)
     const more = ['7', '--more', CX, '--timeout-min', '0']
-    assert.match(wait({ ...green, 'issues/7/comments': [summary(14, 'Running')], 'issues/7/reactions': [react(14, 'eyes', CX)] }, more).stdout, /^Review: pending \(cx\[bot\]\)$/m)
-    // done: the edit of that comment is the result
-    const done = wait({ ...green, 'issues/7/comments': [{ ...summary(14, 'Completed'), updated_at: ago(-1) }] }, more)
+    assert.match(wait(running, more).stdout, /^Review: pending \(cx\[bot\]\)$/m)
+    // done: the edit of that comment is the result, no longer marked
+    const done = wait({ ...green, 'issues/7/comments': [summary('Completed', { updated_at: ago(-1) })], 'issues/7/reactions': [react(-1, '+1', CX)] }, more)
     assert.match(done.stdout, /^Review cx\[bot\]: result comment https:\/\/x\/c ## Review Summary$/m)
-    // a reaction after its start is a result too (a bot that only reacts when it finds nothing); a reaction that is its first sign is only a start
-    const reacted = wait({ ...green, 'issues/7/comments': [summary(14, 'Running')], 'issues/7/reactions': [{ ...react(-1, '+1', CX) }] }, more)
-    assert.match(reacted.stdout, /^Review cx\[bot\]: result reaction \+1$/m)
-    assert.match(wait({ ...green, 'issues/7/reactions': [react(3, '+1')] }).stdout, /^Review: pending \(rb\[bot\]\)$/m)
+    // a reaction after the push, for example a +1 that belongs to an older head, is a sign only
+    const stale = wait({ ...green, 'issues/7/comments': [summary('Completed', { created_at: ago(60), updated_at: ago(45) })], 'issues/7/reactions': [react(5, '+1', CX)] })
+    assert.match(stale.stdout, /^Review: pending \(cx\[bot\]\)$/m)
 })
 
 test('a review of the head that arrived while CI ran is the result: CI pending shows it, green with it exits 0 with results', () => {

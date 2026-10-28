@@ -15,15 +15,16 @@
  * A failed read is a pending poll, never a verdict.
  *
  * External reviewers are observed, never configured or invoked. One counts when it is an app (a `[bot]` login, or type Bot) that reviewed
- * or reacted on the PR or wrote "review" in a comment of it, or an OWNER, MEMBER or COLLABORATOR that reviewed it, other than the PR
+ * or reacted on the PR or names "review" in a comment's hidden markup or heading or bold first line, or an OWNER, MEMBER or COLLABORATOR that reviewed it, other than the PR
  * author and the account running this, and it has a sign on this head: a review of it, a comment or a reaction made, or a comment
  * edited, after the head was pushed (the first check suite of the head, else its committer date). Its start is its first sign; it is
  * waited for at most 15 minutes from that start, and only its own result ends its wait: a review of the head (whatever its time: it can
  * only exist after the push), else its latest comment with visible text, its first one included, counted at its last edit, that names
- * the head or no commit at all, or a reaction of it after its start. A comment that names only other commits starts the wait but never ends it. A later edit does not
+ * the head or no commit at all; its first comment, unedited, is `first comment` while the window runs (merge waits for more). A reaction
+ * is a sign, never a result. A comment that names only other commits starts the wait but never ends it. A later edit does not
  * restart the window. A last review of the head that is CHANGES_REQUESTED is `changes requested` (settled, exit 0: merge refuses it).
  * Activity before the push, a review of another commit, and anyone else's activity are ignored.
- * It prints one `Review <login>: <state>` line per such reviewer (`pending since ..`, `result <kind> <url> <first line>`,
+ * It prints one `Review <login>: <state>` line per such reviewer (`pending since ..`, `result <review STATE | comment | first comment> <url> <first line>`,
  * `changes requested (<sha7>) <url>`, `no result 15 min after its start ..`), then `Review:`: `pending (<logins>)`, else `changes requested (<logins>)`,
  * else `results (<logins>)`, else `none`, with ` (no result in time: <logins>)` after results or none. A failed read prints
  * `Review: pending (the review activity could not be read)`. A result says that a reviewer answered, not what it concluded: the
@@ -164,7 +165,8 @@ function pushedAt(head) {
 
 /**
  * Fills S.reviewers with one { login, state, text } per external reviewer that started on this head: an app that reviewed or reacted
- * on the PR, or a trusted human that reviewed, and has a sign since the push (a review of the head, a comment, a reaction).
+ * on the PR or titled a comment with "review", or a trusted human that reviewed, and has a sign since the push (a review of the head,
+ * a comment, a reaction).
  */
 function pollReviewers(S) {
     const since = pushedAt(S.head)
@@ -172,9 +174,11 @@ function pollReviewers(S) {
     const reactions = api(`${R}/issues/${target}/reactions`, true)
     const reviews = api(`${R}/pulls/${target}/reviews`, true).filter((x) => x.state !== 'PENDING' && x.state !== 'DISMISSED')
     const outside = (l) => l && l !== me && l !== S.author
-    // shortcut: an app that only comments is a reviewer once a comment of it says "review" (hidden markup too), the generic word a review
-    // app uses and a deploy, preview or coverage bot does not; revisit if a non-reviewing bot writes it
-    const reviewing = (c) => isApp(c.user) && /\breview/i.test(c.body ?? '')
+    // shortcut: an app that only comments is a reviewer once a comment of it names "review" in its hidden markup or in a heading or bold
+    // first line (a review summary does; a deploy, coverage or greeting bot's text, "will review" or "continue to review", does not);
+    // revisit if a review app is missed or a non-reviewing bot titles a comment with it
+    const hidden = (b) => (String(b ?? '').match(/<!--[\s\S]*?-->/g) ?? []).join(' ')
+    const reviewing = (c) => isApp(c.user) && (/\breview/i.test(hidden(c.body)) || /^\s*(#+|\*\*|__).*\breview/i.test(firstLine(c.body)))
     const known = new Set([...reviews.filter((x) => isApp(x.user) || TRUSTED.has(x.author_association)), ...reactions.filter((x) => isApp(x.user)), ...comments.filter(reviewing)].map((x) => x.user?.login).filter(outside))
     // a comment counts when it was posted after the push, else when it was edited after it
     const at = (c) => (ms(c.created_at) > since ? ms(c.created_at) : ms(c.updated_at))
@@ -195,12 +199,12 @@ function pollReviewers(S) {
         if (last?.state === 'CHANGES_REQUESTED') return { login, state: 'changes', text: `changes requested (${S.head.slice(0, 7)}) ${last.html_url}` }
         const after = more.has(login) ? launched : since
         // a review of the head is the result; else its latest comment with visible text, at its last edit (the start above keeps the first
-        // sign), or a reaction after its start (a bot that only reacts when it finds nothing). Its first comment can be the whole result;
-        // when it is only a status note, the agent waits again with --more
+        // sign). Its first comment, unedited, is shown at once (it can hold the findings) but marked `first comment` while the window runs:
+        // it may be the status note of a review still running, so the agent reads it (--more for a status note) and merge waits for more
         const latest = (xs) => xs.sort((a, b) => a[0] - b[0]).at(-1)
+        const kind = (c) => (c === own[0] && !(ms(c.updated_at) > ms(c.created_at)) && Date.now() < start + WINDOW_MS ? 'first comment' : 'comment')
         const said = latest(onHead.filter((x) => !more.has(login) || ms(x.submitted_at) > launched).map((x) => [ms(x.submitted_at), `review ${x.state} ${x.html_url} ${firstLine(x.body)}`]))
-            ?? latest([...own.filter((c) => edited(c) > after && visible(c.body) && !aboutOther(c)).map((c) => [edited(c), `comment ${c.html_url} ${firstLine(c.body)}`]),
-                ...reactions.filter((x) => mine(x) && ms(x.created_at) > Math.max(start, after)).map((x) => [ms(x.created_at), `reaction ${x.content}`])])
+            ?? latest(own.filter((c) => edited(c) > after && visible(c.body) && !aboutOther(c)).map((c) => [edited(c), `${kind(c)} ${c.html_url} ${firstLine(c.body)}`]))
         if (said) return { login, state: 'result', text: `result ${said[1]}` }
         const iso = (t) => new Date(t).toISOString()
         if (Date.now() >= start + WINDOW_MS) return { login, state: 'late', text: `no result 15 min after its start ${iso(start)}` }

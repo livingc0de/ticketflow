@@ -69,10 +69,10 @@ Here is what happens when you say *"implement #42"*:
    following TicketFlow's built-in [engineering method](#building-the-engineering-method).
 4. **Verify.** CI runs your normal checks and posts `CI / Gate` on the exact commit. If GitHub Actions can't run (a billing hiccup,
    no runner), a careful local fallback runs the same checks and posts the result instead.
-5. **Review.** While CI runs, TicketFlow watches for a review bot or a person that starts on the pull request and waits for its
-   result (at most 15 minutes). If none does, or none gives a usable result, the independent `pr-reviewer` role reviews the pull
-   request against the ticket, security, correctness and your own rules; `critical` pull requests get it either way. Findings are fixed
-   in the same pull request.
+5. **Review.** While CI runs, TicketFlow watches for a review bot or a person that starts on the pull request and uses its
+   result as soon as it arrives (at most 15 minutes after it started). If none does, or none gives a usable result, the
+   independent `pr-reviewer` role reviews the pull request against the ticket, security, correctness and your own rules;
+   `critical` pull requests get it either way. Findings are fixed in the same pull request.
 6. **Merge.** Only through the `merge` script. It checks the gate, that the branch is up to date and that the review was
    answered (no open review thread, no reviewer left waiting or on "changes requested", no "changes needed" verdict) and that the
    exact commit was reviewed, then merges exactly that commit.
@@ -146,8 +146,10 @@ Changes that touch only the paths you list as docs get it quickly without runnin
 ### Reviews
 
 You configure nothing. While CI runs, TicketFlow notices any review bot or teammate that starts on the exact commit (a reaction, a
-comment, a review) and waits for that reviewer's result, at most 15 minutes from its start; activity from older commits or from
-unrelated accounts is ignored. The agent reads the result and fixes what it finds. With no external review, the built-in
+comment, a review) and waits for that reviewer's result, at most 15 minutes from its start. The result counts as soon as it lands: a
+review, or a comment, the first one too or the edit of a summary comment (a first comment that may still be a status note makes
+`merge` wait for more). Activity from older commits or from unrelated accounts, such as deploy or coverage bots, is ignored. The
+agent reads the result and fixes what it finds. With no external review, the built-in
 `pr-reviewer` role reviews the commit and reports its findings straight to the agent; a `critical` pull request gets it as well, and a `high` one
 where the external result missed the risky part.
 

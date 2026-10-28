@@ -27,25 +27,27 @@ asked before merging on it.
 
 No list, no login, no re-request comment: `pr-wait` reads what GitHub shows on the pull request.
 
-- **Who counts.** An app (a `[bot]` login, or an account of type Bot) that reviewed or reacted on the pull request, or wrote "review"
-  in one of its comments there (hidden markup counts, so a bot that starts with a summary comment is seen at once), or an owner, member
-  or collaborator that reviewed it. The author of the pull request and the account running the script never count, and neither does an
-  app whose comments never say "review" (a deploy, preview or coverage bot) or a commenter who never reviewed.
+- **Who counts.** An app (a `[bot]` login, or an account of type Bot) that reviewed or reacted on the pull request (reactions on the
+  pull request itself, not on its comments), or names "review" in a comment there, in its hidden markup or in a heading or bold first
+  line, so a bot that starts with a review summary comment is seen at once; or an owner, member or collaborator that reviewed it. The
+  author of the pull request and the account running the script never count, and neither does a deploy, coverage or greeting bot (its
+  "continue to review" or "will review" is plain text) or a commenter who never reviewed.
 - **Push time.** Only activity after the head was pushed counts. That is the time of its first check suite, else its committer date
   (a commit made long before it was pushed can then admit older activity: a documented ceiling). Activity before the push, and reviews of
   another commit, decide nothing. A review of the head itself always counts, whatever its time: it can only exist after the push.
 - **Start.** A reviewer has started when it has a sign on the head: a review of it, a comment or a reaction made after the push, or a
   comment edited after it. Its start is its first sign.
-- **Result.** A review of the head; else the account's latest comment with visible text, counted at its last edit, or a reaction
-  of it after its start (a bot that reacts when it finds nothing; a reaction that is its first sign is only a start). Its first
-  comment can be the whole result. When it is only a status note (the review is still running), wait again with `--more '<login>'`:
-  the edit of that comment or a review after that counts, within the same 15 minutes. A comment that names commits but not the head (a late receipt for an older
-  commit) is a sign, never the result. It ends only that reviewer's own wait; another account's "looks good" neither starts nor ends it.
+- **Result.** A review of the head; else the account's latest comment with visible text, counted at its last edit. A reaction is
+  a sign, never a result. Its first comment can be the whole result, so it is shown at once, as `result first comment`, while it is
+  unedited and the 15 minutes run: it may also be the status note of a review still running, so `merge` waits for its next answer.
+  When it is only a status note, wait again with `--more '<login>'`: the edit of that comment or a review after that is the result,
+  within the same 15 minutes (a slow run ends `late`, and `pr-reviewer` takes over). A comment that names commits but not the head
+  (a late receipt for an older commit) is a sign, never the result. It ends only that reviewer's own wait; another account's "looks good" neither starts nor ends it.
 - **Window.** At most 15 minutes from its start, not from its latest edit. After that it is `late` and the wait moves on without it.
   A reviewer that said more is coming: `pr-wait.mjs <PR> --more '<login>'` counts only what it posts after that run started.
 - **Changes requested.** A last review of the head that asks for changes ends the wait at once and is a refusal for `merge`.
 
-`pr-wait` prints one `Review <login>: ...` line per such reviewer (`pending since ...`, `result <kind> <link> <first line>`,
+`pr-wait` prints one `Review <login>: ...` line per such reviewer (`pending since ...`, `result <review STATE | comment | first comment> <link> <first line>`,
 `changes requested (<sha7>) <link>`, `no result 15 min after its start ...`), then one summary: `Review: pending (<logins>)`, else
 `changes requested (<logins>)`, else `results (<logins>)`, else `none`, with `(no result in time: <logins>)` after results or none. A read
 that fails prints `Review: pending (the review activity could not be read)`. CI red does not stop the wait for a reviewer that started

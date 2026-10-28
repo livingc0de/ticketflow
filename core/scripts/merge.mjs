@@ -82,6 +82,9 @@ function merge() {
     if (!/^(none|results)\b/.test(review)) return stop(`Review is "${review}"\n${summary}`)
 
     // pr-reviewer reviews are the submitted reviews of a trusted account that carry a `**Verdict:**` line; the last one of each account on the head must be exactly "ready to merge"
+    // a reviewer's unedited first comment may be the status note of a review still running: pr-wait marks it while its 15 minutes run
+    const unsure = lines.map((l) => /^Review (\S+): result first comment /.exec(l)?.[1]).find(Boolean)
+    if (unsure) return stop(`${unsure}'s only answer on ${sha7} is its first comment, unedited, which may be the status note of a review still running: wait for its next answer (pr-wait --more '${unsure}'), at most 15 minutes from its start\n${summary}`)
     const me = api('user').login
     const last = new Map()
     for (const x of api(`${R}/pulls/${pr}/reviews`, { paginate: true })) {
