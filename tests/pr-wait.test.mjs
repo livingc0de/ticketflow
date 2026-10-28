@@ -316,6 +316,10 @@ test('PR #47: a summary comment and eyes while it runs, then the edit when done:
     // done: the edit of that comment is the result, no longer marked
     const done = wait({ ...green, 'issues/7/comments': [summary('Completed', { updated_at: ago(-1) })], 'issues/7/reactions': [react(-1, '+1', CX)] }, more)
     assert.match(done.stdout, /^Review cx\[bot\]: result comment https:\/\/x\/c ## Review Summary$/m)
+    // a later head: the same summary comment (created at the PR's start) edited to "Running" after this push is still unconfirmed;
+    // a bot that posts a new comment for this head too
+    assert.match(wait({ ...green, 'issues/7/comments': [summary('Running', { created_at: ago(60), updated_at: ago(5) })] }).stdout, /^Review cx\[bot\]: result first comment /m)
+    assert.match(wait({ ...green, 'issues/7/comments': [summary('Done', { created_at: ago(60), updated_at: ago(50) }), note(4, '## Review\nRunning', { id: 21, user: app(CX) })] }).stdout, /^Review cx\[bot\]: result first comment /m)
     // a reaction after the push, for example a +1 that belongs to an older head, is a sign only
     const stale = wait({ ...green, 'issues/7/comments': [summary('Completed', { created_at: ago(60), updated_at: ago(45) })], 'issues/7/reactions': [react(5, '+1', CX)] })
     assert.match(stale.stdout, /^Review: pending \(cx\[bot\]\)$/m)

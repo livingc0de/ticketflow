@@ -20,7 +20,8 @@
  * edited, after the head was pushed (the first check suite of the head, else its committer date). Its start is its first sign; it is
  * waited for at most 15 minutes from that start, and only its own result ends its wait: a review of the head (whatever its time: it can
  * only exist after the push), else its latest comment with visible text, its first one included, counted at its last edit, that names
- * the head or no commit at all; its first comment, unedited, is `first comment` while the window runs (merge waits for more). A reaction
+ * the head or no commit at all; its first comment on this head (a new one, or an old one edited after the push), unchanged since, is
+ * `first comment` while the window runs (merge waits for more). A reaction
  * is a sign, never a result. A comment that names only other commits starts the wait but never ends it. A later edit does not
  * restart the window. A last review of the head that is CHANGES_REQUESTED is `changes requested` (settled, exit 0: merge refuses it).
  * Activity before the push, a review of another commit, and anyone else's activity are ignored.
@@ -202,7 +203,13 @@ function pollReviewers(S) {
         // sign). Its first comment, unedited, is shown at once (it can hold the findings) but marked `first comment` while the window runs:
         // it may be the status note of a review still running, so the agent reads it (--more for a status note) and merge waits for more
         const latest = (xs) => xs.sort((a, b) => a[0] - b[0]).at(-1)
-        const kind = (c) => (c === own[0] && !(ms(c.updated_at) > ms(c.created_at)) && Date.now() < start + WINDOW_MS ? 'first comment' : 'comment')
+        // shortcut: "first" is the reviewer's first comment activity on this head (a new comment, or its old summary edited), kept while
+        // unchanged since; a fresh run knows only the last edit, so a reused summary stays unconfirmed up to 15 minutes after it, and a
+        // status note edited while the review runs reads as an answer; revisit if a review app edits its note mid-run
+        const firstKey = `${key} comment`
+        const firstAnswer = Math.min(firstSeen.get(firstKey) ?? Infinity, ...own.map(at).filter((t) => t > since))
+        firstSeen.set(firstKey, firstAnswer)
+        const kind = (c) => (edited(c) <= firstAnswer && Date.now() < start + WINDOW_MS ? 'first comment' : 'comment')
         const said = latest(onHead.filter((x) => !more.has(login) || ms(x.submitted_at) > launched).map((x) => [ms(x.submitted_at), `review ${x.state} ${x.html_url} ${firstLine(x.body)}`]))
             ?? latest(own.filter((c) => edited(c) > after && visible(c.body) && !aboutOther(c)).map((c) => [edited(c), `${kind(c)} ${c.html_url} ${firstLine(c.body)}`]))
         if (said) return { login, state: 'result', text: `result ${said[1]}` }
