@@ -1,11 +1,13 @@
 # Action map: Cursor
 
-The canonical skills and roles name actions. In Cursor, do them like this. `config.models.cursor` maps a model class (`strong`, `standard`, `light`) to a model id; a `null` id means: leave `model` out (the subagent inherits).
+The canonical skills and roles name actions. In Cursor, do them like this. `config.models.cursor ?? config.models.default` maps a model class (`strong`, `standard`, `light`) to a model id; a `null` id means: leave `model` out (the subagent inherits).
+
+Treat versionless values such as `grok`, `composer` and `gemini-flash` as model-family hints. Before passing a configured model to Cursor, keep a Cursor-native alias when Cursor accepts it; otherwise resolve it to the current full model id. This applies to role frontmatter and helper or lead dispatches. Do not invent a version when the tool cannot resolve the hint; use the current session model instead.
 
 | Action | How |
 |---|---|
-| Dispatch the `<role>` role | Task tool with the subagent named `<role>` (the repo's agent in `.cursor/agents/`, which wins over `.claude/` and `.codex/`). Its model comes from its frontmatter; the effort follows the model |
-| Dispatch a helper of a class | Task tool: `Explore` for broad read-only search, a generic subagent for work; name the model from `config.models.cursor[<class>]` when it is not `null` |
+| Dispatch the `<role>` role | Task tool with the subagent named `<role>` (the repo's agent in `.cursor/agents/`, which wins over `.claude/` and `.codex/`). Its model comes from its frontmatter; resolve the model hint if Cursor requires a full id; the effort follows the model |
+| Dispatch a helper of a class | Task tool: `Explore` for broad read-only search, a generic subagent for work; name the model from `(config.models.cursor ?? config.models.default)[<class>]` when it is not `null` |
 | Dispatch a fresh ticket lead | Task tool, a generic subagent, the standard-class model, never resumed; brief it fully, it has no context |
 | Run in the background and wait once | Run it in the foreground; on a timeout run it again (the ticketflow scripts are stateless and bounded) |
 | Ask the user | The ask-questions tool, one targeted question, then wait |

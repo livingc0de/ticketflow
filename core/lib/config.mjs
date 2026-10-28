@@ -48,6 +48,8 @@ const ref = (v, p) => {
 // a conservative relative path; no `..`, no leading slash, no control characters
 const dirPath = (v, p) => (typeof v === 'string' && /^[\w.-]+(\/[\w.-]+)*$/.test(v) && !v.split('/').some((s) => /^\.+$/.test(s)) ? v : fail(`${p} must be a relative directory path without ..`))
 const area = (v, p) => (typeof v === 'string' && v.length >= 1 && v.length <= 44 && v.trim() === v && !/[\u0000-\u001f\u007f\u0085\u2028\u2029,{}]/.test(v) && v.toLowerCase() !== 'none' ? v : fail(`${p} must be 1-44 characters without commas, braces or control characters`))
+// GitHub labels are limited to 50 characters; "Environment: " consumes 13 of them.
+const environment = (v, p) => (typeof v === 'string' && v.length >= 1 && v.length <= 37 && v.trim() === v && !/[\u0000-\u001f\u007f\u0085\u2028\u2029,{}]/.test(v) ? v : fail(`${p} must be 1-37 characters without commas, braces or control characters`))
 const glob = (v, p) => (typeof v === 'string' && v !== '' && !/[\u0000-\u001f\u007f\u0085\u2028\u2029]|\$\{\{/.test(v) ? v : fail(`${p} must be a non-empty path glob`))
 // a name that is written into a workflow file, a comment and a shell variable: a conservative charset, so no line break or `${{ }}` can get in
 const gateName = (v, p) => (typeof v === 'string' && /^[\w .\/:()#+@&-]+$/.test(v) && v.trim() === v ? v : fail(`${p} must be letters, digits, spaces and . / : ( ) # + @ & - only`))
@@ -80,12 +82,13 @@ const unique = (parse) => (v, p) => { const out = parse(v, p); return new Set(ou
 export const AGENTS = Object.freeze(['claude', 'codex', 'cursor', 'gemini', 'opencode', 'antigravity', 'copilot'])
 /** The optional practices shipped in `practices/`: a config enables them by name. */
 export const PRACTICES = Object.freeze(['live-verify', 'runtime-settings', 'i18n', 'database', 'provider-adapters', 'api-endpoints', 'ui-screens', 'domain-guides', 'deploy-gating', 'analytics-events'])
-const model = orNull((v, p) => (typeof v === 'string' && /^[\w.:/[\]-]+$/.test(v) ? v : fail(`${p} must be a model id`)))
+// Provider-backed agents such as Copilot may identify models by display name, so spaces are valid.
+const model = orNull((v, p) => (typeof v === 'string' && /^[\w][\w .:/[\]-]*$/.test(v) && v.trim() === v ? v : fail(`${p} must be a model id`)))
 const modelClasses = section({ strong: [model, REQUIRED], standard: [model, REQUIRED], light: [model, REQUIRED] })
-/** `{ <agent>?: ... }` for the agents above, each with all three classes; `null` (inherit) is the only way to leave a model out. */
+/** `{ default?: ..., <agent>?: ... }`, each with all three classes; `null` (inherit) is the only way to leave a model out. */
 const models = (v, p) => {
     if (!isObject(v)) fail(`${p} must be an object`)
-    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, AGENTS.includes(k) ? modelClasses(x, `${p}.${k}`) : fail(`unknown key ${p}.${k}`)]))
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, k === 'default' || AGENTS.includes(k) ? modelClasses(x, `${p}.${k}`) : fail(`unknown key ${p}.${k}`)]))
 }
 
 const parse = section({
@@ -115,10 +118,11 @@ const parse = section({
     agents: [unique(list(oneOf(...AGENTS))), []],
     models: [models, {}],
     plans_dir: [dirPath, 'docs/plans'],
-    worktrees_dir: [dirPath, '.claude/worktrees'],
+    worktrees_dir: [dirPath, '.worktrees'],
     live_verify_skill: [orNull((v, p) => (typeof v === 'string' && /^[a-z0-9-]+$/.test(v) ? v : fail(`${p} must be a skill name`))), null],
     deferred_checks_issue: [orNull(int(1)), null],
     areas: [unique(list(area)), []],
+    environments: [unique(list(environment)), []],
     practices: [unique(list(oneOf(...PRACTICES))), []],
     ci: [section({ push_paths: [orNull(list(glob)), null] }), {}],
 })
@@ -138,7 +142,7 @@ export function validate(raw) {
     if (cfg.deploy_branch === cfg.default_branch) fail('deploy_branch must differ from default_branch')
     if (cfg.project?.number === 0 && cfg.project.title === null) fail('project.title is required while project.number is 0')
     if (cfg.deploy_branch !== null && cfg.ci.push_paths?.length) fail('ci.push_paths must be null or [] while deploy_branch is set: the deploy signal needs every push')
-    for (const a of cfg.agents) if (!cfg.models[a]) fail(`models.${a} is required while ${a} is in agents`)
+    for (const a of cfg.agents) if (!cfg.models[a] && !cfg.models.default) fail(`models.${a} or models.default is required while ${a} is in agents`)
     if (cfg.gate.context === cfg.gate.check) fail('gate.context must differ from gate.check')
     return deepFreeze(cfg)
 }

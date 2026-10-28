@@ -1,10 +1,12 @@
 # Action map: Gemini CLI
 
-The canonical skills and roles name actions. In Gemini CLI, do them like this. `config.models.gemini` maps a model class (`strong`, `standard`, `light`) to a model id; a `null` id means: leave `model` out.
+The canonical skills and roles name actions. In Gemini CLI, do them like this. `config.models.gemini ?? config.models.default` maps a model class (`strong`, `standard`, `light`) to a model id or native alias (`pro`, `flash`, `flash-lite`); a `null` id means: leave `model` out.
+
+Treat versionless values as model-family hints. Before passing a configured model to Gemini, keep Gemini-native aliases such as `pro`, `flash` and `flash-lite` when Gemini accepts them; otherwise resolve them to the current full model id. This applies to role frontmatter and helper or lead dispatches. Do not invent a version when the tool cannot resolve the hint; use the current session model instead.
 
 | Action | How |
 |---|---|
-| Dispatch the `<role>` role | Call the `<role>` tool (the repo's agent in `.gemini/agents/`), or `@<role>` in a prompt. Its model comes from its frontmatter; there is no effort setting |
+| Dispatch the `<role>` role | Call the `<role>` tool (the repo's agent in `.gemini/agents/`), or `@<role>` in a prompt. Its model comes from its frontmatter; resolve the model hint if Gemini requires a full id; there is no effort setting |
 | Dispatch a helper of a class | `generalist` for work, `codebase_investigator` for broad read-only search; the model is set per agent, not per call |
 | Dispatch a fresh ticket lead | `generalist`; brief it fully, it has no context. It cannot dispatch (see Nesting) |
 | Run in the background and wait once | Run it in the foreground. A command silent for 300 s is cut off by the inactivity timeout: run the stateless script again |

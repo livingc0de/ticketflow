@@ -43,7 +43,7 @@ process.exitCode = existsSync(d + '/${n}.exit') ? Number(readFileSync(d + '/${n}
         chmodSync(join(dir, rt, 'scripts', `${n}.mjs`), 0o755)
     }
     put(dir, '.ticketflow/config.json', JSON.stringify(rawConfig(cfg)))
-    put(dir, '.gitignore', '.claude/worktrees/\n')
+    put(dir, '.gitignore', '.worktrees/\n')
     if (!repoMode && manifest) writeManifest(dir, { version: '1.0.0', files: Object.fromEntries(runtimeFiles(dir).map((p) => [p, hashFile(join(dir, p))])), held: [] })
     if (commit) { git(dir, 'add', '-A'); git(dir, 'commit', '-qm', 'x') }
     const g = fakeGh(logs, gh ?? {})

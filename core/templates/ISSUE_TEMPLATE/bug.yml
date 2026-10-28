@@ -12,17 +12,6 @@ body:
       description: What is wrong, and who is affected?
     validations:
       required: true
-  - type: dropdown
-    id: environment
-    attributes:
-      label: Environment
-      description: Where it happened (optional).
-      options:
-        - Production
-        - Staging
-        - Development
-    validations:
-      required: false
   - type: textarea
     id: steps
     attributes:
@@ -45,9 +34,6 @@ body:
       label: Actual Behavior
     validations:
       required: true
-{{area_field}}
-{{priority_field}}
-{{effort_field}}
   - type: textarea
     id: evidence
     attributes:
@@ -62,5 +48,4 @@ body:
         - [ ] A test covers it.
     validations:
       required: true
-{{execution_field}}
 # ticketflow:end form

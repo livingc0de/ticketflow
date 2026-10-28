@@ -1,6 +1,6 @@
 {
   "name": "ticketflow",
-  "version": "0.4.0",
+  "version": "0.4.5",
   "description": "An agent-neutral, ticket-driven delivery workflow for GitHub repos: set it up with init, update it with sync.",
   "repository": "https://github.com/livingc0de/ticketflow",
   "license": "MIT",

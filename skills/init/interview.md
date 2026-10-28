@@ -6,18 +6,19 @@ Start from `<TF>/core/templates/config.json` and write the result to `.ticketflo
 |---|---|
 | `repo`, `default_branch` | `gh repo view --json nameWithOwner,defaultBranchRef`; an empty new repo returns an empty branch name: use the local `git init -b` branch (`main`). No question |
 | `agents` | `.claude/` or CLAUDE.md: claude; `.codex/`: codex; `.cursor/`: cursor; `.gemini/` or GEMINI.md: gemini; `.opencode/` or `opencode.json(c)`: opencode; `.github/agents/` or `.github/copilot-instructions.md`: copilot; `.agents/hooks.json`: antigravity; plus yourself. `.agents/` alone says nothing (several tools read it) |
-| `models` | Claude `{strong: opus, standard: sonnet, light: haiku}`; every other agent `{strong: null, standard: null, light: null}` (inherit), except Antigravity `{strong: pro, standard: flash, light: flash}` and OpenCode with a `provider/model` id when the owner names one. Copilot model names contain spaces: leave `null` |
+| `models` | Use the selected agents' versionless model-family or tier hints from `<TF>/core/templates/config.json`; each tool's action map keeps a native alias or resolves the hint to a full model id only when necessary. Keep `default: {strong: null, standard: null, light: null}` as the universal fallback for an agent-specific mapping you do not want to pin. An agent-specific entry wins over `default`; entries for agents not in `agents` are examples only. Set a class to `null` only when the owner explicitly wants that tool to inherit its selected model. Any other agent uses the generic action map and its own selected model |
 | `verify.install` | from the lockfile: `npm ci`, `pnpm install --frozen-lockfile` or `yarn install --immutable`; the toolchain setup (for example `actions/setup-node`, `setup-python`) goes in the repo section of `ci.yml` |
 | `verify.command` | in order: the `verify` script, the `test` script, a Makefile target, `pytest`, `cargo test`, `go test ./...` |
 | `verify.mode` | `ci`; `local-first` when CI is slow, costly or needs local services (then `timeout_min` 45) |
 | `gate` | `CI / Gate` and `Verify`, or the context already required (`gh api repos/<R>/rules/branches/<b>` and `gh api repos/<R>/branches/<b> --jq .protection.required_status_checks.contexts`). `inherit` false |
 | `docs_only` | docs = `^docs/` and `^[^/]+\.md$`; ask which of those are really code |
-| `areas` | existing `Area:` labels, else the top-level source directories. Labels in use outside the core set go to `custom/labels.json` |
+| `areas` | existing `Area:` labels, else the top-level source directories. Labels in use outside the core set go to `custom/labels.json`; issue forms do not duplicate label choices in the body |
+| `environments` | detect the repository's documented deployment environments or existing `Environment:` labels; ask the owner to confirm the names. Keep `[]` when environments do not matter. Values become repository-specific `Environment:` labels; issue forms do not duplicate them in the body |
 | UI | front-end dependencies, `playwright.config.*` or `e2e/` found: the `live-verify` practice is recommended through the Practices questions; when it is enabled set `live_verify_skill` to `live-verify` (otherwise the `e2e-verifier` role gets no stub). Also recommend a `deferred_checks_issue` (create one). A repo that keeps its own live-verification skill leaves the practice off and names that skill in `live_verify_skill` |
 | `deploy_branch` | a non-default branch in the workflows' `on.push.branches`, else null. `ci.push_paths` null |
 | `project` | projects linked to the repo (GraphQL `repository{projectsV2}`): reuse one (its number) or a new one (number 0, title = the repo name). No optional views by default: the Work Board and Roadmap always exist |
 | `practices` | see Practices below |
-| `plans_dir`, `worktrees_dir` | reuse an existing worktree directory if there is one |
+| `plans_dir`, `worktrees_dir` | reuse an existing worktree directory if there is one; otherwise use the neutral `.worktrees/` directory |
 | `custom/` | draft the repo-specific workflow rules found in AGENTS.md, CLAUDE.md and the skills ticketflow replaces; show every draft before writing it |
 
 ## Reviewers

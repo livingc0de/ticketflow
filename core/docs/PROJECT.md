@@ -48,21 +48,24 @@ request merged.
 
 ## Labels
 
-Type, Priority, Effort and Area are labels, not project fields, so nothing is stored twice. `core/templates/labels.json` is the list.
+Type, Priority, Effort, AI Model, AI Effort, Area and Environment are labels, not project fields, so nothing is stored twice. `core/templates/labels.json` is the core list; repository-specific Area and Environment labels come from config.
 
 - `Type:` Bug, Feature, Task, Decision, Initiative.
 - `Priority:` P0 Critical, P1 High, P2 Medium, P3 Low.
 - `Effort:` XS, S, M, L, XL (Bug, Feature and Task only; XL means split it).
+- `AI Model:` Strong, Standard, Light (the semantic model class selected for the work).
+- `AI Effort:` Low, Medium, High, XHigh (reasoning effort for the selected model).
 - `Needs:` Decision, Design, Legal, External, Reproduction: something blocks readiness.
 - Supporting: UX, Content, Security, Testing, Documentation, Technical Debt.
 - `Area: <name>` for each name in `areas` of the config.
+- `Environment: <name>` for each name in `environments` of the config.
 - Your own, in `.ticketflow/custom/labels.json` (same format).
 
 `labels.mjs sync <file> [--restyle] [--prune] [--dry-run]` creates the missing labels. A label the repo already has is the repo's: its colour,
 description and case are never changed, except for the entries of `custom/labels.json`, which are kept in line, and, on the owner's
 choice, `--restyle` (a dry run lists each differing label as `differs:`). It deletes other labels
-only with `--prune`, and only those no issue or pull request uses. The issue forms (feature, bug, task, decision) carry the Type label;
-the creator copies the Priority, Effort and Area answers from the body into labels.
+only with `--prune`, and only those no issue or pull request uses. The issue forms (feature, bug, task, decision) carry only their
+static Type label and, for decisions, `Needs: Decision`; triage adds Priority, Area, Environment, Effort, AI Model and AI Effort directly as labels.
 
 ## Trackers
 

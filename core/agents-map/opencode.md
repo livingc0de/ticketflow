@@ -1,10 +1,12 @@
 # Action map: OpenCode
 
-The canonical skills and roles name actions. In OpenCode, do them like this. `config.models.opencode` maps a model class (`strong`, `standard`, `light`) to a `provider/model` id; a `null` id means: leave `model` out.
+The canonical skills and roles name actions. In OpenCode, do them like this. `config.models.opencode ?? config.models.default` maps a model class (`strong`, `standard`, `light`) to a `provider/model` id; a `null` id means: leave `model` out.
+
+Treat versionless `provider/model` values as model-family hints. Before passing a configured model to OpenCode, keep a provider-native alias when OpenCode accepts it; otherwise resolve it to the current full `provider/model` id. This applies to role frontmatter and helper or lead dispatches. Do not invent a version when the provider cannot resolve the hint; use the current session model instead.
 
 | Action | How |
 |---|---|
-| Dispatch the `<role>` role | V2: the `subagent` tool with agent `<role>`. V1: the `task` tool with `subagent_type: "<role>"`. The repo's agents are in `.opencode/agents/` |
+| Dispatch the `<role>` role | V2: the `subagent` tool with agent `<role>`. V1: the `task` tool with `subagent_type: "<role>"`. The repo's agents are in `.opencode/agents/`; resolve a frontmatter model hint if OpenCode requires a full id |
 | Dispatch a helper of a class | Agent `general` for work, `explore` for broad read-only search; the model comes from the agent, or the parent can name it |
 | Dispatch a fresh ticket lead | V2 `subagent` with agent `general`, V1 `task`; brief it fully, it has no context |
 | Run in the background and wait once | V2: `shell` with `background: true`, then wait for the result. V1: the `bash` tool with a long `timeout` (the default is 2 minutes) |

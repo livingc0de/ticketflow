@@ -1,15 +1,19 @@
 # TicketFlow
 
-**A calm, repeatable way for AI coding agents to ship work in your GitHub repo: one ticket at a time, planned, verified,
-reviewed and merged safely.**
+> 🚦 **A calm, repeatable way for AI coding agents to ship work in your GitHub repo:** one ticket at a time, planned, verified,
+> reviewed and merged safely.
 
 You describe what you want. Your agent turns it into a ticket, plans it, builds it in its own branch, proves it works, gets it
-reviewed, merges it, and tells you what it did. TicketFlow is the rulebook and the tooling that make every one of those steps
-the same each time, whether the agent is Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Antigravity, GitHub Copilot or anything else that can read files and run a shell.
+reviewed, merges it, and tells you what it did. TicketFlow is the rulebook and tooling that make those steps repeatable, whether
+the agent is Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Antigravity, GitHub Copilot or anything else that can read files
+and run a shell.
+
+> 🧭 **In short:** tell your agent what to build, and TicketFlow turns the request into a reviewable, evidence-backed change while
+> leaving the final “Done” decision with you.
 
 ---
 
-## Why TicketFlow?
+## 🌱 Why TicketFlow?
 
 AI agents are fast, but left alone they tend to:
 
@@ -22,7 +26,7 @@ AI agents are fast, but left alone they tend to:
 TicketFlow gives them a clear path instead. Each piece of work becomes a ticket, each ticket follows the same lifecycle, and the
 important rules are enforced by small scripts and branch protection, not just by asking nicely.
 
-What you get out of it:
+What you get:
 
 - **Predictability.** Every ticket goes through the same steps, so you always know where a piece of work stands and what comes next.
 - **Safety.** Branch protection requires a green gate before anything merges, and the merge script also checks that the review
@@ -37,7 +41,7 @@ What you get out of it:
 
 ---
 
-## How it works, in one picture
+## 🔄 How It Works, In One Picture
 
 ```
   you ──▶ ticket ──▶ plan ──▶ implement ──▶ verify ──▶ review ──▶ merge ──▶ handoff ──▶ you
@@ -55,16 +59,27 @@ Under the hood there are three layers:
 3. **GitHub**: a CI workflow that posts one status called **`CI / Gate`**, a branch ruleset that requires it, a Project board, and a
    standard set of labels.
 
+### The Useful Pieces
+
+| If you want to… | TicketFlow gives you… |
+|---|---|
+| Set up or update a repo | `init` and `sync` use dry runs, manifests and conflict checks, so your files and settings stay yours. |
+| Check whether everything is healthy | `doctor --local` checks local tools, config, runtime, generated files, CI/gate configuration and ignore rules; full `doctor` can also inspect GitHub state. |
+| Keep GitHub organized | `project`, `labels` and `sub-issue` manage Projects v2, metadata labels and initiative children; `tracker-next` and `queue` report the next and ready work. |
+| Keep reviews and merges honest | `pr-wait`, `local-verify`, `thread`, `merge` and `protect` cover reviewer waits, safe fallbacks, thread resolution, exact-head merges and branch rules. |
+| Customize without losing updates | `.ticketflow/custom/`, practices and domain guides are durable extension points; held files pause updates and are surfaced again until you move the edit. |
+| See where you took a deliberate shortcut | `debt.mjs` lists every `shortcut:` marker, its limit and when to revisit it. |
+
 ---
 
-## A ticket's journey
+## 🧭 A Ticket's Journey
 
 Here is what happens when you say *"implement #42"*:
 
 1. **Read and claim.** The agent reads the ticket, assigns itself, moves it to **In Progress** and posts a short claim comment saying
    how risky it thinks the change is and whether it will plan first.
 2. **Plan (by default).** Unless the change is small and obvious, a separate planner role studies the code and writes a technical
-   plan. The plan is committed to the repo, so it can be reviewed and reused.
+   plan linked from the ticket, so the approach can be reviewed and reused.
 3. **Implement.** The agent works in its own git worktree on a branch like `feat/issue-42-export-csv`, one focused commit per task,
    following TicketFlow's built-in [engineering method](#building-the-engineering-method).
 4. **Verify.** CI runs your normal checks and posts `CI / Gate` on the exact commit. If GitHub Actions can't run (a billing hiccup,
@@ -81,13 +96,13 @@ Here is what happens when you say *"implement #42"*:
 
 ---
 
-## The processes TicketFlow defines
+## 🧰 The Processes TicketFlow Defines
 
 ### Tickets
 
 - **One ticket is one shippable unit** that a single pull request can finish. Bigger work becomes an *Initiative*: a tracker issue
   whose children are sub-issues, worked in order.
-- Every ticket has an **Execution** section: a recommended risk tier, model and effort, and whether it should be planned.
+- Ticket labels carry the stable metadata; the agent records its risk tier, model, effort and planning decision when it claims the ticket.
 - **Vague ideas are fine.** Say *"I have an idea for ..."* and the agent reads the code and docs first, asks one question at a
   time, offers two or three approaches with a recommendation, then writes the ticket or tracker. No design document, no extra
   approval step.
@@ -98,9 +113,9 @@ Here is what happens when you say *"implement #42"*:
 
 Planning is the default. A ticket skips it only when all four hold: the change is understood end to end, it is small and in one
 place, it touches nothing sensitive (deploys, auth, data, money, concurrency…), and verification is obvious. When in doubt, plan.
-A ticket only counts as *planned* when it links a committed plan file. [More in WORKFLOW.md](core/docs/WORKFLOW.md#planning)
+A ticket only counts as *planned* when it links a plan file. [More in WORKFLOW.md](core/docs/WORKFLOW.md#planning)
 
-### Risk tiers
+### Risk Tiers
 
 Every change is `low`, `normal`, `high` or `critical`. The tier decides how deep the review goes and how much effort the agent puts
 in, nothing else. Anything touching access, money, migrations, deploys or several subsystems is at least `high`.
@@ -109,7 +124,7 @@ The agent that writes the code runs on the standard model at `high` effort: it i
 planner and the reviewer, who catch mistakes. The implementer moves up only for genuinely hard reasoning, never because a ticket
 is risky. [More in WORKFLOW.md](core/docs/WORKFLOW.md#risk-tiers)
 
-### Building: the engineering method
+### Building: The Engineering Method
 
 TicketFlow carries its own rules for how the code gets written, so no other plugin is needed. They live in one `engineering-method`
 skill that works inside a ticket and for a plain request alike:
@@ -128,7 +143,7 @@ skill that works inside a ticket and for a plain request alike:
 [The method in detail](core/docs/WORKFLOW.md#building-tests-bugs-and-small-changes), and
 [without a ticket](core/docs/WORKFLOW.md#without-a-ticket)
 
-### Several tickets (optional)
+### Several Tickets (Optional)
 
 One ticket never needs this. When you have a handful, say *"work through #12 #13 #14"*, *"do the children of #10"* (a tracker's
 sub-issues) or *"work the ready backlog"* (the optional `orchestrate-tickets` skill). A coordinator hands each ticket to a fresh
@@ -137,7 +152,7 @@ For the backlog it first warns you and lists the tickets (up to 10 Ready ones, h
 If the session dies, ask again naming the same tickets: it picks up from GitHub, so finished tickets stay finished and open pull
 requests continue (a ticket's pull requests are found by branch name and by the references on the ticket, however old). [How to use it](core/docs/WORKFLOW.md#several-tickets-optional)
 
-### The gate
+### The Gate
 
 There is exactly one thing that decides whether a pull request may merge: a green **`CI / Gate`** status on its latest commit.
 Changes that touch only the paths you list as docs get it quickly without running the heavy checks. The local fallback is fail-closed: when in doubt it posts nothing.
@@ -159,7 +174,11 @@ a reviewer's "changes requested" and a "changes needed" verdict from `pr-reviewe
 with. The agent fixes each finding, or says why it disagrees, then replies to the thread and resolves it.
 [More in REVIEWERS.md](core/docs/REVIEWERS.md)
 
-### Merging and branch protection
+If a reviewer says it has more to say, the agent can continue that review with `--more <login>`. A reaction-only reviewer or a
+comment that mentions another commit can keep the wait pending for at most 15 minutes, which is the safe side of the trade-off:
+missing a real reviewer would be worse than waiting briefly for a noisy one.
+
+### Merging And Branch Protection
 
 Merges happen only through the `merge` script. A standard branch ruleset requires `CI / Gate` and an up-to-date
 branch. The script adds what a ruleset cannot see: no unresolved review thread from anyone, no reviewer left waiting or on "changes
@@ -169,14 +188,18 @@ requested", every trusted account's last verdict on this commit "ready to merge"
 tidy-branch settings, which you can take or leave. You, as an admin, can still override it through a pull request when you choose to; agents never do that on their own.
 [More in SECURITY.md](core/docs/SECURITY.md)
 
-### The Project board
+### The Project Board
 
 Optional, but recommended: a GitHub Project with eight statuses: Inbox, Backlog, Ready, In Progress, In Review, Blocked, Done and
 Future. The Work Board and Roadmap views are created for you (dates on the Roadmap are never required); a few more views are optional. Labels already in your repo are kept as
-they are; TicketFlow only adds the ones that are missing. Labels cover type, priority, effort, area and what a ticket still needs.
+they are; TicketFlow only adds the ones that are missing. Labels cover type, priority, effort, model class, AI effort, area,
+environment and what a ticket still needs.
 [More in PROJECT.md](core/docs/PROJECT.md)
 
-### Live verification
+An **Initiative** is a `Type: Initiative` issue with ordered GitHub sub-issues. `tracker-next` finds the next unfinished child,
+while `queue` shows whether tickets are ready, waiting on a dependency, already in progress, in conflict or ready to resume.
+
+### Live Verification
 
 Tests are not the whole story for user-facing changes. A UI, navigation or flow change is also checked in the running product
 (by the `e2e-verifier` role, when you point TicketFlow at your live-verify skill). A check that can't run here (a missing key, a real
@@ -193,7 +216,7 @@ stated on the ticket. Bigger choices can be recorded as `Type: Decision` issues.
 Trunk-based: short-lived branches merge into the default branch. Unfinished features hide behind settings flags, not long-lived
 branches. [More in WORKFLOW.md](core/docs/WORKFLOW.md#branching)
 
-### Supported tools
+### Supported Tools
 
 TicketFlow works natively with seven agents: Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Antigravity and GitHub Copilot.
 Each gets its own install, thin generated files that point at the same skills and roles, and a command guard that asks before
@@ -203,7 +226,7 @@ update. [Install steps and manual steps per tool](core/docs/TOOLS.md),
 [the guard in plain words](core/docs/TOOLS.md#the-command-guard-in-plain-words) and
 [what has actually been verified in each tool](core/docs/TOOLS.md#what-is-verified)
 
-### Practices (optional)
+### Practices (Optional)
 
 Ten opt-in rule sets for common needs: live verification in a real browser, runtime settings, i18n, database changes, provider
 adapters, API endpoints, UI screens, domain guides, deploy gating and analytics events. Turn on only the ones you want.
@@ -211,7 +234,7 @@ adapters, API endpoints, UI screens, domain guides, deploy gating and analytics 
 
 ---
 
-## What gets installed in your repo
+## 📦 What Gets Installed In Your Repo
 
 | Where | What | Who edits it |
 |---|---|---|
@@ -226,6 +249,8 @@ adapters, API endpoints, UI screens, domain guides, deploy gating and analytics 
 | `.github/ISSUE_TEMPLATE/`, PR template | forms and checklist in managed blocks; the issue chooser (`config.yml`) written once | the blocks: `sync`; `config.yml`: you |
 
 Nothing TicketFlow owns is ever hand-edited: you change it in `.ticketflow/custom/` or the config, and the tools regenerate the rest.
+The manifest lets updates distinguish TicketFlow-owned files from yours, and a held generated file can stay untouched until you are
+ready to revisit it.
 
 The TicketFlow repository itself also holds two small maintainer tools: one checks Superpowers and Ponytail for new releases each
 month ([upstream review](docs/maintainers/upstream-review.md)), the other runs agent evals ([evals](docs/evals/agent-scenarios.md)).
@@ -233,7 +258,7 @@ They live in that repo only and are never installed in yours.
 
 ---
 
-## Getting started
+## 🚀 Getting Started
 
 **You need:** a shell, `git`, the GitHub CLI `gh` 2.48 or newer (logged in with the `repo`, `project` and `workflow` scopes),
 Node.js 18.9 or newer (only to run TicketFlow's own scripts: your project can use any language, version or none), and `timeout` (part of coreutils; on macOS `brew install coreutils`). The setup checks all of it for you.
@@ -267,13 +292,13 @@ the workflow, an existing Project is topped up, and existing protection is never
 
 ---
 
-## Everyday use
+## 💬 Everyday Use
 
 Talk to your agent in plain words:
 
 | You say | What happens |
 |---|---|
-| "create a ticket for …" | a well-formed issue with labels, an Execution section and its place on the board |
+| "create a ticket for …" | a well-formed issue with labels and its place on the board |
 | "implement #42" / "implement the next ticket" | the full journey above, ending In Review with a summary |
 | "next child of #10" | the next unfinished sub-issue of an initiative |
 | "I have an idea: ..." | the agent reads the code, asks one question at a time, offers 2-3 approaches and writes the ticket or tracker |
@@ -290,17 +315,34 @@ Talk to your agent in plain words:
 You stay in charge of three things: answering real decisions (product, data, security or money trade-offs), reviewing the work in
 **In Review**, and saying when something is **Done**.
 
+### Handy Read-Only Checks
+
+When you want a quick answer without starting work, these commands are useful:
+
+| You want to know… | Run… |
+|---|---|
+| Whether the installation is healthy | `node .ticketflow/scripts/doctor.mjs --local` |
+| Which Ready tickets should move next | `node .ticketflow/scripts/queue.mjs --ready` |
+| What would change in the labels | `node .ticketflow/scripts/labels.mjs sync .ticketflow/templates/labels.json --dry-run` |
+| Which shortcuts are deliberately recorded | `node .ticketflow/scripts/debt.mjs` |
+
+These checks are read-only. A dry run may exit `1` when it has something to show; that means “changes are pending,” not “the tool
+crashed.”
+
 ---
 
-## Updating
+## 🔁 Updating
 
 Ask your agent to *"update ticketflow"* (other agents: follow `skills/sync/SKILL.md` of the TicketFlow repo, as `START.md` says). It fetches the release you choose, shows what changed,
 refreshes `.ticketflow/` and the generated files, keeps everything that is yours, and opens an update pull request. Nothing changes
 until you merge it. [More in UPGRADING.md](core/docs/UPGRADING.md). What changed between versions is in [CHANGELOG.md](CHANGELOG.md).
 
+Updates are deliberately conservative: the manifest tracks what TicketFlow installed, edited files are surfaced as conflicts, and
+custom rules, repository CI steps, settings and held files stay under your control.
+
 ---
 
-## Safety in short
+## 🛡️ Safety In Short
 
 - Agents never use an admin bypass (`--admin`, direct pushes to the default branch, posting a status by hand) unless you explicitly
   ask for that exact action. In Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Antigravity and Copilot, a guard in the repo's agent settings asks before (or blocks) the common forms
@@ -314,7 +356,7 @@ The full threat model and what each safeguard does and doesn't prevent: [SECURIT
 
 ---
 
-## FAQ
+## ❓ FAQ
 
 **Do I need one of the seven native tools?** No. Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Antigravity and GitHub Copilot have a
 native front door (stubs, an action map and a command guard); any other agent that can read files and run a shell follows `START.md` and
@@ -339,7 +381,7 @@ Everything else is read only when it is needed. [More in TOKEN-BUDGET.md](core/d
 
 ---
 
-## Documentation
+## 📚 Documentation
 
 | Doc | Read it when you want to know… |
 |---|---|
@@ -358,7 +400,7 @@ These docs are also copied into every repo as `.ticketflow/docs/`, so your agent
 
 ---
 
-## Credits
+## 🙌 Credits
 
 TicketFlow's engineering method (understand first, plan, test first where it pays, debug by cause, verify before claiming) was inspired by
 [Superpowers](https://github.com/obra/superpowers), and its lean, minimal-change rules, lean audit and shortcut-debt list by

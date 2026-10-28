@@ -1,11 +1,13 @@
 # Action map: Claude Code
 
-The canonical skills and roles name actions. In Claude Code, do them like this. `config.models.claude` maps a model class (`strong`, `standard`, `light`) to a model id; a `null` id means: leave `model` out.
+The canonical skills and roles name actions. In Claude Code, do them like this. `config.models.claude ?? config.models.default` maps a model class (`strong`, `standard`, `light`) to a model id; a `null` id means: leave `model` out.
+
+Treat versionless values as model-family hints. Before passing a configured model to Claude, keep a Claude-native alias such as `opus`, `sonnet` or `haiku` when Claude accepts it; otherwise resolve it to the current full model id. This applies to role frontmatter and helper or lead dispatches. Do not invent a version when the tool cannot resolve the hint; use the current session model instead.
 
 | Action | How |
 |---|---|
-| Dispatch the `<role>` role | Agent tool with `subagent_type: "<role>"` (the repo's agent in `.claude/agents/`). Its model and effort come from its frontmatter; pass `effort` only when the skill asks for an override |
-| Dispatch a helper of a class | `Explore` for broad read-only search, `general-purpose` for work; `model` from `config.models.claude[<class>]`, and an explicit `effort` |
+| Dispatch the `<role>` role | Agent tool with `subagent_type: "<role>"` (the repo's agent in `.claude/agents/`). Its model and effort come from its frontmatter; resolve the model hint if Claude requires a full id; pass `effort` only when the skill asks for an override |
+| Dispatch a helper of a class | `Explore` for broad read-only search, `general-purpose` for work; `model` from `(config.models.claude ?? config.models.default)[<class>]`, and an explicit `effort` |
 | Dispatch a fresh ticket lead | `general-purpose`, `model` of the standard class, an explicit `effort`, never a fork; brief it fully, it has no context |
 | Run in the background and wait once | Bash with `run_in_background: true`; you are notified when it exits. Do not poll and do not sleep-loop |
 | Ask the user | Ask one targeted question in the reply (the question tool if it is available) and wait |

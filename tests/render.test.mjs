@@ -43,24 +43,25 @@ for (const [name, over] of [['A', A], ['B', B]]) {
     })
 }
 
-test('an area with a quote or a colon is a quoted option; no area means no Area field', () => {
-    const withAreas = renderAll(A).get('.github/ISSUE_TEMPLATE/bug.yml')
-    assert.ok(withAreas.includes('- "Docs: \\"quoted\\" & more"') && withAreas.includes('id: area'))
-    for (const f of ['bug', 'feature', 'task', 'decision']) assert.doesNotMatch(renderAll(B).get(`.github/ISSUE_TEMPLATE/${f}.yml`), /id: area/)
+test('areas remain label metadata and are not duplicated in issue forms', () => {
+    for (const over of [A, B]) for (const f of ['bug', 'feature', 'task', 'decision']) {
+        const text = renderAll(over).get(`.github/ISSUE_TEMPLATE/${f}.yml`)
+        assert.doesNotMatch(text, /id: area|label: Area|Docs: "quoted"/)
+    }
 })
 
-test('issue forms: every label they use is in labels.json; decisions have Area and Priority only; the others also Effort', () => {
+test('issue forms use only static labels; metadata is not duplicated in the issue body', () => {
     const labels = new Set(JSON.parse(tpl('labels.json')).map((l) => l.name))
     const files = renderAll(A)
     for (const f of ['bug', 'feature', 'task', 'decision']) {
         const text = files.get(`.github/ISSUE_TEMPLATE/${f}.yml`)
         const used = [...text.matchAll(/^ {2}- "([^"]+)"$/gm)].map((m) => m[1]).filter((l) => /^(Type|Needs): /.test(l))
         assert.ok(used.length >= 1 && used.every((l) => labels.has(l)), f)
-        assert.equal(/id: effort/.test(text), f !== 'decision', f)
-        assert.match(text, /id: priority/); assert.match(text, /id: execution/); assert.match(text, /label: Execution/)
+        assert.doesNotMatch(text, /id: (area|priority|effort|execution)/)
+        assert.doesNotMatch(text, /label: (Area|Priority|Effort|Execution)/)
     }
     assert.match(files.get('.github/ISSUE_TEMPLATE/config.yml'), /blank_issues_enabled: false/)
-    for (const p of ['P0 Critical', 'P1 High', 'P2 Medium', 'P3 Low', 'XS', 'XL']) assert.ok(files.get('.github/ISSUE_TEMPLATE/bug.yml').includes(`"${p}"`))
+    for (const p of ['AI Model: Strong', 'AI Model: Standard', 'AI Model: Light', 'AI Effort: Low', 'AI Effort: High', 'AI Effort: XHigh']) assert.ok(labels.has(p))
 })
 
 test('ci.yml: job name = gate.check, status context = gate.context, no job named after the context, no paths filter on pull_request', () => {
@@ -241,6 +242,18 @@ test('the config skeleton lists every key explicitly and passes validate()', () 
     const cfg = validate(skeleton)
     assert.deepEqual(Object.keys(skeleton), Object.keys(cfg))
     for (const k of ['verify', 'gate', 'docs_only', 'ci']) assert.deepEqual(Object.keys(skeleton[k]), Object.keys(cfg[k]), k)
+    assert.deepEqual(Object.keys(skeleton.models), ['default', 'claude', 'codex', 'cursor', 'gemini', 'opencode', 'antigravity', 'copilot'])
+    assert.deepEqual(skeleton.models, {
+        default: { strong: null, standard: null, light: null },
+        claude: { strong: 'opus', standard: 'sonnet', light: 'haiku' },
+        codex: { strong: 'astra', standard: 'sol', light: 'luna' },
+        cursor: { strong: 'grok', standard: 'composer', light: 'gemini-flash' },
+        gemini: { strong: 'pro', standard: 'flash', light: 'flash-lite' },
+        opencode: { strong: 'anthropic/claude-opus', standard: 'anthropic/claude-sonnet', light: 'anthropic/claude-haiku' },
+        antigravity: { strong: 'pro', standard: 'flash', light: 'flash' },
+        copilot: { strong: 'astra', standard: 'sol', light: 'luna' },
+    })
+    assert.equal(skeleton.worktrees_dir, '.worktrees')
     assert.match(tpl('custom-README.md'), /implement-ticket\.md[\s\S]*post-merge\.md[\s\S]*create-ticket\.md[\s\S]*ticket-planner\.md[\s\S]*pr-reviewer\.md[\s\S]*e2e-verifier\.md/)
 })
 
@@ -471,13 +484,13 @@ test('ci.yml: runs-on is the repo\'s: ubuntu-latest on a fresh render, an existi
     assert.equal(added.proposal.text.match(/^ {4}runs-on: \[self-hosted\]$/gm).length, 2)
 })
 
-test('templates leave the repo\'s choices alone: the issue chooser is written once, an optional Environment field, no screenshots line, merging without asking is the skill\'s', () => {
+test('templates leave the repo\'s choices alone: the issue chooser is written once, environment labels are triage metadata, no screenshots line, merging without asking is the skill\'s', () => {
     const f = FILES.find((x) => x.dest === '.github/ISSUE_TEMPLATE/config.yml'), cfg = config(A), vars = templateVars(cfg, { runtimeRel: '.ticketflow' })
     assert.equal(f.kind, 'once')
     const mine = 'blank_issues_enabled: true\ncontact_links:\n  - name: Support\n    url: https://example.com/help\n    about: Ask here\n'
     assert.deepEqual(renderFile(f, tpl(f.src), mine, { cfg, vars, runtimeRel: '.ticketflow' }), { text: mine, notes: [] })
     const files = renderAll(A)
-    assert.match(files.get('.github/ISSUE_TEMPLATE/bug.yml'), /id: environment\n[\s\S]*?required: false\n  - type: textarea\n    id: steps/)   // optional, with default choices
+    assert.doesNotMatch(files.get('.github/ISSUE_TEMPLATE/bug.yml'), /id: environment|Production|Staging|Development/)
     assert.doesNotMatch(files.get('.github/PULL_REQUEST_TEMPLATE.md'), /with screenshots/)
     assert.doesNotMatch(files.get('AGENTS.md'), /without asking/)
 })

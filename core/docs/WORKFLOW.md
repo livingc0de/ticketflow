@@ -15,7 +15,7 @@ method without the ticket ceremony: [Without a ticket](#without-a-ticket).
 ticket, plan, implement, verify, review, merge, handoff.
 
 1. **Ticket.** One issue is one shippable unit that one pull request can complete; anything bigger is a `Type: Initiative` tracker
-   with children. Every ticket has an Execution section with a recommended tier, model and effort, and planning route.
+   with children. Type, priority, work effort, model class, AI effort and (when relevant) environment are labels; tier and planning are decided when work starts.
 2. **Claim.** Assign, set the status to In Progress, post a claim comment with the tier, the assumptions and one `Planning:` line.
    Work happens in a git worktree on a `<type>/issue-<N>-<slug>` branch from the up-to-date default branch.
 3. **Plan** (below), **implement** in one context with one conventional commit per task, `verify`, open the pull request.
@@ -97,8 +97,8 @@ ticket it is how steps 3 and 4 of `implement-ticket` are done; without one it is
 ## Without a ticket
 
 Asking for a change that ships ("fix this bug", "build X") is ticket work: the agent finds or creates the ticket (`create-ticket`
-searches for a duplicate first), then follows `implement-ticket`. A small ticket stays small: a `low`-tier ticket has only a Goal,
-acceptance criteria and an Execution line. Requests that ship nothing, or that you explicitly want local, get the `engineering-method`
+searches for a duplicate first), then follows `implement-ticket`. A small ticket stays small: a `low`-tier ticket has only a Goal
+and acceptance criteria; labels carry the execution model and effort. Requests that ship nothing, or that you explicitly want local, get the `engineering-method`
 skill's method without the ticket ceremony:
 
 - **No ticket, branch, commit, PR or merge unless you ask.** Finishing is a short report: what changed, the evidence, what was not

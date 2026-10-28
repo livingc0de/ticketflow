@@ -1,6 +1,8 @@
 # Action map: GitHub Copilot
 
-The canonical skills and roles name actions. In Copilot (VS Code agent mode, Copilot CLI and the cloud agent), do them like this. `config.models.copilot` maps a model class to a model id; Copilot model names often contain spaces, so keep them `null` (the agent uses the selected model).
+The canonical skills and roles name actions. In Copilot (VS Code agent mode, Copilot CLI and the cloud agent), do them like this. `config.models.copilot ?? config.models.default` maps a model class to a supported model name; use `null` only when the agent should inherit the selected model.
+
+Treat versionless values such as `astra`, `sol` and `luna` as model-family hints. Before passing a configured model to Copilot, keep a Copilot-native alias when the surface accepts it; otherwise resolve it to the current supported full model name. This applies to role frontmatter and helper or lead dispatches. Do not invent a version when the tool cannot resolve the hint; use the current session model instead.
 
 | Action | How |
 |---|---|

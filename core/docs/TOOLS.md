@@ -10,7 +10,8 @@ point at the same skills and roles, a short action map (how "dispatch the review
 
 **Any other agent** (Windsurf, Cline, Roo Code, Amp, Kiro, Junie, Zed, Aider, Goose, Factory Droid and so on) reads `AGENTS.md`
 and follows `START.md`. It has no command guard, and without sub-agents the review runs in the same session, so you are asked
-before a merge that rests on it.
+before a merge that rests on it. It uses the universal model fallback: keep no entry for it in `config.models` and let the tool use
+the model selected by the user.
 
 ## What every tool gets
 
@@ -131,9 +132,10 @@ Evidence and fallbacks:
 
 Nothing changes until you ask. A repo set up for Claude Code and Codex gets none of the new tools' files after an update. To add a tool:
 
-1. In `.ticketflow/config.json` add its name to `agents` (`cursor`, `gemini`, `opencode`, `antigravity` or `copilot`) and a
-   `models.<tool>` entry. Use `null` for each model class to let the tool pick its own; Copilot model names contain spaces, so
-   `null` is the right value there ([CONFIG.md](CONFIG.md)).
+1. In `.ticketflow/config.json` add its name to `agents` (`cursor`, `gemini`, `opencode`, `antigravity` or `copilot`). Start with
+   the versionless model-family or tier example in `models.<tool>` in the template and adjust it to the models available to your account. Use
+   `models.default` only when you want a universal fallback, and use `null` for a class only when that class should inherit the
+   tool's selected model ([CONFIG.md](CONFIG.md)).
 2. Ask your agent to *"update ticketflow"* (or run `gen-stubs` and `render`, which write the files listed above).
 3. Do the "by hand" steps of that tool, usually trusting its guard hook once.
 4. `node .ticketflow/scripts/doctor.mjs --local` should report no failures.

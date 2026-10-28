@@ -17,9 +17,6 @@ body:
     attributes:
       label: Implementation Notes
       description: Constraints, likely files or a proposed approach, when known.
-{{area_field}}
-{{priority_field}}
-{{effort_field}}
   - type: textarea
     id: acceptance
     attributes:
@@ -40,5 +37,4 @@ body:
     id: dependencies
     attributes:
       label: Dependencies And Risks
-{{execution_field}}
 # ticketflow:end form

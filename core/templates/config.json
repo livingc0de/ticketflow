@@ -8,12 +8,22 @@
   "deploy_branch": null,
   "project": null,
   "agents": [],
-  "models": {},
+  "models": {
+    "default": { "strong": null, "standard": null, "light": null },
+    "claude": { "strong": "opus", "standard": "sonnet", "light": "haiku" },
+    "codex": { "strong": "astra", "standard": "sol", "light": "luna" },
+    "cursor": { "strong": "grok", "standard": "composer", "light": "gemini-flash" },
+    "gemini": { "strong": "pro", "standard": "flash", "light": "flash-lite" },
+    "opencode": { "strong": "anthropic/claude-opus", "standard": "anthropic/claude-sonnet", "light": "anthropic/claude-haiku" },
+    "antigravity": { "strong": "pro", "standard": "flash", "light": "flash" },
+    "copilot": { "strong": "astra", "standard": "sol", "light": "luna" }
+  },
   "plans_dir": "docs/plans",
-  "worktrees_dir": ".claude/worktrees",
+  "worktrees_dir": ".worktrees",
   "live_verify_skill": null,
   "deferred_checks_issue": null,
   "areas": [],
+  "environments": [],
   "practices": [],
   "ci": { "push_paths": null }
 }

@@ -74,11 +74,11 @@ test('the shipped core/templates/labels.json is valid', () => {
     assert.equal(r.status, 0, r.stderr)
 })
 
-test('areas become Area: labels, created when missing and never updated; custom/labels.json is added; a duplicate name exits 2 with zero calls', () => {
-    const map = { ...labelsAt([[live('Type: Bug', 'd73a4a', 'Broken'), live('Effort: S', 'bfdadc'), live('Area: Api', '000000', 'mine')]]), [`POST ${R}/labels`]: {} }
-    const r = run([], map, WANTED, { over: { areas: ['Api', 'Docs'] }, custom: [{ name: 'Mine', color: 'ABCDEF', description: 'x' }] })
+test('areas and environments become labels, created when missing and never updated; custom/labels.json is added; a duplicate name exits 2 with zero calls', () => {
+    const map = { ...labelsAt([[live('Type: Bug', 'd73a4a', 'Broken'), live('Effort: S', 'bfdadc'), live('Area: Api', '000000', 'mine'), live('Environment: Production', '000000', 'mine')]]), [`POST ${R}/labels`]: {} }
+    const r = run([], map, WANTED, { over: { areas: ['Api', 'Docs'], environments: ['Production', 'Staging'] }, custom: [{ name: 'Mine', color: 'ABCDEF', description: 'x' }] })
     assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(r.writes, ['POST labels {"name":"Area: Docs","color":"c5def5","description":"Area of the product"}', 'POST labels {"name":"Mine","color":"abcdef","description":"x"}'])
+    assert.deepEqual(r.writes, ['POST labels {"name":"Area: Docs","color":"c5def5","description":"Area of the product"}', 'POST labels {"name":"Environment: Staging","color":"c5def5","description":"Deployment environment"}', 'POST labels {"name":"Mine","color":"abcdef","description":"x"}'])
     for (const [custom, over] of [[[{ name: 'type: bug', color: 'ffffff' }], undefined], [[{ name: 'Area: api', color: 'ffffff' }], { areas: ['Api'] }], ['{', undefined], [[{ name: 'x', color: 'zz' }], undefined]]) {
         const bad = run([], {}, WANTED, { over, custom })
         assert.equal(bad.status, 2, JSON.stringify(custom)); assert.deepEqual(bad.calls, [])

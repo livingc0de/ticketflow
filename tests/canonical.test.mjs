@@ -145,7 +145,7 @@ test('engineering-method routes a change that ships to its ticket; ticketless st
     assert.match(skill, /A request to ship a change \(fix a bug, build, refactor\) is ticket work: find or create its ticket \(`create-ticket` searches first\), then `implement-ticket`/)
     assert.match(skill, /Without a ticket \(the user says so, or nothing ships: an investigation, a diff review, an audit, a local experiment\)/)
     assert.doesNotMatch(skill.split('\n')[2], /with or without a ticket/)
-    assert.match(text('skills/create-ticket/SKILL.md'), /A `low`-tier ticket has only Goal, Acceptance criteria and Execution/)
+    assert.match(text('skills/create-ticket/SKILL.md'), /A `low`-tier ticket has only Goal and Acceptance criteria/)
     assert.match(text('skills/implement-ticket/SKILL.md'), /--reviewed-by/)
 })
 

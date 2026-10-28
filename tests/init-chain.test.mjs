@@ -23,7 +23,7 @@ function target(over = {}) {
     const dir = tempDir('chain-tgt-')
     git(dir, 'init', '-q', '-b', 'main'); git(dir, 'remote', 'add', 'origin', 'https://github.com/o/r.git')
     put(dir, '.ticketflow/config.json', JSON.stringify(rawConfig({ agents: ['claude', 'codex'], models: MODELS, ...over })))
-    put(dir, '.gitignore', '.claude/worktrees/\n')
+    put(dir, '.gitignore', '.worktrees/\n')
     return dir
 }
 const node = (cwd, ...args) => spawnSync(process.execPath, args, { cwd, encoding: 'utf8' })
@@ -54,7 +54,7 @@ test('runtime, gen-stubs and render give a repo that doctor --local accepts; a h
 
     // 3. a config change that reaches the templates: doctor fails `templates`, render repairs it
     const cfgFile = join(dir, '.ticketflow/config.json')
-    writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(readFileSync(cfgFile, 'utf8')), areas: ['Api'] }))
+    writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(readFileSync(cfgFile, 'utf8')), gate: { context: 'CI / Gate (new)' } }))
     r = doctor(dir)
     assert.equal(r.status, 1); assert.match(r.stdout, /fail templates: /)
     assert.equal(node(dir, '.ticketflow/scripts/render.mjs', '.ticketflow/templates', '.').status, 0)
