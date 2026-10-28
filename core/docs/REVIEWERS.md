@@ -32,11 +32,12 @@ No list, no login, no re-request comment: `pr-wait` reads what GitHub shows on t
   does an app that only comments (a deploy or coverage bot) or a commenter who never reviewed.
 - **Push time.** Only activity after the head was pushed counts. That is the time of its first check suite, else its committer date
   (a commit made long before it was pushed can then admit older activity: a documented ceiling). Activity before the push, and reviews of
-  another commit, decide nothing.
+  another commit, decide nothing. A review of the head itself always counts, whatever its time: it can only exist after the push.
 - **Start.** A reviewer has started when it has a sign on the head: a review of it, a comment or a reaction made after the push, or a
   comment edited after it. Its start is its first sign.
 - **Result.** A review of the head, or a later comment of the same account with visible text (its first comment on the pull request is
-  taken as its status note). It ends only that reviewer's own wait; another account's "looks good" neither starts nor ends it.
+  taken as its status note), counted at its last edit. A comment that names commits but not the head (a late receipt for an older
+  commit) is a sign, never the result. It ends only that reviewer's own wait; another account's "looks good" neither starts nor ends it.
 - **Window.** At most 15 minutes from its start, not from its latest edit. After that it is `late` and the wait moves on without it.
   A reviewer that said more is coming: `pr-wait.mjs <PR> --more '<login>'` counts only what it posts after that run started.
 - **Changes requested.** A last review of the head that asks for changes ends the wait at once and is a refusal for `merge`.
@@ -63,8 +64,9 @@ for changes, and a review of the head:
 - **Or `--reviewed-by '<login>'`**, naming the external reviewer whose result on the head you acted on. `merge` checks that
   `pr-wait` lists that account with a result on this head, then prints a note. It cannot check what the result says: the agent read it.
 - **Every trusted account's last verdict on the head must be ready.** A `changes needed` from any account blocks until that same
-  account reviews again, a push moves the head (verdicts are per head), or the owner merges by hand. An outsider's review sets no verdict and lifts none. The label may be spelled
-  `**Verdict:**`, `**Verdict**:`, `Verdict:`, indented or in any case, so a `changes needed` is never missed; only the exact bold line is ready.
+  account reviews again, a push moves the head (verdicts are per head), or the owner merges by hand. An outsider's review sets no
+  verdict and lifts none. The label may be spelled `**Verdict:**`, `**Verdict**:`, `Verdict:`, indented or in any case, so a
+  `changes needed` is never missed; only the exact bold line is ready.
 
 `merge` reads no repository permission and posts no comment. GitHub's own rules (a ruleset, required approvals, branch protection)
 decide who may merge; to require the owner's approval, see the high-assurance mode in [SECURITY.md](SECURITY.md).

@@ -17,9 +17,10 @@
  * or reacted on the PR, or an OWNER, MEMBER or COLLABORATOR that reviewed it, other than the PR author and the account running this, and
  * it has a sign on this head: a review of it, a comment or a reaction made, or a comment edited, after the head was pushed (the first
  * check suite of the head, else its committer date). Its start is its first sign; it is waited for at most 15 minutes from that start,
- * and only its own result ends its wait: a review of the head after the push, or a comment of it after its first one (which is taken
- * as its status note) with visible text. A later edit does not restart the window. A last review of the head that is CHANGES_REQUESTED is
- * `changes requested` (settled, exit 0: merge refuses it). Activity before the push, of another commit, or of anyone else is ignored.
+ * and only its own result ends its wait: a review of the head (whatever its time: it can only exist after the push), or a comment of it
+ * after its first one (which is taken as its status note) with visible text that names no other commit than the head, counted at its last
+ * edit. A later edit does not restart the window. A last review of the head that is CHANGES_REQUESTED is `changes requested` (settled,
+ * exit 0: merge refuses it). Activity before the push, about another commit, or of anyone else is ignored.
  * It prints one `Review <login>: <state>` line per such reviewer (`pending since ..`, `result <kind> <url> <first line>`,
  * `changes requested (<sha7>) <url>`, `no result 15 min after its start ..`), then `Review:`: `pending (<logins>)`, else `changes requested (<logins>)`,
  * else `results (<logins>)`, else `none`, with ` (no result in time: <logins>)` after results or none. A failed read prints
@@ -29,7 +30,7 @@
  *
  * Exit: 0 = CI green and no started reviewer pending (results, changes requested, late or none); 1 = CI red (after the started reviewers answered or ran out of time), or the
  * PR conflicts with / is behind the default branch; 2 = timed out, still pending, a draft in local-first mode, or (sha) superseded;
- * 3 = Actions refused the run, so `local-verify` may take over ("Fallback: allowed" in the summary). Usage and config errors exit 2 before any call.
+ * the account running this cannot be read (`gh api user`, e.g. an app token), at once; 3 = Actions refused the run, so `local-verify` may take over ("Fallback: allowed" in the summary). Usage and config errors exit 2 before any call.
  */
 
 import { spawnSync } from 'node:child_process'
