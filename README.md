@@ -64,10 +64,10 @@ Under the hood there are three layers:
 | If you want to… | TicketFlow gives you… |
 |---|---|
 | Set up or update a repo | `init` and `sync` use dry runs, manifests and conflict checks, so your files and settings stay yours. |
-| Check whether everything is healthy | `doctor` checks the tools, config, runtime, generated files, gate and ignore rules without changing anything. |
-| Keep GitHub organized | `project`, `labels`, `sub-issue`, `tracker-next` and `queue` manage Projects v2, metadata labels, initiatives and ready work. |
+| Check whether everything is healthy | `doctor --local` checks local tools, config, runtime, generated files, CI/gate configuration and ignore rules; full `doctor` can also inspect GitHub state. |
+| Keep GitHub organized | `project`, `labels` and `sub-issue` manage Projects v2, metadata labels and initiative children; `tracker-next` and `queue` report the next and ready work. |
 | Keep reviews and merges honest | `pr-wait`, `local-verify`, `thread`, `merge` and `protect` cover reviewer waits, safe fallbacks, thread resolution, exact-head merges and branch rules. |
-| Customize without losing updates | `.ticketflow/custom/`, practices, domain guides and held files let you add local rules while `sync` preserves them. |
+| Customize without losing updates | `.ticketflow/custom/`, practices and domain guides are durable extension points; held files pause updates and are surfaced again until you move the edit. |
 | See where you took a deliberate shortcut | `debt.mjs` lists every `shortcut:` marker, its limit and when to revisit it. |
 
 ---
