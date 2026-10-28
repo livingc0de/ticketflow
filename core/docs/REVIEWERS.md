@@ -36,7 +36,8 @@ No list, no login, no re-request comment: `pr-wait` reads what GitHub shows on t
   another commit, decide nothing. A review of the head itself always counts, whatever its time: it can only exist after the push.
 - **Start.** A reviewer has started when it has a sign on the head: a review of it, a comment or a reaction made after the push, or a
   comment edited after it. Its start is its first sign.
-- **Result.** A review of the head; else the account's latest comment with visible text, counted at its last edit. Its first
+- **Result.** A review of the head; else the account's latest comment with visible text, counted at its last edit, or a reaction
+  of it after its start (a bot that reacts when it finds nothing; a reaction that is its first sign is only a start). Its first
   comment can be the whole result. When it is only a status note (the review is still running), wait again with `--more '<login>'`:
   the edit of that comment or a review after that counts, within the same 15 minutes. A comment that names commits but not the head (a late receipt for an older
   commit) is a sign, never the result. It ends only that reviewer's own wait; another account's "looks good" neither starts nor ends it.

@@ -301,6 +301,21 @@ test('a comment-only review app starts a wait from its first comment; that comme
     assert.deepEqual(reviewLines(wait({ ...green, 'issues/7/comments': bots })), ['Review: none'])
 })
 
+test('PR #47: a summary comment, an eyes reaction while it runs, then the edit and a reaction when done: the result comes at once, never after 15 minutes', () => {
+    const CX = 'cx[bot]'
+    const summary = (edit, text) => note(14, `<!-- cx-pull-request-review-summary -->\n## Review Summary\n\n| Code Review | ${text} |`, { user: app(CX), updated_at: ago(edit) })
+    // while it runs: the summary is visible, so the agent reads it as a status note and waits with --more
+    const more = ['7', '--more', CX, '--timeout-min', '0']
+    assert.match(wait({ ...green, 'issues/7/comments': [summary(14, 'Running')], 'issues/7/reactions': [react(14, 'eyes', CX)] }, more).stdout, /^Review: pending \(cx\[bot\]\)$/m)
+    // done: the edit of that comment is the result
+    const done = wait({ ...green, 'issues/7/comments': [{ ...summary(14, 'Completed'), updated_at: ago(-1) }] }, more)
+    assert.match(done.stdout, /^Review cx\[bot\]: result comment https:\/\/x\/c ## Review Summary$/m)
+    // a reaction after its start is a result too (a bot that only reacts when it finds nothing); a reaction that is its first sign is only a start
+    const reacted = wait({ ...green, 'issues/7/comments': [summary(14, 'Running')], 'issues/7/reactions': [{ ...react(-1, '+1', CX) }] }, more)
+    assert.match(reacted.stdout, /^Review cx\[bot\]: result reaction \+1$/m)
+    assert.match(wait({ ...green, 'issues/7/reactions': [react(3, '+1')] }).stdout, /^Review: pending \(rb\[bot\]\)$/m)
+})
+
 test('a review of the head that arrived while CI ran is the result: CI pending shows it, green with it exits 0 with results', () => {
     const during = { 'pulls/7/reviews': [rev('COMMENTED')], ...runs(run(5, 'in_progress')), ...job(5, { runner_id: 3, steps: [{}], created_at: ago(1) }) }
     const r = wait(during)

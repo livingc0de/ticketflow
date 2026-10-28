@@ -20,7 +20,7 @@
  * edited, after the head was pushed (the first check suite of the head, else its committer date). Its start is its first sign; it is
  * waited for at most 15 minutes from that start, and only its own result ends its wait: a review of the head (whatever its time: it can
  * only exist after the push), else its latest comment with visible text, its first one included, counted at its last edit, that names
- * the head or no commit at all. A comment that names only other commits starts the wait but never ends it. A later edit does not
+ * the head or no commit at all, or a reaction of it after its start. A comment that names only other commits starts the wait but never ends it. A later edit does not
  * restart the window. A last review of the head that is CHANGES_REQUESTED is `changes requested` (settled, exit 0: merge refuses it).
  * Activity before the push, a review of another commit, and anyone else's activity are ignored.
  * It prints one `Review <login>: <state>` line per such reviewer (`pending since ..`, `result <kind> <url> <first line>`,
@@ -195,10 +195,12 @@ function pollReviewers(S) {
         if (last?.state === 'CHANGES_REQUESTED') return { login, state: 'changes', text: `changes requested (${S.head.slice(0, 7)}) ${last.html_url}` }
         const after = more.has(login) ? launched : since
         // a review of the head is the result; else its latest comment with visible text, at its last edit (the start above keeps the first
-        // sign). Its first comment can be the whole result; when it is only a status note, the agent waits again with --more
+        // sign), or a reaction after its start (a bot that only reacts when it finds nothing). Its first comment can be the whole result;
+        // when it is only a status note, the agent waits again with --more
         const latest = (xs) => xs.sort((a, b) => a[0] - b[0]).at(-1)
         const said = latest(onHead.filter((x) => !more.has(login) || ms(x.submitted_at) > launched).map((x) => [ms(x.submitted_at), `review ${x.state} ${x.html_url} ${firstLine(x.body)}`]))
-            ?? latest(own.filter((c) => edited(c) > after && visible(c.body) && !aboutOther(c)).map((c) => [edited(c), `comment ${c.html_url} ${firstLine(c.body)}`]))
+            ?? latest([...own.filter((c) => edited(c) > after && visible(c.body) && !aboutOther(c)).map((c) => [edited(c), `comment ${c.html_url} ${firstLine(c.body)}`]),
+                ...reactions.filter((x) => mine(x) && ms(x.created_at) > Math.max(start, after)).map((x) => [ms(x.created_at), `reaction ${x.content}`])])
         if (said) return { login, state: 'result', text: `result ${said[1]}` }
         const iso = (t) => new Date(t).toISOString()
         if (Date.now() >= start + WINDOW_MS) return { login, state: 'late', text: `no result 15 min after its start ${iso(start)}` }
