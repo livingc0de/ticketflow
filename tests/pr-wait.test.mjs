@@ -345,6 +345,9 @@ test('the wait remembers a reviewer\'s first answer in the git dir, so a fresh r
     assert.match(wait(summary(1), undefined, {}, { dir }).stdout, /^Review cx\[bot\]: result comment /m)
     // without the git dir, the same data stays unconfirmed (the safe side)
     assert.match(wait(summary(1)).stdout, /^Review cx\[bot\]: result first comment /m)
+    // another PR on the same head in this checkout reuses nothing: its new, unedited comment is its first answer
+    const other = { ...green, ...pushed, 'pulls/8': pull().pulls[7], 'issues/8/comments': [note(1, '## Review\nRunning', { user: app(CX), id: 40 })], 'pulls/8/reviews': [], 'pulls/8/comments': [], 'issues/8/reactions': [] }
+    assert.match(wait(other, ['8', '--timeout-min', '0'], {}, { dir }).stdout, /^Review cx\[bot\]: result first comment /m)
     // a broken cache is ignored
     const gitDir = spawnSync('git', ['-C', dir, 'rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim()
     writeFileSync(join(gitDir, 'ticketflow-pr-wait.json'), '{oops')
