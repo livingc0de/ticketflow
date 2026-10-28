@@ -136,8 +136,17 @@ test('engineering-method: the method has one home (implement-ticket and create-t
     assert.doesNotMatch(text('skills/implement-ticket/SKILL.md'), /see a test fail for the right reason|shortcut: <limit>|Never delegate a deterministic command/)
     for (const p of ['skills/implement-ticket/SKILL.md', 'skills/create-ticket/SKILL.md']) assert.match(text(p), /\.ticketflow\/skills\/engineering-method\/SKILL\.md|engineering-method skill/, p)
     const reviewer = text('agents/pr-reviewer.md')
-    for (const re of [/\*\*Diff mode\*\*/, /\*\*Audit mode\*\*/, /Lean: -N lines possible/, /at most 20/, /never a PR's review of record and never a `Review basis`/, /Verdict: no blockers \| blockers found/]) assert.match(reviewer, re)
+    for (const re of [/\*\*Diff mode\*\*/, /\*\*Audit mode\*\*/, /Lean: -N lines possible/, /at most 20/, /never counts as the review `merge` needs/, /Verdict: no blockers \| blockers found/]) assert.match(reviewer, re)
     assert.match(text('agents/ticket-planner.md'), /`review: task`/)
+})
+
+test('engineering-method routes a change that ships to its ticket; ticketless stays for local work, investigation, review and audit', () => {
+    const skill = text('skills/engineering-method/SKILL.md')
+    assert.match(skill, /A request to ship a change \(fix a bug, build, refactor\) is ticket work: find or create its ticket \(`create-ticket` searches first\), then `implement-ticket`/)
+    assert.match(skill, /Without a ticket \(the user says so, or nothing ships: an investigation, a diff review, an audit, a local experiment\)/)
+    assert.doesNotMatch(skill.split('\n')[2], /with or without a ticket/)
+    assert.match(text('skills/create-ticket/SKILL.md'), /A `low`-tier ticket has only Goal, Acceptance criteria and Execution/)
+    assert.match(text('skills/implement-ticket/SKILL.md'), /--reviewed-by/)
 })
 
 test('the ticketflow repo root has no plugin.json, hooks.json, rules/ or GEMINI.md: agents that scan the root would load them as their own', () => {

@@ -47,7 +47,7 @@ Run `node .ticketflow/scripts/doctor.mjs`. Fix local failures. GitHub lines (lab
 
 ## 7. Open the pull request
 
-Stage explicit paths, commit `chore: update ticketflow to <version>`, push, and open the PR from the PR template with the upgrade notes, the held files, "After merge", the manual steps (such as the Codex `/hooks` re-trust) and a note that the local fallback refuses (exit 3) until the checkout it runs from has pulled the merged default branch. Run `node .ticketflow/scripts/pr-wait.mjs <PR>` once, in the background: on exit 3 Actions refused the run and the owner lands it. Report, then merge only when the owner says so (as in init section 5).
+Stage explicit paths, commit `chore: update ticketflow to <version>`, push, and open the PR from the PR template with the upgrade notes, the held files, "After merge", the manual steps (such as the Codex `/hooks` re-trust) and a note that the local fallback refuses (exit 3) until the checkout it runs from has pulled the merged default branch. Run `node .ticketflow/scripts/pr-wait.mjs <PR>` once, in the background: on exit 3 Actions refused the run and the owner lands it. Report, then review and merge it like any PR, only when the owner says so in chat (as in init section 5).
 
 ## 8. After the merge, on request
 

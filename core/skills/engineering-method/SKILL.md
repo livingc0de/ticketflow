@@ -1,12 +1,12 @@
 ---
 name: engineering-method
-description: Use when writing, fixing, debugging, refactoring or reviewing code, with or without a ticket ("fix this bug", "build X", "review this diff", "audit the repo", "list the shortcuts"), and before saying work is done.
+description: Use when writing, fixing, debugging, refactoring or reviewing code ("fix this bug", "build X", "review this diff", "audit the repo", "list the shortcuts"), and before saying work is done.
 ---
 
 # Engineering method
 
 - Read `.ticketflow/custom/engineering-method.md` first if it exists: it adds to and overrides this file. Actions (dispatch a role, ask the user) are done as the action map your stub names says; without one, use `.ticketflow/agents-map/generic.md`.
-- With a ticket, `implement-ticket` is the flow (it reads, plans and reports); apply the plan-or-skip tests of section 1 and sections 2 to 5 here. Without one all sections apply: no ticket, branch, commit, PR or merge unless the user asks. No other plugin's planning, approval, branching, review or merge process runs on top of it; a technique may be borrowed if it adds no approval step and no second plan.
+- A request to ship a change (fix a bug, build, refactor) is ticket work: find or create its ticket (`create-ticket` searches first), then `implement-ticket`, which reads, plans and reports; apply the plan-or-skip tests of section 1 and sections 2 to 5 here. Without a ticket (the user says so, or nothing ships: an investigation, a diff review, an audit, a local experiment) all sections apply, and there is no branch, commit, PR or merge unless the user asks. No other plugin's planning, approval, branching, review or merge process runs on top of it; a technique may be borrowed if it adds no approval step and no second plan.
 - Ask the user only about material decisions (product, data shape, security, money); take the default for the rest and say which.
 
 ## 1. Understand and plan
@@ -64,5 +64,5 @@ Never delegate a deterministic command, a lookup, or one small task.
 ## 6. Report
 
 - What changed, the evidence, "Not checked", the shortcuts added with their triggers. Short; no tour of the diff.
-- Without a ticket, finishing is the report. Commit, push or open a PR only when asked. A PR opened that way is reviewed and merged as `implement-ticket` steps 5 and 6 say, minus the ticket references: the `pr-reviewer` review of the head, then `node .ticketflow/scripts/merge.mjs <PR>`. A request to merge is not a review basis, and a diff or audit report is not the review. The rules of AGENTS.md (no admin bypass) stand.
+- Without a ticket, finishing is the report. Commit, push or open a PR only when asked. A PR opened that way is reviewed and merged as `implement-ticket` steps 5 and 6 say, minus the ticket references; a request to merge is not a review, and neither is a diff or audit report. The rules of AGENTS.md (no admin bypass) stand.
 - "Why did this run go wrong, or cost so much?": read the ticket's Run line, the PR timeline and commits, and whatever usage or transcript record your tool keeps (TicketFlow has no counter; if the tool keeps none, say so rather than guess). Cite what was repeated, ignored or skipped, with evidence. Change nothing.

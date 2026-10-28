@@ -17,6 +17,7 @@ Read `.ticketflow/custom/create-ticket.md` first if it exists: it adds to and ov
    - Acceptance criteria (a task list of checkable items; non-trivial logic names its test);
    - Verification (focused checks, live checks), Implementation notes (the laziest correct approach, code to reuse);
    - Execution, Decisions (recorded as decisions, never as open questions; a money rule has its who-pays-whom example), Dependencies (`Depends on` / `Blocks`, real `#N` only).
+   - A `low`-tier ticket has only Goal, Acceptance criteria and Execution.
 4. **Execution** is required, and a recommendation the implementer re-checks against the code:
    - Tier: `low | normal | high | critical`, with one line of reason (tiers are defined in the implement-ticket skill).
    - Model and effort: the standard class at high by default; the strong class or xhigh only for genuinely hard work, with the reason.

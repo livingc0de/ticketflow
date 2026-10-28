@@ -1,6 +1,6 @@
 ---
 name: "pr-reviewer"
-description: "Use when a pull request needs the independent review: every PR when no reviewer is configured, high and critical PRs otherwise, or a stand-in for a reviewer that is unavailable, silent or only commented; also a diff, branch or plan task without a PR, or a repo audit."
+description: "Use when a pull request needs the internal review (no external reviewer's result on its head, a critical ticket, a high one whose risky part that result did not cover, or the owner asks), or for a diff, branch or plan task without a PR, or a repo audit."
 model: "opus"
 effort: "high"
 tools: Bash, Read, Grep, Glob, Skill
