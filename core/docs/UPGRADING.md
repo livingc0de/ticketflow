@@ -62,6 +62,27 @@ job, after it when the local fallback does): `protect.mjs --apply --replace-cont
 
 Per release, newest first:
 
+### From 0.3.5
+
+`schema_version` goes from 1 to 2: `sync` migrates the config (it drops the `reviewers` key, nothing else changes) and the update pull
+request regenerates the skill and role stubs. No change to GitHub settings. The full list is in the `## 0.4.0` section of `CHANGELOG.md`
+in the TicketFlow repo; what you do by hand:
+
+1. **Reviewers are no longer configured.** `pr-wait` now notices a review bot or a person that starts on the pull request (a reaction, a
+   comment or a review) and waits for its result, at most 15 minutes from its start. If you used `rereview_comment` to ask a bot for
+   another look after a fix, the core no longer posts it; a repo that wants that adds the rule to `.ticketflow/custom/implement-ticket.md`.
+2. **`--review-basis` and `owner approved` are gone.** `merge` takes `--reviewed-by <login>` instead, and a `Review basis for ...` comment is
+   ignored. A pull request that is already open merges on its own `pr-reviewer` review of the exact head, or with `--reviewed-by` naming
+   the external reviewer whose result on the head you acted on. A verdict of record no longer needs a permission read: only reviews of
+   an owner, member or collaborator count, and a `changes needed` is lifted only by the account that wrote it.
+3. **The setup and update pull requests of `init` and `sync`** are reviewed and merged like any pull request, only after you say so in
+   chat; the agent no longer expects you to post an approval comment.
+4. **`pr-reviewer` runs after CI.** With no external result on the head it reviews the head once CI settles (a red head is fixed first),
+   instead of when the pull request opens, and a `high` ticket no longer gets a second review just for its tier: only `critical`
+   does, or a `high` one where the external result leaves the risky part uncovered.
+5. **Asking for a fix or a feature starts a ticket.** The `engineering-method` skill routes "fix this bug" and "build X" to
+   `create-ticket` and `implement-ticket`; local work, investigation, diff reviews and audits stay ticketless.
+
 ### From 0.3.0
 
 No config migration (`schema_version` stays 1) and no change to GitHub settings. The update pull request adds the `engineering-method`
@@ -73,7 +94,7 @@ TicketFlow repo; what you do by hand:
 1. **Pull requests already open.** `merge` is stricter about the review it merges on ([REVIEWERS.md](REVIEWERS.md#when-merge-says-no)).
    - A reviewer that only *commented* (a `COMMENTED` review, which many bots post even with findings) used to count as done. `pr-wait`
      now prints `commented, not approved` and `standin needed`: dispatch `pr-reviewer` as a stand-in, with that review and its
-     threads, then post the review basis ([Stand-in and review basis](REVIEWERS.md#stand-in-and-review-basis)).
+     threads, then post the review basis (this was the 0.3.x flow; 0.4.0 replaced it, see above).
    - A basis must link a ready `pr-reviewer` review posted on the **exact head**. A basis that names an earlier commit is refused:
      run `pr-reviewer` on the head (a delta review since its last one is enough) and post the basis again. Do this again after any
      push, an update-branch included.

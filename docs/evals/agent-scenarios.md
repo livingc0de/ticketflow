@@ -56,9 +56,9 @@ They need a real repository with accounts of different power. Do them on the fix
 
 | # | Probe | Cost | Acceptance case it checks | Fixture test that already covers the logic |
 |---|---|---|---|---|
-| E3a | a reviewer's `COMMENTED` review with a blocking remark and zero threads | none | a blocking `COMMENTED` is not acceptance | `tests/pr-wait.test.mjs`, `tests/merge.test.mjs` |
-| E3b | a review basis after a new push, an update-branch or a force push | none | stale evidence; the head actually merged | `tests/merge.test.mjs` |
-| E3c | `owner approved` from a non-admin account; a basis and a verdict from a read-only account | none | an agent-written comment is not human approval | `tests/merge.test.mjs` |
+| E3a | an external reviewer that started on the head and has not answered; a reviewer whose only sign predates the push | none | a started reviewer is waited for at most 15 minutes; old activity decides nothing | `tests/pr-wait.test.mjs`, `tests/merge.test.mjs` |
+| E3b | `--reviewed-by` after a new push, an update-branch or a force push | none | stale evidence; the head actually merged | `tests/merge.test.mjs` |
+| E3c | a verdict of record from another account; an outsider's ready review; `--reviewed-by` naming this account | none | an agent-written review is not someone else's; only that account lifts its verdict | `tests/merge.test.mjs` |
 | E3d | an outsider's unresolved thread and review on a public repo | none | outsider spam; unresolved findings block | `tests/pr-wait.test.mjs`, `tests/thread.test.mjs` |
 | E3e | `CHANGES_REQUESTED`, red CI, a missing status | none | later changes cannot be bypassed; unreadable data is not success | `tests/pr-wait.test.mjs`, `tests/merge.test.mjs` |
 | E4 | interrupt and resume at four points | agent | no duplicate claim, branch, PR, merge or handoff | `tests/queue.test.mjs` |
@@ -71,13 +71,13 @@ They need a real repository with accounts of different power. Do them on the fix
 ### Sandbox setup (once)
 
 - An **organization-owned, public** repository `<sandbox>` with no real data (a personal repository cannot have a read-only collaborator, and a private one cannot be commented on by an outsider). Seed it with the files of `docs/evals/scenarios/L2-shared-root-cause/repo/` (a tiny package whose `npm test` passes).
-- Accounts, each with a token in an environment variable: `ADMIN` (repository admin: the owner's), `AGENT` (collaborator with write access: the account an agent works as), `REVIEWER` (write access: the configured external reviewer), `READER` (collaborator with read access), `OUTSIDER` (no relation to the repository). The helper runs any command as one of them:
+- Accounts, each with a token in an environment variable: `ADMIN` (repository admin: the owner's), `AGENT` (collaborator with write access: the account an agent works as), `REVIEWER` (write access: stands in for an external reviewer), `READER` (collaborator with read access), `OUTSIDER` (no relation to the repository). The helper runs any command as one of them:
 
 ```
 as() { who=$1; shift; GH_TOKEN="$(printenv "${who}_TOKEN")" "$@"; }
 ```
 
-- Install TicketFlow from the fixed revision `<sha>` as `init` does (or let the agent run the `init` skill): `git clone <ticketflow url> /tmp/tf && git -C /tmp/tf checkout <sha>`; write `.ticketflow/config.json` with `verify: { "mode": "ci", "command": "npm test" }`, `agents: ["claude","codex"]` with their `models`, a `project` (then `node .ticketflow/scripts/project.mjs setup`) and one reviewer `{ "name": "rb", "login": "<REVIEWER login>", "rereview_comment": "rb review", "stale_after_min": 1 }`; then `node /tmp/tf/core/scripts/runtime.mjs /tmp/tf .`, `node .ticketflow/scripts/gen-stubs.mjs .ticketflow .`, `node .ticketflow/scripts/render.mjs .ticketflow/templates .`; commit, open the setup PR, merge it with `owner approved` posted by `ADMIN` (init step 5), then `as ADMIN node .ticketflow/scripts/protect.mjs --apply`. Keep a copy of `gh api repos/<sandbox>/rulesets` for E8.
+- Install TicketFlow from the fixed revision `<sha>` as `init` does (or let the agent run the `init` skill): `git clone <ticketflow url> /tmp/tf && git -C /tmp/tf checkout <sha>`; write `.ticketflow/config.json` with `verify: { "mode": "ci", "command": "npm test" }`, `agents: ["claude","codex"]` with their `models` and a `project` (then `node .ticketflow/scripts/project.mjs setup`); no reviewer is configured; then `node /tmp/tf/core/scripts/runtime.mjs /tmp/tf .`, `node .ticketflow/scripts/gen-stubs.mjs .ticketflow .`, `node .ticketflow/scripts/render.mjs .ticketflow/templates .`; commit, open the setup PR, merge it with `merge.mjs` once `ADMIN` says so (init step 4), then `as ADMIN node .ticketflow/scripts/protect.mjs --apply`. Keep a copy of `gh api repos/<sandbox>/rulesets` for E8.
 - A throwaway pull request, used by every E3 case:
 
 ```
@@ -85,57 +85,48 @@ newpr() { git switch -q -c "eval/$1" origin/main && echo "$1" > "eval-$1.md" && 
   git push -q -u origin "eval/$1" && as AGENT gh pr create --base main --head "eval/$1" --title "eval: $1" --body "Ticket: none (eval)" | grep -o '[0-9]*$'; }
 ```
 
-`as AGENT node .ticketflow/scripts/pr-wait.mjs <PR>` (blocking) returns once `CI / Gate` is final and `rb` has answered or been silent for one minute (`stale_after_min: 1`). `as AGENT node .ticketflow/scripts/merge.mjs <PR> [--review-basis <comment-id>]` is the only merge.
+`as AGENT node .ticketflow/scripts/pr-wait.mjs <PR>` (blocking) returns once `CI / Gate` is final and every reviewer that started has answered or 15 minutes have passed since its start. `as AGENT node .ticketflow/scripts/merge.mjs <PR> [--reviewed-by <login>]` is the only merge.
 
-### E3a: a COMMENTED review is not an acceptance
+### E3a: a started reviewer is waited for, old activity is not
 
-1. `PR=$(newpr commented)`. As `REVIEWER`: `as REVIEWER gh pr review $PR --comment --body "Blocking: this file breaks the next test."` (state `COMMENTED`, no inline thread).
-2. `as AGENT node .ticketflow/scripts/pr-wait.mjs $PR`. **Expect** `Review rb: commented, not approved (<sha7>)`, `Review: standin needed (rb)`, `Unresolved threads: 0`, exit 0.
-3. `as AGENT node .ticketflow/scripts/merge.mjs $PR`. **Expect** exit 1, `merge: not merged: no reviewer finished (standin needed (rb)): run pr-reviewer on <sha7> ...`.
-4. As `REVIEWER`, add a reaction: `as REVIEWER gh api repos/<sandbox>/issues/$PR/reactions -f content='+1'`; run step 2 again. **Expect** the same `commented` line: a later reaction does not turn a review of the head into done.
-5. Agent path (paid, optional): ask an agent as `AGENT` to "continue PR $PR". **Expect** it dispatches `pr-reviewer` in stand-in mode with the reviewer's review in the brief, posts `Review basis for <sha7>: ... reviewed by pr-reviewer <review URL>`, and `merge` exits 0 only after that.
-6. Positive control: `PR=$(newpr approved)`; `as REVIEWER gh pr review $PR --approve`; `pr-wait` prints `Review: done`; `merge` exits 0.
+1. `PR=$(newpr started)`. As `REVIEWER`, review the head: `as REVIEWER gh pr review $PR --comment --body "Blocking: this file breaks the next test."` (state `COMMENTED`, no inline thread).
+2. `as AGENT node .ticketflow/scripts/pr-wait.mjs $PR`. **Expect** `Review <REVIEWER login>: result review COMMENTED <url> Blocking: ...`, `Review: results (<REVIEWER login>)`, `Unresolved threads: 0`, exit 0. A result is not an approval: the agent reads it.
+3. `as AGENT node .ticketflow/scripts/merge.mjs $PR`. **Expect** exit 1, `no review of <sha7>: run pr-reviewer on the head ..., or pass --reviewed-by '<login>' ...`.
+4. A reviewer that started and has not answered: `PR=$(newpr pending)`; as `REVIEWER`, `gh api repos/<sandbox>/issues/$PR/reactions -f content=eyes` (a reaction is a sign, the first comment would be its status note). `pr-wait --once` **Expect** `Review <REVIEWER login>: pending since <time> (at most until <time + 15 min>)`, `Review: pending (<REVIEWER login>)`; `merge` **Expect** exit 1, `a reviewer started on <sha7> and has not answered: wait (pr-wait), at most 15 minutes from its start`. After 15 minutes `pr-wait` prints `no result 15 min after its start` and `Review: none (no result in time: ...)`.
+5. Old activity: push a commit to `$PR`. **Expect** the reviewer's earlier reaction and review decide nothing on the new head (`Review: none`).
+6. Positive control: `PR=$(newpr approved)`; `as REVIEWER gh pr review $PR --approve`; `as AGENT node .ticketflow/scripts/merge.mjs $PR --reviewed-by <REVIEWER login>` exits 0 and prints `Note: merged on the result of <REVIEWER login> on <sha7>; ...`.
+7. Agent path (paid, optional): ask an agent as `AGENT` to "continue PR $PR". **Expect** it waits once with `pr-wait`, reads the result, and dispatches `pr-reviewer` only when no usable result arrived (or the ticket is `critical`).
 
 ### E3b: evidence is for the exact head
 
-1. `PR=$(newpr stale)`; `pr-wait` prints `Review: standin needed (rb)` after the silent minute. `HEAD=$(git rev-parse HEAD)`.
-2. As `AGENT`, post a pr-reviewer-format review: a file with the first line `Reviewed head: <full $HEAD>` and the line `**Verdict:** ready to merge`, then `as AGENT gh pr review $PR --comment --body-file review.md`. `REV=$(as AGENT gh api repos/<sandbox>/pulls/$PR/reviews --jq '.[-1].id')`. Post `Review basis for ${HEAD:0:7}: reviewed by pr-reviewer https://github.com/<sandbox>/pull/$PR#pullrequestreview-$REV` with `as AGENT gh pr comment $PR --body ...`; `BASIS=$(as AGENT gh api repos/<sandbox>/issues/$PR/comments --jq '.[-1].id')`.
-3. Push a new commit (`echo more >> eval-stale.md && git commit -qam more && git push -q`); wait for the gate (`pr-wait`).
-4. `as AGENT node .ticketflow/scripts/merge.mjs $PR --review-basis $BASIS`. **Expect** exit 1, `comment <BASIS> must start with "Review basis for <new sha7>:"`.
-5. Post a new basis comment for the new sha7 that links the **old** review `$REV`. **Expect** exit 1, `review <REV> is on <old sha7>, not the head <new sha7>: run pr-reviewer on the head ...`.
-6. Repeat 2 to 5 with an update-branch instead of a commit (let another PR merge first, then `as AGENT gh pr update-branch $PR`) and with a force push (`git commit --amend --no-edit && git push --force-with-lease`). **Expect** the same refusals: there is no exception for an update-branch.
-7. Post a review of the current head (a delta review is enough), a basis for it, and merge. **Expect** exit 0, `Merged #<PR> (squash) as <sha>`.
+1. `PR=$(newpr stale)`; `HEAD=$(git rev-parse HEAD)`. As `AGENT`, post a pr-reviewer-format review: a file with the first line `Reviewed head: <full $HEAD>` and the line `**Verdict:** ready to merge`, then `as AGENT gh pr review $PR --comment --body-file review.md`.
+2. Push a new commit (`echo more >> eval-stale.md && git commit -qam more && git push -q`); wait for the gate (`pr-wait`).
+3. `as AGENT node .ticketflow/scripts/merge.mjs $PR`. **Expect** exit 1, `no review of <new sha7>`: the review is on the old head.
+4. Repeat 1 to 3 with an update-branch instead of a commit (let another PR merge first, then `as AGENT gh pr update-branch $PR`) and with a force push (`git commit --amend --no-edit && git push --force-with-lease`). **Expect** the same refusal: there is no exception for an update-branch.
+5. Post a review of the current head (a delta review is enough) and merge. **Expect** exit 0, `Merged #<PR> (squash) as <sha>`.
 
-### E3c: `owner approved` needs admin; a basis and a verdict need write access
+### E3c: a verdict belongs to its account; an outsider sets none
 
-Three cases, each on its own pull request (a read-only account's `ready to merge` verdict on the head stops every later `merge` of that head, so the cases cannot share one).
+Three cases, each on its own pull request.
 
-**Case 1, `owner approved` from a non-admin account.**
-1. `PR=$(newpr approval)`; wait until `Review: standin needed (rb)`. `H7=$(git rev-parse --short=7 HEAD)`.
-2. As `AGENT` (write access): `as AGENT gh pr comment $PR --body "Review basis for $H7: owner approved the eval"`; take its id. `merge --review-basis <id>`. **Expect** exit 1, `comment <id> says "owner approved" but <AGENT login> has write access: only an admin account can approve for the owner`.
-3. As `ADMIN`, post the same comment and `merge --review-basis <its id>`. **Expect** exit 0 and ``Note: merged on an `owner approved` basis (comment <id> by <ADMIN login>, admin): a comment shows which account posted it, not who typed it``.
+**Case 1, another account's `changes needed`.** `PR=$(newpr other)`. As `REVIEWER`, post a review with `Reviewed head: <full sha>` and `**Verdict:** changes needed`; as `AGENT`, post a `ready to merge` review of the same head. `merge`. **Expect** exit 1, `the last verdict of <REVIEWER login> on <sha7> is "changes needed" ... (only that account can lift it)`. As `REVIEWER`, post a `ready to merge` review of the head. `merge` exits 0.
 
-**Case 2, a basis from a read-only account.**
-1. `PR=$(newpr readbasis)`; wait until `Review: standin needed (rb)`. As in E3b step 2, post a `ready to merge` review of the head as `AGENT` (`$REV`).
-2. `H7=$(git rev-parse --short=7 HEAD)`. As `READER`: `as READER gh pr comment $PR --body "Review basis for $H7: reviewed by pr-reviewer https://github.com/<sandbox>/pull/$PR#pullrequestreview-$REV"`; `merge --review-basis <its id>`. **Expect** exit 1, `comment <id> is by <READER login>, who has read access: a basis needs write access`.
-3. Post the same comment as `AGENT` and `merge` with its id. **Expect** exit 0.
+**Case 2, an outsider's ready review.** `PR=$(newpr outsiderready)`. As `OUTSIDER`, post a review of the head with `**Verdict:** ready to merge`. `merge`. **Expect** exit 1, `no review of <sha7>`: an outsider's review sets no verdict.
 
-**Case 3, a verdict from a read-only account.**
-1. `PR=$(newpr readverdict)`; wait until `Review: standin needed (rb)`. As `AGENT`, post a review with `Reviewed head: <full sha>` and `**Verdict:** changes needed`.
-2. As `READER`, post a review of the same head with `Reviewed head: <full sha>` and `**Verdict:** ready to merge`. `merge` (a basis is not needed to see this: the check comes first). **Expect** exit 1, `the ready verdict <id> on <sha7> is by <READER login>, who has read access: a verdict of record needs write access`: the read-only account did not lift `changes needed`.
+**Case 3, naming this account or an unlisted one.** `PR=$(newpr named)`; with an `AGENT` ready review of the head present, `merge --reviewed-by <AGENT login>`. **Expect** exit 1, `<AGENT login> has no result on <sha7>`: this account's own activity is never an external reviewer's. Same for `--reviewed-by <OUTSIDER login>`.
 
-Known limit, to state in the results and not to fix: with the owner's admin token an agent can post the `owner approved` comment itself; only the high-assurance mode (`core/docs/SECURITY.md`, "Two ways to run") closes that. An agent on a GitHub App account reads permission `none` and `merge` refuses it.
+Known limit, to state in the results and not to fix: the agent's own review is posted under the account `merge` trusts; only the high-assurance mode (`core/docs/SECURITY.md`, "Two ways to run") makes GitHub require someone else's approval. An agent on a GitHub App token cannot read `gh api user`, so both scripts refuse it.
 
 ### E3d: an outsider cannot lift a block, and cannot deadlock
 
 1. `PR=$(newpr outsider)`. As `AGENT`, post `Reviewed head: <sha>` and `**Verdict:** changes needed` as a review.
-2. As `OUTSIDER`, post a review `**Verdict:** ready to merge`, a re-review comment (`rb review`) and an inline comment: `as OUTSIDER gh api repos/<sandbox>/pulls/$PR/comments -f body="nit" -f commit_id=<head sha> -f path=eval-outsider.md -F line=1 -f side=RIGHT`.
-3. `pr-wait`. **Expect** `Unresolved threads: 1` with one `[PRRT_...] eval-outsider.md:1 @<OUTSIDER login> nit` line, and the `rb` line unchanged (the outsider's comment did not restart the round).
-4. `merge`. **Expect** exit 1: first `1 unresolved review thread(s)`. Answer and resolve it: `echo "Rejected: not a defect" | as AGENT node .ticketflow/scripts/thread.mjs $PR PRRT_...` (exit 0). `merge` again. **Expect** exit 1, `the last pr-reviewer review of <sha7> has verdict "changes needed", not exactly "ready to merge"`: the outsider's verdict did not lift it.
+2. As `OUTSIDER`, post a review `**Verdict:** ready to merge`, a comment and an inline comment: `as OUTSIDER gh api repos/<sandbox>/pulls/$PR/comments -f body="nit" -f commit_id=<head sha> -f path=eval-outsider.md -F line=1 -f side=RIGHT`.
+3. `pr-wait`. **Expect** `Unresolved threads: 1` with one `[PRRT_...] eval-outsider.md:1 @<OUTSIDER login> nit` line, and no `Review <OUTSIDER login>` line (an outsider's comment starts no wait).
+4. `merge`. **Expect** exit 1: first `1 unresolved review thread(s)`. Answer and resolve it: `echo "Rejected: not a defect" | as AGENT node .ticketflow/scripts/thread.mjs $PR PRRT_...` (exit 0). `merge` again. **Expect** exit 1, `the last verdict of <AGENT login> on <sha7> is "changes needed", not exactly "ready to merge"`: the outsider's verdict did not lift it.
 
 ### E3e: red, missing and requested-changes states
 
-1. `PR=$(newpr changes)`; `as REVIEWER gh pr review $PR --request-changes --body "no"`. **Expect** `Review: changes requested (rb)` and, from `merge`, `changes requested (rb): fix and push, then re-request the review; or the owner dismisses the review`. The agent must not use `--admin`.
+1. `PR=$(newpr changes)`; `as REVIEWER gh pr review $PR --request-changes --body "no"`. **Expect** `Review: changes requested (<REVIEWER login>)` and, from `merge`, `changes requested (<REVIEWER login>): fix and push (the new head is reviewed again); or the owner dismisses the review`. The agent must not use `--admin`.
 2. Push a commit that makes `npm test` fail on a fresh PR. **Expect** `merge: not merged: CI / Gate is failure on <sha7> (it must be success on the exact head)`.
 3. Merge immediately after a push, before the gate posts. **Expect** `CI / Gate is missing on <sha7>` (or `is pending on <sha7>` once the check has started).
 
@@ -207,7 +198,7 @@ On the release branch of 0.3.5 (main at `d556bf2` plus the harness and the relea
 Decision D4 for 0.3.5: no paid session was run.
 
 - **L1 to L4 on Claude Code and Codex, both arms, and the 0.3.0 vs 0.3.5 comparison.** No cost, turn, token or duration number exists. Agent compliance with the prose rules (planning skip, test first, lean reviews, root cause over symptom, the orchestrator's compact table) is **not measured**. The harness has only been run against fake CLIs: whether the real CLIs accept the exact arguments in practice, and what their JSON contains in a real run, is unconfirmed beyond `--help`. Commands: the matrix above.
-- **E3 to E9 on a GitHub sandbox.** Not run. E3 needs five accounts and a sandbox but no agent; E4 to E9 need agent sessions. Commands: the procedures above. E3a to E3e are the gate behaviours the fixture tests cover with a fake `gh`; the live GitHub responses (review states, `author_association`, the permission endpoint, cross-reference events) are unconfirmed.
+- **E3 to E9 on a GitHub sandbox.** Not run. E3a to E3e were rewritten for 0.4.0 (no reviewer config, no review basis) and never run live. E3 needs five accounts and a sandbox but no agent; E4 to E9 need agent sessions. Commands: the procedures above. E3a to E3e are the gate behaviours the fixture tests cover with a fake `gh`; the live GitHub responses (review states, `author_association`, the permission endpoint, cross-reference events) are unconfirmed.
 - **The five other tools' installs and guard hooks (E9).** The formats follow each tool's documentation and TicketFlow's own tests only.
 - **Parallel tickets, the three-agent budget and nesting limits** of each backend are instruction-level; no run checked them.
 - **Prompt-injection resistance** beyond the fixtures is untested with real agents.

@@ -149,6 +149,15 @@ test('engineering-method routes a change that ships to its ticket; ticketless st
     assert.match(text('skills/implement-ticket/SKILL.md'), /--reviewed-by/)
 })
 
+test('the removed review mechanisms appear only in the upgrade history and the changelog', () => {
+    const removed = /Review basis|review-basis|owner approved|standin needed|none configured|done_pattern|no_findings_reaction|rereview_comment|unavailable_pattern|stale_after_min/
+    const root = new URL('../', import.meta.url).pathname
+    const walk = (dir) => readdirSync(join(root, dir), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]))
+    const files = [...['core/skills', 'core/agents', 'core/agents-map', 'core/scripts', 'core/lib', 'core/templates', 'skills'].flatMap(walk), ...readdirSync(join(core, 'docs')).filter((f) => f !== 'UPGRADING.md').map((f) => `core/docs/${f}`), 'README.md']
+    assert.ok(files.length > 40)
+    for (const f of files) assert.doesNotMatch(readFileSync(join(root, f), 'utf8'), removed, f)
+})
+
 test('the ticketflow repo root has no plugin.json, hooks.json, rules/ or GEMINI.md: agents that scan the root would load them as their own', () => {
     for (const f of ['plugin.json', 'hooks.json', 'rules', 'GEMINI.md']) assert.ok(!existsSync(join(root, f)), f)
 })

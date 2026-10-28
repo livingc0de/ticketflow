@@ -5,10 +5,10 @@ the same rules step by step through the `implement-ticket`, `create-ticket` and 
 place. For what the board statuses and labels mean, see [PROJECT.md](PROJECT.md).
 
 **The short version:** every change that ships starts as a ticket, is planned unless it is small and obvious, is built on its own branch,
-proves itself with a green gate, gets an independent review, merges only through a script that checks all of that, and comes back
+proves itself with a green gate, gets a review, merges only through a script that checks all of that, and comes back
 to you as In Review with a summary. You decide when it is Done.
-A request that is not a ticket (a quick fix, a review, an audit) gets the same engineering method without the ticket ceremony:
-[Without a ticket](#without-a-ticket).
+Asking an agent to fix a bug or build something starts (or finds) a ticket. Work that ships nothing (an investigation, a review, an audit, a local experiment) gets the same engineering
+method without the ticket ceremony: [Without a ticket](#without-a-ticket).
 
 ## Lifecycle
 
@@ -96,13 +96,14 @@ ticket it is how steps 3 and 4 of `implement-ticket` are done; without one it is
 
 ## Without a ticket
 
-Most everyday requests are not tickets: "fix this bug", "build X", "review this diff", "audit the repo", "list the shortcuts". The
-`engineering-method` skill answers them with the same method and none of the ticket ceremony:
+Asking for a change that ships ("fix this bug", "build X") is ticket work: the agent finds or creates the ticket (`create-ticket`
+searches for a duplicate first), then follows `implement-ticket`. A small ticket stays small: a `low`-tier ticket has only a Goal,
+acceptance criteria and an Execution line. Requests that ship nothing, or that you explicitly want local, get the `engineering-method`
+skill's method without the ticket ceremony:
 
 - **No ticket, branch, commit, PR or merge unless you ask.** Finishing is a short report: what changed, the evidence, what was not
-  checked, the shortcuts added. A commit or PR is made when you ask. A PR opened that way is reviewed and merged like any other: the
-  `pr-reviewer` role reviews its head, then only `merge` merges, with the rules of [SECURITY.md](SECURITY.md) unchanged. Asking the
-  agent to merge is not a review.
+  checked, the shortcuts added. A commit or PR is made when you ask. A PR opened that way is reviewed and merged like any other
+  (below), with the rules of [SECURITY.md](SECURITY.md) unchanged. Asking the agent to merge is not a review.
 - **Anything beyond an easy change gets a plan** from the `ticket-planner` role on a plain brief; no ticket is needed, and its open
   decisions come to you.
 - **A review without a PR:** the `pr-reviewer` role in *diff mode* reviews a diff, range, branch or one task of a plan (a plan task
@@ -116,7 +117,7 @@ Most everyday requests are not tickets: "fix this bug", "build X", "review this 
 - **"Why did that run go wrong, or cost so much?"** The agent reads the ticket's Run line, the PR timeline and commits, and whatever usage or
   transcript record your tool keeps (TicketFlow ships no counter), cites what was repeated, ignored or skipped, and changes nothing.
 
-Work that should be tracked is still `create-ticket` and `implement-ticket`; say so and the full journey starts.
+Work that should be tracked is `create-ticket` and `implement-ticket`; say so and the full journey starts.
 
 ## Verify
 
@@ -132,26 +133,27 @@ The gate itself: [CI-GATE.md](CI-GATE.md).
 
 ## Review
 
-The `pr-reviewer` role is always available and is never listed in `reviewers`. With no external reviewer configured, it reviews
-every pull request; with one configured, it reviews `high` and `critical` pull requests, and stands in when the configured reviewer
-is unavailable, silent or only commented. Its effort follows the tier (the skill sets it). It posts one review
-comment, never approves, never edits. Diff and audit mode review without a pull request (above) and post nothing. A fix to behaviour, tests, config or SQL gets one more pass; a trivial fix does not.
-External reviewers and the stand-in rules: [REVIEWERS.md](REVIEWERS.md).
+External reviewers (a review bot, a teammate) are never configured or asked. While CI runs, `pr-wait` notices any that start on the
+exact head (a reaction, a comment, a review) and waits for each one's result, at most 15 minutes from its start; the agent reads and
+fixes what it finds. If none started by the time CI settles, or none gave a usable result, the built-in `pr-reviewer` role reviews the
+head and reports its findings straight to the agent; its posted review is what `merge` reads. A `critical` pull request gets
+`pr-reviewer` after an external result as well; a `high` one only where that result does not cover the risky part. Its effort follows
+the tier. It never approves or edits. A red CI is fixed first, with no review of a red head. Diff and audit mode review without a
+pull request (above) and post nothing. What is and is not proven: [REVIEWERS.md](REVIEWERS.md).
 
 Wait once, in the background (`pr-wait`), batch every finding into one push, and fix or reject each with a reason; reply to and resolve
-each review thread with `thread.mjs`. A related small problem found along the way is fixed in the same pull request and listed as "Also fixed"; only a big or unrelated one gets its own issue.
+each review thread with `thread.mjs`. A push needs a review of its new head: an external result, or a `pr-reviewer` review of the delta since its last one. A related small problem found along the way is fixed in the same pull request and listed as "Also fixed"; only a big or unrelated one gets its own issue.
 
 ## Merge
 
 `merge <PR>` is the only way. It requires, on the exact head: the pull request open, not a draft, based on the default branch; the
-gate status `success`; the head contains the default branch; no unresolved review thread (any author); the review gate done and not
-`changes requested` (a reviewer's approval or no-findings signal, or a `--review-basis` comment `Review basis for <sha7>: ...` that links a `ready to merge`
-`pr-reviewer` review of this PR posted on the exact head, or says `owner approved`, when `pr-wait` printed `standin needed` (a reviewer
-that only commented included) or `none configured`); and the last `pr-reviewer` review of the head saying exactly `ready to merge`
-(accounts with write access only; `owner approved` needs an admin account). What that proves, what
-stays convention and what cannot be verified: [REVIEWERS.md](REVIEWERS.md). It merges (squash, else rebase, else a merge commit, as the repo allows) with
-`--match-head-commit`. When the gates pass, merge without asking, except when the only review was an inline `pr-reviewer`
-(no sub-agents): ask the owner. Never `--admin`, never `--auto`; see [SECURITY.md](SECURITY.md).
+gate status `success`; the head contains the default branch; no unresolved review thread (any author); no external reviewer that
+started and has not answered (at most 15 minutes from its start) or requested changes; every trusted account's last `pr-reviewer`
+verdict on the head exactly `ready to merge`; and a review of the head: the merging account's own `pr-reviewer` review, or, with
+`--reviewed-by <login>`, that external reviewer's result on the head, which the agent read and acted on. What that proves: [REVIEWERS.md](REVIEWERS.md). It merges (squash, else rebase, else a
+merge commit, as the repo allows) with `--match-head-commit`. When the gates pass, merge without asking, except when the only review
+was an inline `pr-reviewer` (no sub-agents): ask the owner. The setup and update pull requests of `init` and `sync` are reviewed and merged
+the same way, but only after you say so in chat, because they change the gate itself. Never `--admin`, never `--auto`; see [SECURITY.md](SECURITY.md).
 
 ## Several tickets (optional)
 

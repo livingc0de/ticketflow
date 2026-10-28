@@ -32,7 +32,7 @@ Follow `interview.md`. It ends with a confirmed `.ticketflow/config.json`; then 
 
 Exit 1 from a step: resolve the conflicts as `existing-repo.md` section Conflicts says, then run the same step again. Exit 2: stop and report.
 
-Then add `<worktrees_dir>/` from the config to `.gitignore`, and write the `custom/` drafts the owner approved in the interview.
+Then add `<worktrees_dir>/` from the config to `.gitignore`, and write the `custom/` drafts the owner confirmed in the interview.
 
 ## 4. GitHub side
 
