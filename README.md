@@ -148,8 +148,8 @@ Changes that touch only the paths you list as docs get it quickly without runnin
 You configure nothing. While CI runs, TicketFlow notices any review bot or teammate that starts on the exact commit (a reaction, a
 comment, a review) and waits for that reviewer's result, at most 15 minutes from its start. The result counts as soon as it lands: a
 review, or a comment, the first one too or the edit of a summary comment (a first comment that may still be a status note makes
-`merge` wait for more). Activity from older commits or from unrelated accounts, such as deploy or coverage bots, is ignored. The
-agent reads the result and fixes what it finds. With no external review, the built-in
+`merge` wait for more). Activity from older commits or from unrelated accounts is ignored. Any bot's comment is shown to the
+agent, which reads it, ignores what is not a review (a deploy or coverage note) and fixes what a review finds. With no external review, the built-in
 `pr-reviewer` role reviews the commit and reports its findings straight to the agent; a `critical` pull request gets it as well, and a `high` one
 where the external result missed the risky part.
 

@@ -14,17 +14,18 @@
  * (billing: no runner, no steps, the billing annotation; or queued 20 minutes without a runner) from a real red one.
  * A failed read is a pending poll, never a verdict.
  *
- * External reviewers are observed, never configured or invoked. One counts when it is an app (a `[bot]` login, or type Bot) that reviewed
- * or reacted on the PR or names "review" in a comment's hidden markup or heading or bold first line, or an OWNER, MEMBER or COLLABORATOR that reviewed it, other than the PR
- * author and the account running this, and it has a sign on this head: a review of it, a comment or a reaction made, or a comment
- * edited, after the head was pushed (the first check suite of the head, else its committer date). Its start is its first sign; it is
- * waited for at most 15 minutes from that start, and only its own result ends its wait: a review of the head (whatever its time: it can
- * only exist after the push), else its latest comment with visible text, its first one included, counted at its last edit, that names
- * the head or no commit at all; its first comment on this head (a new one, or an old one edited after the push), unchanged since, is
- * `first comment` while the window runs (merge waits for more). A reaction
- * is a sign, never a result. A comment that names only other commits starts the wait but never ends it. A later edit does not
- * restart the window. A last review of the head that is CHANGES_REQUESTED is `changes requested` (settled, exit 0: merge refuses it).
- * Activity before the push, a review of another commit, and anyone else's activity are ignored.
+ * External reviewers are observed, never configured or invoked. One counts when it is an app (a `[bot]` login, or type Bot) that
+ * commented, reviewed or reacted on the PR (whatever it wrote: the agent judges whether it is a review), or an OWNER, MEMBER or
+ * COLLABORATOR that reviewed it, other than the PR author and the account running this, and it has a sign on this head: a review of it,
+ * a comment or a reaction made, or a comment edited, after the head was pushed (the first check suite of the head, else its committer
+ * date). Its start is its first sign; it is waited for at most 15 minutes from that start, and only its own result ends its wait: a
+ * review of the head (whatever its time: it can only exist after the push), else its latest comment with visible text, its first one
+ * included, counted at its last edit, that names the head or no commit at all; its first comment on this head (a new one, or an old one
+ * edited after the push), unchanged since, is `first comment` while the window runs (merge --reviewed-by waits for more; runs in one
+ * checkout share what they saw through a file in the git dir). A reaction is a sign, never a result. A comment that names only other
+ * commits starts the wait but never ends it. A later edit does not restart the window. A last review of the head that is
+ * CHANGES_REQUESTED is `changes requested` (settled, exit 0: merge refuses it). Activity before the push, a review of another commit,
+ * and anyone else's activity are ignored.
  * It prints one `Review <login>: <state>` line per such reviewer (`pending since ..`, `result <review STATE | comment | first comment> <url> <first line>`,
  * `changes requested (<sha7>) <url>`, `no result 15 min after its start ..`), then `Review:`: `pending (<logins>)`, else `changes requested (<logins>)`,
  * else `results (<logins>)`, else `none`, with ` (no result in time: <logins>)` after results or none. A failed read prints
@@ -40,7 +41,8 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { dirname } from 'node:path'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { configPath, loadConfig } from '../lib/config.mjs'
@@ -150,7 +152,16 @@ const isApp = (u) => u?.type === 'Bot' || /\[bot\]$/.test(u?.login ?? '')
 
 const WINDOW_MS = 15 * 60_000
 const launched = Date.now()
-const firstSeen = new Map()
+// The first sign and first answer seen per head and reviewer, shared by every run in this checkout (merge's own --once check too),
+// because the API keeps only a comment's last edit. A file in the git dir, never committed; missing or unreadable is an empty cache.
+const CACHE_DAYS = 2
+const cacheFile = (() => { const r = ciOnly ? null : spawnSync('git', ['rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }); return r?.status === 0 ? join(r.stdout.trim(), 'ticketflow-pr-wait.json') : null })()
+const firstSeen = new Map((() => { try { return Object.entries(JSON.parse(readFileSync(cacheFile, 'utf8'))).filter(([, t]) => Number.isFinite(t)) } catch { return [] } })())
+function saveSeen() {
+    if (!cacheFile) return
+    const keep = [...firstSeen].filter(([, t]) => Number.isFinite(t) && t > Date.now() - CACHE_DAYS * 86_400_000)
+    try { writeFileSync(cacheFile, JSON.stringify(Object.fromEntries(keep))) } catch { /* an unwritable cache only costs the memory */ }
+}
 const pushed = new Map()
 let me
 
@@ -165,8 +176,8 @@ function pushedAt(head) {
 }
 
 /**
- * Fills S.reviewers with one { login, state, text } per external reviewer that started on this head: an app that reviewed or reacted
- * on the PR or titled a comment with "review", or a trusted human that reviewed, and has a sign since the push (a review of the head,
+ * Fills S.reviewers with one { login, state, text } per external reviewer that started on this head: an app that commented, reviewed
+ * or reacted on the PR, or a trusted human that reviewed, and has a sign since the push (a review of the head,
  * a comment, a reaction).
  */
 function pollReviewers(S) {
@@ -175,12 +186,8 @@ function pollReviewers(S) {
     const reactions = api(`${R}/issues/${target}/reactions`, true)
     const reviews = api(`${R}/pulls/${target}/reviews`, true).filter((x) => x.state !== 'PENDING' && x.state !== 'DISMISSED')
     const outside = (l) => l && l !== me && l !== S.author
-    // shortcut: an app that only comments is a reviewer once a comment of it names "review" in its hidden markup or in a heading or bold
-    // first line (a review summary does; a deploy, coverage or greeting bot's text, "will review" or "continue to review", does not);
-    // revisit if a review app is missed or a non-reviewing bot titles a comment with it
-    const hidden = (b) => (String(b ?? '').match(/<!--[\s\S]*?-->/g) ?? []).join(' ')
-    const reviewing = (c) => isApp(c.user) && (/\breview/i.test(hidden(c.body)) || /^\s*(#+|\*\*|__).*\breview/i.test(firstLine(c.body)))
-    const known = new Set([...reviews.filter((x) => isApp(x.user) || TRUSTED.has(x.author_association)), ...reactions.filter((x) => isApp(x.user)), ...comments.filter(reviewing)].map((x) => x.user?.login).filter(outside))
+    // every app active on the PR is listed (a deploy or coverage bot too): whether its comment is a review is the agent's reading
+    const known = new Set([...reviews.filter((x) => isApp(x.user) || TRUSTED.has(x.author_association)), ...reactions.filter((x) => isApp(x.user)), ...comments.filter((c) => isApp(c.user))].map((x) => x.user?.login).filter(outside))
     // a comment counts when it was posted after the push, else when it was edited after it
     const at = (c) => (ms(c.created_at) > since ? ms(c.created_at) : ms(c.updated_at))
     const edited = (c) => Math.max(ms(c.created_at), ms(c.updated_at ?? c.created_at))
@@ -201,11 +208,11 @@ function pollReviewers(S) {
         const after = more.has(login) ? launched : since
         // a review of the head is the result; else its latest comment with visible text, at its last edit (the start above keeps the first
         // sign). Its first comment, unedited, is shown at once (it can hold the findings) but marked `first comment` while the window runs:
-        // it may be the status note of a review still running, so the agent reads it (--more for a status note) and merge waits for more
+        // it may be the status note of a review still running, so the agent reads it (--more for a status note) and merge --reviewed-by waits
         const latest = (xs) => xs.sort((a, b) => a[0] - b[0]).at(-1)
         // shortcut: "first" is the reviewer's first comment activity on this head (a new comment, or its old summary edited), kept while
-        // unchanged since; a fresh run knows only the last edit, so a reused summary stays unconfirmed up to 15 minutes after it, and a
-        // status note edited while the review runs reads as an answer; revisit if a review app edits its note mid-run
+        // unchanged since; a run without the shared cache knows only the last edit, so a reused summary stays unconfirmed up to 15 minutes
+        // after it, and a status note edited while the review runs reads as an answer; revisit if a review app edits its note mid-run
         const firstKey = `${key} comment`
         const firstAnswer = Math.min(firstSeen.get(firstKey) ?? Infinity, ...own.filter((c) => visible(c.body) && !aboutOther(c)).map(at).filter((t) => t > since))
         firstSeen.set(firstKey, firstAnswer)
@@ -217,6 +224,7 @@ function pollReviewers(S) {
         if (Date.now() >= start + WINDOW_MS) return { login, state: 'late', text: `no result 15 min after its start ${iso(start)}` }
         return { login, state: 'pending', text: `pending since ${iso(start)} (at most until ${iso(start + WINDOW_MS)})` }
     }).filter(Boolean)
+    saveSeen()
 }
 
 /** Fills S.threads with the unresolved review threads of any author, or 'unknown' when they cannot be told (a failed read, or more than 100). */
