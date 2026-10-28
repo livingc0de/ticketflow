@@ -117,7 +117,7 @@ Three cases, each on its own pull request (a read-only account's `ready to merge
 
 **Case 2, a basis from a read-only account.**
 1. `PR=$(newpr readbasis)`; wait until `Review: standin needed (rb)`. As in E3b step 2, post a `ready to merge` review of the head as `AGENT` (`$REV`).
-2. As `READER`: `as READER gh pr comment $PR --body "Review basis for $H7: reviewed by pr-reviewer https://github.com/<sandbox>/pull/$PR#pullrequestreview-$REV"`; `merge --review-basis <its id>`. **Expect** exit 1, `comment <id> is by <READER login>, who has read access: a basis needs write access`.
+2. `H7=$(git rev-parse --short=7 HEAD)`. As `READER`: `as READER gh pr comment $PR --body "Review basis for $H7: reviewed by pr-reviewer https://github.com/<sandbox>/pull/$PR#pullrequestreview-$REV"`; `merge --review-basis <its id>`. **Expect** exit 1, `comment <id> is by <READER login>, who has read access: a basis needs write access`.
 3. Post the same comment as `AGENT` and `merge` with its id. **Expect** exit 0.
 
 **Case 3, a verdict from a read-only account.**

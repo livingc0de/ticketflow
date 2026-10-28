@@ -12,7 +12,7 @@ if (git('status', '--porcelain')) fail(`files were changed: ${git('status', '--p
 if (git('rev-list', '--count', 'HEAD') !== '1') fail('a commit was made')
 let answer
 try { answer = readFileSync(answerFile, 'utf8') } catch { fail('no answer was captured') }
-const CAUSE = /travers|\.\.|dot-dot|escap|outside|arbitrary file/i
+const CAUSE = /travers|\.\.[\/\\]|dot-dot|escap|outside|arbitrary file/i
 const hit = answer.split('\n').some((line) => CAUSE.test(line) && [...line.matchAll(/files\.js:L?(\d+)(?:\s*[-\u2013]\s*L?(\d+))?/g)].some(([, a, b]) => +a === 7 && +(b ?? a) <= 9 && +(b ?? a) >= 7))
 if (!hit) fail('no line of the answer names src/files.js:7 (or 7-9) together with the path traversal')
 console.log('PASS: the traversal bug is named at src/files.js:7-9 and nothing was edited')

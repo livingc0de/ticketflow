@@ -40,6 +40,7 @@ try {
     cpSync(dir, old, { recursive: true })
     rmSync(join(old, 'src'), { recursive: true })
     run(old, 'git', 'checkout', root, '--', 'src')
+    for (const t of tests) cpSync(join(dir, t), join(old, t))   // a test that lives under src/ comes back too: only the code is original
     if (run(old, process.execPath, '--test', ...tests).status === 0) fail(`${tests.join(', ')} passes on the original src/: it does not catch the bug`)
 } finally { rmSync(old, { recursive: true, force: true }) }
 console.log(`PASS: both callers and the helper are correct, ${tests.join(', ')} passes on the fix and fails on the original code, the repo tests pass`)

@@ -98,6 +98,10 @@ test('L2: needs both callers right, the suite green and a new test that fails on
     edit(placed, 'src/money.js', 'return Math.round(amount * 100) / 100', EXACT)
     put(placed, 'test/regression.test.js', "import test from 'node:test'\nimport assert from 'node:assert/strict'\nimport { roundMoney } from '../src/money.js'\ntest('half cents round up', () => assert.equal(roundMoney(1.005), 1.01))\n")
     passing(L2, placed)
+    const inSrc = fixture(L2)   // a do-nothing test under src/ must not count as "fails on the original" just because the original src/ lacks it
+    edit(inSrc, 'src/money.js', 'return Math.round(amount * 100) / 100', EXACT)
+    put(inSrc, 'src/test/noop.test.js', "import test from 'node:test'\ntest('noop', () => {})\n")
+    failing(L2, inSrc, /passes on the original src\//)
 
     const gone = fixture(L2)   // callers that no longer use the shared helper, which has no roundMoney any more
     const inline = (expr) => `Number(Math.round(\`\${${expr}}e2\`) + 'e-2')`
@@ -151,6 +155,7 @@ test('L4: needs file:line on the traversal bug and no edit, commit or stray file
     failing(L4, dir, /no line of the answer names/, 'src/files.js:9 path traversal')   // the read, not the join
     failing(L4, dir, /no line of the answer names/, 'src/files.js:7 is wrong.\nThe path traversal is somewhere else.')   // the cite and the cause must share a line
     for (const answer of ['src/files.js:7 join(root, name) allows ../', 'bug at `src/files.js:L7`: path traversal', 'src/files.js:7-9: the name can escape the upload root', 'Found it: src/files.js:7–9 is a directory traversal', '- src/handler.js:5 nit\n- src/files.js:7 traversal via ..']) passing(L4, dir, answer)
+    failing(L4, dir, /no line of the answer names/, 'src/files.js:7 looks fine...')   // an ellipsis is not a ../
     failing(L4, dir, /no answer was captured/)
 
     put(dir, 'notes.md', 'x')
