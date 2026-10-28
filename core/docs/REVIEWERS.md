@@ -27,11 +27,10 @@ asked before merging on it.
 
 No list, no login, no re-request comment: `pr-wait` reads what GitHub shows on the pull request.
 
-- **Who counts.** An app (a `[bot]` login, or an account of type Bot) that reviewed or reacted on the pull request (reactions on the
-  pull request itself, not on its comments), or names "review" in a comment there, in its hidden markup or in a heading or bold first
-  line, so a bot that starts with a review summary comment is seen at once; or an owner, member or collaborator that reviewed it. The
-  author of the pull request and the account running the script never count, and neither does a deploy, coverage or greeting bot (its
-  "continue to review" or "will review" is plain text) or a commenter who never reviewed.
+- **Who counts.** Any app (a `[bot]` login, or an account of type Bot) that comments, reviews or reacts on the pull request
+  (reactions on the pull request itself, not on its comments), whatever it writes; or an owner, member or collaborator that reviewed
+  it. No keyword decides: a deploy or coverage bot is listed too, and the agent, which reads every result, ignores what is not a
+  review. The author of the pull request and the account running the script never count, nor a human who only commented.
 - **Push time.** Only activity after the head was pushed counts. That is the time of its first check suite, else its committer date
   (a commit made long before it was pushed can then admit older activity: a documented ceiling). Activity before the push, and reviews of
   another commit, decide nothing. A review of the head itself always counts, whatever its time: it can only exist after the push.
@@ -40,12 +39,15 @@ No list, no login, no re-request comment: `pr-wait` reads what GitHub shows on t
 - **Result.** A review of the head; else the account's latest comment with visible text, counted at its last edit. A reaction is
   a sign, never a result. Its first comment on this head (a new comment, or its summary comment edited after the push) can be the
   whole result, so it is shown at once, as `result first comment`, while it is unchanged and the 15 minutes run: it may also be the
-  status note of a review still running, so `merge` waits for its next answer. A summary comment reused across heads stays
-  unconfirmed up to 15 minutes after its last edit when the wait did not see its earlier one, and a status note the bot edits again
-  while its review runs reads as an answer (documented limits).
+  status note of a review still running, so `merge --reviewed-by <that login>` waits for its next answer. The runs in one checkout
+  share what they saw (a file in the git dir, never committed), so `merge`'s own check knows an edit the wait already saw as the
+  answer; without it (another machine, another worktree, or a fresh clone) a reused summary stays unconfirmed up to 15 minutes after
+  its last edit. A status note the bot edits again while its review runs reads as an answer (documented limit).
   When it is only a status note, wait again with `--more '<login>'`: the edit of that comment or a review after that is the result,
   within the same 15 minutes (a slow run ends `late`, and `pr-reviewer` takes over). A comment that names commits but not the head
-  (a late receipt for an older commit) is a sign, never the result. It ends only that reviewer's own wait; another account's "looks good" neither starts nor ends it.
+  (a late receipt for an older commit) is a sign, never the result. A bot whose only head activity is a reaction, or a comment naming
+  other hex values but not the head, can therefore keep merge pending for up to 15 minutes from its first sign; the window does not
+  restart. It ends only that reviewer's own wait; another account's "looks good" neither starts nor ends it.
 - **Window.** At most 15 minutes from its start, not from its latest edit. After that it is `late` and the wait moves on without it.
   A reviewer that said more is coming: `pr-wait.mjs <PR> --more '<login>'` counts only what it posts after that run started.
 - **Changes requested.** A last review of the head that asks for changes ends the wait at once and is a refusal for `merge`.
@@ -107,7 +109,7 @@ also dismiss an external reviewer's changes request on GitHub, or merge by hand.
 |---|---|---|
 | The gate status is `success` on the exact head, the branch is up to date | enforced by `merge` (and the ruleset) | |
 | No unresolved review thread, from any author; `unknown` refuses | enforced by `merge`, from `pr-wait` | Ceiling: 100 threads |
-| No external reviewer pending, unconfirmed or asking for changes on the head | enforced by `merge`, from `pr-wait` | Reviewers are found from their activity; an app that only comments is found when its hidden markup or a heading or bold first line names "review"; its first comment on the head blocks until its next answer or 15 minutes |
+| No external reviewer pending or asking for changes on the head; a named reviewer's answer is not an unconfirmed first comment | enforced by `merge`, from `pr-wait` | Reviewers are found from their activity (any app, any wording); whether a comment is a review is the agent's reading |
 | A review of the head: the own `pr-reviewer` verdict, or a named `result` | enforced by `merge` | Every trusted account's last verdict must be ready |
 | A reviewer ran, was independent of the author, and an external result says what the agent says it does | **not verifiable** | The review is posted with the agent's own credentials in standard mode, and a result is read by the agent: `merge` proves where and when it was posted. High-assurance mode: [SECURITY.md](SECURITY.md#two-ways-to-run) |
 | A review was not edited afterwards by the account that wrote it | **not verifiable** | `merge` reads the body as it is now |

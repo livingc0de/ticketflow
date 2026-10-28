@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, writeFileSync } from 'node:fs'
+import { chmodSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { FAIL, fakeGh, seq, tempDir, writeConfig } from './helpers.mjs'
 
@@ -37,12 +37,11 @@ function threads(nodes, totalCount = nodes.length) {
     return { 'graphql ReviewThreads': { repository: { pullRequest: { reviewThreads: { totalCount, nodes } } } } }
 }
 // Fixture keys are relative to repos/o/r/ (except `user` and `graphql ...`); `pulls` is shorthand for 'pulls/7'.
-function wait(fix = {}, args = ['7', '--timeout-min', '0'], over = {}) {
-    const dir = tempDir('pr-wait-')
+function wait(fix = {}, args = ['7', '--timeout-min', '0'], over = {}, { dir = tempDir('pr-wait-') } = {}) {
     const { pulls, ...rest } = fix
     const map = { ...baseFixtures(), ...rest, ...(pulls ? { 'pulls/7': pulls[7] } : {}) }
     const gh = fakeGh(dir, Object.fromEntries(Object.entries(map).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' ? k : `repos/o/r/${k}`, v])))
-    const r = spawnSync(process.execPath, [script, ...args, '--config', writeConfig(dir, over)], { encoding: 'utf8', env: gh.env })
+    const r = spawnSync(process.execPath, [script, ...args, '--config', writeConfig(dir, over)], { encoding: 'utf8', env: gh.env, cwd: dir })
     return { ...r, calls: gh.calls().map((c) => c.join(' ')), dir }
 }
 const code = (fix, args, over) => wait(fix, args, over).status
@@ -51,7 +50,7 @@ const NOW = { user: { login: 'me' } }
 /** A review, a comment and a reaction by an app; a reaction reports an app as type User. */
 const app = (login = RB) => ({ login, type: 'Bot' })
 const rev = (state, over = {}) => ({ id: 1, user: app(), commit_id: HEAD, state, submitted_at: ago(5), html_url: 'https://x/r1', body: 'review body', author_association: 'NONE', ...over })
-const note = (min, body = 'status', over = {}) => ({ id: 9, user: app(), created_at: ago(min), updated_at: ago(min), html_url: 'https://x/c', body, author_association: 'NONE', ...over })
+const note = (min, body = 'status', over = {}) => { const t = ago(min); return { id: 9, user: app(), created_at: t, updated_at: t, html_url: 'https://x/c', body, author_association: 'NONE', ...over } }
 const react = (min, content = 'eyes', login = RB) => ({ user: { login, type: 'User' }, content, created_at: ago(min) })
 const green = status('success', 'x')
 const reviewLines = (r) => r.stdout.split('\n').filter((l) => l.startsWith('Review'))
@@ -252,7 +251,7 @@ test('the loop sleeps and polls again until the gate is final', () => {
     writeFileSync(join(dir, 'bin', 'sleep'), '#!/bin/sh\necho "$@" >> ' + join(dir, 'slept') + '\n')
     chmodSync(join(dir, 'bin', 'sleep'), 0o755)
     // first poll: unknown mergeability (pending); second: clean
-    const r = spawnSync(process.execPath, [script, '7', '--timeout-min', '5', '--config', writeConfig(dir, {})], { encoding: 'utf8', env: gh.env })
+    const r = spawnSync(process.execPath, [script, '7', '--timeout-min', '5', '--config', writeConfig(dir, {})], { encoding: 'utf8', env: gh.env, cwd: dir })
     assert.equal(r.status, 0, r.stderr)
     assert.equal(gh.calls().filter((c) => c[1].endsWith('/pulls/7')).length, 2)
 })
@@ -273,7 +272,7 @@ test('an app\'s reaction after the push starts it: pending, with its window, and
     assert.equal(wait({ ...green, 'issues/7/reactions': [react(2)] }, ['7', '--once']).status, 0)   // --once: CI decides the code
 })
 
-test('a comment-only review app starts a wait from its first comment; that comment can be the whole result; deploy and coverage bots start nothing', () => {
+test('any app active on the head is listed, a comment-only one too; its first comment can be the whole result; the agent judges whether it is a review', () => {
     const CX = 'cx[bot]'
     const by = (min, body, over = {}) => note(min, body, { user: app(CX), ...over })
     // PR #45: the summary comment comes while CI runs, with no reaction and no review yet; CI settles first
@@ -302,7 +301,13 @@ test('a comment-only review app starts a wait from its first comment; that comme
     const bots = [note(5, 'Deploy Preview for site ready!', { user: app('deploy[bot]') }), note(4, '## Coverage Report\n93%', { user: app('cov[bot]'), id: 11 }), note(3, 'Build passed', { user: app('ci[bot]'), id: 12 }),
         note(2, '## [Codecov](https://app.codecov.io/gh/o/r/pull/7) Report\nAll modified lines are covered.\n\n[Continue to review full report in Codecov by Sentry](https://app.codecov.io/gh/o/r/pull/7).', { user: app('codecov[bot]'), id: 13 }),
         note(2, 'Thanks! A maintainer will review this soon.\n<!-- greeting -->', { user: app('github-actions[bot]'), id: 14 })]
-    assert.deepEqual(reviewLines(wait({ ...green, 'issues/7/comments': bots })), ['Review: none'])
+    // listed with their comments, so the agent sees them at once and ignores what is not a review; no keyword decides
+    const listed = wait({ ...green, 'issues/7/comments': bots })
+    assert.equal(listed.status, 0)
+    assert.match(listed.stdout, /^Review deploy\[bot\]: result first comment https:\/\/x\/c Deploy Preview for site ready!$/m)
+    assert.match(listed.stdout, /^Review: results \(ci\[bot\], codecov\[bot\], cov\[bot\], deploy\[bot\], github-actions\[bot\]\)$/m)
+    // an app comment from before the push, never edited since, is nothing on this head
+    assert.deepEqual(reviewLines(wait({ ...green, 'issues/7/comments': [note(45, 'Deploy Preview ready', { user: app('deploy[bot]') })] })), ['Review: none'])
 })
 
 test('PR #47: a summary comment and eyes while it runs, then the edit when done: the edit is the result at once; a reaction is never a result', () => {
@@ -327,6 +332,37 @@ test('PR #47: a summary comment and eyes while it runs, then the edit when done:
     // a reaction after the push, for example a +1 that belongs to an older head, is a sign only
     const stale = wait({ ...green, 'issues/7/comments': [summary('Completed', { created_at: ago(60), updated_at: ago(45) })], 'issues/7/reactions': [react(5, '+1', CX)] })
     assert.match(stale.stdout, /^Review: pending \(cx\[bot\]\)$/m)
+})
+
+test('the wait remembers a reviewer\'s first answer in the git dir, so a fresh run (merge\'s own check) sees a later edit as its answer', () => {
+    const dir = tempDir('pr-wait-git-')
+    spawnSync('git', ['init', '-q', dir])
+    const CX = 'cx[bot]'
+    const pushed = { [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(30) }] } }   // one push time, as on GitHub
+    const summary = (edit) => ({ ...green, ...pushed, 'issues/7/comments': [note(60, '## Review Summary\n| Code Review | x |', { user: app(CX), updated_at: ago(edit) })] })   // reused across heads: created before the push
+    assert.match(wait(summary(5), undefined, {}, { dir }).stdout, /^Review cx\[bot\]: result first comment /m)
+    // the next run, a fresh process: the summary was edited again since the remembered first answer
+    assert.match(wait(summary(1), undefined, {}, { dir }).stdout, /^Review cx\[bot\]: result comment /m)
+    // without the git dir, the same data stays unconfirmed (the safe side)
+    assert.match(wait(summary(1)).stdout, /^Review cx\[bot\]: result first comment /m)
+    // another PR on the same head in this checkout reuses nothing: its new, unedited comment is its first answer
+    const other = { ...green, ...pushed, 'pulls/8': pull().pulls[7], 'issues/8/comments': [note(1, '## Review\nRunning', { user: app(CX), id: 40 })], 'pulls/8/reviews': [], 'pulls/8/comments': [], 'issues/8/reactions': [] }
+    assert.match(wait(other, ['8', '--timeout-min', '0'], {}, { dir }).stdout, /^Review cx\[bot\]: result first comment /m)
+    // a broken cache is ignored
+    const gitDir = spawnSync('git', ['-C', dir, 'rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim()
+    writeFileSync(join(gitDir, 'ticketflow-pr-wait.json'), '{oops')
+    assert.match(wait(summary(1), undefined, {}, { dir }).stdout, /^Review cx\[bot\]: result first comment /m)
+})
+
+test('the shared wait cache prunes entries older than two days', () => {
+    const dir = tempDir('pr-wait-prune-')
+    spawnSync('git', ['init', '-q', dir])
+    const gitDir = spawnSync('git', ['-C', dir, 'rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim()
+    const cache = join(gitDir, 'ticketflow-pr-wait.json')
+    writeFileSync(cache, JSON.stringify({ stale: Date.now() - 3 * 86_400_000 }))
+    const r = wait(green, undefined, {}, { dir })
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(JSON.parse(readFileSync(cache, 'utf8')), {})
 })
 
 test('a review of the head that arrived while CI ran is the result: CI pending shows it, green with it exits 0 with results', () => {
@@ -394,12 +430,12 @@ test('a changes-requested review of the head settles at once (exit 0); the last 
     assert.match(wait({ ...green, 'pulls/7/reviews': [rev('APPROVED'), rev('DISMISSED', { id: 2 })] }).stdout, /^Review: results/m)
 })
 
-test('the PR author, this account, a commenter who never reviewed, an app whose comments show no review and an outsider\'s review never start a wait; an unrelated "looks good" neither starts nor ends another\'s wait', () => {
+test('the PR author, this account, a commenter who never reviewed and an outsider\'s review never start a wait; an unrelated "looks good" neither starts nor ends another\'s wait', () => {
     const human = (login, association = 'NONE') => ({ login, type: 'User' })
     const quiet = {
         ...green,
         'issues/7/reactions': [react(2, '+1', 'author'), react(2, 'eyes', 'me'), react(2, '+1', 'someone')],   // humans reacting: not reviewers
-        'issues/7/comments': [note(5, 'status', { user: app('deploy[bot]') }), note(4, 'looks good', { user: human('someone') }), note(3, 'lgtm', { user: human('someone'), author_association: 'MEMBER' })],
+        'issues/7/comments': [note(4, 'looks good', { user: human('someone') }), note(3, 'lgtm', { user: human('someone'), author_association: 'MEMBER' })],
         'pulls/7/reviews': [rev('COMMENTED', { user: human('drive-by'), author_association: 'NONE' }), rev('APPROVED', { user: app('author'), id: 4 }), rev('APPROVED', { user: app('me'), id: 5 })],
     }
     assert.deepEqual(reviewLines(wait(quiet)), ['Review: none'])

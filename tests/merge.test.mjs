@@ -44,7 +44,7 @@ function run({ script: use = script, args = ['5'], pulls = seq(pull(), pull(), M
         'graphql ReviewThreads': threads.errors ? threads : { repository: { pullRequest: { reviewThreads: { totalCount: threads.length, nodes: threads } } } }, ...extra,
     })
     const cfg = config ? ['--config', writeConfig(dir)] : ['--config', join(dir, 'missing.json')]
-    const r = spawnSync(process.execPath, [use, ...args, ...cfg], { encoding: 'utf8', env: gh.env })
+    const r = spawnSync(process.execPath, [use, ...args, ...cfg], { encoding: 'utf8', env: gh.env, cwd: dir })
     const merges = gh.calls().filter((c) => c[0] === 'pr' && c[1] === 'merge')
     return { ...r, merges, calls: gh.calls() }
 }
@@ -84,7 +84,7 @@ test('an unreadable status, compare or pull request counts as not met', () => {
     refused(run({ pulls: { __status: 404, __stderr: 'nope' } }), /cannot read/)
     const dir = tempDir('merge-')
     const gh = fakeGh(dir, { [`${R}/pulls/5`]: pull(), [`${R}/commits/${HEAD}/status`]: status('success') })   // no compare fixture
-    const r = spawnSync(process.execPath, [script, '5', '--config', writeConfig(dir)], { encoding: 'utf8', env: gh.env })
+    const r = spawnSync(process.execPath, [script, '5', '--config', writeConfig(dir)], { encoding: 'utf8', env: gh.env, cwd: dir })
     assert.equal(r.status, 1)
 })
 test('unresolved threads: none merges; unknown (failed read or more than 100) refuses; a resolved one does not count', () => {
@@ -266,10 +266,11 @@ test('M3: a reviewer that started and has not answered blocks the merge until it
     refused(run({ extra: { [`${R}/issues/5/comments`]: { __status: 500, __stderr: 'boom' } } }), /pending \(the review activity could not be read\): run again/)
 })
 
-test('M3b: a reviewer\'s unedited first comment may be the status note of a review still running: merge waits for its next answer or 15 minutes', () => {
+test('M3b: a bot\'s unedited first comment is no basis for --reviewed-by while its 15 minutes run; on the own review the agent has judged it', () => {
     const first = (min, over = {}) => ({ id: 31, user: APP, author_association: 'NONE', created_at: ago(min), updated_at: ago(min), html_url: 'https://x/c31', body: '<!-- rb-review-summary -->\n## Review\n| Code | Running |', ...over })
-    refused(run({ comments: [first(4)] }), /rb\[bot\]'s only answer on abcdef1 is its first comment.*at most 15 minutes from its start/)
-    refused(run({ args: by('rb[bot]'), comments: [first(4)], reviews: [] }), /rb\[bot\]'s only answer on abcdef1 is its first comment/)
+    // the own pr-reviewer review: a bot's comment does not block (the agent read it: not a review, or a status note it waited out)
+    assert.equal(run({ comments: [first(4)] }).status, 0)
+    refused(run({ args: by('rb[bot]'), comments: [first(4)], reviews: [] }), /rb\[bot\]'s only answer on abcdef1 is its first comment.*at most 15 minutes from its start/)
     // its edit, or a review, is its answer; 15 minutes with nothing more and the first comment stands as its whole answer
     assert.equal(run({ args: by('rb[bot]'), comments: [first(4, { updated_at: ago(1) })], reviews: [] }).status, 0)
     assert.equal(run({ args: by('rb[bot]'), comments: [first(4)], reviews: [ext()] }).status, 0)

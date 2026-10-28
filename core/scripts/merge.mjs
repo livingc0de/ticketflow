@@ -13,9 +13,9 @@
  * A pr-reviewer review is a submitted review of an OWNER, MEMBER or COLLABORATOR with a `**Verdict:**` line on exactly the head. The
  * last such review of every account must be exactly `ready to merge` (only that account lifts its own "changes needed"). Then the review
  * of the head is either this account's own pr-reviewer review (it starts `Reviewed head: <sha>` naming the head), or, with
- * `--reviewed-by <login>`, that reviewer's `result` on the head in the pr-wait summary: the agent read what it says and acted on it,
- * merge only proves where and when it was posted. Merge reads no repository permission: GitHub's own rules (a ruleset, branch
- * protection, required reviews) are what enforce who may merge.
+ * `--reviewed-by <login>`, that reviewer's `result` on the head in the pr-wait summary, never its unedited `first comment` while its 15
+ * minutes run (it may be a status note): the agent read what it says and acted on it; merge only proves where and when it was posted.
+ * Merge reads no repository permission: GitHub's own rules (a ruleset, branch protection, required reviews) are what enforce who may merge.
  * The merge passes `--match-head-commit`, so a push after the checks fails the merge; the base is read again right before it, so a base
  * that moved after the slow reads is refused.
  *
@@ -82,9 +82,6 @@ function merge() {
     if (!/^(none|results)\b/.test(review)) return stop(`Review is "${review}"\n${summary}`)
 
     // pr-reviewer reviews are the submitted reviews of a trusted account that carry a `**Verdict:**` line; the last one of each account on the head must be exactly "ready to merge"
-    // a reviewer's unedited first comment may be the status note of a review still running: pr-wait marks it while its 15 minutes run
-    const unsure = lines.map((l) => /^Review (\S+): result first comment /.exec(l)?.[1]).find(Boolean)
-    if (unsure) return stop(`${unsure}'s only answer on ${sha7} is its first comment, unedited, which may be the status note of a review still running: wait for its next answer (pr-wait --more '${unsure}'), at most 15 minutes from its start\n${summary}`)
     const me = api('user').login
     const last = new Map()
     for (const x of api(`${R}/pulls/${pr}/reviews`, { paginate: true })) {
@@ -97,6 +94,8 @@ function merge() {
     if (named !== undefined) {
         const line = only(`Review ${named}: `)
         if (!line?.startsWith('result ')) return stop(`${named} has no result on ${sha7} (${line ?? 'no activity on this head'}): name a reviewer that pr-wait lists with a result, or run pr-reviewer on the head\n${summary}`)
+        // its unedited first comment on the head may be the status note of a review still running: pr-wait marks it while its 15 minutes run
+        if (line.startsWith('result first comment ')) return stop(`${named}'s only answer on ${sha7} is its first comment, unedited, which may be the status note of a review still running: wait for its next answer (pr-wait --more '${named}'), at most 15 minutes from its start\n${summary}`)
     } else {
         const own = last.get(me)
         if (!own) return stop(`no review of ${sha7}: run pr-reviewer on the head (a delta review since its last review is enough), or pass --reviewed-by '<login>' for the external reviewer whose result on this head you acted on`)
