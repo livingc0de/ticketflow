@@ -306,7 +306,8 @@ test('a bad scenario, agent or arm, a missing option or a missing CLI exits 2 be
     bad([L1, '--agent', 'claude', '--arm', 'both'], /usage: agent-eval/)
     bad([L1, '--agent', 'claude'], /usage: agent-eval/)
     bad([], /usage: agent-eval/)
-    bad([L1, '--agent', 'claude', '--arm', 'bare', '--out', join(tmp, 'missing', 'rows.jsonl')], /does not exist/)
+    bad([L1, '--agent', 'claude', '--arm', 'bare', '--out', join(tmp, 'missing', 'rows.jsonl')], /cannot be written/)
+    bad([L1, '--agent', 'claude', '--arm', 'bare', '--out', tmp], /cannot be written/)   // a directory: refused before the paid run, not at the append after it
     bad([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', join(tmp, 'nowhere')], /is not a ticketflow checkout/)
     bad([L1, '--agent', 'claude', '--arm', 'bare'], /claude is not installed/, tmp)   // PATH without any CLI
     bad([L1, '--agent', 'codex', '--arm', 'bare'], /codex is not installed/, tmp)

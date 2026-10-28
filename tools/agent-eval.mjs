@@ -65,7 +65,7 @@ main('agent-eval', () => {
     const id = readdirSync(SCENARIOS).find((d) => d === positionals[0] || d.startsWith(`${positionals[0]}-`))   // only a listed name, never a path
     if (!id) throw new Error(`unknown scenario ${positionals[0]}`)
     const src = resolve(v.source ?? ROOT)
-    if (v.out && !existsSync(dirname(resolve(v.out)))) throw new Error(`the directory of --out ${v.out} does not exist`)   // before the paid run, not after it
+    if (v.out) try { appendFileSync(v.out, '') } catch (e) { throw new Error(`--out ${v.out} cannot be written (${e.code})`) }   // before the paid run, not after it
     if (v.arm === 'ticketflow' && !existsSync(join(src, 'core/scripts/runtime.mjs'))) throw new Error(`${src} is not a ticketflow checkout`)
     const version = run(v.agent, ['--version'])
     if (version.error || version.status !== 0) throw new Error(`${v.agent} is not installed or not on PATH`)
