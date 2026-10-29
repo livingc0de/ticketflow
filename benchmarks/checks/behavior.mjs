@@ -35,7 +35,9 @@ if (spawnSync('npm', ['test', '--silent'], { cwd: dir, env, timeout: 60000 }).st
 const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
 for (const k of ['dependencies', 'devDependencies', 'optionalDependencies']) if (Object.keys(pkg[k] ?? {}).length) fail('added a dependency')
 if (config.requireTest) {
-    const change = spawnSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' }).stdout
-    if (!change.split('\n').some((s) => /(?:\/spec\/|\/test\/|spec\/|test\/|\.test\.)/.test(s))) fail('no regression test was written')
+    const root = spawnSync('git', ['rev-list', '--max-parents=0', 'HEAD'], { cwd: dir, encoding: 'utf8' }).stdout.trim()
+    const changed = spawnSync('git', ['diff', '--name-only', root, 'HEAD'], { cwd: dir, encoding: 'utf8' }).stdout
+    const uncommitted = spawnSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' }).stdout
+    if (!(changed + uncommitted).split('\n').some((s) => /(?:\/spec\/|\/test\/|spec\/|test\/|\.test\.)/.test(s))) fail('no regression test was written')
 }
 console.log('PASS: hidden behaviour, existing suite and dependency budget')
