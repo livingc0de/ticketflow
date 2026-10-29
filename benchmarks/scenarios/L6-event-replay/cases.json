@@ -1,0 +1,84 @@
+{
+  "module": "src/events.js",
+  "export": "applyEvent",
+  "cases": [
+    {
+      "args": [
+        {
+          "balance": 5,
+          "processed": []
+        },
+        {
+          "id": "e1",
+          "delta": 7
+        }
+      ],
+      "want": {
+        "balance": 12,
+        "processed": [
+          "e1"
+        ]
+      }
+    },
+    {
+      "args": [
+        {
+          "balance": 12,
+          "processed": [
+            "e1"
+          ]
+        },
+        {
+          "id": "e1",
+          "delta": 7
+        }
+      ],
+      "want": {
+        "balance": 12,
+        "processed": [
+          "e1"
+        ]
+      }
+    },
+    {
+      "args": [
+        {
+          "balance": -3,
+          "processed": [
+            "a"
+          ]
+        },
+        {
+          "id": "b",
+          "delta": 3
+        }
+      ],
+      "want": {
+        "balance": 0,
+        "processed": [
+          "a",
+          "b"
+        ]
+      }
+    },
+    {
+      "args": [
+        {
+          "balance": 0,
+          "processed": []
+        },
+        {
+          "id": "z",
+          "delta": 0
+        }
+      ],
+      "want": {
+        "balance": 0,
+        "processed": [
+          "z"
+        ]
+      }
+    }
+  ],
+  "requireTest": true
+}
