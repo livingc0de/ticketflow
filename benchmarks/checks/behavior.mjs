@@ -40,7 +40,7 @@ for (const [i, entry] of config.cases.entries()) {
 const env = { ...process.env }; delete env.NODE_TEST_CONTEXT
 if (spawnSync('npm', ['test', '--silent'], { cwd: dir, env, timeout: 60000 }).status !== 0) fail('repo tests fail')
 const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-for (const k of ['dependencies', 'devDependencies', 'optionalDependencies']) if (Object.keys(pkg[k] ?? {}).length) fail('added a dependency')
+for (const k of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) if (Object.keys(pkg[k] ?? {}).length) fail('added a dependency')
 if (config.requireTest) {
     const root = spawnSync('git', ['rev-list', '--max-parents=0', 'HEAD'], { cwd: dir, encoding: 'utf8' }).stdout.trim()
     const changed = spawnSync('git', ['diff', '--name-only', '--diff-filter=AM', root, 'HEAD'], { cwd: dir, encoding: 'utf8' }).stdout.split('\n')

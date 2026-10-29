@@ -92,6 +92,16 @@ test('behaviour checks reject mutated input and vacuous regression tests', () =>
     assert.equal(run(vacuous, 'L10-tenant-isolation').status, 1)
     assert.match(run(vacuous, 'L10-tenant-isolation').text, /passes on the original source/)
 })
+test('behaviour checks reject peer dependencies', () => {
+    const dir = fixture('L15-feature-flag')
+    writeFileSync(join(dir, 'src', 'flags.js'), fixed['L15-feature-flag'][1])
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+    pkg.peerDependencies = { 'not-allowed': '1.0.0' }
+    writeFileSync(join(dir, 'package.json'), JSON.stringify(pkg))
+    const result = run(dir, 'L15-feature-flag')
+    assert.equal(result.status, 1)
+    assert.match(result.text, /added a dependency/)
+})
 test('review probes demand the right line and finding without editing', () => {
     for (const [id, path, word] of [
         ['L12-review-authorization','src/access.js','tenant authorization'],
