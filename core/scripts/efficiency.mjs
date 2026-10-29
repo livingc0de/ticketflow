@@ -2,19 +2,20 @@
 /**
  * Read an existing Claude Code --output-format json or Codex exec --json session capture.
  * Print optional per-ticket efficiency metadata without starting an agent or estimating unavailable usage.
- * Usage: node efficiency.mjs <session.json|session.jsonl> [--agent claude|codex] [--json]
+ * Usage: node efficiency.mjs <session.json|session.jsonl> [--agent claude|codex] [--wait-log pr-wait.log] [--json]
  * One capture is one session; descendant-agent coverage is never assumed.
  */
 import { readFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 
 const fail = (message) => { console.error('efficiency: ' + message); process.exit(2) }
-let file, agent, json
+let file, agent, json, waitLog
 try {
-    const p = parseArgs({ options: { agent: { type: 'string' }, json: { type: 'boolean' } }, allowPositionals: true })
-    if (p.positionals.length !== 1 || (p.values.agent && !['claude', 'codex'].includes(p.values.agent))) throw Error('usage: efficiency.mjs <session.json|session.jsonl> [--agent claude|codex] [--json]')
+    const p = parseArgs({ options: { agent: { type: 'string' }, 'wait-log': { type: 'string' }, json: { type: 'boolean' } }, allowPositionals: true })
+    if (p.positionals.length !== 1 || (p.values.agent && !['claude', 'codex'].includes(p.values.agent))) throw Error('usage: efficiency.mjs <session.json|session.jsonl> [--agent claude|codex] [--wait-log pr-wait.log] [--json]')
     ;[file] = p.positionals
     agent = p.values.agent
+    waitLog = p.values['wait-log']
     json = p.values.json === true
 } catch (e) { fail(e.message) }
 
@@ -57,6 +58,13 @@ if (agent === 'claude') {
 }
 result.descendants = 'unknown' // A parent's CLI JSON does not prove that child usage is included.
 result.review_wait_ms = null
+if (waitLog) {
+    let output
+    try { output = readFileSync(waitLog, 'utf8') } catch { fail('cannot read pr-wait log') }
+    const records = [...output.matchAll(/^Review wait observed_ms: (\d+|unknown)$/gm)].map((m) => m[1])
+    // A missing / unknown metric in any invocation cannot be counted as zero.
+    if (records.length && records.every((x) => x !== 'unknown')) result.review_wait_ms = records.reduce((n, x) => n + Number(x), 0)
+}
 if (json) console.log(JSON.stringify(result))
 else {
     const fmt = (x) => x === null ? 'unknown' : String(x)
@@ -67,5 +75,5 @@ else {
         ' · cached_read ' + fmt(result.cached_input_tokens) +
         ' · cached_write ' + fmt(result.cache_write_tokens) +
         ' · cost_usd ' + fmt(result.cost_usd) +
-        ' · descendants unknown · review_wait_ms unknown')
+        ' · descendants unknown · review_wait_ms ' + fmt(result.review_wait_ms))
 }
