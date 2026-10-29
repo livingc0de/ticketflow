@@ -41,7 +41,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -156,14 +156,49 @@ let reviewerPendingSince = null
 let reviewerWaitMs = 0
 let reviewerWaitUnknown = false
 // The first sign and first answer seen per head and reviewer, shared by every run in this checkout (merge's own --once check too),
-// because the API keeps only a comment's last edit. A file in the git dir, never committed; missing or unreadable is an empty cache.
+// because the API keeps only a comment's last edit. A file in the git dir, never committed; saveSeen serializes and atomically merges
+// concurrent updates; missing or unreadable is an empty cache.
 const CACHE_DAYS = 2
+const CACHE_LOCK_WAIT_MS = 5_000
+// shortcut: 30s, cache writes complete in milliseconds; recover only abandoned locks.
+const CACHE_LOCK_STALE_MS = 30_000
 const cacheFile = (() => { const r = ciOnly ? null : spawnSync('git', ['rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }); return r?.status === 0 ? join(r.stdout.trim(), 'ticketflow-pr-wait.json') : null })()
-const firstSeen = new Map((() => { try { return Object.entries(JSON.parse(readFileSync(cacheFile, 'utf8'))).filter(([, t]) => Number.isFinite(t)) } catch { return [] } })())
+const cacheLock = cacheFile ? `${cacheFile}.lock` : null
+const readSeen = () => {
+    try { return Object.entries(JSON.parse(readFileSync(cacheFile, 'utf8'))).filter(([, t]) => Number.isFinite(t)) } catch { return [] }
+}
+const firstSeen = new Map(readSeen())
+const pause = (ms) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }
+function takeCacheLock() {
+    if (!cacheLock) return false
+    const started = Date.now()
+    while (Date.now() - started < CACHE_LOCK_WAIT_MS) {
+        try { mkdirSync(cacheLock); return true } catch (e) {
+            if (e.code !== 'EEXIST') return false
+            try {
+                if (Date.now() - statSync(cacheLock).mtimeMs > CACHE_LOCK_STALE_MS) rmdirSync(cacheLock)
+            } catch { /* another writer owns it, or it is not a removable stale lock */ }
+            pause(10)
+        }
+    }
+    return false
+}
 function saveSeen() {
-    if (!cacheFile) return
-    const keep = [...firstSeen].filter(([, t]) => Number.isFinite(t) && t > Date.now() - CACHE_DAYS * 86_400_000)
-    try { writeFileSync(cacheFile, JSON.stringify(Object.fromEntries(keep))) } catch { /* an unwritable cache only costs the memory */ }
+    if (!takeCacheLock()) return
+    const temp = `${cacheFile}.${process.pid}.${Date.now()}.tmp`
+    try {
+        const merged = new Map(readSeen())
+        for (const [key, time] of firstSeen) {
+            if (Number.isFinite(time) && (!Number.isFinite(merged.get(key)) || time < merged.get(key))) merged.set(key, time)
+        }
+        const keep = [...merged].filter(([, t]) => t > Date.now() - CACHE_DAYS * 86_400_000)
+        writeFileSync(temp, JSON.stringify(Object.fromEntries(keep)), { flag: 'wx' })
+        renameSync(temp, cacheFile)
+    } catch { /* an unwritable cache only costs the memory */
+        try { unlinkSync(temp) } catch { /* the atomic rename already removed it */ }
+    } finally {
+        try { rmdirSync(cacheLock) } catch { /* the lock was already removed or was never ours */ }
+    }
 }
 const pushed = new Map()
 let me

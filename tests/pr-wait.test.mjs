@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { chmodSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { FAIL, fakeGh, seq, tempDir, writeConfig } from './helpers.mjs'
@@ -51,7 +51,7 @@ const NOW = { user: { login: 'me' } }
 const app = (login = RB) => ({ login, type: 'Bot' })
 const rev = (state, over = {}) => ({ id: 1, user: app(), commit_id: HEAD, state, submitted_at: ago(5), html_url: 'https://x/r1', body: 'review body', author_association: 'NONE', ...over })
 const note = (min, body = 'status', over = {}) => { const t = ago(min); return { id: 9, user: app(), created_at: t, updated_at: t, html_url: 'https://x/c', body, author_association: 'NONE', ...over } }
-const inline = (min, body = 'Review finding', over = {}) => ({ id: 44, user: app(), author_association: 'NONE', commit_id: HEAD, created_at: ago(min), updated_at: ago(min), html_url: 'https://x/inline44', path: 'src/a.js', line: 7, body, ...over })
+const inline = (min, body = 'Review finding', over = {}) => { const t = ago(min); return { id: 44, user: app(), author_association: 'NONE', commit_id: HEAD, created_at: t, updated_at: t, html_url: 'https://x/inline44', path: 'src/a.js', line: 7, body, ...over } }
 const react = (min, content = 'eyes', login = RB) => ({ user: { login, type: 'User' }, content, created_at: ago(min) })
 const green = status('success', 'x')
 const reviewLines = (r) => r.stdout.split('\n').filter((l) => l.startsWith('Review'))
@@ -59,7 +59,7 @@ const reviewLines = (r) => r.stdout.split('\n').filter((l) => l.startsWith('Revi
 test('standalone inline reviewer is discovered on the exact head, with no top-level comment or submitted review', () => {
     const r = wait({ ...green, 'pulls/7/comments': [inline(4, 'P1: missing authorization')] })
     assert.equal(r.status, 0, r.stderr)
-    assert.ok(r.stdout.includes('Review rb[bot]: result first comment https://x/inline44 src/a.js:7 P1: missing authorization'))
+    assert.ok(r.stdout.includes('Review rb[bot]: result first comment https://x/inline44 src/a.js:7 P1: missing authorization'), r.stdout)
     assert.ok(r.stdout.includes('Review: results (rb[bot])'))
 })
 test('a current-head inline finding remains valid when its text references an older commit', () => {
@@ -411,6 +411,37 @@ test('the shared wait cache prunes entries older than two days', () => {
     const r = wait(green, undefined, {}, { dir })
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(JSON.parse(readFileSync(cache, 'utf8')), {})
+})
+
+test('concurrent waits preserve every reviewer observation in the shared cache', async () => {
+    const dir = tempDir('pr-wait-race-')
+    spawnSync('git', ['init', '-q', dir])
+    const gitDir = spawnSync('git', ['-C', dir, 'rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim()
+    const clients = Array.from({ length: 16 }, (_, i) => {
+        const client = tempDir(`pr-wait-client-${i}-`)
+        const login = `reviewer-${i}[bot]`
+        const fix = { ...baseFixtures(), ...green, 'pulls/7/comments': [inline(4, `finding ${i}`, { id: i + 1, user: app(login) })] }
+        const map = Object.fromEntries(Object.entries(fix).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' ? k : `repos/o/r/${k}`, v]))
+        const gh = fakeGh(client, map)
+        const wrapper = join(client, 'slow-gh')
+        writeFileSync(wrapper, `#!/bin/sh\nsleep 0.03\nexec ${join(client, 'bin', 'gh')} "$@"\n`)
+        chmodSync(wrapper, 0o755)
+        return { config: writeConfig(client), env: { ...gh.env, PATH: `${client}:${gh.env.PATH}` }, login }
+    })
+    const run = ({ config, env }) => new Promise((resolve) => {
+        const child = spawn(process.execPath, [script, '7', '--once', '--config', config], { cwd: dir, env })
+        let stdout = '', stderr = ''
+        child.stdout.on('data', (chunk) => { stdout += chunk })
+        child.stderr.on('data', (chunk) => { stderr += chunk })
+        child.on('close', (status) => resolve({ status, stdout, stderr }))
+    })
+    const results = await Promise.all(clients.map(run))
+    assert.deepEqual(results.map((r) => r.status), Array(clients.length).fill(0), results.map((r) => `${r.status}: ${r.stderr}\n${r.stdout}`).join('\n'))
+    const cache = JSON.parse(readFileSync(join(gitDir, 'ticketflow-pr-wait.json'), 'utf8'))
+    for (const { login } of clients) {
+        assert.ok(Object.keys(cache).some((key) => key.endsWith(` ${login}`)), `missing first-seen entry for ${login}`)
+        assert.ok(Object.keys(cache).some((key) => key.endsWith(` ${login} comment`)), `missing first-answer entry for ${login}`)
+    }
 })
 
 test('a review of the head that arrived while CI ran is the result: CI pending shows it, green with it exits 0 with results', () => {
