@@ -2,13 +2,18 @@ diff --git a/src/cache.js b/src/cache.js
 index aaaaaaa..bbbbbbb 100644
 --- a/src/cache.js
 +++ b/src/cache.js
-@@ -1,0 +1,9 @@
+@@ -1,0 +1,14 @@
 +const cache = new Map()
 +export function updateUser(user) {
 +  const old = cache.get(user.id)
 +  if (!old) return user
 +  const updated = { ...old, ...user }
 +  persist(updated)
-+  return updated // BUG: cache retains the stale value
++  return updated
 +}
 +function persist() {}
++
++export function readUser(id, load) {
++  if (!cache.has(id)) cache.set(id, load(id))
++  return cache.get(id)
++}

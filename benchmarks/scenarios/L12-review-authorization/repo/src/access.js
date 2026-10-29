@@ -4,5 +4,5 @@ export function orderForTenant(req, orders) {
   if (!order) return null
   const tenantId = req.auth.tenantId
   const audit = { tenantId, id }
-  return order // BUG: omits order.tenantId check
+  return order
 }

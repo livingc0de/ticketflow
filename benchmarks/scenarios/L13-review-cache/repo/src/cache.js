@@ -4,6 +4,11 @@ export function updateUser(user) {
   if (!old) return user
   const updated = { ...old, ...user }
   persist(updated)
-  return updated // BUG: cache retains the stale value
+  return updated
 }
 function persist() {}
+
+export function readUser(id, load) {
+  if (!cache.has(id)) cache.set(id, load(id))
+  return cache.get(id)
+}

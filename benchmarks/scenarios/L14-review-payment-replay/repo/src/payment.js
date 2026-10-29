@@ -4,5 +4,5 @@ export async function acceptWebhook(payload, db) {
   if (!invoice) return
   const paid = payload.amountCents
   await db.recordEvent(payload.id)
-  await db.credit(invoice.ownerId, paid) // BUG: credit again on replay
+  await db.credit(invoice.ownerId, paid)
 }
