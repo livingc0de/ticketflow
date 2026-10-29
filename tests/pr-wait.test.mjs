@@ -62,6 +62,12 @@ test('standalone inline reviewer is discovered on the exact head, with no top-le
     assert.ok(r.stdout.includes('Review rb[bot]: result first comment https://x/inline44 src/a.js:7 P1: missing authorization'))
     assert.ok(r.stdout.includes('Review: results (rb[bot])'))
 })
+test('review and inline comment by the same bot produce one reviewer; submitted review wins', () => {
+    const r = wait({ ...green, 'pulls/7/comments': [inline(4)], 'issues/7/comments': [note(5, 'Summary')],
+        'pulls/7/reviews': [rev('COMMENTED')] })
+    assert.equal(reviewLines(r).filter((l) => l.startsWith('Review rb[bot]:')).length, 1)
+    assert.match(r.stdout, /^Review rb\[bot\]: result review COMMENTED /m)
+})
 test('inline activity on an older commit, before the push, or from the author does not start a review', () => {
     for (const c of [inline(4, 'old', { commit_id: 'b'.repeat(40) }), inline(35), inline(4, 'author', { user: { login: 'author', type: 'User' } })]) {
         const r = wait({ ...green, 'pulls/7/comments': [c] })
