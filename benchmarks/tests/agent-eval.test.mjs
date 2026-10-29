@@ -191,7 +191,7 @@ appendFileSync(process.env.FAKE_LOG, JSON.stringify({ name, args, stdin: readFil
 if (name === 'codex' && args[0] === 'plugin') {
     if (args[1] === 'marketplace' && args[2] === 'add') { console.log(JSON.stringify({marketplaceName:'ticketflow-benchmark'})); process.exit(0) }
     if (args[1] === 'add') { console.log(JSON.stringify({name:args[2].split('@')[0],marketplaceName:'ticketflow-benchmark'})); process.exit(0) }
-    if (args[1] === 'list') { const n = existsSync(process.env.CODEX_HOME+'/../marker') ? 'unused' : (process.env.FAKE_PLUGIN_NAME||'ponytail'); console.log(JSON.stringify({installed:[{name:n,marketplaceName:'ticketflow-benchmark',installed:true,enabled:process.env.FAKE_PLUGIN_DISABLED!=='1'}]})); process.exit(0) }
+    if (args[1] === 'list') { const n = process.env.FAKE_PLUGIN_NAME || 'ponytail'; console.log(JSON.stringify({installed:[{name:n,marketplaceName:'ticketflow-benchmark',installed:true,enabled:process.env.FAKE_PLUGIN_DISABLED!=='1'}]})); process.exit(0) }
     process.exit(2)
 }
 const edit = (f, from, to) => writeFileSync(f, readFileSync(f, 'utf8').replace(from, to))
@@ -352,7 +352,8 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     assert.equal(r.row.plugin_sha, git(src, 'rev-parse', 'HEAD'))
     assert.equal(r.row.ticketflow_sha, null)
 
-    const disabled = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src], { FAKE_PLUGIN_DISABLED:'1' })
+    const { run: runDisabled } = sandbox()
+    const disabled = runDisabled([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src], { FAKE_PLUGIN_DISABLED:'1' })
     assert.equal(disabled.status, 2)
     assert.match(disabled.stderr, /not exclusively installed and enabled/)
     assert.ok(!disabled.calls.some((c) => c.args[0] === 'exec'), 'no paid session if plugin is disabled')
