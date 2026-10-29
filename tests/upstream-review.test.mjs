@@ -78,7 +78,7 @@ test('changes exit 1 with the release list and the file groups; a LICENSE change
 })
 
 test('missing baseline tag in full release window refuses advancing the baseline', () => {
- const releases=Array.from({length:20},(_,i)=>rel('v8.'+i))
+ const releases=Array.from({length:20},(_,i)=>rel('v8.'+i,{draft:i<5}))
  const r=run({...repoMap('up/alpha',SHA_A,HEAD_A,{files:['docs/a.md'],releases}),...repoMap('up/beta',SHA_B,SHA_B)},{args:['--record']})
  assert.equal(r.status,2)
  assert.match(r.stderr,/baseline tag .* outside the latest 20 releases/)
