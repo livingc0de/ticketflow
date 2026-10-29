@@ -4,7 +4,7 @@
  * No npm dependencies and no GitHub credentials required. See benchmarks/README.md before execution.
  */
 import { spawnSync, execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { resolve, join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -25,7 +25,8 @@ try {
     if (!['claude', 'codex'].includes(v.agent) || !v.model?.trim()) throw Error(usage)
     const count = (x, d) => x === undefined ? d : /^\d+$/.test(x) && +x > 0 && Number.isSafeInteger(+x) ? +x : NaN
     const repeats = count(v.repeats, 3), maximum = count(v['max-sessions'], 24)
-    const arms = (v.arms ?? 'before,after').split(','), scenarios = (v.scenarios ?? 'L1,L2,L3,L4').split(',')
+    const allScenarios = readdirSync(join(HERE, 'scenarios')).filter((x) => /^L\d+-/.test(x)).map((x) => x.split('-')[0]).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
+    const arms = (v.arms ?? 'before,after').split(','), scenarios = (v.scenarios ?? allScenarios.join(',')).split(',')
     if (!Number.isInteger(repeats) || !Number.isInteger(maximum) || !arms.length ||
         new Set(arms).size !== arms.length || arms.some((x) => !validArms.has(x)) ||
         new Set(scenarios).size !== scenarios.length || scenarios.some((x) => !/^L\d+$/.test(x))) throw Error(usage)
@@ -50,7 +51,7 @@ try {
     }
     const known = new Map()
     for (const id of scenarios) {
-        const dirs = (await import('node:fs')).readdirSync(join(HERE, 'scenarios')).filter((x) => x === id || x.startsWith(id + '-'))
+        const dirs = readdirSync(join(HERE, 'scenarios')).filter((x) => x === id || x.startsWith(id + '-'))
         if (dirs.length !== 1) throw Error('unknown or ambiguous scenario ' + id)
         known.set(id, dirs[0])
     }
