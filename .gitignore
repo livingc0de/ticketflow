@@ -5,3 +5,7 @@ node_modules
 .claude/worktrees/
 docs/plans/
 docs/maintainers/upstream-reviews/
+
+# Raw benchmark sessions: publish only deliberately sanitized results
+benchmarks/results/*.jsonl
+benchmarks/results/*.csv
