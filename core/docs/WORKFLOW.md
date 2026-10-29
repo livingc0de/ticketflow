@@ -256,7 +256,7 @@ follow-ups, anything not verified), then clean up the worktree. The comment ends
 
 `Run: tier <t> · main <model>/<effort> · planner <matches the Planning line> · reviewer <names | pr-reviewer/effort | none> · review rounds <n> · CI runs <n> · fallback <yes|no>`
 
-Optional `Efficiency:` metadata can be generated from an already-saved Claude Code JSON result or Codex JSONL session using `node .ticketflow/scripts/efficiency.mjs <capture>` (add `--json` for structured output). It reports the CLI's observed duration, token categories and cost; unavailable fields and descendant coverage remain `unknown`, never estimated or double-counted. Capturing sessions is optional; this is not a required service or merge gate.
+Optional `Efficiency:` metadata can be generated from an already-saved Claude Code JSON result or Codex JSONL session using `node .ticketflow/scripts/efficiency.mjs <capture> [--wait-log <pr-wait.log>]` (add `--json` for structured output). It reports the CLI's observed duration, token categories and cost; unavailable fields and descendant coverage remain `unknown`, never estimated or double-counted. Capturing sessions is optional; this is not a required service or merge gate.
 
 It is how plan skips, review rounds and CI runs get measured ([TOKEN-BUDGET.md](TOKEN-BUDGET.md)). When `deploy_branch` is set,
 watch the merge commit's CI too.
