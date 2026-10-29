@@ -152,6 +152,8 @@ const isApp = (u) => u?.type === 'Bot' || /\[bot\]$/.test(u?.login ?? '')
 
 const WINDOW_MS = 15 * 60_000
 const launched = Date.now()
+let reviewerPendingSince = null
+let reviewerWaitMs = 0
 // The first sign and first answer seen per head and reviewer, shared by every run in this checkout (merge's own --once check too),
 // because the API keeps only a comment's last edit. A file in the git dir, never committed; missing or unreadable is an empty cache.
 const CACHE_DAYS = 2
@@ -269,6 +271,7 @@ function print(S, timedOut) {
         if (S.threads.length > 20) console.log(`  ... ${S.threads.length - 20} more`)
     }
     for (const n of S.notes) console.log(n)
+    console.log(`Review wait observed_ms: ${ciOnly ? 'unknown' : reviewerWaitMs + (reviewerPendingSince === null ? 0 : Date.now() - reviewerPendingSince)}`)
     if (timedOut) console.log(`TIMEOUT after ${timeoutMin}m`)
 }
 
@@ -287,7 +290,11 @@ for (;;) {
         try { pollReviewers(S) } catch { S.reviewers = 'unknown' }
         pollThreads(S)
     }
-    const reviewed = S.reviewers !== 'unknown' && !(S.reviewers ?? []).some((x) => x.state === 'pending')
+    const waiting = Array.isArray(S.reviewers) && S.reviewers.some((x) => x.state === 'pending')
+    // Track only time this invocation actually observed a pending reviewer, not CI time or time before it started.
+    if (waiting && reviewerPendingSince === null) reviewerPendingSince = Date.now()
+    if (!waiting && reviewerPendingSince !== null) { reviewerWaitMs += Date.now() - reviewerPendingSince; reviewerPendingSince = null }
+    const reviewed = S.reviewers !== 'unknown' && !waiting
     const settled = kind === 'green' || kind === 'red' ? once || reviewed : kind !== 'pending'   // red waits for the reviewers: all fixes go into one push
     const timedOut = !settled && !once && Date.now() >= deadline
     if (settled || once || timedOut) {
