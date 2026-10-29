@@ -4,9 +4,10 @@
  * `custom/labels.json` entries (colour, description and name case are updated to match that file). A TicketFlow label the repo has
  * with another look is listed as `differs:`; `--restyle` (the owner's choice) updates those too. The list is the file, an
  * `Area: <a>` label for each `areas` entry, an `Environment: <e>` label for each `environments` entry of the config, and `custom/labels.json` next to the config when it exists (same format). A name twice in that list is an error. Other labels are listed
- * with whether any issue or PR uses them and are deleted only with `--prune`, and only at zero use.
+ * with whether any issue or PR uses them and are deleted only with `prune`, and only at zero use.
  *
- * Usage: labels.mjs sync <labels.json> [--restyle] [--prune] [--dry-run] [--config f]
+ * Usage: labels.mjs prune [--dry-run] [--config f]
+ *        labels.mjs sync <labels.json> [--restyle] [--prune] [--dry-run] [--config f]
  * Exit: 0 = in sync (or done), 1 = `--dry-run` found a create or update pending, 2 = usage, bad file, config or API error.
  */
 
@@ -15,7 +16,7 @@ import { dirname, join } from 'node:path'
 import { cli, main } from '../lib/cli.mjs'
 import { GhError, api } from '../lib/gh.mjs'
 
-const { positionals: [, file], cfg, configFile, values } = cli(import.meta.url, 'labels', 'sync <labels.json> [--restyle] [--prune] [--dry-run] [--config f]', { restyle: { type: 'boolean' }, prune: { type: 'boolean' }, 'dry-run': { type: 'boolean' } }, (p) => p[0] === 'sync' && p.length === 2)
+const { positionals: [cmd, file], cfg, configFile, values } = cli(import.meta.url, 'labels', 'prune [--dry-run] | sync <labels.json> [--restyle] [--prune] [--dry-run] [--config f]', { restyle: { type: 'boolean' }, prune: { type: 'boolean' }, 'dry-run': { type: 'boolean' } }, (p, v) => p[0] === 'sync' ? p.length === 2 : p[0] === 'prune' && p.length === 1 && !v.restyle && !v.prune)
 const R = `repos/${cfg.repo}`
 const dry = values['dry-run'] === true
 const lower = (s) => s.toLowerCase()
@@ -53,7 +54,23 @@ function wantedLabels() {
     return all
 }
 
-main('labels', () => {
+function used(name) {
+    // shortcut: the issues endpoint is the supported usage signal; add discussion usage here if GitHub exposes a safe repository-wide query.
+    return name.includes(',') || api(`${R}/issues?labels=${encodeURIComponent(name)}&state=all&per_page=1`).length > 0
+}
+
+function prune() {
+    const live = api(`${R}/labels?per_page=100`, { paginate: true })
+    const unused = live.filter((l) => !used(l.name))
+    for (const l of unused) console.log(`unused: ${l.name}`)
+    for (const l of unused) {
+        console.log(`${dry ? 'would ' : ''}delete ${l.name}`)
+        if (!dry) api(`${R}/labels/${encodeURIComponent(l.name)}`, { method: 'DELETE' })
+    }
+    return dry && unused.length ? 1 : 0
+}
+
+function sync() {
     const wanted = wantedLabels()
     const live = api(`${R}/labels?per_page=100`, { paginate: true })
     const byName = new Map(live.map((l) => [lower(l.name), l]))
@@ -61,9 +78,7 @@ main('labels', () => {
     // every read comes before the first write
     const extras = live.filter((l) => !wantedNames.has(lower(l.name))).map((l) => ({
         name: l.name,
-        // shortcut: per_page=1 tells used from unused but not how many (a comma in a name would split the labels filter so it counts as used), count them if a prune needs the number.
-        // Labels used only on discussions are not seen by the issues endpoint.
-        used: l.name.includes(',') || api(`${R}/issues?labels=${encodeURIComponent(l.name)}&state=all&per_page=1`).length > 0,
+        used: used(l.name),
     }))
     const writes = []
     for (const w of wanted) {
@@ -84,4 +99,6 @@ main('labels', () => {
         if (!dry) api(path, { method, body })
     }
     return dry && pending ? 1 : 0
-})
+}
+
+main('labels', () => cmd === 'prune' ? prune() : sync())

@@ -28,7 +28,7 @@ Work on the branch `chore/ticketflow-init`. Nothing is overwritten that ticketfl
 - The managed CI jobs run on `ubuntu-latest` in a new file; when the repo's workflows use other runners, set the `runs-on` lines of the managed jobs before committing: render keeps them.
 - `.claude/CLAUDE.md`: take the proposal that imports `AGENTS.md` through the block, and remove a stray `@AGENTS.md` line.
 - Replaced copies: list the scripts, skills and agents that ticketflow now replaces and ask before deleting them in this PR.
-- Never `--prune` labels without a yes to the shown list.
+- Never run `labels.mjs prune` without a yes to the shown list.
 - An existing Project or ruleset is only topped up or updated in place. `--migrate-classic` only on a yes.
 - Foreign `permissions.deny` rules are kept; render reports them. Mention them in the PR.
 

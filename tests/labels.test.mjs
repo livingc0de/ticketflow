@@ -20,6 +20,13 @@ function run(args, map, wanted = WANTED, { over, custom } = {}) {
     const writes = gh.log().filter((c) => /-X (POST|PATCH|DELETE)/.test(c.args.join(' '))).map((c) => `${c.args[2]} ${c.args[3].replace(`${R}/`, '')}${c.stdin ? ` ${c.stdin}` : ''}`)
     return { ...r, writes, calls: gh.calls() }
 }
+function prune(args, map) {
+    const dir = tempDir('labels-prune-')
+    const gh = fakeGh(dir, map)
+    const r = spawnSync(process.execPath, [script, 'prune', ...args, '--config', writeConfig(dir)], { encoding: 'utf8', env: gh.env })
+    const writes = gh.log().filter((c) => /-X (POST|PATCH|DELETE)/.test(c.args.join(' '))).map((c) => `${c.args[2]} ${c.args[3].replace(`${R}/`, '')}${c.stdin ? ` ${c.stdin}` : ''}`)
+    return { ...r, writes, calls: gh.calls() }
+}
 const labelsAt = (pages) => ({ [`${R}/labels?per_page=100`]: { __pages: pages } })
 const issues = (name, n) => ({ [`${R}/issues?labels=${encodeURIComponent(name)}&state=all&per_page=1`]: Array.from({ length: n }, () => ({ number: 1 })) })
 
@@ -45,6 +52,30 @@ test('--prune deletes only unused extras; a label in use and a label with a comm
     assert.match(r.stdout, /extra: busy \(in use\)/); assert.match(r.stdout, /extra: a,b \(in use\)/); assert.match(r.stdout, /extra: old \(unused\)/)
     assert.ok(!r.calls.some((c) => c.join(' ').includes('a%2Cb')), 'no usage query for a comma name')
     assert.deepEqual(run([], map).writes, [])   // without --prune nothing is deleted
+})
+
+test('init prune deletes every unused existing label, including a TicketFlow-shaped label, but keeps used and unsafe names', () => {
+    const map = {
+        ...labelsAt([[live('Type: Bug', 'd73a4a'), live('codex', 'ffffff'), live('busy', 'ffffff'), live('a,b', 'ffffff')]]),
+        ...issues('Type: Bug', 0), ...issues('codex', 0), ...issues('busy', 1), [`DELETE ${R}/labels/Type%3A%20Bug`]: null, [`DELETE ${R}/labels/codex`]: null,
+    }
+    const dry = prune(['--dry-run'], map)
+    assert.equal(dry.status, 1, dry.stderr)
+    assert.deepEqual(dry.writes, [])
+    assert.match(dry.stdout, /unused: Type: Bug/); assert.match(dry.stdout, /would delete Type: Bug/)
+    assert.match(dry.stdout, /unused: codex/); assert.match(dry.stdout, /would delete codex/)
+    assert.doesNotMatch(dry.stdout, /unused: busy/); assert.doesNotMatch(dry.stdout, /unused: a,b/)
+    assert.ok(!dry.calls.some((c) => c.join(' ').includes('a%2Cb')), 'no usage query for a comma name')
+    const applied = prune([], map)
+    assert.equal(applied.status, 0, applied.stderr)
+    assert.deepEqual(applied.writes, ['DELETE labels/Type%3A%20Bug', 'DELETE labels/codex'])
+})
+
+test('init prune with no unused labels is a no-op', () => {
+    const map = { ...labelsAt([[live('busy', 'ffffff')]]), ...issues('busy', 1) }
+    const r = prune([], map)
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(r.writes, [])
 })
 
 test('--dry-run writes nothing and exits 1 while a create or update is pending, even with --prune', () => {

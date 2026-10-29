@@ -61,6 +61,8 @@ Type, Priority, Effort, AI Model, AI Effort, Area and Environment are labels, no
 - `Environment: <name>` for each name in `environments` of the config.
 - Your own, in `.ticketflow/custom/labels.json` (same format).
 
+During initialization, `labels.mjs prune [--dry-run]` removes labels with no issue or pull request use; show its dry run and get a separate yes before applying it. Run it before the first label sync. It is not part of normal sync or upgrades.
+
 `labels.mjs sync <file> [--restyle] [--prune] [--dry-run]` creates the missing labels. A label the repo already has is the repo's: its colour,
 description and case are never changed, except for the entries of `custom/labels.json`, which are kept in line, and, on the owner's
 choice, `--restyle` (a dry run lists each differing label as `differs:`). It deletes other labels
