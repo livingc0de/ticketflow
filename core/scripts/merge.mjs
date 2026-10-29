@@ -40,7 +40,16 @@ const who = (login) => login || 'an unknown account'
 const READ_HEAD = /^Reviewed head: ([0-9a-f]{7,40})\b/
 // Any spelling of the label counts as a verdict (so a "changes needed" is never missed); only the exact bold line below is ready.
 const verdictsOf = (body) => [...String(body ?? '').matchAll(/^[ \t]*(?:#{1,6}[ \t]+|[-*+][ \t]+)?(?:\*{1,2}|_{1,2})?[ \t]*verdict[ \t]*(?:\*{1,2}|_{1,2})?[ \t]*:[ \t]*(?:\*{1,2}|_{1,2})?[ \t]*(.*?)[ \t]*$/gim)].map((m) => m[1])
-const isReady = (body) => verdictsOf(body).length === 1 && [...String(body).matchAll(/^\*\*Verdict:\*\*[ \t]*ready to merge[ \t]*$/gm)].length === 1
+const isReady = (body) => {
+    const text = String(body ?? '')
+    const verdictReady = verdictsOf(text).length === 1 && [...text.matchAll(/^\\*\\*Verdict:\\*\\*[ \\t]*ready to merge[ \\t]*$/gm)].length === 1
+    // Older reviews did not carry these fields. Where supplied, a conflicting dimension cannot authorize merging.
+    const dimension = (name, expected) => {
+        const lines = text.split(/\\r?\\n/).filter((l) => l.toLowerCase().startsWith(`**${name.toLowerCase()}:**`))
+        return lines.length === 0 || (lines.length === 1 && lines[0].slice(name.length + 5).trim().toLowerCase() === expected)
+    }
+    return verdictReady && dimension('Spec compliance', 'met') && dimension('Code quality', 'acceptable')
+}
 
 const stop = (message) => { console.error(`merge: not merged: ${message}`); return 1 }
 
