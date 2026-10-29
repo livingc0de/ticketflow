@@ -9,7 +9,7 @@ Read `.ticketflow/custom/post-merge.md` first if it exists: it adds to and overr
 
   `Run: tier <t> · main <model>/<effort> · planner <matches the Planning line> · reviewer <names | pr-reviewer/effort | none> · review rounds <n> · CI runs <n> · fallback <yes|no>`
 
-  For reliable session records, append a separate optional `Efficiency:` line with reported elapsed time, input/output/cache tokens and cost, and whether delegated agent usage is included. Use `unknown` for missing or unverified totals, never estimates or double-counted child usage. Include review wait duration only if observed. Keep this optional and non-blocking: no external telemetry, new dependency, or second tracking process. Use existing Run counts to spot unnecessary review/CI rounds.
+  For a retained Claude Code JSON result or Codex JSONL session record, run `node .ticketflow/scripts/efficiency.mjs <capture.json|capture.jsonl>` to print an optional `Efficiency:` line; append it to the ticket if it reflects this ticket's session. The script reports duration, input/output/cache tokens and cost only when the CLI captured them, and marks delegated-agent coverage unknown. Use `unknown` for missing or unverified totals, never estimates or double-counted child usage. Include review wait duration only if observed. Keep this optional and non-blocking: no external telemetry, new dependency, or second tracking process. Use existing Run counts to spot unnecessary review/CI rounds.
 
 - A tracker child: post the summary on the child, then run `node .ticketflow/scripts/tracker-next.mjs <T>` and use its output for your report.
 
