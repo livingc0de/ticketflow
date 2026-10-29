@@ -187,7 +187,13 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 const args = process.argv.slice(2), name = process.argv[1].split('/').pop()
 if (args.includes('--version')) { console.log(name === 'claude' ? '9.9.9 (Claude Code)' : 'codex-cli 9.9.9'); process.exit(0) }
 if (args.includes('--help')) { console.log('--plugin-dir'); process.exit(0) }
-appendFileSync(process.env.FAKE_LOG, JSON.stringify({ name, args, stdin: readFileSync(0, 'utf8'), cwd: process.cwd(), tf: existsSync('.ticketflow/manifest.json') }) + '\\n')
+appendFileSync(process.env.FAKE_LOG, JSON.stringify({ name, args, stdin: readFileSync(0, 'utf8'), cwd: process.cwd(), tf: existsSync('.ticketflow/manifest.json'), home:process.env.HOME, codex_home:process.env.CODEX_HOME }) + '\\n')
+if (name === 'codex' && args[0] === 'plugin') {
+    if (args[1] === 'marketplace' && args[2] === 'add') { console.log(JSON.stringify({marketplaceName:'ticketflow-benchmark'})); process.exit(0) }
+    if (args[1] === 'add') { console.log(JSON.stringify({name:args[2].split('@')[0],marketplaceName:'ticketflow-benchmark'})); process.exit(0) }
+    if (args[1] === 'list') { const n = existsSync(process.env.CODEX_HOME+'/../marker') ? 'unused' : (process.env.FAKE_PLUGIN_NAME||'ponytail'); console.log(JSON.stringify({installed:[{name:n,marketplaceName:'ticketflow-benchmark',installed:true,enabled:process.env.FAKE_PLUGIN_DISABLED!=='1'}]})); process.exit(0) }
+    process.exit(2)
+}
 const edit = (f, from, to) => writeFileSync(f, readFileSync(f, 'utf8').replace(from, to))
 if (process.env.FAKE_FIX) edit('src/messages.js', 'recieve', 'receive')
 if (process.env.FAKE_DEP) edit('package.json', '"private"', '"dependencies":{"left-pad":"1"},"private"')
@@ -324,6 +330,45 @@ test('external frameworks load from clean native Claude plugin checkouts, not co
     const dirty = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src])
     assert.equal(dirty.status, 2)
     assert.match(dirty.stderr, /clean pinned plugin checkout/)
+})
+
+test('Codex native competitor arm installs exactly one plugin in a clean isolated profile and checks activation', () => {
+    const { run } = sandbox(), src = tempDir('codex-plugin-')
+    mkdirSync(join(src, '.codex-plugin'), { recursive: true })
+    writeFileSync(join(src, '.codex-plugin/plugin.json'), '{"name":"ponytail"}')
+    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned')
+    const r = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--model', 'gpt-test'], { FAKE_FIX: '1' })
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    assert.deepEqual(r.calls.filter((c) => c.args[0] === 'plugin').map((c) => c.args.slice(0, 3)),
+        [['plugin','marketplace','add'], ['plugin','add','ponytail@ticketflow-benchmark'], ['plugin','list','--json']])
+    const exec = r.calls.find((c) => c.args[0] === 'exec')
+    assert.ok(exec, 'the coding session ran after plugin verification')
+    assert.ok(!exec.args.includes('--ignore-user-config'), 'Codex must load the isolated profile with its installed plugin')
+    assert.equal(exec.codex_home, join(r.row.workdir, 'home/.codex'))
+    assert.equal(exec.home, join(r.row.workdir, 'home'))
+    assert.ok(existsSync(join(r.row.workdir, 'marketplace/plugins/ponytail/.codex-plugin/plugin.json')))
+    assert.ok(!existsSync(join(exec.codex_home, 'auth.json')), 'temporary authorization is never retained')
+    assert.match(r.row.plugin_native, /installed and enabled.*bootstrap not independently verified/)
+    assert.equal(r.row.plugin_sha, git(src, 'rev-parse', 'HEAD'))
+    assert.equal(r.row.ticketflow_sha, null)
+
+    const disabled = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src], { FAKE_PLUGIN_DISABLED:'1' })
+    assert.equal(disabled.status, 2)
+    assert.match(disabled.stderr, /not exclusively installed and enabled/)
+    assert.ok(!disabled.calls.some((c) => c.args[0] === 'exec'), 'no paid session if plugin is disabled')
+    const invalid = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', tempDir('empty-plugin-')])
+    assert.equal(invalid.status, 2)
+})
+
+test('Codex bare control loads no plugin and uses an isolated home', () => {
+    const { run } = sandbox()
+    const r = run([L1, '--agent', 'codex', '--arm', 'bare'], { FAKE_FIX: '1' })
+    assert.equal(r.status, 0, r.stderr)
+    assert.ok(!r.calls.some((c) => c.args[0] === 'plugin'))
+    const exec = r.calls[0]
+    assert.ok(exec.args.includes('--ignore-user-config'))
+    assert.equal(exec.codex_home, join(r.row.workdir, 'home/.codex'))
+    assert.ok(!existsSync(join(r.row.workdir, 'marketplace')))
 })
 
 test('a bad scenario, agent or arm, a missing option or a missing CLI exits 2 before any run', () => {
