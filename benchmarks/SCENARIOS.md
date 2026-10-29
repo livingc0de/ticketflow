@@ -1,6 +1,10 @@
+# Historical evaluations and GitHub sandbox probes
+
+For the current benchmark runner and fifteen-scenario suite, start at [benchmarks/README.md](README.md). The sections below preserve earlier methods and observations; their historical result claims are not updated by the relocation.
+
 Use when you want to measure how real agents behave under TicketFlow (cost, turns, correctness, whether they follow the rules), to run a GitHub sandbox check of the review gate, or to know what has and has not been checked.
 
-Maintainer-only: `benchmarks/` is never copied into an installed repo and are not linked from `core/docs/`. Everything that starts an agent session is **paid and manual**; nothing here runs in CI. A written procedure is not evidence: only the rows and observations recorded under "Results" are.
+Maintainer-only: `benchmarks/` is never copied into an installed repo and is not linked from `core/docs/`. Everything that starts an agent session is **paid and manual**; nothing here runs in CI. A written procedure is not evidence: only the rows and observations recorded under "Results" are.
 
 ## What changed in 0.3.5
 
