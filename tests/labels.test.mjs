@@ -113,14 +113,15 @@ test('--prune-defaults preserves defaults with missing or malformed metadata', (
 
 test('--prune-defaults fails before writes when repository or issue usage reads fail or are malformed', () => {
     const labels = [live('bug', 'd73a4a', "Something isn't working", true), live('Type: Bug', 'd73a4a', 'Broken'), live('Effort: S', 'bfdadc')]
-    for (const map of [
-        { ...labelsAt([[labels]]), [R]: { __status: 500 }, },
-        { ...labelsAt([[labels]]), ...repo(false), [`${R}/issues?state=all&per_page=100`]: { __status: 500 } },
-        { ...labelsAt([[labels]]), ...repo(false), ...allIssues([[{ number: 1, labels: [{}] }]]) },
+    for (const { map, expected } of [
+        { map: { ...labelsAt([labels]), [R]: { __status: 500 }, }, expected: R },
+        { map: { ...labelsAt([labels]), ...repo(false), [`${R}/issues?state=all&per_page=100`]: { __status: 500 } }, expected: `${R}/issues?state=all&per_page=100` },
+        { map: { ...labelsAt([labels]), ...repo(false), ...allIssues([[{ number: 1, labels: [{}] }]]) }, expected: `${R}/issues?state=all&per_page=100` },
     ]) {
         const r = run(['--prune-defaults'], map)
         assert.equal(r.status, 2)
         assert.deepEqual(r.writes, [])
+        assert.ok(r.calls.some((c) => c.includes(expected)), expected)
     }
 })
 
