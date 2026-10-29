@@ -82,6 +82,7 @@ test('trusted human inline comment is detected, while an untrusted human inline 
 test('unreadable inline activity never permits an unobserved external review', () => {
     const r = wait({ ...green, 'pulls/7/comments': { __status: 502, __stderr: 'unavailable' } })
     assert.ok(r.stdout.includes('Review: pending (the review activity could not be read)'))
+    assert.match(r.stdout, /^Observed reviewer wait_ms: unknown$/m)
 })
 test('wait observations are reported separately from the single Review summary line', () => {
     const r = wait({ ...green, 'issues/7/reactions': [react(2)] }, ['7', '--once'])
