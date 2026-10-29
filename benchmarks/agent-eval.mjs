@@ -10,8 +10,8 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -30,6 +30,40 @@ const node = (cwd, ...args) => execFileSync(process.execPath, args, { cwd, stdio
 const orNull = (f) => { try { return f() } catch { return null } }
 const parse = (s) => orNull(() => JSON.parse(s))
 const depNames = (text) => new Set(['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'].flatMap((k) => Object.keys(parse(text)?.[k] ?? {})))
+
+/** A fresh Codex profile per run. Local native plugin packages are installed by Codex itself, not simulated as copied instructions. */
+function codexProfile(work, arm, src) {
+    const home = join(work, 'home'), codexHome = join(home, '.codex')
+    mkdirSync(codexHome, { recursive: true, mode: 0o700 })
+    const env = { ...process.env, HOME: home, CODEX_HOME: codexHome }
+    if (!['superpowers', 'ponytail'].includes(arm)) return { env, codexHome, installed: false }
+
+    const market = 'ticketflow-benchmark', root = join(work, 'marketplace'), plugin = join(root, 'plugins', arm)
+    mkdirSync(join(root, '.agents', 'plugins'), { recursive: true })
+    cpSync(src, plugin, { recursive: true, filter: (p) => !p.split(/[\\/]/).includes('.git') })
+    writeFileSync(join(root, '.agents', 'plugins', 'marketplace.json'), JSON.stringify({
+        name: market, plugins: [{ name: arm, source: { source: 'local', path: './plugins/' + arm },
+            policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' }, category: 'Developer Tools' }],
+    }))
+    const invoke = (args) => {
+        const x = run('codex', args, { env, timeout: 60_000 })
+        if (x.error || x.status !== 0) throw new Error('Codex native plugin setup failed (' + args.slice(0, 3).join(' ') + '): ' +
+            String(x.stderr || x.error?.message || 'exit ' + x.status).slice(0, 400))
+        const data = parse(x.stdout)
+        if (!data) throw new Error('Codex plugin CLI returned invalid JSON for ' + args.slice(0, 3).join(' '))
+        return data
+    }
+    const marketResult = invoke(['plugin', 'marketplace', 'add', root, '--json'])
+    if (marketResult.marketplaceName !== market) throw new Error('Codex marketplace registration could not be verified')
+    const added = invoke(['plugin', 'add', arm + '@' + market, '--json'])
+    if (added.name !== arm || added.marketplaceName !== market) throw new Error('Codex native plugin installation could not be verified')
+    const list = invoke(['plugin', 'list', '--json'])
+    const installed = list.installed ?? []
+    if (!Array.isArray(installed) || installed.length !== 1 ||
+        !installed.some((p) => p.name === arm && p.marketplaceName === market && p.installed === true && p.enabled === true))
+        throw new Error('Codex native plugin was not exclusively installed and enabled; refusing the benchmark')
+    return { env, codexHome, installed: true }
+}
 
 /** The repo the agent works in: the scenario's repo/, plus (ticketflow arm) the install init does, all in one base commit. */
 function workspace(sdir, agent, arm, work, src) {
@@ -65,10 +99,9 @@ main('agent-eval', () => {
     const id = readdirSync(SCENARIOS).find((d) => d === positionals[0] || d.startsWith(`${positionals[0]}-`))   // only a listed name, never a path
     if (!id) throw new Error(`unknown scenario ${positionals[0]}`)
     const external = v.arm === 'superpowers' || v.arm === 'ponytail'
-    if (external && v.agent !== 'claude') throw new Error('native external plugin arms require Claude Code; Codex native plugin isolation is not yet verified')
     if (external && !v.source) throw new Error(`--source requires a pinned checkout of ${v.arm}`)
     const src = resolve(v.source ?? ROOT)
-    if (external && !existsSync(join(src, '.claude-plugin/plugin.json'))) throw new Error(`${src} lacks a native Claude plugin manifest`)
+    if (external && !existsSync(join(src, v.agent === 'codex' ? '.codex-plugin/plugin.json' : '.claude-plugin/plugin.json'))) throw new Error(`${src} lacks the native ${v.agent} plugin manifest`)
     if (external && (!orNull(() => git(src, 'rev-parse', 'HEAD')) || git(src, 'status', '--porcelain'))) throw new Error(`${src} must be a clean pinned plugin checkout`)
     const outFile = v.out && resolve(v.out)   // the harness's own result file is not a change to a source checkout it sits in
     if (v.out) try { appendFileSync(v.out, '') } catch (e) { throw new Error(`--out ${v.out} cannot be written (${e.code})`) }   // before the paid run, not after it
@@ -79,13 +112,30 @@ main('agent-eval', () => {
 
     const sdir = join(SCENARIOS, id), work = mkdtempSync(join(tmpdir(), 'agent-eval-'))
     const { dir, base } = workspace(sdir, v.agent, v.arm, work, src)
+    const profile = v.agent === 'codex' ? codexProfile(work, v.arm, src) : null
     const answerFile = join(work, 'answer.txt')
     const prompt = readFileSync(join(sdir, 'prompt.md'), 'utf8'), claude = v.agent === 'claude'
     const args = claude
         ? ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--setting-sources', 'project,local', '--allowedTools', TOOLS, ...(v.model ? ['--model', v.model] : []), ...(external ? ['--plugin-dir', src] : [])]
         : ['exec', '--json', '--ignore-user-config', '--sandbox', 'workspace-write', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), '-']   // codex reads the prompt from stdin
     const t0 = Date.now()
-    const r = run(v.agent, args, { cwd: dir, timeout: AGENT_TIMEOUT_MS, ...(claude ? { stdio: ['ignore', 'pipe', 'pipe'] } : { input: prompt }) })
+    // Authentication is the only state carried into the empty Codex profile, then erased immediately after the session.
+    // Never put auth inside the task repository or leave it in the retained benchmark artifacts.
+    const privateAuth = profile && join(profile.codexHome, 'auth.json')
+    const originalAuth = join(resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex')), 'auth.json')
+    let copiedAuth = false, r
+    try {
+        if (profile && existsSync(originalAuth)) {
+            copyFileSync(originalAuth, privateAuth)
+            chmodSync(privateAuth, 0o600)
+            copiedAuth = true
+        }
+        r = run(v.agent, args, { cwd: dir, timeout: AGENT_TIMEOUT_MS,
+            ...(profile ? { env: profile.env } : {}),
+            ...(claude ? { stdio: ['ignore', 'pipe', 'pipe'] } : { input: prompt }) })
+    } finally {
+        if (copiedAuth) rmSync(privateAuth, { force: true })
+    }
     const wall_s = Math.round((Date.now() - t0) / 100) / 10
     const out = r.stdout ?? ''
     writeFileSync(join(work, 'agent.out'), out)
@@ -104,7 +154,8 @@ main('agent-eval', () => {
         eval_sha: orNull(() => git(ROOT, 'rev-parse', 'HEAD')),   // the revision of this tool and its scenarios
         ticketflow_sha: tf(() => git(src, 'rev-parse', 'HEAD')), ticketflow_dirty: tf(() => git(src, 'status', '--porcelain', '--untracked-files=all').split('\n').some((l) => l && resolve(src, l.slice(3)) !== outFile)),
         ticketflow_version: tf(() => readFileSync(join(src, 'VERSION'), 'utf8').trim()),
-        plugin_sha: external ? git(src, 'rev-parse', 'HEAD') : null, plugin_native: external ? 'claude --plugin-dir (bootstrap not independently verified)' : null,
+        plugin_sha: external ? git(src, 'rev-parse', 'HEAD') : null,
+        plugin_native: external ? (claude ? 'claude --plugin-dir (bootstrap not independently verified)' : 'codex local marketplace: installed and enabled (bootstrap not independently verified)') : null,
         check: { pass, why: `${c.stdout ?? ''}${c.stderr ?? ''}`.trim().split('\n')[0].slice(0, 300) || `check exited ${c.status}` },
         diff: { added: stat.reduce((n, s) => n + (+s[0] || 0), 0), removed: stat.reduce((n, s) => n + (+s[1] || 0), 0), files: stat.map((s) => s[2]) },
         deps_added: [...after].filter((d) => !before.has(d)).length,
