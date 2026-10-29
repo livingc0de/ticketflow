@@ -51,7 +51,7 @@ No list, no login, no re-request comment: `pr-wait` reads what GitHub shows on t
   A reviewer that said more is coming: `pr-wait.mjs <PR> --more '<login>'` counts only what it posts after that run started.
 - **Changes requested.** A last review of the head that asks for changes ends the wait at once and is a refusal for `merge`.
 
-`pr-wait` prints one `Review <login>: ...` line per such reviewer (`pending since ...`, `result <review STATE | comment | first comment> <link> <first line>`,
+`pr-wait` prints one `Review <login>: ...` line per such reviewer (`pending since ...`, `result <review STATE | comment | inline comment | first comment> <link> <first line>`,
 `changes requested (<sha7>) <link>`, `no result 15 min after its start ...`), then one summary: `Review: pending (<logins>)`, else
 `changes requested (<logins>)`, else `results (<logins>)`, else `none`, with `(no result in time: <logins>)` after results or none. A read
 that fails prints `Review: pending (the review activity could not be read)`. CI red does not stop the wait for a reviewer that started
