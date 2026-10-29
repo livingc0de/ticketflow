@@ -15,9 +15,9 @@
  * A failed read is a pending poll, never a verdict.
  *
  * External reviewers are observed, never configured or invoked. One counts when it is an app (a `[bot]` login, or type Bot) that
- * commented, reviewed or reacted on the PR (whatever it wrote: the agent judges whether it is a review), or an OWNER, MEMBER or
- * COLLABORATOR that reviewed it, other than the PR author and the account running this, and it has a sign on this head: a review of it,
- * a comment or a reaction made, or a comment edited, after the head was pushed (the first check suite of the head, else its committer
+ * commented, reviewed or reacted on the PR (including standalone inline comments on the head; the agent judges whether it is a review), or an OWNER, MEMBER or
+ * COLLABORATOR that reviewed it or left an inline comment on the head, other than the PR author and the account running this,
+ * and it has a sign on this head: a review of it, a PR-level or inline comment, or a reaction made, or a comment edited, after the head was pushed (the first check suite of the head, else its committer
  * date). Its start is its first sign; it is waited for at most 15 minutes from that start, and only its own result ends its wait: a
  * review of the head (whatever its time: it can only exist after the push), else its latest comment with visible text, its first one
  * included, counted at its last edit, that names the head or no commit at all; its first comment on this head (a new one, or an old one
@@ -176,28 +176,32 @@ function pushedAt(head) {
 }
 
 /**
- * Fills S.reviewers with one { login, state, text } per external reviewer that started on this head: an app that commented, reviewed
- * or reacted on the PR, or a trusted human that reviewed, and has a sign since the push (a review of the head,
- * a comment, a reaction).
+ * Fills S.reviewers with one { login, state, text } per reviewer on this head: an app with PR-level activity,
+ * or a trusted human with a submitted review or inline comment, and a sign since the push.
  */
 function pollReviewers(S) {
     const since = pushedAt(S.head)
     const comments = api(`${R}/issues/${target}/comments`, true)
     const reactions = api(`${R}/issues/${target}/reactions`, true)
     const reviews = api(`${R}/pulls/${target}/reviews`, true).filter((x) => x.state !== 'PENDING' && x.state !== 'DISMISSED')
+    const inline = api(`${R}/pulls/${target}/comments`, true)
     const outside = (l) => l && l !== me && l !== S.author
-    // every app active on the PR is listed (a deploy or coverage bot too): whether its comment is a review is the agent's reading
-    const known = new Set([...reviews.filter((x) => isApp(x.user) || TRUSTED.has(x.author_association)), ...reactions.filter((x) => isApp(x.user)), ...comments.filter((c) => isApp(c.user))].map((x) => x.user?.login).filter(outside))
-    // a comment counts when it was posted after the push, else when it was edited after it
+    // A comment counts when it was posted after the push, else when it was edited after it.
     const at = (c) => (ms(c.created_at) > since ? ms(c.created_at) : ms(c.updated_at))
     const edited = (c) => Math.max(ms(c.created_at), ms(c.updated_at ?? c.created_at))
+    // Inline findings belong to a commit. An edit to an older commit's finding is not evidence for this head.
+    const onHeadInline = inline.filter((c) => c.commit_id === S.head && at(c) > since)
+    // Every app active on the PR is listed (deploy and coverage bots too); trusted humans count only if they reviewed or left an inline finding.
+    const known = new Set([...reviews.filter((x) => isApp(x.user) || TRUSTED.has(x.author_association)),
+        ...reactions.filter((x) => isApp(x.user)), ...comments.filter((c) => isApp(c.user)),
+        ...onHeadInline.filter((c) => isApp(c.user) || TRUSTED.has(c.author_association))].map((x) => x.user?.login).filter(outside))
     // shortcut: a comment that names commits (7-40 hex, hidden markup too) but not this head is about another commit: a sign, never the
     // result; a hex word ("defaced") makes a result wait out its window, the safe side; revisit if a reviewer names commits unrelated to its review
     const aboutOther = (c) => { const named = String(c.body ?? '').match(/\b[0-9a-f]{7,40}\b/g) ?? []; return named.length > 0 && !named.some((x) => S.head.startsWith(x)) }
     S.reviewers = [...known].sort().map((login) => {
         const mine = (x) => x.user?.login === login
         const onHead = reviews.filter((x) => mine(x) && x.commit_id === S.head)
-        const own = comments.filter(mine)
+        const own = [...comments.filter(mine), ...onHeadInline.filter(mine)]
         const signs = [...onHead.map((x) => ms(x.submitted_at)), ...[...own.map(at), ...reactions.filter(mine).map((x) => ms(x.created_at))].filter((t) => t > since)]   // a review of the head counts whatever its time
         if (!signs.length) return null
         const key = `${cfg.repo}#${target} ${S.head} ${since} ${login}`   // per repo and PR: the cache is shared by every run in the checkout
@@ -218,7 +222,8 @@ function pollReviewers(S) {
         firstSeen.set(firstKey, firstAnswer)
         const kind = (c) => (edited(c) <= firstAnswer && Date.now() < start + WINDOW_MS ? 'first comment' : 'comment')
         const said = latest(onHead.filter((x) => !more.has(login) || ms(x.submitted_at) > launched).map((x) => [ms(x.submitted_at), `review ${x.state} ${x.html_url} ${firstLine(x.body)}`]))
-            ?? latest(own.filter((c) => edited(c) > after && visible(c.body) && !aboutOther(c)).map((c) => [edited(c), `${kind(c)} ${c.html_url} ${firstLine(c.body)}`]))
+            ?? latest(own.filter((c) => edited(c) > after && visible(c.body) && !aboutOther(c)).map((c) => [edited(c),
+                `${kind(c) === 'comment' && c.commit_id === S.head ? 'inline comment' : kind(c)} ${c.html_url} ${c.commit_id === S.head ? `${c.path}:${c.line ?? c.original_line} ` : ''}${firstLine(c.body)}`]))
         if (said) return { login, state: 'result', text: `result ${said[1]}` }
         const iso = (t) => new Date(t).toISOString()
         if (Date.now() >= start + WINDOW_MS) return { login, state: 'late', text: `no result 15 min after its start ${iso(start)}` }
