@@ -6,7 +6,7 @@ with no setup. When each review happens: [WORKFLOW.md](WORKFLOW.md).
 
 ## pr-reviewer
 
-An independent review by the `pr-reviewer` role (strong model class, read-only). It checks, in order: acceptance criteria, security
+An independent review by the `pr-reviewer` role (strong model class, read-only). One pass produces separate specification-compliance and code-quality assessments. It checks, in order: acceptance criteria, security
 and data, correctness and tests, money and legal logic, the repo's own rules, UI evidence, process (a `Planning:` skip without its four
 reasons, a plan claim without a committed plan file, a closing keyword, out-of-scope changes) and over-engineering. It posts exactly
 one review comment whose first line is `Reviewed head: <sha7>`, and reports its verdict, the head and one line per finding, each with
@@ -29,13 +29,13 @@ No list, no login, no re-request comment: `pr-wait` reads what GitHub shows on t
 
 - **Who counts.** Any app (a `[bot]` login, or an account of type Bot) that comments, reviews, leaves an inline review comment, or reacts on the pull request
   (reactions on the pull request itself, not on its comments), whatever it writes; or an owner, member or collaborator that reviewed it or left an inline comment on the exact head. No keyword decides: a deploy or coverage bot is listed too, and the agent, which reads every result, ignores what is not a
-  review. Inline comments on older commits cannot start a new review round. The author of the pull request and the account running the script never count, nor a human who only commented.
+  review. Inline comments on older commits cannot start a new review round. The author of the pull request and the account running the script never count, nor a human who only left a PR-level comment.
 - **Push time.** Only activity after the head was pushed counts. That is the time of its first check suite, else its committer date
   (a commit made long before it was pushed can then admit older activity: a documented ceiling). Activity before the push, and reviews of
   another commit, decide nothing. A review of the head itself always counts, whatever its time: it can only exist after the push.
 - **Start.** A reviewer has started when it has a sign on the head: a review of it, a PR-level or inline comment or a reaction made after the push, or a
   comment edited after it. Its start is its first sign.
-- **Result.** A review of the head; else the account's latest comment with visible text, counted at its last edit. A reaction is
+- **Result.** A review of the head; else the account's latest PR-level or current-head inline comment with visible text, counted at its last edit. A reaction is
   a sign, never a result. Its first comment on this head (a new comment, or its summary comment edited after the push) can be the
   whole result, so it is shown at once, as `result first comment`, while it is unchanged and the 15 minutes run: it may also be the
   status note of a review still running, so `merge --reviewed-by <that login>` waits for its next answer. The runs in one checkout
