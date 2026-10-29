@@ -41,8 +41,8 @@ For every defect, look for the same class of defect across the whole change and 
 
 ```
 **Verdict:** ready to merge | changes needed
-**Spec compliance:** met | unmet (cite acceptance criteria and evidence)
-**Code quality:** acceptable | changes needed (cite concrete cases)
+**Spec compliance:** met | unmet
+**Code quality:** acceptable | changes needed
 **Blockers:** `file:line`: problem -> fix
 **Should fix:**
 **Nits:**
