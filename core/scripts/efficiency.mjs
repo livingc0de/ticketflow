@@ -61,7 +61,7 @@ result.review_wait_ms = null
 if (waitLog) {
     let output
     try { output = readFileSync(waitLog, 'utf8') } catch { fail('cannot read pr-wait log') }
-    const records = [...output.matchAll(/^Review wait observed_ms: (\d+|unknown)$/gm)].map((m) => m[1])
+    const records = [...output.matchAll(/^Observed reviewer wait_ms: (\d+|unknown)$/gm)].map((m) => m[1])
     // A missing / unknown metric in any invocation cannot be counted as zero.
     if (records.length && records.every((x) => x !== 'unknown')) result.review_wait_ms = records.reduce((n, x) => n + Number(x), 0)
 }
