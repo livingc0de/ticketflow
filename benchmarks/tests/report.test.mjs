@@ -97,3 +97,18 @@ test('publication refuses unsafe metadata and incomplete matrices without writin
     assert.match(r.stderr, /lowercase slug/)
     assert.equal(r.markdown, null)
 })
+
+test('model provenance is kept distinct in report and CSV', () => {
+ const r=run([row({requested_model:'requested',model:'observed'})])
+ assert.equal(r.status,0,r.stderr)
+ assert.match(r.markdown,/requested\/observed/)
+ assert.match(r.csv,/requested_model,effective_model/)
+ assert.match(r.csv,/"requested","observed"/)
+})
+test('publication refuses mixed effective models or CLI versions', () => {
+ for(const changed of [{model:'other'},{agent_version:'other'}]) {
+   const r=publish([row(),row({repeat:2,...changed})])
+   assert.equal(r.status,2)
+   assert.match(r.stderr,/consistent CLI version/)
+ }
+})

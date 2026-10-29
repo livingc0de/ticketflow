@@ -272,11 +272,18 @@ test('bare arm installs nothing; a failed hidden check is recorded as fail (exit
     assert.deepEqual(rows.map((x) => x.check.pass), [true, false], 'the failure is not dropped and the first row is kept')
 })
 
+test('a successful checker cannot override a failed agent execution', () => {
+ const { run } = sandbox()
+ const r = run([L1, '--agent','claude','--arm','bare'], { FAKE_FIX:'1', FAKE_EXIT:'3' })
+ assert.equal(r.status,1); assert.equal(r.row.agent_exit,3)
+ assert.equal(r.row.check.pass,false)
+ assert.match(r.row.check.why,/agent exited 3 despite a passing checker/)
+})
 test('codex: exec --json in the workspace sandbox, tokens summed over turns, answer from -o, scenario by prefix', () => {
     const { run } = sandbox()
     const r = run(['L4', '--agent', 'codex', '--arm', 'ticketflow', '--model', 'gpt-test'], { FAKE_OUT: CODEX_OUT, FAKE_ANSWER: 'src/files.js:7 path traversal' })
     assert.equal(r.status, 0, r.stdout + r.stderr)
-    assert.equal(r.row.scenario, L4); assert.equal(r.row.agent, 'codex'); assert.equal(r.row.agent_version, 'codex-cli 9.9.9'); assert.equal(r.row.model, 'gpt-test')
+    assert.equal(r.row.scenario, L4); assert.equal(r.row.agent, 'codex'); assert.equal(r.row.agent_version, 'codex-cli 9.9.9'); assert.equal(r.row.model, null)
     assert.equal(r.row.check.pass, true)
     assert.deepEqual(r.row.tokens, { input_tokens: 150, cached_input_tokens: 100, output_tokens: 10 })
     assert.equal(r.row.turns, null); assert.equal(r.row.cost_usd, null); assert.equal(r.row.descendants, 'unknown')

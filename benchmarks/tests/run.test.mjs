@@ -109,3 +109,11 @@ test('invalid paths and missing native Codex manifests are rejected without paid
         if (args.includes('--superpowers-source')) assert.match(r.stderr, /manifest name must be superpowers/)
     }
 })
+
+test('preview resume does not require an agent CLI', () => {
+ const out=join(tempDir('bench-out-'),'rows.jsonl')
+ writeFileSync(out,JSON.stringify({scenario:'L1-trivial-copy',arm:'bare',variant:'bare',repeat:1,requested_model:'test',agent:'claude',agent_version:'old',eval_fingerprint:evaluatorFingerprint(REPO)})+'\n')
+ const r=call(['--agent','claude','--model','test','--arms','bare','--scenarios','L1','--repeats','1','--out',out,'--resume'])
+ assert.equal(r.status,0,r.stderr)
+ assert.match(r.stdout,/"already_recorded": 1/)
+})

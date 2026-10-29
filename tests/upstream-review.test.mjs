@@ -77,6 +77,13 @@ test('changes exit 1 with the release list and the file groups; a LICENSE change
     assert.equal(r.after, r.text, 'no --record, no write')
 })
 
+test('missing baseline tag in full release window refuses advancing the baseline', () => {
+ const releases=Array.from({length:20},(_,i)=>rel('v8.'+i))
+ const r=run({...repoMap('up/alpha',SHA_A,HEAD_A,{files:['docs/a.md'],releases}),...repoMap('up/beta',SHA_B,SHA_B)},{args:['--record']})
+ assert.equal(r.status,2)
+ assert.match(r.stderr,/baseline tag .* outside the latest 20 releases/)
+ assert.equal(r.after,r.text)
+})
 test('a changed license identifier is flagged even without new commits', () => {
     const r = run({ ...repoMap('up/alpha', SHA_A, SHA_A, { license: 'Apache-2.0' }), ...repoMap('up/beta', SHA_B, SHA_B) })
     assert.equal(r.status, 1)

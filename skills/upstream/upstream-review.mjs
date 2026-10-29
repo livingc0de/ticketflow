@@ -47,6 +47,8 @@ function read(u) {
     // shortcut: newest 20 releases, paginate if a project ships more than 20 between reviews
     const all = api(`${R}/releases?per_page=20`).filter((r) => !r.draft)
     const cut = all.findIndex((r) => r.tag_name === u.tag)
+    // Do not advance the baseline if the recorded tag fell outside the finite API window.
+    if (cut < 0 && all.length >= 20) throw new Error(`${u.repo}: baseline tag ${u.tag} is outside the latest 20 releases; review/paginate the missing history before recording`)
     const releases = cut < 0 ? all : all.slice(0, cut)
     // shortcut: compare lists at most 300 files (the report says so), clone if a review needs the rest
     const cmp = head === u.sha ? { ahead_by: 0, files: [] } : api(`${R}/compare/${u.sha}...${head}`)

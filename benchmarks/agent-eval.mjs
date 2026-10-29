@@ -88,11 +88,11 @@ function workspace(sdir, agent, arm, work, src) {
 function report(agent, out, answerFile, model) {
     if (agent === 'claude') {
         const res = [].concat(parse(out) ?? []).findLast((e) => e?.type === 'result')   // the result object, or the last of an event array
-        return { answer: res?.result ?? '', turns: res?.num_turns ?? null, cost_usd: res?.total_cost_usd ?? null, tokens: res?.usage ?? null, model: Object.keys(res?.modelUsage ?? {}).join(',') || model }
+        return { answer: res?.result ?? '', turns: res?.num_turns ?? null, cost_usd: res?.total_cost_usd ?? null, tokens: res?.usage ?? null, model: Object.keys(res?.modelUsage ?? {}).join(',') || null }
     }
     const done = out.split('\n').map(parse).filter((e) => e?.type === 'turn.completed')
     const tokens = done.length ? done.reduce((u, e) => { for (const [k, n] of Object.entries(e.usage ?? {})) u[k] = (u[k] ?? 0) + n; return u }, {}) : null
-    return { answer: orNull(() => readFileSync(answerFile, 'utf8')) ?? '', turns: null, cost_usd: null, tokens, model }
+    return { answer: orNull(() => readFileSync(answerFile, 'utf8')) ?? '', turns: null, cost_usd: null, tokens, model: null }   // Codex JSONL has not supplied a verified effective model
 }
 
 main('agent-eval', () => {
@@ -149,7 +149,8 @@ main('agent-eval', () => {
     const stat = git(dir, 'diff', '--cached', '--numstat', base, '--', '.', ':(exclude)package-lock.json', ':(exclude,glob)**/node_modules/**').split('\n').filter(Boolean).map((l) => l.split('\t'))
     const before = depNames(orNull(() => git(dir, 'show', `${base}:package.json`)) ?? ''), after = depNames(orNull(() => readFileSync(join(dir, 'package.json'), 'utf8')) ?? '')
     const c = run(process.execPath, [join(sdir, 'check.mjs'), dir, answerFile], { timeout: 5 * 60 * 1000 })
-    const pass = c.status === 0
+    const checkerPass = c.status === 0
+    const pass = r.status === 0 && checkerPass   // a failed/timed-out agent is never a successful task
     const tf = (f) => (v.arm === 'ticketflow' ? orNull(f) : null)   // the bare arm has no TicketFlow revision
     const row = {
         scenario: id, agent: v.agent, agent_version: version.stdout.trim(), model: got.model, requested_model: v.model ?? null, arm: v.arm, variant: v.label ?? v.arm, repeat: v.rep ? +v.rep : null,
@@ -160,7 +161,9 @@ main('agent-eval', () => {
         ticketflow_version: tf(() => readFileSync(join(src, 'VERSION'), 'utf8').trim()),
         plugin_sha: external ? git(src, 'rev-parse', 'HEAD') : null,
         plugin_native: external ? (claude ? 'claude --plugin-dir (bootstrap not independently verified)' : 'codex local marketplace: installed and enabled (bootstrap not independently verified)') : null,
-        check: { pass, why: `${c.stdout ?? ''}${c.stderr ?? ''}`.trim().split('\n')[0].slice(0, 300) || `check exited ${c.status}` },
+        check: { pass, why: r.status !== 0 && checkerPass
+            ? `agent exited ${r.status ?? r.signal ?? 'unknown'} despite a passing checker`
+            : `${c.stdout ?? ''}${c.stderr ?? ''}`.trim().split('\n')[0].slice(0, 300) || `check exited ${c.status}` },
         diff: { added: stat.reduce((n, s) => n + (+s[0] || 0), 0), removed: stat.reduce((n, s) => n + (+s[1] || 0), 0), files: stat.map((s) => s[2]) },
         deps_added: [...after].filter((d) => !before.has(d)).length,
         turns: got.turns, tokens: got.tokens, cost_usd: got.cost_usd, wall_s, agent_exit: r.status,
