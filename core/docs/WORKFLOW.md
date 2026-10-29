@@ -256,6 +256,8 @@ follow-ups, anything not verified), then clean up the worktree. The comment ends
 
 `Run: tier <t> · main <model>/<effort> · planner <matches the Planning line> · reviewer <names | pr-reviewer/effort | none> · review rounds <n> · CI runs <n> · fallback <yes|no>`
 
+Optional `Efficiency:` metadata may report directly observed duration, token categories, cost and whether subagent usage is included. Unknown values stay `unknown`, not inferred; this is a manual read of existing agent usage data, never a required service or a merge gate.
+
 It is how plan skips, review rounds and CI runs get measured ([TOKEN-BUDGET.md](TOKEN-BUDGET.md)). When `deploy_branch` is set,
 watch the merge commit's CI too.
 
