@@ -1,0 +1,110 @@
+{
+  "module": "src/pages.js",
+  "export": "paginate",
+  "cases": [
+    {
+      "args": [
+        [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        0,
+        2
+      ],
+      "want": {
+        "items": [
+          1,
+          2
+        ],
+        "next": 2
+      }
+    },
+    {
+      "args": [
+        [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        2,
+        2
+      ],
+      "want": {
+        "items": [
+          3,
+          4
+        ],
+        "next": 4
+      }
+    },
+    {
+      "args": [
+        [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        4,
+        2
+      ],
+      "want": {
+        "items": [
+          5
+        ],
+        "next": null
+      }
+    },
+    {
+      "args": [
+        [
+          1,
+          2,
+          3,
+          4
+        ],
+        2,
+        2
+      ],
+      "want": {
+        "items": [
+          3,
+          4
+        ],
+        "next": null
+      }
+    },
+    {
+      "args": [
+        [],
+        0,
+        3
+      ],
+      "want": {
+        "items": [],
+        "next": null
+      }
+    },
+    {
+      "args": [
+        [
+          1,
+          2
+        ],
+        2,
+        1
+      ],
+      "want": {
+        "items": [],
+        "next": null
+      }
+    }
+  ],
+  "requireTest": false
+}
