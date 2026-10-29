@@ -44,6 +44,7 @@ try {
     for (const name of ['superpowers','ponytail']) if (arms.includes(name) && !available.has(name)) throw Error(name + ' requires --' + name + '-source')
     if (v.agent === 'codex' && arms.some((x) => ['superpowers','ponytail'].includes(x)))
         throw Error('external native plugin comparisons are currently supported only for Claude; Codex would not load plugins under --ignore-user-config')
+    if (arms.includes('before') && arms.includes('after') && sha(available.get('before')) === sha(available.get('after'))) throw Error('before and after must be different pinned revisions')
     for (const [name, dir] of available) {
         if (execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' }).trim()) throw Error(name + ' source is dirty')
         const marker = name === 'superpowers' || name === 'ponytail' ? '.claude-plugin/plugin.json' : 'core/scripts/runtime.mjs'
@@ -65,13 +66,13 @@ try {
     }
     const out = v.out ? resolve(v.out) : null
     let completed = new Set()
-    const identity = (i) => [i.scenario, i.arm, i.rep, v.agent, v.model, i.source_sha ?? 'bare'].join('|')
+    const identity = (i) => [i.scenario, i.arm, i.rep, v.agent, v.model, i.source_sha ?? 'bare', sha(ROOT)].join('|')
     if (v.resume) {
         if (!out || !existsSync(out)) throw Error('--resume requires an existing --out JSONL file')
         const rows = readFileSync(out, 'utf8').split(/\r?\n/).filter(Boolean).map((x) => JSON.parse(x))
         completed = new Set(rows.filter((r) => r.requested_model === v.model && r.agent === v.agent && Number.isInteger(r.repeat))
             .map((r) => [r.scenario.split('-')[0], r.variant ?? r.arm, r.repeat, r.agent, r.requested_model,
-                r.ticketflow_sha ?? r.plugin_sha ?? 'bare'].join('|')))
+                r.ticketflow_sha ?? r.plugin_sha ?? 'bare', r.eval_sha ?? 'unknown'].join('|')))
     }
     const pending = items.filter((x) => !completed.has(identity(x)))
     console.log(JSON.stringify({ mode: v.execute ? 'EXECUTE (paid)' : 'DRY RUN (free)', total: items.length,
