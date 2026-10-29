@@ -154,6 +154,7 @@ const WINDOW_MS = 15 * 60_000
 const launched = Date.now()
 let reviewerPendingSince = null
 let reviewerWaitMs = 0
+let reviewerWaitUnknown = false
 // The first sign and first answer seen per head and reviewer, shared by every run in this checkout (merge's own --once check too),
 // because the API keeps only a comment's last edit. A file in the git dir, never committed; missing or unreadable is an empty cache.
 const CACHE_DAYS = 2
@@ -271,7 +272,7 @@ function print(S, timedOut) {
         if (S.threads.length > 20) console.log(`  ... ${S.threads.length - 20} more`)
     }
     for (const n of S.notes) console.log(n)
-    console.log(`Observed reviewer wait_ms: ${ciOnly ? 'unknown' : reviewerWaitMs + (reviewerPendingSince === null ? 0 : Date.now() - reviewerPendingSince)}`)
+    console.log(`Observed reviewer wait_ms: ${(ciOnly || reviewerWaitUnknown) ? 'unknown' : reviewerWaitMs + (reviewerPendingSince === null ? 0 : Date.now() - reviewerPendingSince)}`)
     if (timedOut) console.log(`TIMEOUT after ${timeoutMin}m`)
 }
 
@@ -290,6 +291,7 @@ for (;;) {
         try { pollReviewers(S) } catch { S.reviewers = 'unknown' }
         pollThreads(S)
     }
+    if (!ciOnly && !Array.isArray(S.reviewers)) reviewerWaitUnknown = true
     const waiting = Array.isArray(S.reviewers) && S.reviewers.some((x) => x.state === 'pending')
     // Track only time this invocation actually observed a pending reviewer, not CI time or time before it started.
     if (waiting && reviewerPendingSince === null) reviewerPendingSince = Date.now()
