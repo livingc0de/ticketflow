@@ -77,6 +77,13 @@ test('unreadable inline activity never permits an unobserved external review', (
     const r = wait({ ...green, 'pulls/7/comments': { __status: 502, __stderr: 'unavailable' } })
     assert.ok(r.stdout.includes('Review: pending (the review activity could not be read)'))
 })
+test('wait observations are reported separately from the single Review summary line', () => {
+    const r = wait({ ...green, 'issues/7/reactions': [react(2)] }, ['7', '--once'])
+    assert.match(r.stdout, /^Observed reviewer wait_ms: [0-9]+$/m)
+    assert.equal(reviewLines(r).filter((line) => line.startsWith('Review:')).length, 1)
+    assert.match(wait(green, ['7', '--ci-only', '--once']).stdout, /^Observed reviewer wait_ms: unknown$/m)
+})
+
 test('a job refused for billing (no runner, no steps, the billing annotation) allows the fallback, exit 3', () => {
     const r = wait(refused())
     assert.equal(r.status, 3)
