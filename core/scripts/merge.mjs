@@ -44,10 +44,11 @@ const verdictsOf = (body) => [...String(body ?? '').matchAll(/^[ \t]*(?:#{1,6}[ 
 const isReady = (body) => {
     const text = String(body ?? '')
     const verdictReady = verdictsOf(text).length === 1 && [...text.matchAll(/^\*\*Verdict:\*\*[ \t]*ready to merge[ \t]*$/gm)].length === 1
-    // Older reviews did not carry these fields. Where supplied, a conflicting dimension cannot authorize merging.
+    // Older reviews may omit these fields. Any supplied dimension must agree, regardless of common Markdown label styling.
+    const dimensions = [...text.matchAll(/^[ \t]*(?:#{1,6}[ \t]+|[-*+][ \t]+)?(?:\*\*|__)?(spec compliance|code quality)(?:\*\*|__)?[ \t]*:[ \t]*(?:\*\*|__)?[ \t]*(.*?)[ \t]*$/gim)]
     const dimension = (name, expected) => {
-        const lines = text.split(/\r?\n/).filter((l) => l.toLowerCase().startsWith(`**${name.toLowerCase()}:**`))
-        return lines.length === 0 || (lines.length === 1 && lines[0].slice(name.length + 5).trim().toLowerCase() === expected)
+        const found = dimensions.filter((m) => m[1].toLowerCase() === name).map((m) => m[2].trim().toLowerCase())
+        return found.length === 0 || (found.length === 1 && found[0] === expected)
     }
     return verdictReady && dimension('Spec compliance', 'met') && dimension('Code quality', 'acceptable')
 }
