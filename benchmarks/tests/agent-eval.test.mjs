@@ -170,7 +170,8 @@ test('L4: needs file:line on the traversal bug and no edit, commit or stray file
 
 test('every scenario ships a repo, a prompt and a check, and no dependency or node_modules', () => {
     const ids = readdirSync(SCEN).sort()
-    assert.deepEqual(ids, [L1, L2, L3, L4])
+    assert.equal(ids.length, 15, 'four original and eleven new scenarios')
+    for (const n of [L1, L2, L3, L4]) assert.ok(ids.includes(n), n)
     for (const id of ids) {
         for (const f of ['prompt.md', 'check.mjs', 'repo/package.json']) assert.ok(existsSync(join(SCEN, id, f)), `${id}/${f}`)
         assert.ok(!existsSync(join(SCEN, id, 'repo/node_modules')))
