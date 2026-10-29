@@ -4,4 +4,8 @@ node_modules
 .worktrees/
 .claude/worktrees/
 docs/plans/
-docs/maintainers/upstream-reviews/
+docs/maintainers/
+
+# Raw benchmark sessions: publish only deliberately sanitized results
+benchmarks/results/*.jsonl
+benchmarks/results/*.csv

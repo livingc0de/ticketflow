@@ -1,0 +1,49 @@
+{
+  "module": "src/paths.js",
+  "export": "safePath",
+  "cases": [
+    {
+      "args": [
+        "/srv/data",
+        "images/a.png"
+      ],
+      "want": "/srv/data/images/a.png"
+    },
+    {
+      "args": [
+        "/srv/data",
+        "../secret.txt"
+      ],
+      "want": null
+    },
+    {
+      "args": [
+        "/srv/data",
+        "/etc/passwd"
+      ],
+      "want": null
+    },
+    {
+      "args": [
+        "/srv/data",
+        ""
+      ],
+      "want": "/srv/data"
+    },
+    {
+      "args": [
+        "/srv/data",
+        "./images/../ok.txt"
+      ],
+      "want": "/srv/data/ok.txt"
+    },
+    {
+      "args": [
+        "/srv/data",
+        "../database/backup"
+      ],
+      "want": null
+    }
+  ],
+  "requireTest": false
+}

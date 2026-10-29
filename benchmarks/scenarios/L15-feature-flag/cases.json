@@ -1,0 +1,65 @@
+{
+  "module": "src/flags.js",
+  "export": "isEnabled",
+  "cases": [
+    {
+      "args": [
+        "false"
+      ],
+      "want": false
+    },
+    {
+      "args": [
+        "0"
+      ],
+      "want": false
+    },
+    {
+      "args": [
+        false
+      ],
+      "want": false
+    },
+    {
+      "args": [
+        0
+      ],
+      "want": false
+    },
+    {
+      "args": [
+        " TRUE "
+      ],
+      "want": true
+    },
+    {
+      "args": [
+        "1"
+      ],
+      "want": true
+    },
+    {
+      "args": [
+        1
+      ],
+      "want": true
+    },
+    {
+      "args": [
+        true
+      ],
+      "want": true
+    },
+    {
+      "args": [
+        "yes"
+      ],
+      "want": false
+    },
+    {
+      "args": [],
+      "want": false
+    }
+  ],
+  "requireTest": false
+}

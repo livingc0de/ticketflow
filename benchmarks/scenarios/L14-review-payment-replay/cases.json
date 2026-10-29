@@ -1,0 +1,11 @@
+{
+  "path": "src/payment.js",
+  "line": 7,
+  "words": [
+    "idempot",
+    "duplicat",
+    "replay",
+    "double",
+    "twice"
+  ]
+}

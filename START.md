@@ -12,7 +12,8 @@ You need a shell, `git`, `gh` 2.48 or newer logged in with the `repo`, `project`
 
 - **Set up:** read `skills/init/SKILL.md` of https://github.com/livingc0de/ticketflow (raw: https://raw.githubusercontent.com/livingc0de/ticketflow/main/skills/init/SKILL.md) and follow it from section 0.
 - **Update:** the same with `skills/sync/SKILL.md`, in a repo that already has `.ticketflow/manifest.json`.
-- Section 0 of each skill clones the release you install and continues from the clone's own copy, so the procedure always matches the scripts it runs.
+- **Review upstreams:** from a TicketFlow checkout, read `skills/upstream/SKILL.md` and follow it when the monthly review is due or an upstream release needs review.
+- Section 0 of the init and sync skills clones the release you install and continues from the clone's own copy, so those procedures always match the scripts they run. The upstream review runs from the TicketFlow checkout that owns its baseline.
 - The skills say "dispatch a role", "ask the user" and similar actions. `core/agents-map/<your tool>.md` of the clone translates them (claude, codex, cursor, gemini, opencode, antigravity, copilot); any other agent uses `generic.md`.
 
 ## As a plugin

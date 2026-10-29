@@ -1,0 +1,43 @@
+{
+  "module": "src/html.js",
+  "export": "escapeHtml",
+  "cases": [
+    {
+      "args": [
+        "x"
+      ],
+      "want": "x"
+    },
+    {
+      "args": [
+        "<script>"
+      ],
+      "want": "&lt;script&gt;"
+    },
+    {
+      "args": [
+        "a & b"
+      ],
+      "want": "a &amp; b"
+    },
+    {
+      "args": [
+        "\" onfocus=\"bad"
+      ],
+      "want": "&quot; onfocus=&quot;bad"
+    },
+    {
+      "args": [
+        "'x'"
+      ],
+      "want": "&#39;x&#39;"
+    },
+    {
+      "args": [
+        "<<>>&&"
+      ],
+      "want": "&lt;&lt;&gt;&gt;&amp;&amp;"
+    }
+  ],
+  "requireTest": false
+}

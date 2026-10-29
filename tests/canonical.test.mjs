@@ -77,21 +77,21 @@ test('line budgets', () => {
     }
 })
 
-// ---- the front door: START.md and the root skills (init, sync), which the plugins expose
+// ---- the front door: START.md and the root skills (init, sync, upstream), which the plugins expose
 const root = new URL('../', import.meta.url).pathname
 const rootText = (p) => readFileSync(join(root, p), 'utf8')
-const FRONT = { 'START.md': 40, 'skills/init/SKILL.md': 80, 'skills/init/interview.md': 80, 'skills/init/new-repo.md': 40, 'skills/init/existing-repo.md': 80, 'skills/init/github.md': 60, 'skills/init/checks.md': 50, 'skills/sync/SKILL.md': 70 }
+const FRONT = { 'START.md': 40, 'skills/init/SKILL.md': 80, 'skills/init/interview.md': 80, 'skills/init/new-repo.md': 40, 'skills/init/existing-repo.md': 80, 'skills/init/github.md': 60, 'skills/init/checks.md': 50, 'skills/sync/SKILL.md': 70, 'skills/upstream/SKILL.md': 40, 'skills/upstream/upstream-review.mjs': 120, 'skills/upstream/upstream.json': 20 }
 
 test('the front door files exist and stay within their line budgets', () => {
     for (const [path, max] of Object.entries(FRONT)) {
         const lines = rootText(path).replace(/\n$/, '').split('\n').length
         assert.ok(lines <= max, `${path}: ${lines} lines, at most ${max}`)
     }
-    for (const n of ['init', 'sync']) assert.deepEqual(readdirSync(join(root, 'skills', n)).filter((f) => `skills/${n}/${f}` in FRONT).length, readdirSync(join(root, 'skills', n)).length, `skills/${n} holds only budgeted files`)
+    for (const n of ['init', 'sync', 'upstream']) assert.deepEqual(readdirSync(join(root, 'skills', n)).filter((f) => `skills/${n}/${f}` in FRONT).length, readdirSync(join(root, 'skills', n)).length, `skills/${n} holds only budgeted files`)
 })
 
-test('the init and sync skills parse as skills: name is the directory, a "Use when" description of at most 300 characters', () => {
-    for (const n of ['init', 'sync']) assert.equal(parseCanonical(rootText(`skills/${n}/SKILL.md`), `skills/${n}/SKILL.md`).name, n)
+test('the init, sync and upstream skills parse as skills: name is the directory, a "Use when" description of at most 300 characters', () => {
+    for (const n of ['init', 'sync', 'upstream']) assert.equal(parseCanonical(rootText(`skills/${n}/SKILL.md`), `skills/${n}/SKILL.md`).name, n)
 })
 
 test('the front door names actions, never one agent\'s tools, and no gh form that a script covers', () => {
@@ -106,7 +106,7 @@ test('every script and lib the front door names exists', () => {
     }
 })
 
-test('every part file of init is referenced by its SKILL.md and exists; START.md names both skills; both skills hand over to the clone\'s own copy', () => {
+test('every part file of init is referenced by its SKILL.md and exists; START.md names the front-door skills; init and sync hand over to the clone\'s own copy', () => {
     const skill = rootText('skills/init/SKILL.md')
     for (const f of readdirSync(join(root, 'skills/init')).filter((x) => x !== 'SKILL.md')) assert.ok(skill.includes(`\`${f}\``), `skills/init/SKILL.md does not reference ${f}`)
     for (const [, f] of skill.matchAll(/`([\w-]+\.md)`/g)) assert.ok(existsSync(join(root, 'skills/init', f)), f)
@@ -114,6 +114,7 @@ test('every part file of init is referenced by its SKILL.md and exists; START.md
         assert.ok(rootText('START.md').includes(`skills/${n}/SKILL.md`), `START.md names skills/${n}/SKILL.md`)
         assert.match(rootText(`skills/${n}/SKILL.md`), new RegExp(`Read \`<TF>/skills/${n}/SKILL\\.md\` and continue there from section 1`), n)
     }
+    assert.ok(rootText('START.md').includes('skills/upstream/SKILL.md'), 'START.md names skills/upstream/SKILL.md')
 })
 
 test('orchestrate-tickets: a coordinator with the Result contract, the budget formula and the Ready-backlog warning', () => {

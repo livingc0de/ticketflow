@@ -1,0 +1,76 @@
+{
+  "module": "src/orders.js",
+  "export": "lookupOrder",
+  "cases": [
+    {
+      "args": [
+        [
+          {
+            "tenantId": "a",
+            "id": 1,
+            "total": 10
+          },
+          {
+            "tenantId": "b",
+            "id": 1,
+            "total": 20
+          }
+        ],
+        "b",
+        1
+      ],
+      "want": {
+        "tenantId": "b",
+        "id": 1,
+        "total": 20
+      }
+    },
+    {
+      "args": [
+        [
+          {
+            "tenantId": "a",
+            "id": 1,
+            "total": 10
+          }
+        ],
+        "b",
+        1
+      ],
+      "want": null
+    },
+    {
+      "args": [
+        [
+          {
+            "tenantId": "a",
+            "id": 1,
+            "total": 10
+          }
+        ],
+        "a",
+        1
+      ],
+      "want": {
+        "tenantId": "a",
+        "id": 1,
+        "total": 10
+      }
+    },
+    {
+      "args": [
+        [
+          {
+            "tenantId": "b",
+            "id": 2,
+            "total": 20
+          }
+        ],
+        "b",
+        1
+      ],
+      "want": null
+    }
+  ],
+  "requireTest": true
+}

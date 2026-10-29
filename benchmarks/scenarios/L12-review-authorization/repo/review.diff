@@ -1,0 +1,13 @@
+diff --git a/src/access.js b/src/access.js
+index aaaaaaa..bbbbbbb 100644
+--- a/src/access.js
++++ b/src/access.js
+@@ -1,0 +1,8 @@
++export function orderForTenant(req, orders) {
++  const id = req.params.orderId
++  const order = orders.find(o => o.id === id)
++  if (!order) return null
++  const tenantId = req.auth.tenantId
++  const audit = { tenantId, id }
++  return order
++}
