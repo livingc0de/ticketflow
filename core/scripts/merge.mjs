@@ -3,7 +3,7 @@
  * The only way an agent merges: checks every gate on the exact head, then merges with a method the repo allows (squash, else rebase,
  * else a merge commit: the repo's settings and every rule on the base must allow it). Never `--admin`, never `--auto`.
  *
- * Usage: merge.mjs <pr> [--reviewed-by <login>] [--config f]
+ * Usage: merge.mjs <pr> [--reviewed-by <login>] [--review-result-url <url>] [--config f]
  *
  * Gates (any doubt, including an unreadable one, is "not met"): the PR is open, not a draft, and based on the default branch;
  * `gate.context` is `success` on exactly the head; the head contains the default branch; `pr-wait --once` exits 0 and prints exactly
@@ -13,8 +13,8 @@
  * A pr-reviewer review is a submitted review of an OWNER, MEMBER or COLLABORATOR with a `**Verdict:**` line on exactly the head. The
  * last such review of every account must be exactly `ready to merge` (only that account lifts its own "changes needed"). Then the review
  * of the head is either this account's own pr-reviewer review (it starts `Reviewed head: <sha>` naming the head), or, with
- * `--reviewed-by <login>`, that reviewer's `result` on the head in the pr-wait summary, never its unedited `first comment` while its 15
- * minutes run (it may be a status note): the agent read what it says and acted on it; merge only proves where and when it was posted.
+ * `--reviewed-by <login>`, that reviewer's `result` on the head in the pr-wait summary, its unedited `first comment` only with --review-result-url naming the exact evidence the agent inspected (otherwise wait up to 15
+ * minutes; it could be a status note): the agent judges completion and acts on findings; merge checks the evidence link and head, not its meaning.
  * Merge reads no repository permission: GitHub's own rules (a ruleset, branch protection, required reviews) are what enforce who may merge.
  * The merge passes `--match-head-commit`, so a push after the checks fails the merge; the base is read again right before it, so a base
  * that moved after the slow reads is refused.
@@ -29,8 +29,9 @@ import { cli } from '../lib/cli.mjs'
 import { configPath } from '../lib/config.mjs'
 import { GhError, api, gql, isNumber } from '../lib/gh.mjs'
 
-const { values, positionals: [pr], cfg } = cli(import.meta.url, 'merge', '<pr> [--reviewed-by <login>] [--config f]', { 'reviewed-by': { type: 'string' } },
-    (p, v) => p.length === 1 && isNumber(p[0]) && (v['reviewed-by'] === undefined || /^[\w.[\]-]+$/.test(v['reviewed-by'])))
+const { values, positionals: [pr], cfg } = cli(import.meta.url, 'merge', '<pr> [--reviewed-by <login>] [--review-result-url <url>] [--config f]', { 'reviewed-by': { type: 'string' }, 'review-result-url': { type: 'string' } },
+    (p, v) => p.length === 1 && isNumber(p[0]) && (v['reviewed-by'] === undefined || /^[\w.[\]-]+$/.test(v['reviewed-by'])) &&
+        (v['review-result-url'] === undefined || (v['reviewed-by'] !== undefined && /^https:\/\/[^\s]+$/.test(v['review-result-url']))))
 const here = dirname(fileURLToPath(import.meta.url))
 const R = `repos/${cfg.repo}`
 const base = cfg.default_branch
@@ -40,7 +41,17 @@ const who = (login) => login || 'an unknown account'
 const READ_HEAD = /^Reviewed head: ([0-9a-f]{7,40})\b/
 // Any spelling of the label counts as a verdict (so a "changes needed" is never missed); only the exact bold line below is ready.
 const verdictsOf = (body) => [...String(body ?? '').matchAll(/^[ \t]*(?:#{1,6}[ \t]+|[-*+][ \t]+)?(?:\*{1,2}|_{1,2})?[ \t]*verdict[ \t]*(?:\*{1,2}|_{1,2})?[ \t]*:[ \t]*(?:\*{1,2}|_{1,2})?[ \t]*(.*?)[ \t]*$/gim)].map((m) => m[1])
-const isReady = (body) => verdictsOf(body).length === 1 && [...String(body).matchAll(/^\*\*Verdict:\*\*[ \t]*ready to merge[ \t]*$/gm)].length === 1
+const isReady = (body) => {
+    const text = String(body ?? '')
+    const verdictReady = verdictsOf(text).length === 1 && [...text.matchAll(/^\*\*Verdict:\*\*[ \t]*ready to merge[ \t]*$/gm)].length === 1
+    // Older reviews may omit these fields. Any supplied dimension must agree, regardless of common Markdown label styling.
+    const dimensions = [...text.matchAll(/^[ \t]*(?:#{1,6}[ \t]+|[-*+][ \t]+)?(?:\*\*|__)?(spec compliance|code quality)(?:\*\*|__)?[ \t]*:[ \t]*(?:\*\*|__)?[ \t]*(.*?)[ \t]*$/gim)]
+    const dimension = (name, expected) => {
+        const found = dimensions.filter((m) => m[1].toLowerCase() === name.toLowerCase()).map((m) => m[2].trim().toLowerCase())
+        return found.length === 0 || (found.length === 1 && found[0] === expected)
+    }
+    return verdictReady && dimension('Spec compliance', 'met') && dimension('Code quality', 'acceptable')
+}
 
 const stop = (message) => { console.error(`merge: not merged: ${message}`); return 1 }
 
@@ -94,8 +105,12 @@ function merge() {
     if (named !== undefined) {
         const line = only(`Review ${named}: `)
         if (!line?.startsWith('result ')) return stop(`${named} has no result on ${sha7} (${line ?? 'no activity on this head'}): name a reviewer that pr-wait lists with a result, or run pr-reviewer on the head\n${summary}`)
-        // its unedited first comment on the head may be the status note of a review still running: pr-wait marks it while its 15 minutes run
-        if (line.startsWith('result first comment ')) return stop(`${named}'s only answer on ${sha7} is its first comment, unedited, which may be the status note of a review still running: wait for its next answer (pr-wait --more '${named}'), at most 15 minutes from its start\n${summary}`)
+        // A first comment can be a complete review or a progress note. The agent must cite the exact result it inspected to use it early;
+        // the script verifies the link came from the current head, never infers completion from keywords or a bot's identity.
+        const url = values['review-result-url']
+        const observedUrl = /^result (?:first comment|comment|inline comment|review [A-Z_]+) (https:\/\/\S+)/.exec(line)?.[1]
+        if (url && url !== observedUrl) return stop(`${named}'s review-result-url is not the observed result on ${sha7}: re-read the current result\n${summary}`)
+        if (line.startsWith('result first comment ') && !url) return stop(`${named}'s first comment on ${sha7} could still be a status note: read its full content and, only if it is a complete review, use --review-result-url '<exact result link>'; otherwise wait with pr-wait --more '${named}' (at most 15 minutes from its start)\n${summary}`)
     } else {
         const own = last.get(me)
         if (!own) return stop(`no review of ${sha7}: run pr-reviewer on the head (a delta review since its last review is enough), or pass --reviewed-by '<login>' for the external reviewer whose result on this head you acted on`)
@@ -119,7 +134,7 @@ function merge() {
     try { after = api(`${R}/pulls/${pr}`) } catch { return stop(`cannot tell whether #${pr} merged: check it before anything else`) }
     if (after.merged === true) {
         console.log(`Merged #${pr} (${method}) as ${after.merge_commit_sha}`)
-        if (named !== undefined) console.log(`Note: merged on the result of ${named} on ${sha7}; merge checked where and when it was posted, the agent read what it says`)
+        if (named !== undefined) console.log(`Note: merged on the result of ${named} on ${sha7}; merge checked where and when it was posted, the agent read what it says${values['review-result-url'] ? ` (explicit result: ${values['review-result-url']})` : ''}`)
         return 0
     }
     return stop(`gh pr merge failed: ${(run.stderr || run.stdout || 'no output').trim()}`)

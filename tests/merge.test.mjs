@@ -66,6 +66,26 @@ test('merges with the exact argv and reports the method and the merge commit', (
     assert.equal(r.stdout.trim(), `Merged #5 (squash) as ${'f'.repeat(40)}`)
     assert.ok(!r.merges[0].some((a) => /--admin|--auto/.test(a)))
 })
+test('a ready verdict cannot override explicitly failed specification or code-quality dimensions', () => {
+    const base = `Reviewed head: ${SHA7}\n**Verdict:** ready to merge`
+    const good = `${base}\n**Spec compliance:** met\n**Code quality:** acceptable`
+    assert.equal(run({ reviews: [review({ body: good })] }).status, 0)
+    refused(run({ reviews: [review({ body: `${base}\n**Spec compliance:** unmet\n**Code quality:** acceptable` })] }), /not exactly "ready to merge"/)
+    refused(run({ reviews: [review({ body: `${base}\n**Spec compliance:** met\n**Code quality:** changes needed` })] }), /not exactly "ready to merge"/)
+})
+test('alternate Markdown spelling and duplicate dimension verdicts cannot override ready to merge', () => {
+    const base = `Reviewed head: ${SHA7}\n**Verdict:** ready to merge`
+    const rejected = [
+        `${base}\n**Spec compliance**: unmet\n**Code quality:** acceptable`,
+        `${base}\nSpec compliance: unmet\nCode quality: acceptable`,
+        `${base}\n- **Spec compliance**: met\n- **Code quality**: changes needed`,
+        `${base}\n**Spec compliance:** met\n**Spec compliance**: unmet\n**Code quality:** acceptable`,
+        `${base}\n**Spec compliance:** met\n**Code quality:** acceptable\n**Code quality**: changes needed`,
+    ]
+    for (const body of rejected) refused(run({ reviews: [review({ body })] }), /not exactly "ready to merge"/)
+    const valid = `${base}\n- **Spec compliance**: met\n- **Code quality**: acceptable`
+    assert.equal(run({ reviews: [review({ body: valid })] }).status, 0)
+})
 test('each unmet gate exits 1 and never calls pr merge', () => {
     refused(run({ gate: status(null) }), /CI \/ Gate is missing/)
     refused(run({ gate: status('pending') }), /CI \/ Gate is pending/)
@@ -270,12 +290,33 @@ test('M3b: a bot\'s unedited first comment is no basis for --reviewed-by while i
     const first = (min, over = {}) => ({ id: 31, user: APP, author_association: 'NONE', created_at: ago(min), updated_at: ago(min), html_url: 'https://x/c31', body: '<!-- rb-review-summary -->\n## Review\n| Code | Running |', ...over })
     // the own pr-reviewer review: a bot's comment does not block (the agent read it: not a review, or a status note it waited out)
     assert.equal(run({ comments: [first(4)] }).status, 0)
-    refused(run({ args: by('rb[bot]'), comments: [first(4)], reviews: [] }), /rb\[bot\]'s only answer on abcdef1 is its first comment.*at most 15 minutes from its start/)
+    refused(run({ args: by('rb[bot]'), comments: [first(4)], reviews: [] }), /first comment on abcdef1 could still be a status note.*at most 15 minutes from its start/)
+    // The agent can act on a complete first-comment review immediately, but must name its exact current-head link.
+    const early = run({ args: [...by('rb[bot]'), '--review-result-url', 'https://x/c31'], comments: [first(4, { body: '## Review completed: no blocking findings' })], reviews: [] })
+    assert.equal(early.status, 0, early.stderr)
+    assert.match(early.stdout, /explicit result: https:\/\/x\/c31/)
+    refused(run({ args: [...by('rb[bot]'), '--review-result-url', 'https://x/wrong'], comments: [first(4)], reviews: [] }), /review-result-url is not the observed result/)
+    refused(run({ args: [...by('rb[bot]'), '--review-result-url', 'https://x/c31'], comments: [first(4, { created_at: ago(35), updated_at: ago(35) })], reviews: [] }), /no result/)
+    // No implicit early completion merely because the first comment says "completed"; content still requires an agent to inspect it.
+    refused(run({ args: by('rb[bot]'), comments: [first(4, { body: 'Review complete' })], reviews: [] }), /first comment .* could still be a status note/)
     // its edit, or a review, is its answer; 15 minutes with nothing more and the first comment stands as its whole answer
     assert.equal(run({ args: by('rb[bot]'), comments: [first(4, { updated_at: ago(1) })], reviews: [] }).status, 0)
     assert.equal(run({ args: by('rb[bot]'), comments: [first(4)], reviews: [ext()] }).status, 0)
     assert.equal(run({ comments: [first(16)] }).status, 0)
     assert.equal(run({ args: by('rb[bot]'), comments: [first(16)], reviews: [] }).status, 0)
+})
+
+test('inline-only review requires an inspected current-head result and cannot bypass open threads', () => {
+    const c = { id: 41, user: APP, author_association: 'NONE', commit_id: HEAD, created_at: ago(4),
+        updated_at: ago(4), body: 'P1: Handle bad input', path: 'src/a.js', line: 4, html_url: 'https://x/inline41' }
+    const extra = { [`${R}/pulls/5/comments`]: [c] }
+    refused(run({ args: by('rb[bot]'), reviews: [], extra }), /first comment on abcdef1/)
+    const early = run({ args: [...by('rb[bot]'), '--review-result-url', c.html_url], reviews: [], extra })
+    assert.equal(early.status, 0, early.stderr)
+    refused(run({ args: [...by('rb[bot]'), '--review-result-url', c.html_url], reviews: [], extra,
+        threads: [thread('PRRT_i')] }), /unresolved review thread/)
+    refused(run({ args: [...by('rb[bot]'), '--review-result-url', c.html_url], reviews: [],
+        extra: { [`${R}/pulls/5/comments`]: [{ ...c, commit_id: OLD }] } }), /no result/)
 })
 
 test('M6: the owner\'s GitHub approval can be named; GitHub\'s refusal of the merge is reported', () => {

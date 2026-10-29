@@ -6,7 +6,7 @@ with no setup. When each review happens: [WORKFLOW.md](WORKFLOW.md).
 
 ## pr-reviewer
 
-An independent review by the `pr-reviewer` role (strong model class, read-only). It checks, in order: acceptance criteria, security
+An independent review by the `pr-reviewer` role (strong model class, read-only). One pass produces separate specification-compliance and code-quality assessments. It checks, in order: acceptance criteria, security
 and data, correctness and tests, money and legal logic, the repo's own rules, UI evidence, process (a `Planning:` skip without its four
 reasons, a plan claim without a committed plan file, a closing keyword, out-of-scope changes) and over-engineering. It posts exactly
 one review comment whose first line is `Reviewed head: <sha7>`, and reports its verdict, the head and one line per finding, each with
@@ -27,32 +27,32 @@ asked before merging on it.
 
 No list, no login, no re-request comment: `pr-wait` reads what GitHub shows on the pull request.
 
-- **Who counts.** Any app (a `[bot]` login, or an account of type Bot) that comments, reviews or reacts on the pull request
-  (reactions on the pull request itself, not on its comments), whatever it writes; or an owner, member or collaborator that reviewed
-  it. No keyword decides: a deploy or coverage bot is listed too, and the agent, which reads every result, ignores what is not a
-  review. The author of the pull request and the account running the script never count, nor a human who only commented.
+- **Who counts.** Any app (a `[bot]` login, or an account of type Bot) that comments, reviews, leaves an inline review comment, or reacts on the pull request
+  (reactions on the pull request itself, not on its comments), whatever it writes; or an owner, member or collaborator that reviewed it or left an inline comment on the exact head. No keyword decides: a deploy or coverage bot is listed too, and the agent, which reads every result, ignores what is not a
+  review. Inline comments on older commits cannot start a new review round. The author of the pull request and the account running the script never count, nor a human who only left a PR-level comment.
 - **Push time.** Only activity after the head was pushed counts. That is the time of its first check suite, else its committer date
   (a commit made long before it was pushed can then admit older activity: a documented ceiling). Activity before the push, and reviews of
   another commit, decide nothing. A review of the head itself always counts, whatever its time: it can only exist after the push.
-- **Start.** A reviewer has started when it has a sign on the head: a review of it, a comment or a reaction made after the push, or a
+- **Start.** A reviewer has started when it has a sign on the head: a review of it, a PR-level or inline comment or a reaction made after the push, or a
   comment edited after it. Its start is its first sign.
-- **Result.** A review of the head; else the account's latest comment with visible text, counted at its last edit. A reaction is
+- **Result.** A review of the head; else the account's latest PR-level or current-head inline comment with visible text, counted at its last edit. A reaction is
   a sign, never a result. Its first comment on this head (a new comment, or its summary comment edited after the push) can be the
   whole result, so it is shown at once, as `result first comment`, while it is unchanged and the 15 minutes run: it may also be the
-  status note of a review still running, so `merge --reviewed-by <that login>` waits for its next answer. The runs in one checkout
+  status note of a review still running. To use a completed first comment before the 15-minute window expires, the agent must inspect the full content, act on every finding, and pass both `--reviewed-by '<login>'` and `--review-result-url '<exact comment link>'`. The merge script checks the evidence URL against the current head, but cannot verify the agent's semantic judgment; otherwise it waits for another answer. Concurrent runs in one checkout serialize shared-cache updates and replace the cache atomically; an unavailable or malformed cache is ignored, which loses only prior observation and never turns a review into an accepted result. The runs in one checkout
   share what they saw (a file in the git dir, never committed), so `merge`'s own check knows an edit the wait already saw as the
   answer; without it (another machine, another worktree, or a fresh clone) a reused summary stays unconfirmed up to 15 minutes after
   its last edit. A status note the bot edits again while its review runs reads as an answer (documented limit).
   When it is only a status note, wait again with `--more '<login>'`: the edit of that comment or a review after that is the result,
-  within the same 15 minutes (a slow run ends `late`, and `pr-reviewer` takes over). A comment that names commits but not the head
-  (a late receipt for an older commit) is a sign, never the result. A bot whose only head activity is a reaction, or a comment naming
-  other hex values but not the head, can therefore keep merge pending for up to 15 minutes from its first sign; the window does not
+  within the same 15 minutes (a slow run ends `late`, and `pr-reviewer` takes over). A PR-level comment naming only
+  older commits is a sign, never a result; an inline comment attached by GitHub to the current head stays valid even if it mentions
+  an older commit. A bot whose only head activity is a reaction, or a PR-level comment naming only other commits, can therefore keep
+  merge pending for up to 15 minutes from its first sign; the window does not
   restart. It ends only that reviewer's own wait; another account's "looks good" neither starts nor ends it.
 - **Window.** At most 15 minutes from its start, not from its latest edit. After that it is `late` and the wait moves on without it.
   A reviewer that said more is coming: `pr-wait.mjs <PR> --more '<login>'` counts only what it posts after that run started.
 - **Changes requested.** A last review of the head that asks for changes ends the wait at once and is a refusal for `merge`.
 
-`pr-wait` prints one `Review <login>: ...` line per such reviewer (`pending since ...`, `result <review STATE | comment | first comment> <link> <first line>`,
+`pr-wait` prints one `Review <login>: ...` line per such reviewer (`pending since ...`, `result <review STATE | comment | inline comment | first comment> <link> <first line>`,
 `changes requested (<sha7>) <link>`, `no result 15 min after its start ...`), then one summary: `Review: pending (<logins>)`, else
 `changes requested (<logins>)`, else `results (<logins>)`, else `none`, with `(no result in time: <logins>)` after results or none. A read
 that fails prints `Review: pending (the review activity could not be read)`. CI red does not stop the wait for a reviewer that started
@@ -60,7 +60,7 @@ that fails prints `Review: pending (the review activity could not be read)`. CI 
 the agent reads the link: an error or quota note is no result, and a status note means wait again with `--more`.
 
 In pull request mode (not `--ci-only`, not a sha) it also prints `Unresolved threads: <n | unknown>`, then up to 20 lines `  [<thread id>] <path>:<line> @<author>
-<first line>` for the unresolved review threads **of any author**. `unknown` means the read failed or there are more than 100.
+<first line>` for the unresolved review threads **of any author**. `unknown` means the read failed or there are more than 100. The separate `Observed reviewer wait_ms:` line is measured time spent in this invocation observing pending reviewers, not the full external review duration or CI time.
 Answer and resolve each with `node .ticketflow/scripts/thread.mjs <PR> <thread-id>` (the reply on stdin: the fix commit, or the
 reason for rejecting it). `pr-wait` flattens all GitHub text to one line, so it cannot forge a summary line.
 
@@ -72,7 +72,7 @@ for changes, and a review of the head:
 - **The merging account's own `pr-reviewer` review.** A submitted review of an `OWNER`, `MEMBER` or `COLLABORATOR` account with
   `Reviewed head: <sha>` (naming the head) and exactly one `**Verdict:** ready to merge`.
 - **Or `--reviewed-by '<login>'`**, naming the external reviewer whose result on the head you acted on. `merge` checks that
-  `pr-wait` lists that account with a result on this head, then prints a note. It cannot check what the result says: the agent read it.
+  `pr-wait` lists that account with a result on this head. For an unedited first comment inside the wait window, also pass `--review-result-url '<exact comment link>'` only after reading the complete review and addressing its findings. It checks the result link and head, not what the review says. Never use that option for a status note, failed run, quota notice or unrelated bot output.
 - **Every trusted account's last verdict on the head must be ready.** A `changes needed` from any account blocks until that same
   account reviews again, a push moves the head (verdicts are per head), or the owner merges by hand. An outsider's review sets no
   verdict and lifts none. The label may be spelled `**Verdict:**`, `**Verdict**:`, `Verdict:`, indented or in any case, so a

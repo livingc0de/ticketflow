@@ -5,9 +5,11 @@ Read `.ticketflow/custom/post-merge.md` first if it exists: it adds to and overr
 ## Status and summary
 
 - When `project` is set in the config, set the status with `node .ticketflow/scripts/project.mjs status <N> "In Review"`. The issue stays open. Done (`project.mjs status <N> Done` if set, then `gh issue close <N>`) only when the owner explicitly asks. Blocked only with a comment naming the blocker and the next action.
-- Post a summary comment on the ticket (`gh issue comment <N> --body-file -`): what merged (PR and merge commit), the evidence, the decisions applied, the assumptions, "Also fixed", the follow-ups (each with its issue number), and anything not verified or deferred. End it with the `Run:` line:
+- Post a summary comment on the ticket (`gh issue comment <N> --body-file -`): what merged (PR and merge commit), the evidence, the decisions applied, the assumptions, "Also fixed", the follow-ups (each with its issue number), and anything not verified or deferred. Include the `Run:` line near the end:
 
   `Run: tier <t> · main <model>/<effort> · planner <matches the Planning line> · reviewer <names | pr-reviewer/effort | none> · review rounds <n> · CI runs <n> · fallback <yes|no>`
+
+  For a retained Claude Code JSON result or Codex JSONL session record, run `node .ticketflow/scripts/efficiency.mjs <capture.json|capture.jsonl> [--wait-log <pr-wait.log>]` to print an optional `Efficiency:` line; append it to the ticket if it reflects this ticket's session. The script reports duration, input/output/cache tokens and cost only when the CLI captured them, and marks delegated-agent coverage unknown. Use `unknown` for missing or unverified totals, never estimates or double-counted child usage. The optional log gives measured reviewer-pending time observed by `pr-wait`, not elapsed time before the wait began. Keep this optional and non-blocking: no external telemetry, new dependency, or second tracking process. Use existing Run counts to spot unnecessary review/CI rounds.
 
 - A tracker child: post the summary on the child, then run `node .ticketflow/scripts/tracker-next.mjs <T>` and use its output for your report.
 

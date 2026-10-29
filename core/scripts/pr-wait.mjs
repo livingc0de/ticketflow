@@ -15,9 +15,9 @@
  * A failed read is a pending poll, never a verdict.
  *
  * External reviewers are observed, never configured or invoked. One counts when it is an app (a `[bot]` login, or type Bot) that
- * commented, reviewed or reacted on the PR (whatever it wrote: the agent judges whether it is a review), or an OWNER, MEMBER or
- * COLLABORATOR that reviewed it, other than the PR author and the account running this, and it has a sign on this head: a review of it,
- * a comment or a reaction made, or a comment edited, after the head was pushed (the first check suite of the head, else its committer
+ * commented, reviewed or reacted on the PR (including standalone inline comments on the head; the agent judges whether it is a review), or an OWNER, MEMBER or
+ * COLLABORATOR that reviewed it or left an inline comment on the head, other than the PR author and the account running this,
+ * and it has a sign on this head: a review of it, a PR-level or inline comment, or a reaction made, or a comment edited, after the head was pushed (the first check suite of the head, else its committer
  * date). Its start is its first sign; it is waited for at most 15 minutes from that start, and only its own result ends its wait: a
  * review of the head (whatever its time: it can only exist after the push), else its latest comment with visible text, its first one
  * included, counted at its last edit, that names the head or no commit at all; its first comment on this head (a new one, or an old one
@@ -41,7 +41,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -152,15 +152,53 @@ const isApp = (u) => u?.type === 'Bot' || /\[bot\]$/.test(u?.login ?? '')
 
 const WINDOW_MS = 15 * 60_000
 const launched = Date.now()
+let reviewerPendingSince = null
+let reviewerWaitMs = 0
+let reviewerWaitUnknown = false
 // The first sign and first answer seen per head and reviewer, shared by every run in this checkout (merge's own --once check too),
-// because the API keeps only a comment's last edit. A file in the git dir, never committed; missing or unreadable is an empty cache.
+// because the API keeps only a comment's last edit. A file in the git dir, never committed; saveSeen serializes and atomically merges
+// concurrent updates; missing or unreadable is an empty cache.
 const CACHE_DAYS = 2
+const CACHE_LOCK_WAIT_MS = 5_000
+// shortcut: 30s, cache writes complete in milliseconds; recover only abandoned locks.
+const CACHE_LOCK_STALE_MS = 30_000
 const cacheFile = (() => { const r = ciOnly ? null : spawnSync('git', ['rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }); return r?.status === 0 ? join(r.stdout.trim(), 'ticketflow-pr-wait.json') : null })()
-const firstSeen = new Map((() => { try { return Object.entries(JSON.parse(readFileSync(cacheFile, 'utf8'))).filter(([, t]) => Number.isFinite(t)) } catch { return [] } })())
+const cacheLock = cacheFile ? `${cacheFile}.lock` : null
+const readSeen = () => {
+    try { return Object.entries(JSON.parse(readFileSync(cacheFile, 'utf8'))).filter(([, t]) => Number.isFinite(t)) } catch { return [] }
+}
+const firstSeen = new Map(readSeen())
+const pause = (ms) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) }
+function takeCacheLock() {
+    if (!cacheLock) return false
+    const started = Date.now()
+    while (Date.now() - started < CACHE_LOCK_WAIT_MS) {
+        try { mkdirSync(cacheLock); return true } catch (e) {
+            if (e.code !== 'EEXIST') return false
+            try {
+                if (Date.now() - statSync(cacheLock).mtimeMs > CACHE_LOCK_STALE_MS) rmdirSync(cacheLock)
+            } catch { /* another writer owns it, or it is not a removable stale lock */ }
+            pause(10)
+        }
+    }
+    return false
+}
 function saveSeen() {
-    if (!cacheFile) return
-    const keep = [...firstSeen].filter(([, t]) => Number.isFinite(t) && t > Date.now() - CACHE_DAYS * 86_400_000)
-    try { writeFileSync(cacheFile, JSON.stringify(Object.fromEntries(keep))) } catch { /* an unwritable cache only costs the memory */ }
+    if (!takeCacheLock()) return
+    const temp = `${cacheFile}.${process.pid}.${Date.now()}.tmp`
+    try {
+        const merged = new Map(readSeen())
+        for (const [key, time] of firstSeen) {
+            if (Number.isFinite(time) && (!Number.isFinite(merged.get(key)) || time < merged.get(key))) merged.set(key, time)
+        }
+        const keep = [...merged].filter(([, t]) => t > Date.now() - CACHE_DAYS * 86_400_000)
+        writeFileSync(temp, JSON.stringify(Object.fromEntries(keep)), { flag: 'wx' })
+        renameSync(temp, cacheFile)
+    } catch { /* an unwritable cache only costs the memory */
+        try { unlinkSync(temp) } catch { /* the atomic rename already removed it */ }
+    } finally {
+        try { rmdirSync(cacheLock) } catch { /* the lock was already removed or was never ours */ }
+    }
 }
 const pushed = new Map()
 let me
@@ -176,28 +214,32 @@ function pushedAt(head) {
 }
 
 /**
- * Fills S.reviewers with one { login, state, text } per external reviewer that started on this head: an app that commented, reviewed
- * or reacted on the PR, or a trusted human that reviewed, and has a sign since the push (a review of the head,
- * a comment, a reaction).
+ * Fills S.reviewers with one { login, state, text } per reviewer on this head: an app with PR-level activity,
+ * or a trusted human with a submitted review or inline comment, and a sign since the push.
  */
 function pollReviewers(S) {
     const since = pushedAt(S.head)
     const comments = api(`${R}/issues/${target}/comments`, true)
     const reactions = api(`${R}/issues/${target}/reactions`, true)
     const reviews = api(`${R}/pulls/${target}/reviews`, true).filter((x) => x.state !== 'PENDING' && x.state !== 'DISMISSED')
+    const inline = api(`${R}/pulls/${target}/comments`, true)
     const outside = (l) => l && l !== me && l !== S.author
-    // every app active on the PR is listed (a deploy or coverage bot too): whether its comment is a review is the agent's reading
-    const known = new Set([...reviews.filter((x) => isApp(x.user) || TRUSTED.has(x.author_association)), ...reactions.filter((x) => isApp(x.user)), ...comments.filter((c) => isApp(c.user))].map((x) => x.user?.login).filter(outside))
-    // a comment counts when it was posted after the push, else when it was edited after it
+    // A comment counts when it was posted after the push, else when it was edited after it.
     const at = (c) => (ms(c.created_at) > since ? ms(c.created_at) : ms(c.updated_at))
     const edited = (c) => Math.max(ms(c.created_at), ms(c.updated_at ?? c.created_at))
-    // shortcut: a comment that names commits (7-40 hex, hidden markup too) but not this head is about another commit: a sign, never the
-    // result; a hex word ("defaced") makes a result wait out its window, the safe side; revisit if a reviewer names commits unrelated to its review
-    const aboutOther = (c) => { const named = String(c.body ?? '').match(/\b[0-9a-f]{7,40}\b/g) ?? []; return named.length > 0 && !named.some((x) => S.head.startsWith(x)) }
+    // Inline findings belong to a commit. An edit to an older commit's finding is not evidence for this head.
+    const onHeadInline = inline.filter((c) => c.commit_id === S.head && at(c) > since)
+    // Every app active on the PR is listed (deploy and coverage bots too); trusted humans count only if they reviewed or left an inline finding.
+    const known = new Set([...reviews.filter((x) => isApp(x.user) || TRUSTED.has(x.author_association)),
+        ...reactions.filter((x) => isApp(x.user)), ...comments.filter((c) => isApp(c.user)),
+        ...onHeadInline.filter((c) => isApp(c.user) || TRUSTED.has(c.author_association))].map((x) => x.user?.login).filter(outside))
+    // GitHub already anchors inline comments to a commit. Only PR-level comments need a text-based stale-head check.
+    // shortcut: an unanchored comment naming only other commits is a sign, never the result.
+    const aboutOther = (c) => { if (c.commit_id === S.head) return false; const named = String(c.body ?? '').match(/\b[0-9a-f]{7,40}\b/g) ?? []; return named.length > 0 && !named.some((x) => S.head.startsWith(x)) }
     S.reviewers = [...known].sort().map((login) => {
         const mine = (x) => x.user?.login === login
         const onHead = reviews.filter((x) => mine(x) && x.commit_id === S.head)
-        const own = comments.filter(mine)
+        const own = [...comments.filter(mine), ...onHeadInline.filter(mine)]
         const signs = [...onHead.map((x) => ms(x.submitted_at)), ...[...own.map(at), ...reactions.filter(mine).map((x) => ms(x.created_at))].filter((t) => t > since)]   // a review of the head counts whatever its time
         if (!signs.length) return null
         const key = `${cfg.repo}#${target} ${S.head} ${since} ${login}`   // per repo and PR: the cache is shared by every run in the checkout
@@ -216,9 +258,13 @@ function pollReviewers(S) {
         const firstKey = `${key} comment`
         const firstAnswer = Math.min(firstSeen.get(firstKey) ?? Infinity, ...own.filter((c) => visible(c.body) && !aboutOther(c)).map(at).filter((t) => t > since))
         firstSeen.set(firstKey, firstAnswer)
-        const kind = (c) => (edited(c) <= firstAnswer && Date.now() < start + WINDOW_MS ? 'first comment' : 'comment')
+        // An unedited inline finding on the head is still potentially the reviewer's first status message.
+        // Require explicit agent judgment for it even if other comments or cache activity preceded it.
+        const kind = (c) => (Date.now() < start + WINDOW_MS &&
+            (edited(c) <= firstAnswer || (c.commit_id === S.head && edited(c) === ms(c.created_at))) ? 'first comment' : 'comment')
         const said = latest(onHead.filter((x) => !more.has(login) || ms(x.submitted_at) > launched).map((x) => [ms(x.submitted_at), `review ${x.state} ${x.html_url} ${firstLine(x.body)}`]))
-            ?? latest(own.filter((c) => edited(c) > after && visible(c.body) && !aboutOther(c)).map((c) => [edited(c), `${kind(c)} ${c.html_url} ${firstLine(c.body)}`]))
+            ?? latest(own.filter((c) => edited(c) > after && visible(c.body) && !aboutOther(c)).map((c) => [edited(c),
+                `${kind(c) === 'comment' && c.commit_id === S.head ? 'inline comment' : kind(c)} ${c.html_url} ${c.commit_id === S.head ? `${c.path}:${c.line ?? c.original_line} ` : ''}${firstLine(c.body)}`]))
         if (said) return { login, state: 'result', text: `result ${said[1]}` }
         const iso = (t) => new Date(t).toISOString()
         if (Date.now() >= start + WINDOW_MS) return { login, state: 'late', text: `no result 15 min after its start ${iso(start)}` }
@@ -264,6 +310,7 @@ function print(S, timedOut) {
         if (S.threads.length > 20) console.log(`  ... ${S.threads.length - 20} more`)
     }
     for (const n of S.notes) console.log(n)
+    console.log(`Observed reviewer wait_ms: ${(ciOnly || reviewerWaitUnknown) ? 'unknown' : reviewerWaitMs + (reviewerPendingSince === null ? 0 : Date.now() - reviewerPendingSince)}`)
     if (timedOut) console.log(`TIMEOUT after ${timeoutMin}m`)
 }
 
@@ -282,7 +329,12 @@ for (;;) {
         try { pollReviewers(S) } catch { S.reviewers = 'unknown' }
         pollThreads(S)
     }
-    const reviewed = S.reviewers !== 'unknown' && !(S.reviewers ?? []).some((x) => x.state === 'pending')
+    if (!ciOnly && !Array.isArray(S.reviewers)) reviewerWaitUnknown = true
+    const waiting = Array.isArray(S.reviewers) && S.reviewers.some((x) => x.state === 'pending')
+    // Track only time this invocation actually observed a pending reviewer, not CI time or time before it started.
+    if (waiting && reviewerPendingSince === null) reviewerPendingSince = Date.now()
+    if (!waiting && reviewerPendingSince !== null) { reviewerWaitMs += Date.now() - reviewerPendingSince; reviewerPendingSince = null }
+    const reviewed = S.reviewers !== 'unknown' && !waiting
     const settled = kind === 'green' || kind === 'red' ? once || reviewed : kind !== 'pending'   // red waits for the reviewers: all fixes go into one push
     const timedOut = !settled && !once && Date.now() >= deadline
     if (settled || once || timedOut) {
