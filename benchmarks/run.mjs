@@ -21,7 +21,7 @@ try {
         repeats: { type: 'string' }, 'before-source': { type: 'string' }, 'after-source': { type: 'string' },
         'superpowers-source': { type: 'string' }, 'ponytail-source': { type: 'string' },
         out: { type: 'string' }, 'max-sessions': { type: 'string' }, resume: { type: 'boolean' }, execute: { type: 'boolean' }
-    }, allowPositionals: false })))
+    }, allowPositionals: false }))
     if (!['claude', 'codex'].includes(v.agent) || !v.model?.trim()) throw Error(usage)
     const count = (x, d) => x === undefined ? d : /^\d+$/.test(x) && +x > 0 && Number.isSafeInteger(+x) ? +x : NaN
     const repeats = count(v.repeats, 3), maximum = count(v['max-sessions'], 24)
