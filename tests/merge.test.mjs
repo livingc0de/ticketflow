@@ -293,6 +293,19 @@ test('M3b: a bot\'s unedited first comment is no basis for --reviewed-by while i
     assert.equal(run({ args: by('rb[bot]'), comments: [first(16)], reviews: [] }).status, 0)
 })
 
+test('inline-only review requires an inspected current-head result and cannot bypass open threads', () => {
+    const c = { id: 41, user: APP, author_association: 'NONE', commit_id: HEAD, created_at: ago(4),
+        updated_at: ago(4), body: 'P1: Handle bad input', path: 'src/a.js', line: 4, html_url: 'https://x/inline41' }
+    const extra = { [`${R}/pulls/5/comments`]: [c] }
+    refused(run({ args: by('rb[bot]'), reviews: [], extra }), /first comment on abcdef1/)
+    const early = run({ args: [...by('rb[bot]'), '--review-result-url', c.html_url], reviews: [], extra })
+    assert.equal(early.status, 0, early.stderr)
+    refused(run({ args: [...by('rb[bot]'), '--review-result-url', c.html_url], reviews: [], extra,
+        threads: [thread('PRRT_i')] }), /unresolved review thread/)
+    refused(run({ args: [...by('rb[bot]'), '--review-result-url', c.html_url], reviews: [],
+        extra: { [`${R}/pulls/5/comments`]: [{ ...c, commit_id: OLD }] } }), /no result/)
+})
+
 test('M6: the owner\'s GitHub approval can be named; GitHub\'s refusal of the merge is reported', () => {
     const approval = ext({ id: 12, user: { login: 'boss', type: 'User' }, author_association: 'OWNER', state: 'APPROVED', body: '' })
     const r = run({ args: by('boss'), reviews: [approval] })
