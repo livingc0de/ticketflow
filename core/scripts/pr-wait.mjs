@@ -223,7 +223,10 @@ function pollReviewers(S) {
         const firstKey = `${key} comment`
         const firstAnswer = Math.min(firstSeen.get(firstKey) ?? Infinity, ...own.filter((c) => visible(c.body) && !aboutOther(c)).map(at).filter((t) => t > since))
         firstSeen.set(firstKey, firstAnswer)
-        const kind = (c) => (edited(c) <= firstAnswer && Date.now() < start + WINDOW_MS ? 'first comment' : 'comment')
+        // An unedited inline finding on the head is still potentially the reviewer's first status message.
+        // Require explicit agent judgment for it even if other comments or cache activity preceded it.
+        const kind = (c) => (Date.now() < start + WINDOW_MS &&
+            (edited(c) <= firstAnswer || (c.commit_id === S.head && edited(c) === ms(c.created_at))) ? 'first comment' : 'comment')
         const said = latest(onHead.filter((x) => !more.has(login) || ms(x.submitted_at) > launched).map((x) => [ms(x.submitted_at), `review ${x.state} ${x.html_url} ${firstLine(x.body)}`]))
             ?? latest(own.filter((c) => edited(c) > after && visible(c.body) && !aboutOther(c)).map((c) => [edited(c),
                 `${kind(c) === 'comment' && c.commit_id === S.head ? 'inline comment' : kind(c)} ${c.html_url} ${c.commit_id === S.head ? `${c.path}:${c.line ?? c.original_line} ` : ''}${firstLine(c.body)}`]))
