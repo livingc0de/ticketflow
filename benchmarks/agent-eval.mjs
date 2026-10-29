@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Maintainer tool, never shipped to installed repos: runs one eval scenario (docs/evals/scenarios/<id>) with a real agent CLI in a fresh
+ * Maintainer tool, never shipped to installed repos: runs one eval scenario (benchmarks/scenarios/<id>) with a real agent CLI in a fresh
  * temp git repo and appends one JSON row (docs/evals/agent-scenarios.md). It starts a PAID agent session; nothing here runs in CI.
  *
  * Usage: agent-eval.mjs <scenario> --agent claude|codex --arm ticketflow|bare [--model m] [--source dir] [--out file.jsonl]
@@ -18,7 +18,7 @@ import { parseArgs } from 'node:util'
 import { main } from '../core/lib/cli.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const SCENARIOS = join(ROOT, 'docs/evals/scenarios')
+const SCENARIOS = join(ROOT, 'benchmarks/scenarios')
 const usage = 'usage: agent-eval <scenario> --agent claude|codex --arm ticketflow|bare [--model m] [--source dir] [--out file.jsonl]'
 const TOOLS = 'Read,Edit,Write,Glob,Grep,Bash(node *),Bash(npm *),Bash(git status *),Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git add *),Bash(git commit *)'
 const AGENT_TIMEOUT_MS = 30 * 60 * 1000   // shortcut: one fixed 30-minute ceiling so a hung paid session cannot run forever (a timeout is recorded as agent_exit null), add a --timeout option when a scenario needs longer

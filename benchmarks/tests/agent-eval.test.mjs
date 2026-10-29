@@ -3,11 +3,11 @@ import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { tempDir } from './helpers.mjs'
+import { tempDir } from '../../tests/helpers.mjs'
 
-const ROOT = new URL('../', import.meta.url).pathname
-const TOOL = join(ROOT, 'tools/agent-eval.mjs')
-const SCEN = join(ROOT, 'docs/evals/scenarios')
+const ROOT = new URL('../../', import.meta.url).pathname
+const TOOL = join(ROOT, 'benchmarks/agent-eval.mjs')
+const SCEN = join(ROOT, 'benchmarks/scenarios')
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], { cwd, encoding: 'utf8', stdio: 'pipe' }).trim()
 const put = (dir, p, text) => { mkdirSync(join(dir, p, '..'), { recursive: true }); writeFileSync(join(dir, p), text) }
 const edit = (dir, p, from, to) => put(dir, p, readFileSync(join(dir, p), 'utf8').replace(from, to))

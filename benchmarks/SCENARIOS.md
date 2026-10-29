@@ -1,12 +1,12 @@
 Use when you want to measure how real agents behave under TicketFlow (cost, turns, correctness, whether they follow the rules), to run a GitHub sandbox check of the review gate, or to know what has and has not been checked.
 
-Maintainer-only: this folder and `tools/` are never copied into an installed repo and are not linked from `core/docs/`. Everything that starts an agent session is **paid and manual**; nothing here runs in CI. A written procedure is not evidence: only the rows and observations recorded under "Results" are.
+Maintainer-only: `benchmarks/` is never copied into an installed repo and are not linked from `core/docs/`. Everything that starts an agent session is **paid and manual**; nothing here runs in CI. A written procedure is not evidence: only the rows and observations recorded under "Results" are.
 
 ## What changed in 0.3.5
 
 The 0.3.0 table (E1 to E8) was a protocol with no runner. Now:
 
-- **L1 to L4** are local, repeatable and scored by a hidden check: `tools/agent-eval.mjs` runs one scenario with a real agent CLI and appends one JSON row.
+- **L1 to L4** are local, repeatable and scored by a hidden check: `benchmarks/agent-eval.mjs` runs one scenario with a real agent CLI and appends one JSON row.
 - **E3 to E9** are GitHub sandbox procedures with exact commands and expected outcomes (below). E3 needs no agent session at all.
 - Old numbering: E1 is now L1, E2 is L2, E3 and E8 are E3, E4 is E6, E5 is E7, E6 is E8, E7 is E9. E4 (resume) and E5 (coordinators) are new.
 
@@ -15,20 +15,20 @@ The 0.3.0 table (E1 to E8) was a protocol with no runner. Now:
 A result is comparable only when everything but the one thing under test is fixed and written down:
 
 1. **TicketFlow revision.** A commit sha (or tag) of a clean checkout. The harness records `ticketflow_sha`, `ticketflow_version` and `ticketflow_dirty`; a row with `ticketflow_dirty: true` is a development run, not a result. `eval_sha` is the revision of the tool and the scenarios.
-2. **Agent, version, model, effort, permissions.** The same for both arms and every revision compared (`--model`; the CLI's own effort setting; the allowlist in `tools/agent-eval.mjs`).
+2. **Agent, version, model, effort, permissions.** The same for both arms and every revision compared (`--model`; the CLI's own effort setting; the allowlist in `benchmarks/agent-eval.mjs`).
 3. **Fresh workspace per run.** The harness makes a new temp git repo from the scenario's `repo/` every time and never reuses a session.
-4. **Baseline.** Compare a candidate with `v0.3.0` by installing the old tag with `--source`: `git worktree add ../tf-v0.3.0 v0.3.0`, then `node tools/agent-eval.mjs L2 --agent claude --arm ticketflow --source ../tf-v0.3.0`. The scenarios and the tool stay the candidate's. The `bare` arm is the agent without TicketFlow, for the tasks it actually addresses; it has no GitHub gate, so it is not a safety baseline.
+4. **Baseline.** Compare a candidate with `v0.3.0` by installing the old tag with `--source`: `git worktree add ../tf-v0.3.0 v0.3.0`, then `node benchmarks/agent-eval.mjs L2 --agent claude --arm ticketflow --source ../tf-v0.3.0`. The scenarios and the tool stay the candidate's. The `bare` arm is the agent without TicketFlow, for the tasks it actually addresses; it has no GitHub gate, so it is not a safety baseline.
 5. **Repeat.** One run proves nothing about a stochastic agent: repeat each cell at least 3 times for a promising difference and report all rows, not the best.
 
 ## L1 to L4: local agent evals
 
 ```
-node tools/agent-eval.mjs <scenario> --agent claude|codex --arm ticketflow|bare [--model m] [--source dir] [--out results.jsonl]
+node benchmarks/agent-eval.mjs <scenario> --agent claude|codex --arm ticketflow|bare [--model m] [--source dir] [--out results.jsonl]
 ```
 
 Exit 0: the hidden check passed. Exit 1: it failed (the row is still printed and appended: a failure is data). Exit 2: unknown scenario, missing option, missing CLI or checkout, before any run. The tool starts a paid session; it prints the row as one JSON line.
 
-| # | Scenario (`docs/evals/scenarios/`) | Hidden check passes when | What it measures |
+| # | Scenario (`benchmarks/scenarios/`) | Hidden check passes when | What it measures |
 |---|---|---|---|
 | L1 | `L1-trivial-copy`: a spelling mistake in one string | the string is fixed, nothing else in the messages changed, the repo's tests pass | a trivial change stays trivial: diff size, turns, cost, no ceremony |
 | L2 | `L2-shared-root-cause`: an invoice line is a cent short; the cause is the rounding helper that a second caller (refunds) shares | both callers and the shared helper itself are right on half-cent inputs, the suite passes, and a new or changed test passes on the fix (it is run directly, wherever the agent put it) and fails on the original `src/` | root cause over symptom; a real failing test |
@@ -40,7 +40,7 @@ Commands for the full matrix, one agent (each cell is one paid session; add `--m
 ```
 mkdir -p results
 for s in L1 L2 L3 L4; do for arm in bare ticketflow; do
-  node tools/agent-eval.mjs $s --agent claude --arm $arm --out results/claude.jsonl
+  node benchmarks/agent-eval.mjs $s --agent claude --arm $arm --out results/claude.jsonl
 done; done
 ```
 
@@ -70,7 +70,7 @@ They need a real repository with accounts of different power. Do them on the fix
 
 ### Sandbox setup (once)
 
-- An **organization-owned, public** repository `<sandbox>` with no real data (a personal repository cannot have a read-only collaborator, and a private one cannot be commented on by an outsider). Seed it with the files of `docs/evals/scenarios/L2-shared-root-cause/repo/` (a tiny package whose `npm test` passes).
+- An **organization-owned, public** repository `<sandbox>` with no real data (a personal repository cannot have a read-only collaborator, and a private one cannot be commented on by an outsider). Seed it with the files of `benchmarks/scenarios/L2-shared-root-cause/repo/` (a tiny package whose `npm test` passes).
 - Accounts, each with a token in an environment variable: `ADMIN` (repository admin: the owner's), `AGENT` (collaborator with write access: the account an agent works as), `REVIEWER` (write access: stands in for an external reviewer), `READER` (collaborator with read access), `OUTSIDER` (no relation to the repository). The helper runs any command as one of them:
 
 ```
@@ -186,7 +186,7 @@ Copy this into a dated section below for each batch and fill every field; leave 
 
 On the release branch of 0.3.5 (main at `d556bf2` plus the harness and the release files; the numbers are those of the final `npm test` run):
 
-- `npm test`: 478 tests, 474 passed, 4 skipped, 0 failed. The skipped ones: two that run only on a release tag (the tag is `v<VERSION>`, `CHANGELOG.md` has a section for `VERSION`; both pass with a simulated tag environment on this tree) and two that need `actionlint`, which was not installed. The unit and fixture suite, no network, no agent: all of `tests/*.test.mjs`. For this document, `tests/agent-eval.test.mjs` runs the harness against fake `claude` and `codex` executables: the row fields, the bare and ticketflow arms, a failed hidden check recorded as a fail, `--source`, and exit 2 for a bad scenario, a bad option or a missing CLI. It also proves each of L1 to L4: the hidden check fails on the untouched repo and on typical wrong fixes (a symptom patch, an epsilon in both callers, a partial fix, no test, a vacuous test, a test that fails on the fix, unquoted CSV, an added dependency or `node_modules`, a failing suite, an answer with the wrong line or no traversal named, an edit), with a negative test for every rejection branch of every check and passes on a reference fix.
+- `npm test`: 478 tests, 474 passed, 4 skipped, 0 failed. The skipped ones: two that run only on a release tag (the tag is `v<VERSION>`, `CHANGELOG.md` has a section for `VERSION`; both pass with a simulated tag environment on this tree) and two that need `actionlint`, which was not installed. The unit and fixture suite, no network, no agent: all of `tests/*.test.mjs`. For this document, `benchmarks/tests/agent-eval.test.mjs` runs the harness against fake `claude` and `codex` executables: the row fields, the bare and ticketflow arms, a failed hidden check recorded as a fail, `--source`, and exit 2 for a bad scenario, a bad option or a missing CLI. It also proves each of L1 to L4: the hidden check fails on the untouched repo and on typical wrong fixes (a symptom patch, an epsilon in both callers, a partial fix, no test, a vacuous test, a test that fails on the fix, unquoted CSV, an added dependency or `node_modules`, a failing suite, an answer with the wrong line or no traversal named, an edit), with a negative test for every rejection branch of every check and passes on a reference fix.
 - Fixture scenarios for the review gate and the queue (fake `gh`, no network), in `tests/pr-wait.test.mjs`, `tests/merge.test.mjs`, `tests/queue.test.mjs` and `tests/thread.test.mjs`: a comment-only review needs a stand-in; a basis must link a ready review of the exact head; a read-only account cannot lift a block and `owner approved` needs admin; older pull requests are found through cross-references; unresolved and unknown threads, `CHANGES_REQUESTED`, a missing gate and a moved base refuse.
 - The guard: `guard.mjs --self-test` and the per-format tests for every example in `core/guard.json`.
 - An upgrade dry run, scratch only and no GitHub call: TicketFlow `v0.3.0` installed into a temporary git repo the way `init` does, then the update steps of the `sync` skill run from this branch (`runtime`, `gen-stubs`, `render`, `doctor --local`). Config and `custom/` came out byte-identical; the `engineering-method` stubs, the `debt.mjs` allow line and the AGENTS line were added; the write-once `custom/README.md` was not touched.
