@@ -198,9 +198,9 @@ function pollReviewers(S) {
     const known = new Set([...reviews.filter((x) => isApp(x.user) || TRUSTED.has(x.author_association)),
         ...reactions.filter((x) => isApp(x.user)), ...comments.filter((c) => isApp(c.user)),
         ...onHeadInline.filter((c) => isApp(c.user) || TRUSTED.has(c.author_association))].map((x) => x.user?.login).filter(outside))
-    // shortcut: a comment that names commits (7-40 hex, hidden markup too) but not this head is about another commit: a sign, never the
-    // result; a hex word ("defaced") makes a result wait out its window, the safe side; revisit if a reviewer names commits unrelated to its review
-    const aboutOther = (c) => { const named = String(c.body ?? '').match(/\b[0-9a-f]{7,40}\b/g) ?? []; return named.length > 0 && !named.some((x) => S.head.startsWith(x)) }
+    // GitHub already anchors inline comments to a commit. Only PR-level comments need a text-based stale-head check.
+    // shortcut: an unanchored comment naming only other commits is a sign, never the result.
+    const aboutOther = (c) => { if (c.commit_id === S.head) return false; const named = String(c.body ?? '').match(/\b[0-9a-f]{7,40}\b/g) ?? []; return named.length > 0 && !named.some((x) => S.head.startsWith(x)) }
     S.reviewers = [...known].sort().map((login) => {
         const mine = (x) => x.user?.login === login
         const onHead = reviews.filter((x) => mine(x) && x.commit_id === S.head)
