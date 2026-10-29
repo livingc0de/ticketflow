@@ -108,7 +108,7 @@ main('agent-eval', () => {
     if (v.arm === 'ticketflow' && !existsSync(join(src, 'core/scripts/runtime.mjs'))) throw new Error(`${src} is not a ticketflow checkout`)
     const version = run(v.agent, ['--version'])
     if (version.error || version.status !== 0) throw new Error(`${v.agent} is not installed or not on PATH`)
-    if (external && !run('claude', ['--help']).stdout?.includes('--plugin-dir')) throw new Error('Claude CLI does not advertise --plugin-dir; cannot load competitor natively')
+    if (external && v.agent === 'claude' && !run('claude', ['--help']).stdout?.includes('--plugin-dir')) throw new Error('Claude CLI does not advertise --plugin-dir; cannot load competitor natively')
 
     const sdir = join(SCENARIOS, id), work = mkdtempSync(join(tmpdir(), 'agent-eval-'))
     const { dir, base } = workspace(sdir, v.agent, v.arm, work, src)
@@ -117,7 +117,7 @@ main('agent-eval', () => {
     const prompt = readFileSync(join(sdir, 'prompt.md'), 'utf8'), claude = v.agent === 'claude'
     const args = claude
         ? ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--setting-sources', 'project,local', '--allowedTools', TOOLS, ...(v.model ? ['--model', v.model] : []), ...(external ? ['--plugin-dir', src] : [])]
-        : ['exec', '--json', '--ignore-user-config', '--sandbox', 'workspace-write', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), '-']   // codex reads the prompt from stdin
+        : ['exec', '--json', ...(!external ? ['--ignore-user-config'] : []), '--sandbox', 'workspace-write', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), '-']   // codex reads the prompt from stdin
     const t0 = Date.now()
     // Authentication is the only state carried into the empty Codex profile, then erased immediately after the session.
     // Never put auth inside the task repository or leave it in the retained benchmark artifacts.
