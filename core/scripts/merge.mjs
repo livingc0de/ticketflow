@@ -47,7 +47,7 @@ const isReady = (body) => {
     // Older reviews may omit these fields. Any supplied dimension must agree, regardless of common Markdown label styling.
     const dimensions = [...text.matchAll(/^[ \t]*(?:#{1,6}[ \t]+|[-*+][ \t]+)?(?:\*\*|__)?(spec compliance|code quality)(?:\*\*|__)?[ \t]*:[ \t]*(?:\*\*|__)?[ \t]*(.*?)[ \t]*$/gim)]
     const dimension = (name, expected) => {
-        const found = dimensions.filter((m) => m[1].toLowerCase() === name).map((m) => m[2].trim().toLowerCase())
+        const found = dimensions.filter((m) => m[1].toLowerCase() === name.toLowerCase()).map((m) => m[2].trim().toLowerCase())
         return found.length === 0 || (found.length === 1 && found[0] === expected)
     }
     return verdictReady && dimension('Spec compliance', 'met') && dimension('Code quality', 'acceptable')
