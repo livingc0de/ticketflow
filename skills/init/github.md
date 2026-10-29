@@ -1,15 +1,16 @@
 # GitHub side
 
 Every write comes after a shown dry run and a yes. Run the scripts of the installed runtime (`.ticketflow/scripts/`) from the repo root.
+The label cleanup below is for initialization; update/sync's After merge steps do not pass `--prune-defaults`.
 
 ## Labels
 
-1. `node .ticketflow/scripts/labels.mjs sync .ticketflow/templates/labels.json --dry-run` and show it (a dry run exits 1 when changes are pending; that is not a failure, exit 2 is). The list is TicketFlow's labels, one `Area:` label per config area, one `Environment:` label per configured environment, and `custom/labels.json` if present. It only creates the missing ones; a label the repo already has is never changed, except the entries of `custom/labels.json`.
+1. `node .ticketflow/scripts/labels.mjs sync .ticketflow/templates/labels.json --prune-defaults --dry-run` and show it (a dry run exits 1 when changes are pending; that is not a failure, exit 2 is). The list is TicketFlow's labels, one `Area:` label per config area, one `Environment:` label per configured environment, and `custom/labels.json` if present. It only creates the missing ones; a label the repo already has is never changed, except the entries of `custom/labels.json`. Proposed default-label deletions appear in the same output.
 2. On a yes, the same command without `--dry-run`.
 3. Labels the repo already has are kept. When the dry run lists `differs:` lines (a TicketFlow label the repo styled differently), show
    them and ask: keep the repo's look (default), or use TicketFlow's (`--restyle`, same command): one consistent look across repos,
    but it recolours and may rename labels people know.
-4. `--prune` removes unused labels the list does not name: only on a separate yes to the shown list.
+4. `--prune-defaults` only proposes labels with GitHub's `default: true` plus an exact original name, colour and description, unused on all issues and pull requests, and with discussions disabled. Missing or uncertain API data keeps them. `--prune` removes unused labels the list does not name: only on a separate yes to the shown list; never combine the flags.
 
 ## Project
 

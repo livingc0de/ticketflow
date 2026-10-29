@@ -100,6 +100,15 @@ test('the front door names actions, never one agent\'s tools, and no gh form tha
     for (const path of Object.keys(FRONT)) { assert.doesNotMatch(rootText(path), tools, path); assert.doesNotMatch(rootText(path), covered, path) }
 })
 
+test('initialization offers default-label cleanup through the shared approval flow, while sync stays non-pruning', () => {
+    const github = rootText('skills/init/github.md')
+    assert.match(github, /labels\.mjs sync .*--prune-defaults .*--dry-run/)
+    assert.match(github, /On a yes, the same command without `--dry-run`/)
+    assert.match(rootText('skills/init/new-repo.md'), /shared `github\.md` label dry run and yes gate include .*--prune-defaults/)
+    assert.match(rootText('skills/init/existing-repo.md'), /shared `github\.md` label dry run and yes gate include .*--prune-defaults/)
+    assert.match(rootText('skills/sync/SKILL.md'), /do not use its initialization-only `--prune-defaults` flag/)
+})
+
 test('every script and lib the front door names exists', () => {
     for (const path of Object.keys(FRONT)) {
         for (const [, kind, name] of rootText(path).matchAll(/(?:core|\.ticketflow)\/(scripts|lib)\/([\w-]+\.mjs)/g)) assert.ok(existsSync(join(core, kind, name)), `${path}: ${kind}/${name}`)

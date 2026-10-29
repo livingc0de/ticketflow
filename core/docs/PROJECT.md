@@ -61,11 +61,16 @@ Type, Priority, Effort, AI Model, AI Effort, Area and Environment are labels, no
 - `Environment: <name>` for each name in `environments` of the config.
 - Your own, in `.ticketflow/custom/labels.json` (same format).
 
-`labels.mjs sync <file> [--restyle] [--prune] [--dry-run]` creates the missing labels. A label the repo already has is the repo's: its colour,
+`labels.mjs sync <file> [--restyle] [--prune] [--prune-defaults] [--dry-run]` creates the missing labels. A label the repo already has is the repo's: its colour,
 description and case are never changed, except for the entries of `custom/labels.json`, which are kept in line, and, on the owner's
-choice, `--restyle` (a dry run lists each differing label as `differs:`). It deletes other labels
-only with `--prune`, and only those no issue or pull request uses. The issue forms (feature, bug, task, decision) carry only their
-static Type label and, for decisions, `Needs: Decision`; triage adds Priority, Area, Environment, Effort, AI Model and AI Effort directly as labels.
+choice, `--restyle` (a dry run lists each differing label as `differs:`). `--prune` remains the explicit broad cleanup and deletes only
+other labels with no issue or pull request use. Initialization additionally offers `--prune-defaults`, but only for labels whose REST
+response has `default: true` and exactly matches a known original GitHub name, colour and description; configured labels and all other
+defaults stay. Its usage scan reads all issue and pull-request states with pagination and exact label arrays, so comma-containing names
+are safe. GitHub Discussions are not included in that REST scan: when discussion status is enabled or cannot be verified, default
+deletion is skipped. Neither normal sync, doctor, upgrades nor Project setup passes `--prune-defaults`. The issue forms (feature, bug,
+task, decision) carry only their static Type label and, for decisions, `Needs: Decision`; triage adds Priority, Area, Environment,
+Effort, AI Model and AI Effort directly as labels.
 
 ## Trackers
 
