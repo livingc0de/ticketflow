@@ -333,7 +333,7 @@ test('a bad scenario, agent or arm, a missing option or a missing CLI exits 2 be
         assert.equal(r.status, 2, `${args.join(' ')}\n${r.stdout}${r.stderr}`); assert.match(r.stderr, why); assert.equal(r.stdout, ''); assert.equal(r.calls.length, 0)
         assert.deepEqual(workdirs(), [], 'no work directory was made')
     }
-    bad(['L9', '--agent', 'claude', '--arm', 'bare'], /agent-eval: unknown scenario L9/)
+    bad(['L99', '--agent', 'claude', '--arm', 'bare'], /agent-eval: unknown scenario L99/)
     bad(['../L1-trivial-copy', '--agent', 'claude', '--arm', 'bare'], /unknown scenario/)
     bad(['L', '--agent', 'claude', '--arm', 'bare'], /unknown scenario/)
     bad([L1, '--agent', 'gemini', '--arm', 'bare'], /usage: agent-eval/)
