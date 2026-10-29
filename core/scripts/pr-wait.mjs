@@ -271,7 +271,7 @@ function print(S, timedOut) {
         if (S.threads.length > 20) console.log(`  ... ${S.threads.length - 20} more`)
     }
     for (const n of S.notes) console.log(n)
-    console.log(`Review wait observed_ms: ${ciOnly ? 'unknown' : reviewerWaitMs + (reviewerPendingSince === null ? 0 : Date.now() - reviewerPendingSince)}`)
+    console.log(`Observed reviewer wait_ms: ${ciOnly ? 'unknown' : reviewerWaitMs + (reviewerPendingSince === null ? 0 : Date.now() - reviewerPendingSince)}`)
     if (timedOut) console.log(`TIMEOUT after ${timeoutMin}m`)
 }
 
