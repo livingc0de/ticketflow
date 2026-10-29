@@ -66,6 +66,13 @@ test('merges with the exact argv and reports the method and the merge commit', (
     assert.equal(r.stdout.trim(), `Merged #5 (squash) as ${'f'.repeat(40)}`)
     assert.ok(!r.merges[0].some((a) => /--admin|--auto/.test(a)))
 })
+test('a ready verdict cannot override explicitly failed specification or code-quality dimensions', () => {
+    const base = `Reviewed head: ${SHA7}\n**Verdict:** ready to merge`
+    const good = `${base}\n**Spec compliance:** met\n**Code quality:** acceptable`
+    assert.equal(run({ reviews: [review({ body: good })] }).status, 0)
+    refused(run({ reviews: [review({ body: `${base}\n**Spec compliance:** unmet\n**Code quality:** acceptable` })] }), /not exactly "ready to merge"/)
+    refused(run({ reviews: [review({ body: `${base}\n**Spec compliance:** met\n**Code quality:** changes needed` })] }), /not exactly "ready to merge"/)
+})
 test('each unmet gate exits 1 and never calls pr merge', () => {
     refused(run({ gate: status(null) }), /CI \/ Gate is missing/)
     refused(run({ gate: status('pending') }), /CI \/ Gate is pending/)
