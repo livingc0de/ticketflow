@@ -62,6 +62,18 @@ test('standalone inline reviewer is discovered on the exact head, with no top-le
     assert.ok(r.stdout.includes('Review rb[bot]: result first comment https://x/inline44 src/a.js:7 P1: missing authorization'))
     assert.ok(r.stdout.includes('Review: results (rb[bot])'))
 })
+test('a current-head inline finding remains valid when its text references an older commit', () => {
+    const old = 'b'.repeat(40)
+    const finding = inline(4, `The regression from commit ${old} still affects this line`)
+    const r = wait({ ...green, 'pulls/7/comments': [finding] })
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stdout, /^Review rb\\[bot\\]: result first comment https:\/\/x\/inline44 /m)
+    assert.match(r.stdout, /^Review: results \\(rb\\[bot\\]\\)$/m)
+    // The current head is established by GitHub's commit_id, not hexadecimal strings in the comment body.
+    const stale = wait({ ...green, 'pulls/7/comments': [{ ...finding, commit_id: old, body: `Reviewed head ${HEAD}` }] })
+    assert.match(stale.stdout, /^Review: none$/m)
+})
+
 test('review and inline comment by the same bot produce one reviewer; submitted review wins', () => {
     const r = wait({ ...green, 'pulls/7/comments': [inline(4)], 'issues/7/comments': [note(5, 'Summary')],
         'pulls/7/reviews': [rev('COMMENTED')] })
