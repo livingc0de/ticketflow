@@ -67,8 +67,8 @@ test('a current-head inline finding remains valid when its text references an ol
     const finding = inline(4, `The regression from commit ${old} still affects this line`)
     const r = wait({ ...green, 'pulls/7/comments': [finding] })
     assert.equal(r.status, 0, r.stderr)
-    assert.match(r.stdout, /^Review rb\\[bot\\]: result first comment https:\/\/x\/inline44 /m)
-    assert.match(r.stdout, /^Review: results \\(rb\\[bot\\]\\)$/m)
+    assert.ok(r.stdout.includes('Review rb[bot]: result first comment https://x/inline44'))
+    assert.ok(r.stdout.includes('Review: results (rb[bot])'))
     // The current head is established by GitHub's commit_id, not hexadecimal strings in the comment body.
     const stale = wait({ ...green, 'pulls/7/comments': [{ ...finding, commit_id: old, body: `Reviewed head ${HEAD}` }] })
     assert.match(stale.stdout, /^Review: none$/m)
