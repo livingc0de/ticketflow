@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Maintainer tool, never shipped to installed repos: reports what the upstream projects TicketFlow learns from changed since the last
- * recorded review (docs/maintainers/upstream.json), so a maintainer can review it (docs/maintainers/upstream-review.md).
+ * recorded review (skills/upstream/upstream.json), so a maintainer can review it (skills/upstream/SKILL.md).
  * Reads through `gh api` only. Nothing is written without --record, and --record writes only after every read succeeded.
  *
  * Usage: upstream-review.mjs [--record] [--baseline f]      Exit: 0 = unchanged (or recorded), 1 = changes to review, 2 = error.
@@ -11,10 +11,10 @@ import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { main } from '../core/lib/cli.mjs'
-import { api } from '../core/lib/gh.mjs'
+import { main } from '../../core/lib/cli.mjs'
+import { api } from '../../core/lib/gh.mjs'
 
-const DEFAULT = join(dirname(fileURLToPath(import.meta.url)), '..', 'docs/maintainers/upstream.json')
+const DEFAULT = join(dirname(fileURLToPath(import.meta.url)), 'upstream.json')
 const SAFE = /^[A-Za-z0-9._-]+$/   // part of a request path: no slash, space or query character gets through
 const bad = (m) => { throw new Error(`invalid baseline: ${m}`) }
 

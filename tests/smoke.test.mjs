@@ -23,7 +23,7 @@ test('on a release run CHANGELOG.md has a section for VERSION', { skip: process.
     assert.match(readFileSync(new URL('CHANGELOG.md', root), 'utf8'), new RegExp(`^## ${version.replaceAll('.', '\\.')}$`, 'm'))
 })
 
-test('the plugins expose only init and sync: root skills/ holds exactly those, and there is no agents, commands, hooks or templates directory', () => {
-    assert.deepEqual(readdirSync(new URL('skills/', root)).sort(), ['init', 'sync'])
+test('the plugins expose init, sync and upstream: root skills/ holds exactly those, and there is no agents, commands, hooks or templates directory', () => {
+    assert.deepEqual(readdirSync(new URL('skills/', root)).sort(), ['init', 'sync', 'upstream'])
     for (const d of ['agents', 'commands', 'hooks', 'templates']) assert.ok(!existsSync(new URL(`${d}/`, root)), d)
 })

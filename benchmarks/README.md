@@ -23,7 +23,7 @@ Run the pilot intentionally (4 paid sessions):
 
     node benchmarks/run.mjs --agent claude --model "$CLAUDE_MODEL" --arms before,after --scenarios L1,L2 --repeats 1 --before-source ../ticketflow-before --out benchmarks/results/pilot.jsonl --max-sessions 4 --execute
 
-Run a full before/after comparison by omitting `--scenarios` (all 15 scenarios), selecting `--repeats 3` and setting `--max-sessions 90`. Add `--resume` to continue an interrupted matrix without repeating recorded sessions. `--resume` keys include scenario, arm, repetition, model and source commit; interrupted sessions with no row must be rerun.
+Run a full before/after comparison by omitting `--scenarios` (all 15 scenarios), selecting `--repeats 3` and setting `--max-sessions 90`. Add `--resume` to continue an interrupted matrix without repeating recorded sessions. `--resume` keys include scenario, arm, repetition, model, source commit and the content fingerprint of the evaluator; interrupted sessions with no row must be rerun.
 
 ## Five-arm comparison with Ponytail and Superpowers
 
@@ -50,15 +50,15 @@ This requires a Codex CLI version with the `codex plugin` subcommands and native
 
     node benchmarks/report.mjs benchmarks/results/full.jsonl --out benchmarks/results/summary.md --csv benchmarks/results/sessions.csv
 
-Reports show per-arm and per-scenario pass rates, Wilson 95% intervals, timing, change size, and cost per successful task where supplied. With only a few repetitions, these are descriptive, **not statistical evidence of superiority**. Publish raw anonymized rows alongside conclusions if you make public performance claims; avoid publishing personal paths, credentials or sensitive agent transcripts. All results must be traceable to actual sessions.
+Reports show per-arm and per-scenario pass rates, descriptive Wilson 95% ranges, timing, change size, and cost per successful task where supplied. The report flags duplicate or missing scenario/repeat cells and mismatched arm matrices. Repeated paired task cells are not independent trials, so these summaries are **not statistical evidence of superiority**. Publish raw anonymized rows alongside conclusions if you make public performance claims; avoid publishing personal paths, credentials or sensitive agent transcripts. All results must be traceable to actual sessions.
 
 ## Safety and operational limits
 
-- The harness runs each task in a temporary Git repository. It is **not a security sandbox**: tools can execute Node/npm scripts, and competitor plugins can execute hooks. Use a disposable VM with no GitHub, cloud, production, or personal credentials.
+- The harness runs each task in a temporary Git repository. It is **not a security sandbox**: tools can execute Node/npm scripts, competitor plugins can execute hooks, and an agent may discover evaluator files through the unrestricted Node/npm allowlist. Results are explicitly non-adversarial. Use a disposable VM with no GitHub, cloud, production, or personal credentials.
 - No runs are created by `npm test`, by CI, by inspecting the runner, or by running the report. Paid runs require `--execute`, an explicit pinned model, an output file, and a session cap.
 - `benchmarks/results/*.jsonl` and `*.csv` are ignored locally to avoid accidentally committing session identifiers and paths. Add sanitized evidence intentionally with `git add -f` when publishing.
 - `--source` checkouts should be clean and pinned. A different revision or CLI model invalidates a paired comparison. The harness records unknown descendant-agent token attribution and cannot establish manual-intervention cost from a headless session.
-- The original evaluator and all L1–L4 fixtures now live here; the maintainer upstream-change watcher in `tools/upstream-review.mjs` stays outside this module because it isn't a benchmark.
+- The original evaluator and all L1–L4 fixtures now live here; the maintainer upstream-change watcher in `skills/upstream/upstream-review.mjs` stays outside this module because it isn't a benchmark.
 
 ## Commands
 

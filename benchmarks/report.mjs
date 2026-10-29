@@ -21,7 +21,9 @@ const cost = (rows) => rows.every((r) => typeof r.cost_usd === 'number' && Numbe
 const medianKey = (rows, f) => median(rows.map(f))
 const source = (r) => r.ticketflow_sha || r.plugin_sha || 'bare'
 const model = (r) => r.requested_model ?? r.model ?? 'unknown'
+const evaluation = (r) => r.eval_fingerprint ?? r.eval_sha ?? 'unknown'
 const csv = (v) => '"' + String(v ?? '').replaceAll('"', '""') + '"'
+const cell = (r) => `${r.scenario}|${r.repeat ?? 'missing'}`
 
 try {
     const { values: v, positionals } = parseArgs({ options: { out: { type: 'string' }, csv: { type: 'string' } }, allowPositionals: true })
@@ -31,11 +33,11 @@ try {
     catch (e) { throw Error('cannot parse recorded sessions: ' + e.message) }
     if (!rows.length) throw Error('no sessions: cannot claim improvement')
     if (rows.some((r) => typeof r.scenario !== 'string' || !r.arm || !r.check || typeof r.check.pass !== 'boolean')) throw Error('invalid session row')
-    const evaluations = [...new Set(rows.map((r) => r.eval_sha ?? 'unknown'))]
+    const evaluations = [...new Set(rows.map(evaluation))]
     const versions = [...new Set(rows.map((r) => r.agent + '/' + r.agent_version + '/' + model(r)))]
     const groups = new Map()
     for (const r of rows) {
-        const key = [r.agent, r.agent_version ?? 'unknown', model(r), r.variant ?? r.arm, source(r), r.eval_sha ?? 'unknown'].join('|')
+        const key = [r.agent, r.agent_version ?? 'unknown', model(r), r.variant ?? r.arm, source(r), evaluation(r)].join('|')
         if (!groups.has(key)) groups.set(key, [])
         groups.get(key).push(r)
     }
@@ -43,9 +45,10 @@ try {
         'Recorded sessions: **' + rows.length + '** · Evaluation revisions: ' + evaluations.join(', '),
         'Agent/model configurations: ' + versions.join(', '), '',
         '> These are observed results, not simulated model outcomes. A green repository test suite does not prove agent performance.',
-        '> Compare groups only when the agent, model, effort, permissions, scenario set, evaluator revision and plugin bootstraps match.',
-        '> The CLI currently does not independently verify plugin activation, effort or subagent token inclusion.', '',
-        '| Arm (revision) | Sessions | Passes (95% Wilson CI) | Median seconds | Median added LOC | Total USD | USD / success |',
+        '> Compare groups only when the agent, model, effort, permissions, scenario/repeat cells, evaluator revision and plugin bootstraps match.',
+        '> The CLI currently does not independently verify plugin activation, effort or subagent token inclusion.',
+        '> This harness is explicitly non-adversarial: agents can potentially discover evaluator files through the unrestricted node/npm allowlist.', '',
+        '| Arm (revision) | Sessions | Passes (95% Wilson range; descriptive) | Median seconds | Median added LOC | Total USD | USD / success |',
         '| --- | ---: | ---: | ---: | ---: | ---: | ---: |']
     for (const [key, part] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
         const [agent, agentVersion, m, arm, commit] = key.split('|'), n = part.length, passed = part.filter((r) => r.check.pass).length
@@ -74,17 +77,28 @@ try {
     if (versions.length !== 1) issues.push('Multiple agent versions/models: comparison is not controlled across them.')
     if (rows.some((r) => r.ticketflow_dirty === true)) issues.push('At least one TicketFlow checkout was dirty.')
     if (rows.some((r) => r.plugin_sha && r.plugin_native?.includes('not independently verified'))) issues.push('Plugin bootstrap was requested but not independently verified in the agent transcript.')
+    if (rows.some((r) => r.evaluation_mode !== 'non-adversarial')) issues.push('Evaluation mode is missing or not explicitly non-adversarial.')
     if (rows.some((r) => r.cost_usd == null)) issues.push('Missing cost data: no total cost or cost per success is inferred for affected arms.')
     if (rows.some((r) => r.descendants !== 'included')) issues.push('Descendant-agent token/cost inclusion is unknown; numbers may exclude subagents.')
-    const sets = [...groups].map(([key, part]) => new Set(part.map((r) => r.scenario)))
-    if (sets.length > 1 && sets.some((set) => set.size !== sets[0].size || [...set].some((v)=>!sets[0].has(v)))) issues.push('Scenario sets differ between arms.')
+    const groupCells = [...groups].map(([key, part]) => ({ key, part, cells: new Set(part.map(cell)) }))
+    for (const { key, part, cells } of groupCells) {
+        const arm = key.split('|')[3]
+        if (cells.size !== part.length) issues.push(`Duplicate scenario/repeat cells in ${arm}.`)
+        const repeats = part.map((r) => r.repeat).filter((r) => Number.isInteger(r) && r > 0)
+        if (repeats.length && new Set(repeats).size !== Math.max(...repeats)) issues.push(`Incomplete repeat sequence in ${arm}.`)
+        const scenarios = [...new Set(part.map((r) => r.scenario))]
+        if (repeats.length && cells.size !== scenarios.length * Math.max(...repeats)) issues.push(`Missing scenario/repeat cells in ${arm}.`)
+    }
+    if (groupCells.length > 1 && groupCells.some(({ cells }) => cells.size !== groupCells[0].cells.size || [...cells].some((v) => !groupCells[0].cells.has(v))))
+        issues.push('Scenario/repeat cell sets differ between arms.')
     if (rows.some((r) => r.agent_exit !== 0)) issues.push('Some agent invocations did not exit successfully; failures are retained as data.')
     if (rows.some((r) => r.repeat == null)) issues.push('Some runs lack repetition identifiers; repeated-run balancing cannot be verified.')
+    if (rows.some((r) => !Number.isInteger(r.repeat) || r.repeat < 1)) issues.push('Some runs have invalid repetition identifiers; repeated-run balancing cannot be verified.')
     if (rows.some((r) => !r.requested_model)) issues.push('Some runs did not pin the requested model.')
     lines.push('', '## Interpretation and limitations', '')
     if (!issues.length) lines.push('No additional metadata mismatches detected. Model effort, permission parity and real plugin activation still require an operator check.')
     else for (const i of issues) lines.push('- ' + i)
-    lines.push('', 'Pass rates use Wilson 95% intervals; medians are descriptive. No statistical superiority is claimed from these summaries.',
+    lines.push('', 'Pass rates use Wilson 95% ranges only as descriptive summaries; repeated paired task cells are not independent trials, so no inferential superiority claim is supported.',
         'Cost per success = all observed session costs (including failed runs) / successful tasks; it is unknown when any session cost is unavailable.',
         'A benchmark is not a substitute for the separate GitHub merge-gate integration probes.', '')
     const markdown = lines.join('\n')
@@ -92,9 +106,9 @@ try {
     else console.log(markdown)
     if (v.csv) {
         const columns = ['scenario','agent','agent_version','requested_model','arm','variant','repeat','ticketflow_sha','plugin_sha',
-            'eval_sha','pass','wall_s','cost_usd','input_tokens','output_tokens','added','removed','deps_added','agent_exit']
+            'eval_sha','eval_fingerprint','evaluation_mode','pass','wall_s','cost_usd','input_tokens','output_tokens','added','removed','deps_added','agent_exit']
         const entries = rows.map((r) => [r.scenario,r.agent,r.agent_version,model(r),r.arm,r.variant??r.arm,r.repeat, r.ticketflow_sha,r.plugin_sha,
-            r.eval_sha,r.check.pass,r.wall_s,r.cost_usd,r.tokens?.input_tokens,r.tokens?.output_tokens,r.diff?.added,r.diff?.removed,r.deps_added,r.agent_exit])
+            r.eval_sha,r.eval_fingerprint,r.evaluation_mode,r.check.pass,r.wall_s,r.cost_usd,r.tokens?.input_tokens,r.tokens?.output_tokens,r.diff?.added,r.diff?.removed,r.deps_added,r.agent_exit])
         writeFileSync(v.csv, columns.join(',') + '\n' + entries.map((r) => r.map(csv).join(',')).join('\n') + '\n')
     }
 } catch (e) { console.error('benchmarks report: ' + e.message); process.exitCode = 2 }

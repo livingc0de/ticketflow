@@ -4,6 +4,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tempDir } from '../../tests/helpers.mjs'
+import { resolveScenario } from '../lib/integrity.mjs'
 
 const ROOT = new URL('../../', import.meta.url).pathname
 const TOOL = join(ROOT, 'benchmarks/agent-eval.mjs')
@@ -187,7 +188,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 const args = process.argv.slice(2), name = process.argv[1].split('/').pop()
 if (args.includes('--version')) { console.log(name === 'claude' ? '9.9.9 (Claude Code)' : 'codex-cli 9.9.9'); process.exit(0) }
 if (args.includes('--help')) { console.log('--plugin-dir'); process.exit(0) }
-appendFileSync(process.env.FAKE_LOG, JSON.stringify({ name, args, stdin: readFileSync(0, 'utf8'), cwd: process.cwd(), tf: existsSync('.ticketflow/manifest.json'), home:process.env.HOME, codex_home:process.env.CODEX_HOME }) + '\\n')
+appendFileSync(process.env.FAKE_LOG, JSON.stringify({ name, args, stdin: readFileSync(0, 'utf8'), cwd: process.cwd(), tf: existsSync('.ticketflow/manifest.json'), home:process.env.HOME, codex_home:process.env.CODEX_HOME, secret:process.env.OPENAI_API_KEY ?? null }) + '\\n')
 if (name === 'codex' && args[0] === 'plugin') {
     if (args[1] === 'marketplace' && args[2] === 'add') { console.log(JSON.stringify({marketplaceName:'ticketflow-benchmark'})); process.exit(0) }
     if (args[1] === 'add') { console.log(JSON.stringify({name:args[2].split('@')[0],marketplaceName:'ticketflow-benchmark'})); process.exit(0) }
@@ -198,6 +199,7 @@ const edit = (f, from, to) => writeFileSync(f, readFileSync(f, 'utf8').replace(f
 if (process.env.FAKE_FIX) edit('src/messages.js', 'recieve', 'receive')
 if (process.env.FAKE_DEP) edit('package.json', '"private"', '"dependencies":{"left-pad":"1"},"private"')
 if (process.env.FAKE_NPM) { mkdirSync('node_modules/left-pad', { recursive: true }); writeFileSync('node_modules/left-pad/index.js', 'x\\n'); writeFileSync('package-lock.json', '{}\\n') }
+if (process.env.FAKE_CREATE_AUTH && name === 'codex' && args[0] === 'exec') writeFileSync(join(process.env.CODEX_HOME, 'credentials.json'), 'generated')
 const o = args.indexOf('-o')
 if (o >= 0) writeFileSync(args[o + 1], process.env.FAKE_ANSWER ?? '')
 console.log(process.env.FAKE_OUT)
@@ -227,6 +229,7 @@ test('claude, ticketflow arm: installs TicketFlow like init does, runs the promp
     assert.equal(row.scenario, L1)
     assert.equal(row.agent, 'claude'); assert.equal(row.agent_version, '9.9.9 (Claude Code)'); assert.equal(row.model, 'fake-model'); assert.equal(row.arm, 'ticketflow')
     assert.equal(row.ticketflow_sha, sha); assert.equal(row.eval_sha, sha)
+    assert.match(row.eval_fingerprint, /^[0-9a-f]{64}$/); assert.equal(row.evaluation_mode, 'non-adversarial')
     assert.equal(typeof row.ticketflow_dirty, 'boolean'); assert.equal(row.ticketflow_version, readFileSync(join(ROOT, 'VERSION'), 'utf8').trim())
     assert.deepEqual(row.check, { pass: true, why: row.check.why }); assert.match(row.check.why, /^PASS/)
     assert.deepEqual(row.diff, { added: 1, removed: 1, files: ['src/messages.js'] })   // the install is in the base commit, not in the diff
@@ -315,7 +318,7 @@ test('external frameworks load from clean native Claude plugin checkouts, not co
     const { run } = sandbox(), src = tempDir('plugin-')
     mkdirSync(join(src, '.claude-plugin'), { recursive: true })
     writeFileSync(join(src, '.claude-plugin/plugin.json'), '{"name":"ponytail"}')
-    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned')
+    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned'); git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
     const r = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src, '--model', 'pinned-model', '--rep', '2', '--label', 'ponytail'], { FAKE_FIX: '1' })
     assert.equal(r.status, 0, r.stdout+r.stderr)
     assert.equal(r.row.plugin_sha, git(src, 'rev-parse', 'HEAD'))
@@ -336,20 +339,22 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     const { run } = sandbox(), src = tempDir('codex-plugin-')
     mkdirSync(join(src, '.codex-plugin'), { recursive: true })
     writeFileSync(join(src, '.codex-plugin/plugin.json'), '{"name":"ponytail"}')
-    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned')
+    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned'); git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
     const authDir = tempDir('codex-auth-')
     writeFileSync(join(authDir, 'auth.json'), '{"fake":"login"}')
-    const r = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--model', 'gpt-test'], { FAKE_FIX: '1', CODEX_HOME: authDir })
+    const r = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--model', 'gpt-test'], { FAKE_FIX: '1', FAKE_CREATE_AUTH: '1', CODEX_HOME: authDir, OPENAI_API_KEY: 'should-not-reach-cli' })
     assert.equal(r.status, 0, r.stdout + r.stderr)
     assert.deepEqual(r.calls.filter((c) => c.args[0] === 'plugin').map((c) => c.args.slice(0, 3)),
         [['plugin','marketplace','add'], ['plugin','add','ponytail@ticketflow-benchmark'], ['plugin','list','--json']])
     const exec = r.calls.find((c) => c.args[0] === 'exec')
     assert.ok(exec, 'the coding session ran after plugin verification')
+    assert.equal(exec.secret, null, 'credential-bearing environment variables are not passed to the agent')
     assert.ok(!exec.args.includes('--ignore-user-config'), 'Codex must load the isolated profile with its installed plugin')
     assert.equal(exec.codex_home, join(r.row.workdir, 'home/.codex'))
     assert.equal(exec.home, join(r.row.workdir, 'home'))
     assert.ok(existsSync(join(r.row.workdir, 'marketplace/plugins/ponytail/.codex-plugin/plugin.json')))
     assert.ok(!existsSync(join(exec.codex_home, 'auth.json')), 'temporary authorization is never retained')
+    assert.ok(!existsSync(join(exec.codex_home, 'credentials.json')), 'generated credential state is never retained')
     assert.equal(readFileSync(join(authDir, 'auth.json'), 'utf8'), '{"fake":"login"}', 'original credentials are untouched')
     assert.match(r.row.plugin_native, /installed and enabled.*bootstrap not independently verified/)
     assert.equal(r.row.plugin_sha, git(src, 'rev-parse', 'HEAD'))
@@ -373,6 +378,12 @@ test('Codex bare control loads no plugin and uses an isolated home', () => {
     assert.ok(exec.args.includes('--ignore-user-config'))
     assert.equal(exec.codex_home, join(r.row.workdir, 'home/.codex'))
     assert.ok(!existsSync(join(r.row.workdir, 'marketplace')))
+})
+
+test('scenario prefixes are rejected when they match more than one fixture', () => {
+    const dir = tempDir('ambiguous-scenarios-')
+    mkdirSync(join(dir, 'L1-first')); mkdirSync(join(dir, 'L1-second'))
+    assert.throws(() => resolveScenario(dir, 'L1'), /ambiguous scenario L1/)
 })
 
 test('a bad scenario, agent or arm, a missing option or a missing CLI exits 2 before any run', () => {

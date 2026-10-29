@@ -10,12 +10,13 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { main } from '../core/lib/cli.mjs'
+import { evaluatorFingerprint, resolveScenario, validatePluginSource } from './lib/integrity.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SCENARIOS = join(ROOT, 'benchmarks/scenarios')
@@ -30,12 +31,13 @@ const node = (cwd, ...args) => execFileSync(process.execPath, args, { cwd, stdio
 const orNull = (f) => { try { return f() } catch { return null } }
 const parse = (s) => orNull(() => JSON.parse(s))
 const depNames = (text) => new Set(['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'].flatMap((k) => Object.keys(parse(text)?.[k] ?? {})))
+const cleanEnv = (env) => Object.fromEntries(Object.entries(env).filter(([key]) => !/(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|TOKEN|SECRET|PASSWORD|PRIVATE_KEY|CREDENTIAL)/i.test(key)))
 
 /** A fresh Codex profile per run. Local native plugin packages are installed by Codex itself, not simulated as copied instructions. */
 function codexProfile(work, arm, src) {
     const home = join(work, 'home'), codexHome = join(home, '.codex')
     mkdirSync(codexHome, { recursive: true, mode: 0o700 })
-    const env = { ...process.env, HOME: home, CODEX_HOME: codexHome }
+    const env = { ...cleanEnv(process.env), HOME: home, CODEX_HOME: codexHome }
     if (!['superpowers', 'ponytail'].includes(arm)) return { env, codexHome, installed: false }
 
     const market = 'ticketflow-benchmark', root = join(work, 'marketplace'), plugin = join(root, 'plugins', arm)
@@ -96,13 +98,12 @@ function report(agent, out, answerFile, model) {
 main('agent-eval', () => {
     const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, source: { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' } }, allowPositionals: true })
     if (positionals.length !== 1 || !['claude', 'codex'].includes(v.agent) || !['ticketflow', 'bare', 'superpowers', 'ponytail'].includes(v.arm) || (v.rep !== undefined && (!/^[1-9]\d*$/.test(v.rep) || !Number.isSafeInteger(+v.rep))) || (v.label !== undefined && !/^[a-z][a-z0-9-]{0,30}$/.test(v.label))) throw new Error(usage)
-    const id = readdirSync(SCENARIOS).find((d) => d === positionals[0] || d.startsWith(`${positionals[0]}-`))   // only a listed name, never a path
-    if (!id) throw new Error(`unknown scenario ${positionals[0]}`)
+    const id = resolveScenario(SCENARIOS, positionals[0])
     const external = v.arm === 'superpowers' || v.arm === 'ponytail'
     if (external && !v.source) throw new Error(`--source requires a pinned checkout of ${v.arm}`)
     const src = resolve(v.source ?? ROOT)
-    if (external && !existsSync(join(src, v.agent === 'codex' ? '.codex-plugin/plugin.json' : '.claude-plugin/plugin.json'))) throw new Error(`${src} lacks the native ${v.agent} plugin manifest`)
     if (external && (!orNull(() => git(src, 'rev-parse', 'HEAD')) || git(src, 'status', '--porcelain'))) throw new Error(`${src} must be a clean pinned plugin checkout`)
+    if (external) validatePluginSource(src, v.agent, v.arm)
     const outFile = v.out && resolve(v.out)   // the harness's own result file is not a change to a source checkout it sits in
     if (v.out) try { appendFileSync(v.out, '') } catch (e) { throw new Error(`--out ${v.out} cannot be written (${e.code})`) }   // before the paid run, not after it
     if (v.arm === 'ticketflow' && !existsSync(join(src, 'core/scripts/runtime.mjs'))) throw new Error(`${src} is not a ticketflow checkout`)
@@ -110,7 +111,7 @@ main('agent-eval', () => {
     if (version.error || version.status !== 0) throw new Error(`${v.agent} is not installed or not on PATH`)
     if (external && v.agent === 'claude' && !run('claude', ['--help']).stdout?.includes('--plugin-dir')) throw new Error('Claude CLI does not advertise --plugin-dir; cannot load competitor natively')
 
-    const sdir = join(SCENARIOS, id), work = mkdtempSync(join(tmpdir(), 'agent-eval-'))
+    const sdir = join(SCENARIOS, id), work = mkdtempSync(join(tmpdir(), 'agent-eval-')), evalFingerprint = evaluatorFingerprint(ROOT)
     const { dir, base } = workspace(sdir, v.agent, v.arm, work, src)
     const profile = v.agent === 'codex' ? codexProfile(work, v.arm, src) : null
     const answerFile = join(work, 'answer.txt')
@@ -123,18 +124,19 @@ main('agent-eval', () => {
     // Never put auth inside the task repository or leave it in the retained benchmark artifacts.
     const privateAuth = profile && join(profile.codexHome, 'auth.json')
     const originalAuth = join(resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex')), 'auth.json')
-    let copiedAuth = false, r
+    let r
     try {
         if (profile && existsSync(originalAuth)) {
             copyFileSync(originalAuth, privateAuth)
             chmodSync(privateAuth, 0o600)
-            copiedAuth = true
         }
         r = run(v.agent, args, { cwd: dir, timeout: AGENT_TIMEOUT_MS,
             ...(profile ? { env: profile.env } : {}),
             ...(claude ? { stdio: ['ignore', 'pipe', 'pipe'] } : { input: prompt }) })
     } finally {
-        if (copiedAuth) rmSync(privateAuth, { force: true })
+        // Codex may create more than auth.json (for example credentials, token caches or logs); the whole
+        // temporary profile is disposable and must not remain in the retained workdir.
+        if (profile) rmSync(profile.codexHome, { recursive: true, force: true })
     }
     const wall_s = Math.round((Date.now() - t0) / 100) / 10
     const out = r.stdout ?? ''
@@ -152,6 +154,8 @@ main('agent-eval', () => {
     const row = {
         scenario: id, agent: v.agent, agent_version: version.stdout.trim(), model: got.model, requested_model: v.model ?? null, arm: v.arm, variant: v.label ?? v.arm, repeat: v.rep ? +v.rep : null,
         eval_sha: orNull(() => git(ROOT, 'rev-parse', 'HEAD')),   // the revision of this tool and its scenarios
+        eval_fingerprint: evalFingerprint,
+        evaluation_mode: 'non-adversarial',
         ticketflow_sha: tf(() => git(src, 'rev-parse', 'HEAD')), ticketflow_dirty: tf(() => git(src, 'status', '--porcelain', '--untracked-files=all').split('\n').some((l) => l && resolve(src, l.slice(3)) !== outFile)),
         ticketflow_version: tf(() => readFileSync(join(src, 'VERSION'), 'utf8').trim()),
         plugin_sha: external ? git(src, 'rev-parse', 'HEAD') : null,

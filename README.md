@@ -253,7 +253,7 @@ The manifest lets updates distinguish TicketFlow-owned files from yours, and a h
 ready to revisit it.
 
 The TicketFlow repository itself also holds two small maintainer tools: one checks Superpowers and Ponytail for new releases each
-month ([upstream review](docs/maintainers/upstream-review.md)), the other runs agent evals ([benchmarks](benchmarks/README.md)).
+month ([upstream review](skills/upstream/SKILL.md)), the other runs agent evals ([benchmarks](benchmarks/README.md)).
 They live in that repo only and are never installed in yours.
 
 ---
@@ -407,4 +407,4 @@ TicketFlow's engineering method (understand first, plan, test first where it pay
 [Ponytail](https://github.com/dietrichgebert/ponytail). TicketFlow re-expresses those practices itself, with or without a ticket;
 neither needs to be installed.
 
-Contributing: [AGENTS.md](AGENTS.md). Maintainers: [`docs/maintainers/upstream-review.md`](docs/maintainers/upstream-review.md). Release notes: [CHANGELOG.md](CHANGELOG.md). License: MIT.
+Contributing: [AGENTS.md](AGENTS.md). Maintainers: [`skills/upstream/SKILL.md`](skills/upstream/SKILL.md). Release notes: [CHANGELOG.md](CHANGELOG.md). License: MIT.

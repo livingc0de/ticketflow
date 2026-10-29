@@ -8,6 +8,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { resolve, join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import { evaluatorFingerprint, resolveScenario, validatePluginSource } from './lib/integrity.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url)), ROOT = resolve(HERE, '..')
 const usage = 'usage: node benchmarks/run.mjs --agent claude|codex --model NAME [--arms before,after,bare,superpowers,ponytail] [--scenarios L1,L2] [--repeats 3] [--before-source DIR] [--after-source DIR] [--superpowers-source DIR] [--ponytail-source DIR] [--out results.jsonl] [--max-sessions N] [--resume] [--execute]'
@@ -47,13 +48,10 @@ try {
         if (execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' }).trim()) throw Error(name + ' source is dirty')
         const marker = name === 'superpowers' || name === 'ponytail' ? (v.agent === 'codex' ? '.codex-plugin/plugin.json' : '.claude-plugin/plugin.json') : 'core/scripts/runtime.mjs'
         if (!existsSync(join(dir, marker))) throw Error(name + ' missing ' + marker)
+        if (['superpowers', 'ponytail'].includes(name)) validatePluginSource(dir, v.agent, name)
     }
-    const known = new Map()
-    for (const id of scenarios) {
-        const dirs = readdirSync(join(HERE, 'scenarios')).filter((x) => x === id || x.startsWith(id + '-'))
-        if (dirs.length !== 1) throw Error('unknown or ambiguous scenario ' + id)
-        known.set(id, dirs[0])
-    }
+    for (const id of scenarios) resolveScenario(join(HERE, 'scenarios'), id)
+    const evalFingerprint = evaluatorFingerprint(ROOT)
     const items = []
     for (let rep = 1; rep <= repeats; rep++) for (const [i, scenario] of scenarios.entries()) {
         const rotated = [...arms.slice((rep + i - 1) % arms.length), ...arms.slice(0, (rep + i - 1) % arms.length)]
@@ -64,13 +62,13 @@ try {
     }
     const out = v.out ? resolve(v.out) : null
     let completed = new Set()
-    const identity = (i) => [i.scenario, i.arm, i.rep, v.agent, v.model, i.source_sha ?? 'bare', sha(ROOT)].join('|')
+    const identity = (i) => [i.scenario, i.arm, i.rep, v.agent, v.model, i.source_sha ?? 'bare', evalFingerprint].join('|')
     if (v.resume) {
         if (!out || !existsSync(out)) throw Error('--resume requires an existing --out JSONL file')
         const rows = readFileSync(out, 'utf8').split(/\r?\n/).filter(Boolean).map((x) => JSON.parse(x))
         completed = new Set(rows.filter((r) => r.requested_model === v.model && r.agent === v.agent && Number.isInteger(r.repeat))
             .map((r) => [r.scenario.split('-')[0], r.variant ?? r.arm, r.repeat, r.agent, r.requested_model,
-                r.ticketflow_sha ?? r.plugin_sha ?? 'bare', r.eval_sha ?? 'unknown'].join('|')))
+                r.ticketflow_sha ?? r.plugin_sha ?? 'bare', r.eval_fingerprint ?? 'legacy-evaluator'].join('|')))
     }
     const pending = items.filter((x) => !completed.has(identity(x)))
     console.log(JSON.stringify({ mode: v.execute ? 'EXECUTE (paid)' : 'DRY RUN (free)', total: items.length,

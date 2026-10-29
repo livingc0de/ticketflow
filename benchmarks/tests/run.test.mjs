@@ -4,24 +4,27 @@ import { spawnSync, execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tempDir } from '../../tests/helpers.mjs'
+import { evaluatorFingerprint } from '../lib/integrity.mjs'
 
 const ROOT = new URL('../', import.meta.url).pathname
+const REPO = new URL('../../', import.meta.url).pathname
 const CLI = join(ROOT, 'run.mjs')
 const call = (args) => spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8' })
 const git = (dir, ...args) => execFileSync('git', ['-c','user.name=t','-c','user.email=t@example.invalid', ...args], { cwd: dir, encoding: 'utf8' }).trim()
-const source = (external = false, agent = 'claude') => {
+const source = (external = false, agent = 'claude', plugin = 'ponytail') => {
     const dir = tempDir('bench-source-')
     const marker = external ? (agent === 'codex' ? '.codex-plugin/plugin.json' : '.claude-plugin/plugin.json') : 'core/scripts/runtime.mjs'
     mkdirSync(join(dir, marker, '..'), { recursive: true })
-    writeFileSync(join(dir, marker), external ? '{}\n' : '// test source\n')
-    git(dir, 'init', '-q', '-b', 'main'); git(dir, 'add', '-A'); git(dir, 'commit', '-qm', 'pinned')
+    writeFileSync(join(dir, marker), external ? JSON.stringify({ name: plugin }) + '\n' : '// test source\n')
+    git(dir, 'init', '-q', '-b', 'main'); git(dir, 'add', '-A'); git(dir, 'commit', '-qm', 'pinned-' + dir.slice(-6))
+    if (external) git(dir, 'remote', 'add', 'origin', `https://github.com/${plugin === 'superpowers' ? 'obra' : 'DietrichGebert'}/${plugin}.git`)
     return dir
 }
 
 test('dry-run shows every repeat and arm, requires no agent executable or output file', () => {
-    const before = source(), out = join(tempDir('bench-out-'), 'rows.jsonl')
+    const before = source(), after = source(), out = join(tempDir('bench-out-'), 'rows.jsonl')
     const r = call(['--agent','claude','--model','test-model','--arms','before,after,bare','--scenarios','L1,L2',
-        '--repeats','2','--before-source',before,'--out',out])
+        '--repeats','2','--before-source',before,'--after-source',after,'--out',out])
     assert.equal(r.status, 0, r.stderr)
     const info = JSON.parse(r.stdout.split('\nPLAN ')[0])
     assert.equal(info.total, 12)
@@ -42,7 +45,7 @@ test('paid execution is refused before invoking any agent if the cap is too low'
 test('resume skips only matching fully identified runs', () => {
     const dir = tempDir('bench-out-'), out = join(dir, 'rows.jsonl')
     writeFileSync(out, JSON.stringify({ scenario:'L1-trivial-copy', arm:'bare', variant:'bare', repeat:1, requested_model:'test',
-        agent:'claude', ticketflow_sha:null, plugin_sha:null, eval_sha:git(ROOT,'rev-parse','HEAD'), check:{pass:false} }) + '\n')
+        agent:'claude', ticketflow_sha:null, plugin_sha:null, eval_sha:git(REPO,'rev-parse','HEAD'), eval_fingerprint:evaluatorFingerprint(REPO), check:{pass:false} }) + '\n')
     const args = ['--agent','claude','--model','test','--arms','bare','--scenarios','L1','--repeats','2','--out',out,'--resume']
     const good = call(args)
     assert.equal(good.status, 0, good.stderr)
@@ -53,6 +56,17 @@ test('resume skips only matching fully identified runs', () => {
     assert.equal(readFileSync(out, 'utf8').split('\n').filter(Boolean).length, 1)
 })
 
+test('resume reruns a row recorded with a different evaluator fingerprint', () => {
+    const dir = tempDir('bench-out-'), out = join(dir, 'rows.jsonl')
+    writeFileSync(out, JSON.stringify({ scenario:'L1-trivial-copy', arm:'bare', variant:'bare', repeat:1, requested_model:'test',
+        agent:'claude', ticketflow_sha:null, plugin_sha:null, eval_fingerprint:'0'.repeat(64), check:{pass:true} }) + '\n')
+    const r = call(['--agent','claude','--model','test','--arms','bare','--scenarios','L1','--repeats','1','--out',out,'--resume'])
+    assert.equal(r.status, 0, r.stderr)
+    const info = JSON.parse(r.stdout.split('\nPLAN ')[0])
+    assert.equal(info.already_recorded, 0)
+    assert.equal(info.remaining, 1)
+})
+
 test('before and after must be different revisions', () => {
     const before=source()
     const r=call(['--agent','claude','--model','test','--arms','before,after','--before-source',before,'--after-source',before])
@@ -61,9 +75,9 @@ test('before and after must be different revisions', () => {
 })
 
 test('Codex can preview the complete five-arm matrix with native pinned plugin sources', () => {
-    const before = source(), superpowers = source(true, 'codex'), ponytail = source(true, 'codex')
+    const before = source(), after = source(), superpowers = source(true, 'codex', 'superpowers'), ponytail = source(true, 'codex', 'ponytail')
     const r = call(['--agent','codex','--model','gpt-test','--arms','before,after,bare,superpowers,ponytail',
-        '--before-source',before,'--superpowers-source',superpowers,'--ponytail-source',ponytail,
+        '--before-source',before,'--after-source',after,'--superpowers-source',superpowers,'--ponytail-source',ponytail,
         '--scenarios','L1,L2','--repeats','1'])
     assert.equal(r.status, 0, r.stderr)
     const info = JSON.parse(r.stdout.split('\nPLAN ')[0])
@@ -76,10 +90,11 @@ test('invalid paths and missing native Codex manifests are rejected without paid
         ['--agent','claude','--model','m','--arms','before'],
         ['--agent','claude','--model','m','--arms','bare','--scenarios','L99'],
         ['--agent','claude','--model','m','--arms','bare,bare'],
-        ['--agent','codex','--model','m','--arms','superpowers','--superpowers-source',source(true,'claude')],
+        ['--agent','codex','--model','m','--arms','superpowers','--superpowers-source',source(true,'codex','ponytail')],
     ]) {
         const r = call(args)
         assert.equal(r.status, 2, args.join(' ') + '\n' + r.stderr)
         assert.doesNotMatch(r.stdout, /SESSION /)
+        if (args.includes('--superpowers-source')) assert.match(r.stderr, /manifest name must be superpowers/)
     }
 })

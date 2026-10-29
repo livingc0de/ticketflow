@@ -5,7 +5,7 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { FAIL, fakeGh, tempDir } from './helpers.mjs'
 
-const script = new URL('../tools/upstream-review.mjs', import.meta.url).pathname
+const script = new URL('../skills/upstream/upstream-review.mjs', import.meta.url).pathname
 const root = new URL('..', import.meta.url).pathname
 const SHA_A = '2ce8aa15d05bd57213e6f746f953aafb7ded7a8b', SHA_B = '09c434ab73ca43761c5d8b0c5d341926c2fba710'
 const HEAD_A = 'a'.repeat(40), HEAD_B = 'b'.repeat(40)
@@ -42,6 +42,23 @@ test('unchanged upstreams exit 0 and write nothing', () => {
     assert.equal(r.after, r.text)
     assert.deepEqual(r.left, ['upstream.json'])
     assert.ok(r.gh.calls().every((c) => c[0] === 'api' && !c.some((a) => /issue|-X\s*(POST|PUT|PATCH|DELETE)/.test(a))))
+})
+
+test('the default baseline is the skill-local upstream.json', () => {
+    const actual = JSON.parse(readFileSync(join(root, 'skills/upstream/upstream.json'), 'utf8'))
+    const map = Object.assign({}, ...actual.upstreams.map((u) => repoMap(u.repo, u.sha, u.sha)))
+    const dir = tempDir('upstream-default-'), gh = fakeGh(dir, map)
+    const r = spawnSync(process.execPath, [script], { encoding: 'utf8', env: gh.env })
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stdout, /obra\/superpowers: unchanged/)
+    assert.match(r.stdout, /dietrichgebert\/ponytail: unchanged/)
+})
+
+test('review records are documented and ignored directly under docs/maintainers', () => {
+    const skill = readFileSync(join(root, 'skills/upstream/SKILL.md'), 'utf8')
+    const gitignore = readFileSync(join(root, '.gitignore'), 'utf8')
+    assert.match(skill, /docs\/maintainers\/YYYY-MM-DD\.md/)
+    assert.match(gitignore, /^docs\/maintainers\/$/m)
 })
 
 test('changes exit 1 with the release list and the file groups; a LICENSE change is flagged', () => {
@@ -133,8 +150,8 @@ test('a missing baseline file and unknown options exit 2 before any call', () =>
     assert.deepEqual(gh.calls(), [])
 })
 
-test('the committed baseline is this audit, and the procedure is short and starts with "Use when"', () => {
-    const b = JSON.parse(readFileSync(join(root, 'docs/maintainers/upstream.json'), 'utf8'))
+test('the committed baseline is this audit, and the upstream skill has canonical front matter', () => {
+    const b = JSON.parse(readFileSync(join(root, 'skills/upstream/upstream.json'), 'utf8'))
     assert.deepEqual(b, {
         reviewed_on: '2026-10-27',
         upstreams: [
@@ -142,7 +159,8 @@ test('the committed baseline is this audit, and the procedure is short and start
             { repo: 'dietrichgebert/ponytail', branch: 'main', sha: SHA_B, tag: 'v5.3.2', license: 'MIT' },
         ],
     })
-    const lines = readFileSync(join(root, 'docs/maintainers/upstream-review.md'), 'utf8').trimEnd().split('\n')
+    const lines = readFileSync(join(root, 'skills/upstream/SKILL.md'), 'utf8').trimEnd().split('\n')
     assert.ok(lines.length <= 40, `${lines.length} lines`)
-    assert.match(lines[0], /^Use when/)
+    assert.equal(lines[1], 'name: upstream')
+    assert.match(lines[2], /^description: Use when/)
 })

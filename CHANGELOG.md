@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0
+
+### Highlights
+
+- **Maintainer benchmarks are reproducible and isolated.** The benchmark module now covers the 15-scenario suite, five comparison arms,
+  evaluator-content fingerprints, balanced repeat matrices, native plugin identity checks and explicit non-adversarial limitations.
+- **Upstream review is a first-class maintainer skill.** The review procedure, baseline and runner now live together under
+  `skills/upstream/`; local review records live directly under the ignored `docs/maintainers/` directory.
+- **No customer runtime changes.** The benchmark and upstream-review tooling stay outside `core/` and are never installed by TicketFlow.
+
+### What You Need To Do When Upgrading From 0.4.5
+
+Nothing in an installed TicketFlow runtime changes. This release adds maintainer-only tooling and documentation; sync is only needed if
+you want to consume the new runtime release metadata.
+
 ## 0.4.5
 
 ### Highlights

@@ -8,6 +8,7 @@ import { tempDir } from '../../tests/helpers.mjs'
 const TOOL = new URL('../report.mjs', import.meta.url).pathname
 const row = (over = {}) => ({ scenario:'L1-trivial-copy', agent:'claude', agent_version:'9.9', requested_model:'test-model',
     model:'test-model', arm:'bare', variant:'bare', eval_sha:'a'.repeat(40), ticketflow_sha:null, plugin_sha:null,
+    eval_fingerprint:'a'.repeat(64), evaluation_mode:'non-adversarial',
     repeat:1, check:{pass:true}, wall_s:6, cost_usd:0.2, tokens:{input_tokens:100,output_tokens:20},
     diff:{added:3,removed:1}, deps_added:0, agent_exit:0, descendants:'unknown', ...over })
 function run(rows, opts = []) {
@@ -27,7 +28,7 @@ test('report retains failures in pass rate and cost per successful task', () => 
     assert.equal(r.csv.trim().split('\n').length,3)
 })
 test('unknown cost is not zero, and mixed evaluations are highlighted', () => {
-    const r = run([row(),row({repeat:2,eval_sha:'b'.repeat(40),cost_usd:null})])
+    const r = run([row(),row({repeat:2,eval_sha:'b'.repeat(40),eval_fingerprint:'b'.repeat(64),cost_usd:null})])
     assert.equal(r.status,0,r.stderr)
     assert.match(r.markdown,/unknown \| unknown/)
     assert.match(r.markdown,/Mixed or unknown evaluation revisions/)
@@ -43,4 +44,19 @@ test('missing, empty, invalid records and malformed JSON refuse to produce a rep
     const r=spawnSync(process.execPath,[TOOL,file],{encoding:'utf8'})
     assert.equal(r.status,2)
     assert.match(r.stderr,/cannot parse/)
+})
+
+test('report rejects unbalanced and duplicate scenario/repeat cells', () => {
+    let r = run([row(), row()])
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.markdown, /Duplicate scenario\/repeat cells in bare/)
+
+    r = run([row({ repeat:1 }), row({ repeat:3 })])
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.markdown, /Incomplete repeat sequence in bare/)
+    assert.match(r.markdown, /Missing scenario\/repeat cells in bare/)
+
+    r = run([row({ repeat:1 }), row({ repeat:2 }), row({ arm:'ticketflow', variant:'ticketflow', ticketflow_sha:'b'.repeat(40), repeat:1 })])
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.markdown, /Scenario\/repeat cell sets differ between arms/)
 })
