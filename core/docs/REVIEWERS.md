@@ -59,7 +59,7 @@ that fails prints `Review: pending (the review activity could not be read)`. CI 
 the agent reads the link: an error or quota note is no result, and a status note means wait again with `--more`.
 
 In pull request mode (not `--ci-only`, not a sha) it also prints `Unresolved threads: <n | unknown>`, then up to 20 lines `  [<thread id>] <path>:<line> @<author>
-<first line>` for the unresolved review threads **of any author**. `unknown` means the read failed or there are more than 100.
+<first line>` for the unresolved review threads **of any author**. `unknown` means the read failed or there are more than 100. The separate `Observed reviewer wait_ms:` line is measured time spent in this invocation observing pending reviewers, not the full external review duration or CI time.
 Answer and resolve each with `node .ticketflow/scripts/thread.mjs <PR> <thread-id>` (the reply on stdin: the fix commit, or the
 reason for rejecting it). `pr-wait` flattens all GitHub text to one line, so it cannot forge a summary line.
 
