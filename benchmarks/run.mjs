@@ -42,12 +42,10 @@ try {
     if (arms.includes('before') && !available.has('before')) throw Error('--before-source requires a clean pinned older TicketFlow checkout')
     if (arms.includes('after') && !available.has('after')) available.set('after', ROOT)
     for (const name of ['superpowers','ponytail']) if (arms.includes(name) && !available.has(name)) throw Error(name + ' requires --' + name + '-source')
-    if (v.agent === 'codex' && arms.some((x) => ['superpowers','ponytail'].includes(x)))
-        throw Error('external native plugin comparisons are currently supported only for Claude; Codex would not load plugins under --ignore-user-config')
     if (arms.includes('before') && arms.includes('after') && sha(available.get('before')) === sha(available.get('after'))) throw Error('before and after must be different pinned revisions')
     for (const [name, dir] of available) {
         if (execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' }).trim()) throw Error(name + ' source is dirty')
-        const marker = name === 'superpowers' || name === 'ponytail' ? '.claude-plugin/plugin.json' : 'core/scripts/runtime.mjs'
+        const marker = name === 'superpowers' || name === 'ponytail' ? (v.agent === 'codex' ? '.codex-plugin/plugin.json' : '.claude-plugin/plugin.json') : 'core/scripts/runtime.mjs'
         if (!existsSync(join(dir, marker))) throw Error(name + ' missing ' + marker)
     }
     const known = new Map()
