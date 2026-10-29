@@ -51,10 +51,32 @@ const NOW = { user: { login: 'me' } }
 const app = (login = RB) => ({ login, type: 'Bot' })
 const rev = (state, over = {}) => ({ id: 1, user: app(), commit_id: HEAD, state, submitted_at: ago(5), html_url: 'https://x/r1', body: 'review body', author_association: 'NONE', ...over })
 const note = (min, body = 'status', over = {}) => { const t = ago(min); return { id: 9, user: app(), created_at: t, updated_at: t, html_url: 'https://x/c', body, author_association: 'NONE', ...over } }
+const inline = (min, body = 'Review finding', over = {}) => ({ id: 44, user: app(), author_association: 'NONE', commit_id: HEAD, created_at: ago(min), updated_at: ago(min), html_url: 'https://x/inline44', path: 'src/a.js', line: 7, body, ...over })
 const react = (min, content = 'eyes', login = RB) => ({ user: { login, type: 'User' }, content, created_at: ago(min) })
 const green = status('success', 'x')
 const reviewLines = (r) => r.stdout.split('\n').filter((l) => l.startsWith('Review'))
 
+test('standalone inline reviewer is discovered on the exact head, with no top-level comment or submitted review', () => {
+    const r = wait({ ...green, 'pulls/7/comments': [inline(4, 'P1: missing authorization')] })
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stdout, /^Review rb\\[bot\\]: result first comment https:\\/\\/x\\/inline44 src\\/a.js:7 P1: missing authorization$/m)
+    assert.match(r.stdout, /^Review: results \\(rb\\[bot\\]\\)$/m)
+})
+test('inline activity on an older commit, before the push, or from the author does not start a review', () => {
+    for (const c of [inline(4, 'old', { commit_id: 'b'.repeat(40) }), inline(35), inline(4, 'author', { user: { login: 'author', type: 'User' } })]) {
+        const r = wait({ ...green, 'pulls/7/comments': [c] })
+        assert.match(r.stdout, /^Review: none$/m)
+    }
+})
+test('trusted human inline comment is detected, while an untrusted human inline comment is not a reviewer', () => {
+    const human = inline(3, 'Needs fix', { user: { login: 'colleague', type: 'User' }, author_association: 'COLLABORATOR' })
+    assert.match(wait({ ...green, 'pulls/7/comments': [human] }).stdout, /^Review colleague: result first comment/m)
+    assert.match(wait({ ...green, 'pulls/7/comments': [{ ...human, author_association: 'NONE' }] }).stdout, /^Review: none$/m)
+})
+test('unreadable inline activity never permits an unobserved external review', () => {
+    const r = wait({ ...green, 'pulls/7/comments': { __status: 502, __stderr: 'unavailable' } })
+    assert.match(r.stdout, /^Review: pending \\(the review activity could not be read\\)$/m)
+})
 test('a job refused for billing (no runner, no steps, the billing annotation) allows the fallback, exit 3', () => {
     const r = wait(refused())
     assert.equal(r.status, 3)
