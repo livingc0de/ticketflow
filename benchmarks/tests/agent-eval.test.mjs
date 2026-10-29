@@ -238,6 +238,8 @@ test('claude, ticketflow arm: installs TicketFlow like init does, runs the promp
     assert.equal(realpathSync(calls[0].cwd), realpathSync(repo)); assert.ok(calls[0].tf, 'installed before the agent started')
     for (const p of ['.ticketflow/manifest.json', '.ticketflow/scripts/merge.mjs', '.claude/skills/implement-ticket/SKILL.md', 'AGENTS.md']) assert.ok(existsSync(join(repo, p)), p)
     assert.ok(!existsSync(join(repo, '.agents')), 'only the chosen agent\'s stubs')
+    assert.ok(!existsSync(join(repo, 'benchmarks')), 'maintainer benchmarks are never installed')
+    assert.ok(!existsSync(join(repo, '.ticketflow/benchmarks')), 'benchmark scripts are not part of the runtime')
     assert.equal(JSON.parse(readFileSync(join(repo, '.ticketflow/config.json'), 'utf8')).agents[0], 'claude')
     assert.equal(git(repo, 'rev-list', '--count', 'HEAD'), '1')
     assert.match(readFileSync(join(row.workdir, 'agent.out'), 'utf8'), /"num_turns":4/, 'the raw agent output is kept')
