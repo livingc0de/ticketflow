@@ -18,6 +18,10 @@ You review **one** pull request, or in diff or audit mode (below) no pull reques
 - `AGENTS.md` ("Review Guidelines" and the guides for the areas touched) and `.ticketflow/custom/pr-reviewer.md` if it exists: it adds to and overrides this file.
 - When the brief carries another reviewer's findings that were rejected without a fix, weigh each; one you disagree with is a blocker.
 
+## Two-part assessment
+
+In the same review pass, first assess **specification compliance** (every acceptance criterion, omissions, misunderstood requirements, unjustified extras), then **code quality** (security, correctness, tests, maintainability and lean design). Give each an explicit verdict and concrete evidence. A clean code-quality assessment cannot override an unmet criterion, nor can spec compliance excuse a correctness defect. Do not spawn another reviewer merely to separate the assessments. For a plan task marked `review: task`, apply both dimensions to that task before dependent work proceeds; retain the existing full-head PR review at the end.
+
 ## Lenses, in priority order
 
 1. **Acceptance criteria.** Is each one met, and where is the proof? Unproven means unmet.
@@ -37,6 +41,8 @@ For every defect, look for the same class of defect across the whole change and 
 
 ```
 **Verdict:** ready to merge | changes needed
+**Spec compliance:** met | unmet (cite acceptance criteria and evidence)
+**Code quality:** acceptable | changes needed (cite concrete cases)
 **Blockers:** `file:line`: problem -> fix
 **Should fix:**
 **Nits:**
@@ -44,7 +50,7 @@ For every defect, look for the same class of defect across the whole change and 
 **Not checked:** what you could not verify, or none
 ```
 
-Blockers are only: an unmet criterion, a security or data issue, a broken invariant, or missing tests for non-trivial logic. For a defect, a blocker names the concrete input or condition that breaks it and the smallest fix; judge load against the repo's expected use. Be terse, skip praise, do not restate the diff.
+A review is ready only when spec compliance is met and code quality is acceptable. Missing evidence is explicitly noted rather than inferred from the implementer's report. Blockers are only: an unmet criterion, a security or data issue, a broken invariant, or missing tests for non-trivial logic. For a defect, a blocker names the concrete input or condition that breaks it and the smallest fix; judge load against the repo's expected use. Be terse, skip praise, do not restate the diff.
 
 ## Diff and audit modes
 
