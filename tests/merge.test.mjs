@@ -277,7 +277,15 @@ test('M3b: a bot\'s unedited first comment is no basis for --reviewed-by while i
     const first = (min, over = {}) => ({ id: 31, user: APP, author_association: 'NONE', created_at: ago(min), updated_at: ago(min), html_url: 'https://x/c31', body: '<!-- rb-review-summary -->\n## Review\n| Code | Running |', ...over })
     // the own pr-reviewer review: a bot's comment does not block (the agent read it: not a review, or a status note it waited out)
     assert.equal(run({ comments: [first(4)] }).status, 0)
-    refused(run({ args: by('rb[bot]'), comments: [first(4)], reviews: [] }), /rb\[bot\]'s only answer on abcdef1 is its first comment.*at most 15 minutes from its start/)
+    refused(run({ args: by('rb[bot]'), comments: [first(4)], reviews: [] }), /first comment on abcdef1 could still be a status note.*at most 15 minutes from its start/)
+    // The agent can act on a complete first-comment review immediately, but must name its exact current-head link.
+    const early = run({ args: [...by('rb[bot]'), '--review-result-url', 'https://x/c31'], comments: [first(4, { body: '## Review completed: no blocking findings' })], reviews: [] })
+    assert.equal(early.status, 0, early.stderr)
+    assert.match(early.stdout, /explicit result: https:\/\/x\/c31/)
+    refused(run({ args: [...by('rb[bot]'), '--review-result-url', 'https://x/wrong'], comments: [first(4)], reviews: [] }), /review-result-url is not the observed result/)
+    refused(run({ args: [...by('rb[bot]'), '--review-result-url', 'https://x/c31'], comments: [first(4, { created_at: ago(35), updated_at: ago(35) })], reviews: [] }), /no result/)
+    // No implicit early completion merely because the first comment says "completed"; content still requires an agent to inspect it.
+    refused(run({ args: by('rb[bot]'), comments: [first(4, { body: 'Review complete' })], reviews: [] }), /first comment .* could still be a status note/)
     // its edit, or a review, is its answer; 15 minutes with nothing more and the first comment stands as its whole answer
     assert.equal(run({ args: by('rb[bot]'), comments: [first(4, { updated_at: ago(1) })], reviews: [] }).status, 0)
     assert.equal(run({ args: by('rb[bot]'), comments: [first(4)], reviews: [ext()] }).status, 0)
