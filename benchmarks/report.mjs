@@ -22,7 +22,8 @@ const wilson = (successes, n) => {
 const cost = (rows) => rows.every((r) => typeof r.cost_usd === 'number' && Number.isFinite(r.cost_usd) && r.cost_usd >= 0)
     ? rows.reduce((s, r) => s + r.cost_usd, 0) : null
 const medianKey = (rows, f) => median(rows.map(f))
-const model = (r) => r.requested_model ?? r.model ?? 'unknown'
+const model = (r) => r.model ?? 'unknown'   // observed, not a fallback to the requested model
+const requestedModel = (r) => r.requested_model ?? 'unknown'
 const source = (r) => r.ticketflow_sha || r.plugin_sha || 'bare'
 const evaluation = (r) => r.eval_fingerprint ?? r.eval_sha ?? 'unknown'
 const csv = (v) => '"' + String(v ?? '').replaceAll('"', '""') + '"'
@@ -41,7 +42,7 @@ const cell = (r) => JSON.stringify([r.scenario, r.repeat ?? 'missing'])
 
 function descriptor(r) {
     return {
-        agent: r.agent ?? 'unknown', agentVersion: r.agent_version ?? 'unknown', requestedModel: r.requested_model ?? 'unknown',
+        agent: r.agent ?? 'unknown', agentVersion: r.agent_version ?? 'unknown', requestedModel: requestedModel(r),
         effectiveModel: model(r), arm: r.variant ?? r.arm, source: source(r), evaluation: evaluation(r),
     }
 }
@@ -60,6 +61,7 @@ function reportIssues(rows, groups, evaluations, configurations) {
     const issues = []
     if (evaluations.length !== 1 || evaluations.includes('unknown')) issues.push('Mixed or unknown evaluation revisions: do not pool as a controlled comparison.')
     if (configurations.length !== 1) issues.push('Multiple agent versions/models: comparison is not controlled across them.')
+    if (rows.some((r) => !r.model)) issues.push('Effective model was not reported for some sessions; model parity requires operator verification.')
     if (rows.some((r) => r.ticketflow_dirty === true)) issues.push('At least one TicketFlow checkout was dirty.')
     if (rows.some((r) => r.plugin_sha && r.plugin_native?.includes('not independently verified'))) issues.push('Plugin bootstrap was requested but not independently verified in the agent transcript.')
     if (rows.some((r) => r.evaluation_mode !== 'non-adversarial')) issues.push('Evaluation mode is missing or not explicitly non-adversarial.')
@@ -94,11 +96,12 @@ function publicationErrors(rows, evaluations, issues) {
     if (rows.some((r) => (r.ticketflow_sha || r.plugin_sha) && !isRevision(r.ticketflow_sha || r.plugin_sha))) errors.push('publication requires full hexadecimal source revisions')
     const structural = issues.filter((i) => /Duplicate scenario\/repeat|Incomplete repeat|Missing scenario\/repeat|Scenario\/repeat cell sets differ/.test(i))
     errors.push(...structural)
+    if (issues.includes('Multiple agent versions/models: comparison is not controlled across them.')) errors.push('publication requires one consistent CLI version and requested/effective model configuration')
     return [...new Set(errors)]
 }
 
 function render(rows, groups, evaluations, { published = false, date = null } = {}) {
-    const configurations = [...new Set(rows.map((r) => safeText(`${r.agent ?? 'unknown'}/${r.agent_version ?? 'unknown'}/${model(r)}`)))]
+    const configurations = [...new Set(rows.map((r) => safeText(`${r.agent ?? 'unknown'}/${r.agent_version ?? 'unknown'}/${requestedModel(r)}/${model(r)}`)))]
     const lines = [published ? `# Agent benchmark report — ${date}` : '# Agent benchmark results', '',
         `Recorded sessions: **${rows.length}** · Evaluation revisions: ${evaluations.map(revision).join(', ')}`,
         'Agent/model configurations: ' + configurations.join(', '), '',
@@ -172,7 +175,7 @@ try {
     if (!rows.length) throw Error('no sessions: cannot claim improvement')
     if (rows.some((r) => typeof r.scenario !== 'string' || !r.arm || !r.check || typeof r.check.pass !== 'boolean')) throw Error('invalid session row')
     const evaluations = [...new Set(rows.map(evaluation))], groups = groupsFor(rows)
-    const configurations = [...new Set(rows.map((r) => `${r.agent ?? 'unknown'}/${r.agent_version ?? 'unknown'}/${model(r)}`))]
+    const configurations = [...new Set(rows.map((r) => `${r.agent ?? 'unknown'}/${r.agent_version ?? 'unknown'}/${requestedModel(r)}/${model(r)}`))]
     const issues = reportIssues(rows, groups, evaluations, configurations)
     if (v.publish) {
         const errors = publicationErrors(rows, evaluations, issues)
@@ -189,9 +192,9 @@ try {
     } else if (v.out) writeFileSync(v.out, markdown)
     else console.log(markdown)
     if (v.csv) {
-        const columns = ['scenario','agent','agent_version','requested_model','arm','variant','repeat','ticketflow_sha','plugin_sha',
+        const columns = ['scenario','agent','agent_version','requested_model','effective_model','arm','variant','repeat','ticketflow_sha','plugin_sha',
             'eval_sha','eval_fingerprint','evaluation_mode','pass','wall_s','cost_usd','input_tokens','output_tokens','added','removed','deps_added','agent_exit']
-        const entries = rows.map((r) => [r.scenario,r.agent,r.agent_version,model(r),r.arm,r.variant??r.arm,r.repeat, r.ticketflow_sha,r.plugin_sha,
+        const entries = rows.map((r) => [r.scenario,r.agent,r.agent_version,requestedModel(r),model(r),r.arm,r.variant??r.arm,r.repeat, r.ticketflow_sha,r.plugin_sha,
             r.eval_sha,r.eval_fingerprint,r.evaluation_mode,r.check.pass,r.wall_s,r.cost_usd,r.tokens?.input_tokens,r.tokens?.output_tokens,r.diff?.added,r.diff?.removed,r.deps_added,r.agent_exit])
         writeFileSync(v.csv, columns.join(',') + '\n' + entries.map((r) => r.map(csv).join(',')).join('\n') + '\n')
     }

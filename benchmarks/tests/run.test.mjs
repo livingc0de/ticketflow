@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync, execFileSync } from 'node:child_process'
-import { appendFileSync, cpSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, cpSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tempDir } from '../../tests/helpers.mjs'
 import { evaluatorFingerprint } from '../lib/integrity.mjs'
@@ -9,7 +9,7 @@ import { evaluatorFingerprint } from '../lib/integrity.mjs'
 const ROOT = new URL('../', import.meta.url).pathname
 const REPO = new URL('../../', import.meta.url).pathname
 const CLI = join(ROOT, 'run.mjs')
-const call = (args) => spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8' })
+const call = (args, env = {}) => spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', env: { ...process.env, ...env } })
 const git = (dir, ...args) => execFileSync('git', ['-c','user.name=t','-c','user.email=t@example.invalid', ...args], { cwd: dir, encoding: 'utf8' }).trim()
 const source = (external = false, agent = 'claude', plugin = 'ponytail') => {
     const dir = tempDir('bench-source-')
@@ -108,4 +108,43 @@ test('invalid paths and missing native Codex manifests are rejected without paid
         assert.doesNotMatch(r.stdout, /SESSION /)
         if (args.includes('--superpowers-source')) assert.match(r.stderr, /manifest name must be superpowers/)
     }
+})
+
+test('preview resume does not require an agent CLI', () => {
+ const out=join(tempDir('bench-out-'),'rows.jsonl')
+ writeFileSync(out,JSON.stringify({scenario:'L1-trivial-copy',arm:'bare',variant:'bare',repeat:1,requested_model:'test',agent:'claude',agent_version:'old',eval_fingerprint:evaluatorFingerprint(REPO)})+'\n')
+ const r=call(['--agent','claude','--model','test','--arms','bare','--scenarios','L1','--repeats','1','--out',out,'--resume'])
+ assert.equal(r.status,0,r.stderr)
+ assert.match(r.stdout,/"already_recorded": 1/)
+})
+
+test('paid resume verifies the recorded CLI version before starting sessions', () => {
+    const cliDir = tempDir('bench-cli-'), cli = join(cliDir, 'claude')
+    writeFileSync(cli, '#!/bin/sh\nprintf "%s\\n" "$FAKE_CLI_VERSION"\nexit "${FAKE_CLI_EXIT:-0}"\n')
+    chmodSync(cli, 0o755)
+    const base = ['--agent','claude','--model','test','--arms','bare','--scenarios','L1','--repeats','1','--resume','--execute']
+    const row = (agentVersion) => ({ scenario:'L1-trivial-copy', arm:'bare', variant:'bare', repeat:1, requested_model:'test', agent:'claude',
+        agent_version:agentVersion, ticketflow_sha:null, plugin_sha:null, eval_fingerprint:evaluatorFingerprint(REPO) })
+    const run = (agentVersion, extra = {}) => {
+        const out = join(tempDir('bench-out-'), 'rows.jsonl')
+        writeFileSync(out, JSON.stringify(row(agentVersion)) + '\n')
+        return call([...base, '--out', out], { PATH:`${cliDir}:${process.env.PATH}`, FAKE_CLI_VERSION:'test-cli 1.0', ...extra })
+    }
+
+    const matching = run('test-cli 1.0')
+    assert.equal(matching.status, 0, matching.stderr)
+    assert.match(matching.stdout, /EXECUTE \(paid\)/)
+    assert.doesNotMatch(matching.stdout, /SESSION /)
+
+    for (const version of ['old-cli 0.9', undefined]) {
+        const changed = run(version)
+        assert.equal(changed.status, 2, changed.stderr)
+        assert.match(changed.stderr, /CLI version differs from recorded sessions or is missing/)
+        assert.doesNotMatch(changed.stdout, /SESSION /)
+    }
+
+    const unavailable = run('test-cli 1.0', { FAKE_CLI_EXIT:'1' })
+    assert.equal(unavailable.status, 2, unavailable.stderr)
+    assert.match(unavailable.stderr, /cannot verify current claude CLI version/)
+    assert.doesNotMatch(unavailable.stdout, /SESSION /)
 })

@@ -61,12 +61,12 @@ try {
             items.push({ scenario, arm, rep, source: path ?? null, source_sha: path ? sha(path) : null })
         }
     }
-    let completed = new Set()
+    let completed = new Set(), recordedRows = []
     const identity = (i) => [i.scenario, i.arm, i.rep, v.agent, v.model, i.source_sha ?? 'bare', evalFingerprint].join('|')
     if (v.resume) {
         if (!out || !existsSync(out)) throw Error('--resume requires an existing --out JSONL file')
-        const rows = readFileSync(out, 'utf8').split(/\r?\n/).filter(Boolean).map((x) => JSON.parse(x))
-        completed = new Set(rows.filter((r) => r.requested_model === v.model && r.agent === v.agent && Number.isInteger(r.repeat))
+        recordedRows = readFileSync(out, 'utf8').split(/\r?\n/).filter(Boolean).map((x) => JSON.parse(x))
+        completed = new Set(recordedRows.filter((r) => r.requested_model === v.model && r.agent === v.agent && Number.isInteger(r.repeat))
             .map((r) => [r.scenario.split('-')[0], r.variant ?? r.arm, r.repeat, r.agent, r.requested_model,
                 r.ticketflow_sha ?? r.plugin_sha ?? 'bare', r.eval_fingerprint ?? 'legacy-evaluator'].join('|')))
     }
@@ -74,6 +74,13 @@ try {
     console.log(JSON.stringify({ mode: v.execute ? 'EXECUTE (paid)' : 'DRY RUN (free)', total: items.length,
         already_recorded: items.length - pending.length, remaining: pending.length, model: v.model, agent: v.agent,
         arms, scenarios, repeats, sources: Object.fromEntries([...available].map(([k, d]) => [k, { path: d, sha: sha(d) }])) }, null, 2))
+    if (v.execute && v.resume) {
+        const version = spawnSync(v.agent, ['--version'], { encoding: 'utf8', timeout: 10_000 })
+        if (version.error || version.status !== 0 || !version.stdout?.trim()) throw Error('cannot verify current ' + v.agent + ' CLI version for --resume')
+        const prior = recordedRows.filter((r) => r.agent === v.agent && r.requested_model === v.model)
+        if (prior.some((r) => !r.agent_version || r.agent_version !== version.stdout.trim()))
+            throw Error('--resume CLI version differs from recorded sessions or is missing: use a fresh --out file')
+    }
     if (!v.execute) {
         for (const x of pending) console.log('PLAN ' + x.scenario + ' ' + x.arm + ' rep=' + x.rep)
     } else {

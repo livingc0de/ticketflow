@@ -23,7 +23,7 @@ Run the pilot intentionally (4 paid sessions):
 
     node benchmarks/run.mjs --agent claude --model "$CLAUDE_MODEL" --arms before,after --scenarios L1,L2 --repeats 1 --before-source ../ticketflow-before --out benchmarks/results/pilot.jsonl --max-sessions 4 --execute
 
-Run a full before/after comparison by omitting `--scenarios` (all 15 scenarios), selecting `--repeats 3` and setting `--max-sessions 90`. Add `--resume` to continue an interrupted matrix without repeating recorded sessions. `--resume` keys include scenario, arm, repetition, model, source commit and the content fingerprint of the evaluator; interrupted sessions with no row must be rerun.
+Run a full before/after comparison by omitting `--scenarios` (all 15 scenarios), selecting `--repeats 3` and setting `--max-sessions 90`. Add `--resume` to continue an interrupted matrix without repeating recorded sessions. Paid resume refuses a changed or missing CLI version; use a fresh output file after upgrading an agent CLI. `--resume` keys include scenario, arm, repetition, model, source commit and the content fingerprint of the evaluator; interrupted sessions with no row must be rerun.
 
 ## Five-arm comparison with Ponytail and Superpowers
 
@@ -42,7 +42,7 @@ Adding `--execute` runs the planned 225 paid sessions. Run the two-arm pilot and
 
 **Codex also supports all five arms** using the same pinned source checkouts with `--agent codex --model "$CODEX_MODEL"`. For external arms, the evaluator builds a fresh local plugin marketplace, asks `codex plugin marketplace add` and `codex plugin add` to install that plugin into a temporary `CODEX_HOME`, then requires `codex plugin list --json` to confirm **exactly one installed and enabled plugin**. Codex's `--ignore-user-config` is omitted only for plugin arms so their isolated plugin configuration loads; the bare and TicketFlow arms retain that flag. Each run also gets an isolated `HOME` to avoid personal plugins or marketplace files. When available, Codex login state is temporarily copied into the isolated profile and erased immediately after the session; the original `~/.codex` is not changed.
 
-This requires a Codex CLI version with the `codex plugin` subcommands and native Codex plugin manifests in both pinned checkouts. **Installation/enablement is verified; actual skill and hook activation still needs a live trial before publishing comparative conclusions.**
+This requires a Codex CLI version with the `codex plugin` subcommands and native Codex plugin manifests in both pinned checkouts. **Installation/enablement is verified; actual skill and hook activation still needs a live trial before publishing comparative conclusions.** Effective models not reported by the CLI remain unknown, rather than being inferred from requested models.
 
 **Native plugin activation is not proved by plugin registration alone.** Before publishing any competitor result, inspect preserved `agent.out` transcripts and confirm each framework's bootstrap/skills/hooks actually loaded for that CLI version; otherwise mark that arm unverified. Keep the exact model, model effort settings, permissions, CLI version, prompt, evaluator SHA and scenarios fixed. Check that no user-level instruction files or other plugins leak into the bare arm. Native Superpowers may require interactive design approval; a non-interactive harness can expose that limitation, not silently bypass it.
 
