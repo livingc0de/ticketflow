@@ -42,7 +42,7 @@ test('paid execution is refused before invoking any agent if the cap is too low'
 test('resume skips only matching fully identified runs', () => {
     const dir = tempDir('bench-out-'), out = join(dir, 'rows.jsonl')
     writeFileSync(out, JSON.stringify({ scenario:'L1-trivial-copy', arm:'bare', variant:'bare', repeat:1, requested_model:'test',
-        agent:'claude', ticketflow_sha:null, plugin_sha:null, check:{pass:false} }) + '\n')
+        agent:'claude', ticketflow_sha:null, plugin_sha:null, eval_sha:git(ROOT,'rev-parse','HEAD'), check:{pass:false} }) + '\n')
     const args = ['--agent','claude','--model','test','--arms','bare','--scenarios','L1','--repeats','2','--out',out,'--resume']
     const good = call(args)
     assert.equal(good.status, 0, good.stderr)
@@ -51,6 +51,13 @@ test('resume skips only matching fully identified runs', () => {
     assert.equal(info.already_recorded, 1)
     assert.match(good.stdout, /PLAN L1 bare rep=2/)
     assert.equal(readFileSync(out, 'utf8').split('\n').filter(Boolean).length, 1)
+})
+
+test('before and after must be different revisions', () => {
+    const before=source()
+    const r=call(['--agent','claude','--model','test','--arms','before,after','--before-source',before,'--after-source',before])
+    assert.equal(r.status,2)
+    assert.match(r.stderr,/different pinned revisions/)
 })
 
 test('invalid paths and unsupported plugin parity are rejected without paid work', () => {
