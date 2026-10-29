@@ -35,7 +35,7 @@ try {
     const versions = [...new Set(rows.map((r) => r.agent + '/' + r.agent_version + '/' + model(r)))]
     const groups = new Map()
     for (const r of rows) {
-        const key = [r.agent, model(r), r.variant ?? r.arm, source(r)].join('|')
+        const key = [r.agent, r.agent_version ?? 'unknown', model(r), r.variant ?? r.arm, source(r), r.eval_sha ?? 'unknown'].join('|')
         if (!groups.has(key)) groups.set(key, [])
         groups.get(key).push(r)
     }
@@ -48,7 +48,7 @@ try {
         '| Arm (revision) | Sessions | Passes (95% Wilson CI) | Median seconds | Median added LOC | Total USD | USD / success |',
         '| --- | ---: | ---: | ---: | ---: | ---: | ---: |']
     for (const [key, part] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
-        const [agent, m, arm, commit] = key.split('|'), n = part.length, passed = part.filter((r) => r.check.pass).length
+        const [agent, agentVersion, m, arm, commit] = key.split('|'), n = part.length, passed = part.filter((r) => r.check.pass).length
         const ci = wilson(passed, n), total = cost(part), unit = passed && total !== null ? total / passed : null
         const seconds = medianKey(part, (r) => r.wall_s), loc = medianKey(part, (r) => r.diff?.added)
         lines.push('| ' + arm + ' (' + commit.slice(0, 9) + ') · ' + agent + '/' + m +
@@ -59,7 +59,7 @@ try {
         '| Scenario | Arm | N | Passes | Median duration (s) | Median output tokens | Median net LOC | Dependencies added |',
         '| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |')
     for (const [key, part] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
-        const arm = key.split('|')[2], cases = new Map()
+        const arm = key.split('|')[3], cases = new Map()
         for (const row of part) { if (!cases.has(row.scenario)) cases.set(row.scenario, []); cases.get(row.scenario).push(row) }
         for (const [s, rs] of [...cases].sort(([a],[b])=>a.localeCompare(b))) {
             const net = medianKey(rs, (r) => typeof r.diff?.added === 'number' && typeof r.diff?.removed === 'number' ? r.diff.added-r.diff.removed : null)
