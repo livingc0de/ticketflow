@@ -73,6 +73,19 @@ test('a ready verdict cannot override explicitly failed specification or code-qu
     refused(run({ reviews: [review({ body: `${base}\n**Spec compliance:** unmet\n**Code quality:** acceptable` })] }), /not exactly "ready to merge"/)
     refused(run({ reviews: [review({ body: `${base}\n**Spec compliance:** met\n**Code quality:** changes needed` })] }), /not exactly "ready to merge"/)
 })
+test('alternate Markdown spelling and duplicate dimension verdicts cannot override ready to merge', () => {
+    const base = `Reviewed head: ${SHA7}\n**Verdict:** ready to merge`
+    const rejected = [
+        `${base}\n**Spec compliance**: unmet\n**Code quality:** acceptable`,
+        `${base}\nSpec compliance: unmet\nCode quality: acceptable`,
+        `${base}\n- **Spec compliance**: met\n- **Code quality**: changes needed`,
+        `${base}\n**Spec compliance:** met\n**Spec compliance**: unmet\n**Code quality:** acceptable`,
+        `${base}\n**Spec compliance:** met\n**Code quality:** acceptable\n**Code quality**: changes needed`,
+    ]
+    for (const body of rejected) refused(run({ reviews: [review({ body })] }), /not exactly "ready to merge"/)
+    const valid = `${base}\n- **Spec compliance**: met\n- **Code quality**: acceptable`
+    assert.equal(run({ reviews: [review({ body: valid })] }).status, 0)
+})
 test('each unmet gate exits 1 and never calls pr merge', () => {
     refused(run({ gate: status(null) }), /CI \/ Gate is missing/)
     refused(run({ gate: status('pending') }), /CI \/ Gate is pending/)
