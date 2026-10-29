@@ -3,7 +3,7 @@
  * Maintainer tool, never shipped to installed repos: runs one eval scenario (benchmarks/scenarios/<id>) with a real agent CLI in a fresh
  * temp git repo and appends one JSON row (benchmarks/SCENARIOS.md). It starts a PAID agent session; nothing here runs in CI.
  *
- * Usage: agent-eval.mjs <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--source dir] [--rep n] [--out file.jsonl]
+ * Usage: agent-eval.mjs <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--source dir] [--rep n] [--label name] [--out file.jsonl]
  *   <scenario> is a directory name or its prefix (L1). The ticketflow arm installs a TicketFlow checkout (--source, default this one; an
  *   older tag's worktree compares revisions) the way `init` does (runtime, gen-stubs, render); the bare arm installs nothing. The scenario's hidden check.mjs runs on the result; the row is printed and appended to --out.
  * Exit: 0 = the hidden check passed, 1 = it failed (the row is still recorded), 2 = usage, unknown scenario or missing CLI, before any run.
@@ -60,8 +60,8 @@ function report(agent, out, answerFile, model) {
 }
 
 main('agent-eval', () => {
-    const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, source: { type: 'string' }, rep: { type: 'string' }, out: { type: 'string' } }, allowPositionals: true })
-    if (positionals.length !== 1 || !['claude', 'codex'].includes(v.agent) || !['ticketflow', 'bare', 'superpowers', 'ponytail'].includes(v.arm) || (v.rep !== undefined && (!/^[1-9]\d*$/.test(v.rep) || !Number.isSafeInteger(+v.rep)))) throw new Error(usage)
+    const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, source: { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' } }, allowPositionals: true })
+    if (positionals.length !== 1 || !['claude', 'codex'].includes(v.agent) || !['ticketflow', 'bare', 'superpowers', 'ponytail'].includes(v.arm) || (v.rep !== undefined && (!/^[1-9]\d*$/.test(v.rep) || !Number.isSafeInteger(+v.rep))) || (v.label !== undefined && !/^[a-z][a-z0-9-]{0,30}$/.test(v.label))) throw new Error(usage)
     const id = readdirSync(SCENARIOS).find((d) => d === positionals[0] || d.startsWith(`${positionals[0]}-`))   // only a listed name, never a path
     if (!id) throw new Error(`unknown scenario ${positionals[0]}`)
     const external = v.arm === 'superpowers' || v.arm === 'ponytail'
@@ -100,7 +100,7 @@ main('agent-eval', () => {
     const pass = c.status === 0
     const tf = (f) => (v.arm === 'ticketflow' ? orNull(f) : null)   // the bare arm has no TicketFlow revision
     const row = {
-        scenario: id, agent: v.agent, agent_version: version.stdout.trim(), model: got.model, requested_model: v.model ?? null, arm: v.arm, repeat: v.rep ? +v.rep : null,
+        scenario: id, agent: v.agent, agent_version: version.stdout.trim(), model: got.model, requested_model: v.model ?? null, arm: v.arm, variant: v.label ?? v.arm, repeat: v.rep ? +v.rep : null,
         eval_sha: orNull(() => git(ROOT, 'rev-parse', 'HEAD')),   // the revision of this tool and its scenarios
         ticketflow_sha: tf(() => git(src, 'rev-parse', 'HEAD')), ticketflow_dirty: tf(() => git(src, 'status', '--porcelain', '--untracked-files=all').split('\n').some((l) => l && resolve(src, l.slice(3)) !== outFile)),
         ticketflow_version: tf(() => readFileSync(join(src, 'VERSION'), 'utf8').trim()),
