@@ -9,9 +9,9 @@ const ROOT = new URL('../', import.meta.url).pathname
 const CLI = join(ROOT, 'run.mjs')
 const call = (args) => spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8' })
 const git = (dir, ...args) => execFileSync('git', ['-c','user.name=t','-c','user.email=t@example.invalid', ...args], { cwd: dir, encoding: 'utf8' }).trim()
-const source = (external = false) => {
+const source = (external = false, agent = 'claude') => {
     const dir = tempDir('bench-source-')
-    const marker = external ? '.claude-plugin/plugin.json' : 'core/scripts/runtime.mjs'
+    const marker = external ? (agent === 'codex' ? '.codex-plugin/plugin.json' : '.claude-plugin/plugin.json') : 'core/scripts/runtime.mjs'
     mkdirSync(join(dir, marker, '..'), { recursive: true })
     writeFileSync(join(dir, marker), external ? '{}\n' : '// test source\n')
     git(dir, 'init', '-q', '-b', 'main'); git(dir, 'add', '-A'); git(dir, 'commit', '-qm', 'pinned')
@@ -60,12 +60,23 @@ test('before and after must be different revisions', () => {
     assert.match(r.stderr,/different pinned revisions/)
 })
 
-test('invalid paths and unsupported plugin parity are rejected without paid work', () => {
+test('Codex can preview the complete five-arm matrix with native pinned plugin sources', () => {
+    const before = source(), superpowers = source(true, 'codex'), ponytail = source(true, 'codex')
+    const r = call(['--agent','codex','--model','gpt-test','--arms','before,after,bare,superpowers,ponytail',
+        '--before-source',before,'--superpowers-source',superpowers,'--ponytail-source',ponytail,
+        '--scenarios','L1,L2','--repeats','1'])
+    assert.equal(r.status, 0, r.stderr)
+    const info = JSON.parse(r.stdout.split('\nPLAN ')[0])
+    assert.equal(info.total, 10)
+    assert.equal(r.stdout.split('\n').filter((x) => x.startsWith('PLAN ')).length, 10)
+})
+
+test('invalid paths and missing native Codex manifests are rejected without paid work', () => {
     for (const args of [
         ['--agent','claude','--model','m','--arms','before'],
         ['--agent','claude','--model','m','--arms','bare','--scenarios','L99'],
         ['--agent','claude','--model','m','--arms','bare,bare'],
-        ['--agent','codex','--model','m','--arms','superpowers','--superpowers-source',source(true)],
+        ['--agent','codex','--model','m','--arms','superpowers','--superpowers-source',source(true,'claude')],
     ]) {
         const r = call(args)
         assert.equal(r.status, 2, args.join(' ') + '\n' + r.stderr)
