@@ -55,13 +55,25 @@ function wantedLabels() {
 }
 
 function used(name) {
-    // shortcut: the issues endpoint is the supported usage signal; add discussion usage here if GitHub exposes a safe repository-wide query.
+    // sync's existing query is kept unchanged; prune uses exact labels from every issue/PR below.
     return name.includes(',') || api(`${R}/issues?labels=${encodeURIComponent(name)}&state=all&per_page=1`).length > 0
+}
+
+function usedNames() {
+    const names = new Set()
+    for (const item of api(`${R}/issues?state=all&per_page=100`, { paginate: true })) {
+        for (const label of item.labels ?? []) {
+            const name = typeof label === 'string' ? label : label?.name
+            if (typeof name === 'string') names.add(lower(name))
+        }
+    }
+    return names
 }
 
 function prune() {
     const live = api(`${R}/labels?per_page=100`, { paginate: true })
-    const unused = live.filter((l) => !used(l.name))
+    const used = usedNames()
+    const unused = live.filter((l) => !used.has(lower(l.name)))
     for (const l of unused) console.log(`unused: ${l.name}`)
     for (const l of unused) {
         console.log(`${dry ? 'would ' : ''}delete ${l.name}`)

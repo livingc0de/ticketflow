@@ -29,6 +29,7 @@ function prune(args, map) {
 }
 const labelsAt = (pages) => ({ [`${R}/labels?per_page=100`]: { __pages: pages } })
 const issues = (name, n) => ({ [`${R}/issues?labels=${encodeURIComponent(name)}&state=all&per_page=1`]: Array.from({ length: n }, () => ({ number: 1 })) })
+const items = (...labels) => ({ [`${R}/issues?state=all&per_page=100`]: labels.map((name, number) => ({ number: number + 1, labels: name === null ? [] : [{ name }] })) })
 
 test('creates the missing label and never changes a core label the repo has; a custom label is kept in line; a second run writes nothing', () => {
     const first = run([], { ...labelsAt([[live('type: bug', '000000', 'Mine'), live('mine', '000000')]]), [`POST ${R}/labels`]: {}, [`PATCH ${R}/labels/mine`]: {} }, WANTED, { custom: [{ name: 'Mine', color: 'aaaaaa', description: 'Ours' }] })
@@ -54,25 +55,25 @@ test('--prune deletes only unused extras; a label in use and a label with a comm
     assert.deepEqual(run([], map).writes, [])   // without --prune nothing is deleted
 })
 
-test('init prune deletes every unused existing label, including a TicketFlow-shaped label, but keeps used and unsafe names', () => {
+test('init prune deletes every unused existing label, including comma-containing and TicketFlow-shaped labels, but keeps used labels', () => {
     const map = {
-        ...labelsAt([[live('Type: Bug', 'd73a4a'), live('codex', 'ffffff'), live('busy', 'ffffff'), live('a,b', 'ffffff')]]),
-        ...issues('Type: Bug', 0), ...issues('codex', 0), ...issues('busy', 1), [`DELETE ${R}/labels/Type%3A%20Bug`]: null, [`DELETE ${R}/labels/codex`]: null,
+        ...labelsAt([[live('Type: Bug', 'd73a4a'), live('codex', 'ffffff'), live('busy', 'ffffff'), live('a,b', 'ffffff'), live('c,d', 'ffffff')]]),
+        ...items('busy', 'c,d'), [`DELETE ${R}/labels/Type%3A%20Bug`]: null, [`DELETE ${R}/labels/codex`]: null, [`DELETE ${R}/labels/a%2Cb`]: null,
     }
     const dry = prune(['--dry-run'], map)
     assert.equal(dry.status, 1, dry.stderr)
     assert.deepEqual(dry.writes, [])
     assert.match(dry.stdout, /unused: Type: Bug/); assert.match(dry.stdout, /would delete Type: Bug/)
     assert.match(dry.stdout, /unused: codex/); assert.match(dry.stdout, /would delete codex/)
-    assert.doesNotMatch(dry.stdout, /unused: busy/); assert.doesNotMatch(dry.stdout, /unused: a,b/)
-    assert.ok(!dry.calls.some((c) => c.join(' ').includes('a%2Cb')), 'no usage query for a comma name')
+    assert.match(dry.stdout, /unused: a,b/); assert.match(dry.stdout, /would delete a,b/)
+    assert.doesNotMatch(dry.stdout, /unused: busy/); assert.doesNotMatch(dry.stdout, /unused: c,d/)
     const applied = prune([], map)
     assert.equal(applied.status, 0, applied.stderr)
-    assert.deepEqual(applied.writes, ['DELETE labels/Type%3A%20Bug', 'DELETE labels/codex'])
+    assert.deepEqual(applied.writes, ['DELETE labels/Type%3A%20Bug', 'DELETE labels/codex', 'DELETE labels/a%2Cb'])
 })
 
 test('init prune with no unused labels is a no-op', () => {
-    const map = { ...labelsAt([[live('busy', 'ffffff')]]), ...issues('busy', 1) }
+    const map = { ...labelsAt([[live('busy', 'ffffff')]]), ...items('busy') }
     const r = prune([], map)
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(r.writes, [])
