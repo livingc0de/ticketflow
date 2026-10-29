@@ -337,7 +337,9 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     mkdirSync(join(src, '.codex-plugin'), { recursive: true })
     writeFileSync(join(src, '.codex-plugin/plugin.json'), '{"name":"ponytail"}')
     git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned')
-    const r = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--model', 'gpt-test'], { FAKE_FIX: '1' })
+    const authDir = tempDir('codex-auth-')
+    writeFileSync(join(authDir, 'auth.json'), '{"fake":"login"}')
+    const r = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--model', 'gpt-test'], { FAKE_FIX: '1', CODEX_HOME: authDir })
     assert.equal(r.status, 0, r.stdout + r.stderr)
     assert.deepEqual(r.calls.filter((c) => c.args[0] === 'plugin').map((c) => c.args.slice(0, 3)),
         [['plugin','marketplace','add'], ['plugin','add','ponytail@ticketflow-benchmark'], ['plugin','list','--json']])
@@ -348,6 +350,7 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     assert.equal(exec.home, join(r.row.workdir, 'home'))
     assert.ok(existsSync(join(r.row.workdir, 'marketplace/plugins/ponytail/.codex-plugin/plugin.json')))
     assert.ok(!existsSync(join(exec.codex_home, 'auth.json')), 'temporary authorization is never retained')
+    assert.equal(readFileSync(join(authDir, 'auth.json'), 'utf8'), '{"fake":"login"}', 'original credentials are untouched')
     assert.match(r.row.plugin_native, /installed and enabled.*bootstrap not independently verified/)
     assert.equal(r.row.plugin_sha, git(src, 'rev-parse', 'HEAD'))
     assert.equal(r.row.ticketflow_sha, null)
