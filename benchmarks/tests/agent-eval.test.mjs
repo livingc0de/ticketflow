@@ -186,6 +186,7 @@ const FAKE = `#!/usr/bin/env node
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 const args = process.argv.slice(2), name = process.argv[1].split('/').pop()
 if (args.includes('--version')) { console.log(name === 'claude' ? '9.9.9 (Claude Code)' : 'codex-cli 9.9.9'); process.exit(0) }
+if (args.includes('--help')) { console.log('--plugin-dir'); process.exit(0) }
 appendFileSync(process.env.FAKE_LOG, JSON.stringify({ name, args, stdin: readFileSync(0, 'utf8'), cwd: process.cwd(), tf: existsSync('.ticketflow/manifest.json') }) + '\\n')
 const edit = (f, from, to) => writeFileSync(f, readFileSync(f, 'utf8').replace(from, to))
 if (process.env.FAKE_FIX) edit('src/messages.js', 'recieve', 'receive')
@@ -300,6 +301,27 @@ test('--source installs another checkout (an older tag) and records its revision
     assert.equal(run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', src, '--out', join(src, 'results/rows.jsonl')], { FAKE_FIX: '1' }).row.ticketflow_dirty, true)
     const bad = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', tempDir('empty-')])
     assert.equal(bad.status, 2); assert.match(bad.stderr, /is not a ticketflow checkout/)
+})
+
+test('external frameworks load from clean native Claude plugin checkouts, not copied skill imitations', () => {
+    const { run } = sandbox(), src = tempDir('plugin-')
+    mkdirSync(join(src, '.claude-plugin'), { recursive: true })
+    writeFileSync(join(src, '.claude-plugin/plugin.json'), '{"name":"ponytail"}')
+    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned')
+    const r = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src, '--model', 'pinned-model', '--rep', '2', '--label', 'ponytail'], { FAKE_FIX: '1' })
+    assert.equal(r.status, 0, r.stdout+r.stderr)
+    assert.equal(r.row.plugin_sha, git(src, 'rev-parse', 'HEAD'))
+    assert.equal(r.row.ticketflow_sha, null)
+    assert.equal(r.row.repeat, 2)
+    assert.equal(r.row.requested_model, 'pinned-model')
+    assert.equal(r.row.variant, 'ponytail')
+    assert.match(r.row.plugin_native, /bootstrap not independently verified/)
+    assert.deepEqual(r.calls[0].args.slice(-2), ['--plugin-dir', src])
+    assert.equal(run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src]).status, 2)
+    writeFileSync(join(src, 'stray.txt'), 'uncommitted')
+    const dirty = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src])
+    assert.equal(dirty.status, 2)
+    assert.match(dirty.stderr, /clean pinned plugin checkout/)
 })
 
 test('a bad scenario, agent or arm, a missing option or a missing CLI exits 2 before any run', () => {
