@@ -6,11 +6,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const script = new URL('../core/scripts/efficiency.mjs', import.meta.url).pathname
-function run(data, opts = []) {
+function run(data, opts = [], waitLog = null) {
     const dir = mkdtempSync(join(tmpdir(), 'tf-efficiency-'))
     try {
         const file = join(dir, 'capture.json')
         writeFileSync(file, typeof data === 'string' ? data : JSON.stringify(data))
+        if (waitLog !== null) { const log = join(dir, 'wait.log'); writeFileSync(log, waitLog); opts = [...opts, '--wait-log', log] }
         return spawnSync(process.execPath, [script, file, ...opts], { encoding: 'utf8' })
     } finally { rmSync(dir, { recursive: true, force: true }) }
 }
@@ -50,4 +51,13 @@ test('malformed and incomplete captures refuse rather than report false usage', 
         else assert.equal(r.status, 2)
     }
     assert.equal(run({ type: 'result' }, ['--agent', 'codex']).status, 2)
+})
+
+test('measured review-wait records sum without inventing missing intervals', () => {
+    const session = { type: 'result', usage: {} }
+    const observed = run(session, ['--json'], 'Observed reviewer wait_ms: 200\nObserved reviewer wait_ms: 400\n')
+    assert.equal(observed.status, 0, observed.stderr)
+    assert.equal(JSON.parse(observed.stdout).review_wait_ms, 600)
+    const unknown = run(session, ['--json'], 'Observed reviewer wait_ms: 200\nObserved reviewer wait_ms: unknown\n')
+    assert.equal(JSON.parse(unknown.stdout).review_wait_ms, null)
 })
