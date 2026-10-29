@@ -38,7 +38,7 @@ No list, no login, no re-request comment: `pr-wait` reads what GitHub shows on t
 - **Result.** A review of the head; else the account's latest PR-level or current-head inline comment with visible text, counted at its last edit. A reaction is
   a sign, never a result. Its first comment on this head (a new comment, or its summary comment edited after the push) can be the
   whole result, so it is shown at once, as `result first comment`, while it is unchanged and the 15 minutes run: it may also be the
-  status note of a review still running, so `merge --reviewed-by <that login>` waits for its next answer. The runs in one checkout
+  status note of a review still running. To use a completed first comment before the 15-minute window expires, the agent must inspect the full content, act on every finding, and pass both `--reviewed-by '<login>'` and `--review-result-url '<exact comment link>'`. The merge script checks the evidence URL against the current head, but cannot verify the agent's semantic judgment; otherwise it waits for another answer. The runs in one checkout
   share what they saw (a file in the git dir, never committed), so `merge`'s own check knows an edit the wait already saw as the
   answer; without it (another machine, another worktree, or a fresh clone) a reused summary stays unconfirmed up to 15 minutes after
   its last edit. A status note the bot edits again while its review runs reads as an answer (documented limit).
@@ -71,7 +71,7 @@ for changes, and a review of the head:
 - **The merging account's own `pr-reviewer` review.** A submitted review of an `OWNER`, `MEMBER` or `COLLABORATOR` account with
   `Reviewed head: <sha>` (naming the head) and exactly one `**Verdict:** ready to merge`.
 - **Or `--reviewed-by '<login>'`**, naming the external reviewer whose result on the head you acted on. `merge` checks that
-  `pr-wait` lists that account with a result on this head, then prints a note. It cannot check what the result says: the agent read it.
+  `pr-wait` lists that account with a result on this head. For an unedited first comment inside the wait window, also pass `--review-result-url '<exact comment link>'` only after reading the complete review and addressing its findings. It checks the result link and head, not what the review says. Never use that option for a status note, failed run, quota notice or unrelated bot output.
 - **Every trusted account's last verdict on the head must be ready.** A `changes needed` from any account blocks until that same
   account reviews again, a push moves the head (verdicts are per head), or the owner merges by hand. An outsider's review sets no
   verdict and lifts none. The label may be spelled `**Verdict:**`, `**Verdict**:`, `Verdict:`, indented or in any case, so a
