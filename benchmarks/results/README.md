@@ -1,3 +1,11 @@
-# Results
+# Published benchmark results
 
-The run commands write JSONL rows here; those raw files and generated CSV files are ignored by default. Publish **sanitized** rows intentionally with `git add -f`, and commit the Markdown report only after validating source revisions, agent/plugin activation and sensitive paths. No simulated results belong here.
+This directory is the repository-facing index for benchmark results. Each real publication is a dated, sanitized Markdown report such as `2026-10-29-agentic.md`; no simulated metrics belong here. There are no published numeric results until a maintainer runs and inspects real sessions.
+
+Generate a report from a retained session file with:
+
+    node benchmarks/report.mjs <recorded-runs.jsonl> --publish --label agentic
+
+Publication fails closed unless evaluator and source revisions, model pins, CLI versions, repetition cells and evaluation mode are present and comparable. The report includes revisions, models, methodology, pass rates, costs and limitations, but never copies answers, transcripts, local paths or raw session rows.
+
+Raw JSONL sessions and generated CSV files remain ignored by default. Keep them local; publish only the Markdown report after checking plugin activation, sensitive paths and provenance. See [benchmark methodology](../README.md) for the execution and safety requirements.

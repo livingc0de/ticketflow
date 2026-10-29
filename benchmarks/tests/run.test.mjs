@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync, execFileSync } from 'node:child_process'
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { appendFileSync, cpSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tempDir } from '../../tests/helpers.mjs'
 import { evaluatorFingerprint } from '../lib/integrity.mjs'
@@ -65,6 +65,17 @@ test('resume reruns a row recorded with a different evaluator fingerprint', () =
     const info = JSON.parse(r.stdout.split('\nPLAN ')[0])
     assert.equal(info.already_recorded, 0)
     assert.equal(info.remaining, 1)
+})
+
+test('the selected result file is excluded from the evaluator fingerprint', () => {
+    const dir = tempDir('bench-fingerprint-'), out = join(dir, 'benchmarks/custom.jsonl')
+    cpSync(join(REPO, 'benchmarks'), join(dir, 'benchmarks'), { recursive: true })
+    mkdirSync(join(dir, 'benchmarks'), { recursive: true })
+    writeFileSync(out, 'one\n')
+    const first = evaluatorFingerprint(dir, [out])
+    appendFileSync(out, 'two\n')
+    assert.equal(first, evaluatorFingerprint(dir, [out]))
+    assert.notEqual(first, evaluatorFingerprint(dir))
 })
 
 test('before and after must be different revisions', () => {

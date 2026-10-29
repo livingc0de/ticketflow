@@ -111,7 +111,7 @@ main('agent-eval', () => {
     if (version.error || version.status !== 0) throw new Error(`${v.agent} is not installed or not on PATH`)
     if (external && v.agent === 'claude' && !run('claude', ['--help']).stdout?.includes('--plugin-dir')) throw new Error('Claude CLI does not advertise --plugin-dir; cannot load competitor natively')
 
-    const sdir = join(SCENARIOS, id), work = mkdtempSync(join(tmpdir(), 'agent-eval-')), evalFingerprint = evaluatorFingerprint(ROOT)
+    const sdir = join(SCENARIOS, id), work = mkdtempSync(join(tmpdir(), 'agent-eval-')), evalFingerprint = evaluatorFingerprint(ROOT, outFile ? [outFile] : [])
     const { dir, base } = workspace(sdir, v.agent, v.arm, work, src)
     const profile = v.agent === 'codex' ? codexProfile(work, v.arm, src) : null
     const answerFile = join(work, 'answer.txt')

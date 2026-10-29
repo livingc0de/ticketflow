@@ -51,7 +51,8 @@ try {
         if (['superpowers', 'ponytail'].includes(name)) validatePluginSource(dir, v.agent, name)
     }
     for (const id of scenarios) resolveScenario(join(HERE, 'scenarios'), id)
-    const evalFingerprint = evaluatorFingerprint(ROOT)
+    const out = v.out ? resolve(v.out) : null
+    const evalFingerprint = evaluatorFingerprint(ROOT, out ? [out] : [])
     const items = []
     for (let rep = 1; rep <= repeats; rep++) for (const [i, scenario] of scenarios.entries()) {
         const rotated = [...arms.slice((rep + i - 1) % arms.length), ...arms.slice(0, (rep + i - 1) % arms.length)]
@@ -60,7 +61,6 @@ try {
             items.push({ scenario, arm, rep, source: path ?? null, source_sha: path ? sha(path) : null })
         }
     }
-    const out = v.out ? resolve(v.out) : null
     let completed = new Set()
     const identity = (i) => [i.scenario, i.arm, i.rep, v.agent, v.model, i.source_sha ?? 'bare', evalFingerprint].join('|')
     if (v.resume) {

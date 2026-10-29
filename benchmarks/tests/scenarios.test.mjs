@@ -59,6 +59,10 @@ const fixed = {
         "export function isEnabled(x) { return x===true||x===1||(typeof x==='string'&&['true','1'].includes(x.trim().toLowerCase())) }\n"
     ],
 }
+const regressions = {
+    'L6-event-replay': "import test from 'node:test'\nimport assert from 'node:assert/strict'\nimport { applyEvent } from '../src/events.js'\ntest('replay is idempotent and immutable', () => { const state = { balance: 5, processed: [] }; const once = applyEvent(state, { id: 'e1', delta: 7 }); assert.deepEqual(once, { balance: 12, processed: ['e1'] }); assert.deepEqual(state, { balance: 5, processed: [] }); assert.strictEqual(applyEvent(once, { id: 'e1', delta: 7 }), once) })\n",
+    'L10-tenant-isolation': "import test from 'node:test'\nimport assert from 'node:assert/strict'\nimport { lookupOrder } from '../src/orders.js'\ntest('tenant id scopes the lookup', () => { const orders = [{ tenantId: 'a', id: 1, total: 10 }]; assert.equal(lookupOrder(orders, 'b', 1), null); assert.deepEqual(lookupOrder(orders, 'a', 1), orders[0]) })\n",
+}
 test('new hidden checks fail on untouched fixtures and pass on reference repairs', () => {
     for (const [id, [name, source]] of Object.entries(fixed)) {
         const dir = fixture(id)
@@ -67,13 +71,26 @@ test('new hidden checks fail on untouched fixtures and pass on reference repairs
         const meta = JSON.parse(readFileSync(join(SCEN, id, 'cases.json'), 'utf8'))
         if (meta.requireTest) {
             mkdirSync(join(dir, 'spec'), { recursive: true })
-            writeFileSync(join(dir, 'spec/regression.test.js'),
-                "import test from 'node:test'\nimport assert from 'node:assert/strict'\ntest('regression',()=>assert.ok(true))\n")
+            writeFileSync(join(dir, 'spec/regression.test.js'), regressions[id])
         }
         const good = run(dir, id)
         assert.equal(good.status, 0, id + '\n' + good.text)
         assert.match(good.text, /PASS:/)
     }
+})
+
+test('behaviour checks reject mutated input and vacuous regression tests', () => {
+    const mutating = fixture('L6-event-replay')
+    writeFileSync(join(mutating, 'src/events.js'), "export function applyEvent(state,event) { if(state.processed.includes(event.id)) return state; state.balance += event.delta; state.processed.push(event.id); return state }\n")
+    writeFileSync(join(mutating, 'spec/regression.test.js'), regressions['L6-event-replay'])
+    assert.equal(run(mutating, 'L6-event-replay').status, 1)
+    assert.match(run(mutating, 'L6-event-replay').text, /mutated its input arguments/)
+
+    const vacuous = fixture('L10-tenant-isolation')
+    writeFileSync(join(vacuous, 'src/orders.js'), "export function lookupOrder(orders,tenantId,id) { return orders.find((o)=>o.id===id&&o.tenantId===tenantId)??null }\n")
+    writeFileSync(join(vacuous, 'spec/regression.test.js'), "import test from 'node:test'\ntest('regression',()=>{})\n")
+    assert.equal(run(vacuous, 'L10-tenant-isolation').status, 1)
+    assert.match(run(vacuous, 'L10-tenant-isolation').text, /passes on the original source/)
 })
 test('review probes demand the right line and finding without editing', () => {
     for (const [id, path, word] of [

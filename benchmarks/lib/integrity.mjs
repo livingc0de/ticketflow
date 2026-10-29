@@ -23,9 +23,10 @@ const files = (dir, prefix = '') => readdirSync(dir, { withFileTypes: true }).fl
 }).sort()
 
 /** Fingerprint benchmark inputs by content, including dirty files, not only the repository HEAD. */
-export function evaluatorFingerprint(root) {
-    const base = resolve(root), hash = createHash('sha256')
+export function evaluatorFingerprint(root, excluded = []) {
+    const base = resolve(root), skip = new Set(excluded.map((p) => resolve(p))), hash = createHash('sha256')
     for (const rel of files(join(base, 'benchmarks'))) {
+        if (skip.has(resolve(base, 'benchmarks', rel))) continue
         hash.update(rel.replaceAll('\\', '/') + '\0')
         hash.update(readFileSync(join(base, 'benchmarks', rel)))
     }

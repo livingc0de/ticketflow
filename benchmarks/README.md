@@ -46,11 +46,11 @@ This requires a Codex CLI version with the `codex plugin` subcommands and native
 
 **Native plugin activation is not proved by plugin registration alone.** Before publishing any competitor result, inspect preserved `agent.out` transcripts and confirm each framework's bootstrap/skills/hooks actually loaded for that CLI version; otherwise mark that arm unverified. Keep the exact model, model effort settings, permissions, CLI version, prompt, evaluator SHA and scenarios fixed. Check that no user-level instruction files or other plugins leak into the bare arm. Native Superpowers may require interactive design approval; a non-interactive harness can expose that limitation, not silently bypass it.
 
-## Report existing rows (free)
+## Publish existing rows (free)
 
-    node benchmarks/report.mjs benchmarks/results/full.jsonl --out benchmarks/results/summary.md --csv benchmarks/results/sessions.csv
+    node benchmarks/report.mjs benchmarks/results/full.jsonl --publish --label agentic
 
-Reports show per-arm and per-scenario pass rates, descriptive Wilson 95% ranges, timing, change size, and cost per successful task where supplied. The report flags duplicate or missing scenario/repeat cells and mismatched arm matrices. Repeated paired task cells are not independent trials, so these summaries are **not statistical evidence of superiority**. Publish raw anonymized rows alongside conclusions if you make public performance claims; avoid publishing personal paths, credentials or sensitive agent transcripts. All results must be traceable to actual sessions.
+The publisher writes a dated, sanitized Markdown report under [`benchmarks/results/`](results/), including revisions, models, methodology, per-arm and per-scenario pass rates, descriptive Wilson 95% ranges, timing, change size, costs and limitations. It refuses incomplete or unpinned publications; it never publishes raw session rows, answers, transcripts or local paths. See the [results index](results/README.md). Repeated paired task cells are not independent trials, so these summaries are **not statistical evidence of superiority**. All results must be traceable to actual sessions.
 
 ## Safety and operational limits
 

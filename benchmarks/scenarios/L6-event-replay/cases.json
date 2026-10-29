@@ -80,5 +80,6 @@
       }
     }
   ],
-  "requireTest": true
+  "requireTest": true,
+  "immutableArgs": true
 }

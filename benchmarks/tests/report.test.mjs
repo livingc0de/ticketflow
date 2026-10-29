@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tempDir } from '../../tests/helpers.mjs'
 
@@ -16,6 +16,12 @@ function run(rows, opts = []) {
     writeFileSync(file, rows.map((r)=>JSON.stringify(r)).join('\n') + '\n')
     const r = spawnSync(process.execPath, [TOOL,file,'--out',out,'--csv',csv,...opts], { encoding:'utf8' })
     return { ...r, markdown:r.status===0?readFileSync(out,'utf8'):null, csv:r.status===0?readFileSync(csv,'utf8'):null }
+}
+function publish(rows, opts = []) {
+    const dir = tempDir('bench-publish-'), file = join(dir, 'runs.jsonl'), results = join(dir, 'results'), out = join(results, '2026-10-29-pilot.md')
+    writeFileSync(file, rows.map((r)=>JSON.stringify(r)).join('\n') + '\n')
+    const r = spawnSync(process.execPath, [TOOL,file,'--publish','--results-dir',results,'--date','2026-10-29','--label','pilot',...opts], { encoding:'utf8' })
+    return { ...r, dir, out, markdown: existsSync(out) ? readFileSync(out,'utf8') : null }
 }
 test('report retains failures in pass rate and cost per successful task', () => {
     const rows = [row(),row({repeat:2,check:{pass:false},cost_usd:0.4,wall_s:10,diff:{added:5,removed:1}})]
@@ -59,4 +65,35 @@ test('report rejects unbalanced and duplicate scenario/repeat cells', () => {
     r = run([row({ repeat:1 }), row({ repeat:2 }), row({ arm:'ticketflow', variant:'ticketflow', ticketflow_sha:'b'.repeat(40), repeat:1 })])
     assert.equal(r.status, 0, r.stderr)
     assert.match(r.markdown, /Scenario\/repeat cell sets differ between arms/)
+})
+
+test('publication writes a dated sanitized report with provenance and methodology', () => {
+    const dir = tempDir('bench-sensitive-')
+    const r = publish([
+        row({ agent_version:'/tmp/private/cli 9.9', model:'model\n|with`markup', requested_model:'model\n|with`markup', workdir:join(dir,'workdir'), answer:'secret answer', diff:{added:3,removed:1,files:['/tmp/private/answer.txt']} }),
+        row({ repeat:2, agent_version:'/tmp/private/cli 9.9', model:'model\n|with`markup', requested_model:'model\n|with`markup', check:{pass:false}, cost_usd:0.4, workdir:join(dir,'workdir-2'), answer:'another secret' }),
+    ])
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stdout, /2026-10-29-pilot\.md/)
+    assert.match(r.markdown, /# Agent benchmark report — 2026-10-29/)
+    assert.match(r.markdown, /## Revisions and models/)
+    assert.match(r.markdown, /## Methodology/)
+    assert.match(r.markdown, /## Per-scenario outcomes/)
+    assert.match(r.markdown, /1\/2/)
+    assert.match(r.markdown, /0\.600/)
+    assert.match(r.markdown, /## Interpretation and limitations/)
+    assert.doesNotMatch(r.markdown, /secret answer|another secret|answer\.txt|\/tmp\/private|workdir/)
+    assert.doesNotMatch(r.markdown, /\|with`markup/)
+})
+
+test('publication refuses unsafe metadata and incomplete matrices without writing a report', () => {
+    let r = publish([row({ repeat:1 }), row({ repeat:3 })])
+    assert.equal(r.status, 2)
+    assert.match(r.stderr, /publication refused/)
+    assert.equal(r.markdown, null)
+
+    r = publish([row()], ['--label','Unsafe_Label'])
+    assert.equal(r.status, 2)
+    assert.match(r.stderr, /lowercase slug/)
+    assert.equal(r.markdown, null)
 })
