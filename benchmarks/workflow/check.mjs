@@ -87,6 +87,8 @@ export function scoreDelivery({repo,id,issues,interrupted=false}) {
   const process={issue_linkage:tracking,agent_created_issues:newIssues,review_evidence:review.observed,
     unresolved_review:review.unresolved,pr_count:prs.length,merged_count:done.length,
     tracking_coverage:issues.length?issues.filter(n=>new RegExp('(?:#|issues/)' + n + '(?!\\d)').test(done.map(p=>p.body??'').join('\n'))).length/ issues.length:null};
-  return {pass:Object.values(steps).every(Boolean),steps,process,merged_prs:done.map(p=>p.number),
+  const functionality=steps.correctness && steps.repo_tests;
+  const pipeline=Object.values(steps).every(Boolean) && review.observed && !review.unresolved && tracking;
+  return {pass:pipeline,functionality,pipeline,steps,process,merged_prs:done.map(p=>p.number),
     count_prs:prs.length,hidden_why:hidden.why,ci_reason:ci.reason,error:err};
 }
