@@ -220,7 +220,10 @@ if (name === 'codex' && args[0] === 'plugin') {
             const market = JSON.parse(readFileSync(join(args[3], '.agents/plugins/marketplace.json'), 'utf8')).name
             const exists = state.marketplaces.some((m) => m.name === market)
             if (!exists) state.marketplaces.push({ name: market, root: args[3] })
-            save(); console.log(JSON.stringify({ marketplaceName: market, alreadyAdded: exists }))
+            save()
+            if (process.env.FAKE_MARKETPLACE_ADD_FAIL === '1') { console.error('simulated marketplace add failure'); process.exit(2) }
+            if (process.env.FAKE_MARKETPLACE_ADD_INVALID_JSON === '1') { console.log('not json'); process.exit(0) }
+            console.log(JSON.stringify({ marketplaceName: market, alreadyAdded: exists }))
             process.exit(0)
         }
         if (args[1] === 'add') {
@@ -251,6 +254,7 @@ if (process.env.FAKE_FIX) edit('src/messages.js', 'recieve', 'receive')
 if (process.env.FAKE_DEP) edit('package.json', '"private"', '"dependencies":{"left-pad":"1"},"private"')
 if (process.env.FAKE_NPM) { mkdirSync('node_modules/left-pad', { recursive: true }); writeFileSync('node_modules/left-pad/index.js', 'x\\n'); writeFileSync('package-lock.json', '{}\\n') }
 if (process.env.FAKE_CREATE_AUTH && name === 'codex' && args[0] === 'exec') writeFileSync(join(process.env.CODEX_HOME, 'credentials.json'), 'generated')
+if (process.env.FAKE_CREATE_HOME_FILE && name === 'codex' && args[0] === 'exec') writeFileSync(join(process.env.HOME, 'outside-cache'), 'generated')
 if (process.env.FAKE_CREATE_CLAUDE_AUTH && name === 'claude') writeFileSync(join(process.env.CLAUDE_CONFIG_DIR, '.credentials.json'), 'generated')
 const o = args.indexOf('-o')
 if (o >= 0) writeFileSync(args[o + 1], process.env.FAKE_ANSWER ?? '')
@@ -547,7 +551,7 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned'); git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
     const authDir = tempDir('codex-auth-')
     writeFileSync(join(authDir, 'auth.json'), CODEX_LOGIN)
-    const r = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--model', 'gpt-test'], { FAKE_FIX: '1', FAKE_CREATE_AUTH: '1', CODEX_HOME: authDir, OPENAI_API_KEY: 'should-not-reach-cli' })
+    const r = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--model', 'gpt-test'], { FAKE_FIX: '1', FAKE_CREATE_AUTH: '1', FAKE_CREATE_HOME_FILE: '1', CODEX_HOME: authDir, OPENAI_API_KEY: 'should-not-reach-cli' })
     assert.equal(r.status, 0, r.stdout + r.stderr)
     assert.deepEqual(r.calls.filter((c) => c.args[0] === 'plugin').map((c) => c.args.slice(0, 3)),
         [['plugin','marketplace','add'], ['plugin','add','ponytail@ticketflow-benchmark'], ['plugin','list','--json']])
@@ -560,6 +564,7 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     assert.ok(existsSync(join(r.row.workdir, 'marketplace/plugins/ponytail/.codex-plugin/plugin.json')))
     assert.ok(!existsSync(join(exec.codex_home, 'auth.json')), 'temporary authorization is never retained')
     assert.ok(!existsSync(join(exec.codex_home, 'credentials.json')), 'generated credential state is never retained')
+    assert.ok(!existsSync(join(r.row.workdir, 'home')), 'the entire temporary Codex home is removed')
     assert.equal(readFileSync(join(authDir, 'auth.json'), 'utf8'), CODEX_LOGIN, 'original credentials are untouched')
     assert.match(r.row.plugin_native, /installed and enabled.*bootstrap not independently verified/)
     assert.equal(r.row.plugin_sha, git(src, 'rev-parse', 'HEAD'))
@@ -632,6 +637,16 @@ test('unisolated Codex plugin cleanup runs on agent failure and on setup verific
     assert.ok(afterFailure.installed.some((p) => p.marketplaceName === 'personal-market' && p.name === 'superpowers'),
         'pre-existing user plugin is never targeted even when benchmark cleanup fails')
     assert.equal(afterFailure.installed.length, 2, 'benchmark-owned plugin is reported as still installed')
+
+    for (const failure of ['FAKE_MARKETPLACE_ADD_FAIL', 'FAKE_MARKETPLACE_ADD_INVALID_JSON']) {
+        const { run: runPartial, tmp: partialTmp } = sandbox(), partialHome = join(partialTmp, 'codex-keyring-partial-')
+        mkdirSync(partialHome)
+        const partial = runPartial(args, { ...env, CODEX_HOME: partialHome, FAKE_KEYRING_HOME: partialHome, [failure]: '1' })
+        assert.equal(partial.status, 2, partial.stdout + partial.stderr)
+        const partialState = JSON.parse(readFileSync(join(partialHome, 'fake-plugin-state.json'), 'utf8'))
+        assert.deepEqual(partialState.installed.map((p) => p.name), ['superpowers'], `${failure}: user plugin survives`)
+        assert.deepEqual(partialState.marketplaces.map((m) => m.name), ['personal-market'], `${failure}: partial marketplace is cleaned`)
+    }
 })
 
 test('approved unisolated Claude plugin loads pinned checkout without touching user plugins', () => {

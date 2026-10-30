@@ -41,7 +41,7 @@ function codexProfile(work, arm, src, isolated = true) {
     if (isolated) mkdirSync(codexHome, { recursive: true, mode: 0o700 })
     const env = isolated ? { ...cleanEnv(process.env), HOME: home, CODEX_HOME: codexHome }
         : { ...cleanEnv(process.env), CODEX_HOME: codexHome }
-    if (!['superpowers', 'ponytail'].includes(arm)) return { env, codexHome }
+    if (!['superpowers', 'ponytail'].includes(arm)) return { env, home, codexHome }
 
     // A unique namespace prevents touching a pre-existing installation of the same plugin.
     const market = isolated ? 'ticketflow-benchmark' : 'ticketflow-benchmark-' + basename(work).toLowerCase().replace(/[^a-z0-9-]/g, '')
@@ -70,6 +70,11 @@ function codexProfile(work, arm, src, isolated = true) {
         if (!Array.isArray(entries)) throw new Error('Codex marketplace list omitted marketplaces')
         return entries
     }
+    const marketplaceBelongsToHarness = (entry) => {
+        if (entry?.name !== market) return false
+        const location = entry.root ?? entry.path
+        return location === undefined || resolve(String(location)) === resolve(root)
+    }
     let registeredByHarness = false
     const cleanup = () => {
         if (isolated || !registeredByHarness) return
@@ -97,9 +102,13 @@ function codexProfile(work, arm, src, isolated = true) {
         if ((isolated && installed.length !== 1) || ours.length !== 1 ||
             ours[0].name !== arm || ours[0].installed !== true || ours[0].enabled !== true)
             throw new Error('Codex native plugin was not correctly installed and enabled; refusing the benchmark')
-        return { env, codexHome, installed: true, cleanup }
+        return { env, home, codexHome, installed: true, cleanup }
     } catch (e) {
         if (!isolated) {
+            // marketplace add can mutate the profile before returning an error or invalid JSON.
+            // The namespace was absent above; claim it only if the post-failure listing identifies
+            // this benchmark's marketplace, then apply the same scoped cleanup.
+            try { registeredByHarness ||= marketplaces().some(marketplaceBelongsToHarness) } catch {}
             try { cleanup() } catch (err) {
                 throw new Error(e.message + '; benchmark-only plugin cleanup failed: ' + err.message)
             }
@@ -204,8 +213,7 @@ main('agent-eval', () => {
     } finally {
         // Never erase a paid result solely because plugin cleanup failed.
         try { profile.cleanup?.() } catch (e) { cleanupFailure = e }
-        if (isolated && claude) rmSync(profile.home, { recursive: true, force: true })
-        else if (isolated) rmSync(profile.codexHome, { recursive: true, force: true })
+        if (isolated) rmSync(profile.home, { recursive: true, force: true })
     }
     const wall_s = Math.round((Date.now() - t0) / 100) / 10
     const out = r.stdout ?? ''
