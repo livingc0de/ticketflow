@@ -7,11 +7,10 @@ import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,rmSync,chmod
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {runProcess,terminateProcess} from '../lib/process.mjs';
+import {runProcess,signalProcess,terminateProcess} from '../lib/process.mjs';
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
-const runner=fileURLToPath(new URL('../workflow-run.mjs',import.meta.url));
-const wrapper=fileURLToPath(new URL('../run-all.mjs',import.meta.url));
+const runner=fileURLToPath(new URL('../run-workflow.mjs',import.meta.url));
 const env=Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^WORKFLOW_BENCH_/.test(k)));
 const withTemp=(run)=>{
   const dir=mkdtempSync(join(tmpdir(),'workflow-dryrun-'));
@@ -99,7 +98,7 @@ test('Codex Ponytail workflow preflight rejects missing hook trust bypass before
 }));
 const evaluatorFingerprint=()=>{
   const hash=createHash('sha256');
-  for(const path of ['workflow-run.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs',
+  for(const path of ['run-workflow.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs',
     'workflow/profile.mjs','workflow/check.mjs','workflow/outcome.mjs','lib/integrity.mjs',
     'lib/profile-auth.mjs','lib/process.mjs','lib/transcripts.mjs']){
     hash.update(path);hash.update('\0');hash.update(readFileSync(join(root,'benchmarks',path)));
@@ -177,21 +176,6 @@ test('failed cleanup requires explicit acknowledgment before paying for invalid 
   assert.match(run.stderr,/--acknowledge-plugin-cleanup/);
   assert.ok(!existsSync(ghLog));
 }));
-test('wrapper runs workflow dry-run only without execute',()=>withTemp(dir=>{
-  const file=join(dir,'runs.jsonl'), config=join(dir,'plan.json');
-  writeFileSync(config,JSON.stringify({workflow:args(file).slice(1)}));
-  const result=spawnSync(process.execPath,[wrapper,'--config',config,'--suite','workflow'],{cwd:root,encoding:'utf8',env,timeout:30000});
-  assert.equal(result.status,0,result.stderr);
-  assert.match(result.stdout,/DRY RUN/);
-  assert.ok(!existsSync(file));
-}));
-test('wrapper forbids execute embedded in plan',()=>withTemp(dir=>{
-  const config=join(dir,'plan.json');
-  writeFileSync(config,JSON.stringify({workflow:[...args(join(dir,'r.jsonl')).slice(1),'--execute']}));
-  const result=spawnSync(process.execPath,[wrapper,'--config',config,'--suite','workflow'],{cwd:root,encoding:'utf8',env,timeout:30000});
-  assert.equal(result.status,2);
-  assert.match(result.stderr,/--execute/);
-}));
 test('TicketFlow workflow sources must be clean and reproducibly pinned',()=>withTemp(dir=>{
   const {source,sha}=ticketflowSource(dir), file=join(dir,'runs.jsonl');
   const base=[runner,'--agent','claude','--model','benchmark-test-model','--owner','example-benchmark-org',
@@ -217,6 +201,23 @@ test('process termination escalates an uncooperative child after a bounded grace
   const clear=terminateProcess(child,{graceMs:50,onEscalate:()=>{escalated=true}});
   await Promise.race([once(child,'close'),new Promise((_,reject)=>setTimeout(()=>reject(new Error('child did not terminate')),2000))]);
   clear();
+  assert.equal(escalated,true);
+});
+test('process termination escalates after the leader exits while a descendant retains the pipes',async()=>{
+  if(process.platform==='win32')return;
+  const descendant="process.on('SIGTERM',()=>{});setInterval(()=>{},1000)";
+  const leader=`const {spawn}=require('node:child_process');spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:'inherit'});process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},1000)`;
+  const child=spawn(process.execPath,['-e',leader],{detached:true});
+  await once(child,'spawn');
+  await new Promise(resolve=>setTimeout(resolve,100));
+  let escalated=false;
+  const clear=terminateProcess(child,{graceMs:50,onEscalate:()=>{escalated=true}});
+  try {
+    await Promise.race([once(child,'close'),new Promise((_,reject)=>setTimeout(()=>reject(new Error('descendant kept the pipes open')),2000))]);
+  } finally {
+    clear();
+    signalProcess(child,'SIGKILL');
+  }
   assert.equal(escalated,true);
 });
 test('runProcess waits for bounded escalation instead of resolving on SIGTERM',async()=>{

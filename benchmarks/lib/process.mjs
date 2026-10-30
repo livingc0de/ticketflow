@@ -12,6 +12,19 @@ export function signalProcess(child, signal, platform = process.platform) {
     }
 }
 
+/** Check whether a non-Windows process group still has members. */
+function processGroupAlive(child, platform = process.platform) {
+    if (!child?.pid) return false
+    if (platform === 'win32') return child.exitCode === null && child.signalCode === null
+    try {
+        process.kill(-child.pid, 0)
+        return true
+    } catch (error) {
+        // EPERM means the group exists but the caller cannot probe it fully.
+        return error?.code === 'EPERM'
+    }
+}
+
 /**
  * Stop a process group politely, then force it down after a bounded grace period.
  * The returned function clears the escalation timer when the child closes.
@@ -19,10 +32,7 @@ export function signalProcess(child, signal, platform = process.platform) {
 export function terminateProcess(child, { platform = process.platform, graceMs = 1000, onEscalate = () => {} } = {}) {
     signalProcess(child, 'SIGTERM', platform)
     const timer = setTimeout(() => {
-        if (child.exitCode === null && child.signalCode === null) {
-            signalProcess(child, 'SIGKILL', platform)
-            onEscalate()
-        }
+        if (processGroupAlive(child, platform) && signalProcess(child, 'SIGKILL', platform)) onEscalate()
     }, graceMs)
     timer.unref?.()
     return () => clearTimeout(timer)

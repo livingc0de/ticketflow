@@ -1,6 +1,6 @@
 # Benchmarks (maintainers only)
 
-**Full GitHub pipeline comparisons (W1–W7):** see [WORKFLOW.md](WORKFLOW.md). They use a separate opt-in runner and do not modify the L1–L15 local runner.
+**Full GitHub pipeline comparisons (W1–W7):** see [WORKFLOW.md](WORKFLOW.md). They use a separate opt-in runner and do not modify the L1–L15 local suite.
 
 
 This directory is deliberately **outside `core/` and `practices/`**. TicketFlow's installer copies only those two roots; it never installs benchmark scripts, scenarios, data or documentation into a customer's repository. No paid agent runs occur in CI. See [historical eval and GitHub sandbox procedures](SCENARIOS.md) for E3–E9.
@@ -12,6 +12,15 @@ This directory is deliberately **outside `core/` and `practices/`**. TicketFlow'
 - For each run: correctness (pass/fail, including failed runs), added/removed lines, touched files, dependencies, elapsed time, tokens, reported cost, model, requested effort and CLI version. Cost per successful task includes all known failed-run cost. Unknown costs stay unknown.
 - Optional real-GitHub review and merge-gate tests are documented separately in SCENARIOS.md; they are not equivalent to model performance benchmarks.
 
+## Tool and artifact naming
+
+- `run-local.mjs` runs the L1–L15 local matrix; `agent-eval.mjs` runs one local cell.
+- `run-workflow.mjs` runs the W1–W7 GitHub workflow matrix.
+- `run.mjs` launches a configured local and/or workflow suite in sequence.
+- `report-local.mjs` publishes local results; `report-workflow.mjs` publishes workflow results. Both use dated Markdown names of the form `YYYY-MM-DD-<suite>-<label>.md`.
+- `report.mjs` generates both reports, or one selected report, from a configured plan.
+- Raw session ledgers are dated `*.jsonl` files chosen with `--out`; they remain ignored. Workflow runs also retain the matching `<file>.state.json` resume sidecar. Transcript archives remain under `benchmarks/results/transcripts/` and are ignored.
+
 ## Quick smoke / pilot: no paid work by default
 
 Prepare a clean, pinned older TicketFlow checkout outside this repo:
@@ -20,15 +29,15 @@ Prepare a clean, pinned older TicketFlow checkout outside this repo:
 
 Inspect the planned sessions (no agents are launched):
 
-    node benchmarks/run.mjs --agent claude --model "$CLAUDE_MODEL" --arms before,after --scenarios L1,L2 --repeats 1 --before-source ../ticketflow-before --out benchmarks/results/pilot.jsonl
+    node benchmarks/run-local.mjs --agent claude --model "$CLAUDE_MODEL" --arms before,after --scenarios L1,L2 --repeats 1 --before-source ../ticketflow-before --out benchmarks/results/2026-10-30-local-pilot.jsonl
 
 Run the pilot intentionally (4 paid sessions):
 
-    node benchmarks/run.mjs --agent claude --model "$CLAUDE_MODEL" --effort high --arms before,after --scenarios L1,L2 --repeats 1 --before-source ../ticketflow-before --out benchmarks/results/pilot.jsonl --max-sessions 4 --execute
+    node benchmarks/run-local.mjs --agent claude --model "$CLAUDE_MODEL" --effort high --arms before,after --scenarios L1,L2 --repeats 1 --before-source ../ticketflow-before --out benchmarks/results/2026-10-30-local-pilot.jsonl --max-sessions 4 --execute
 
 To run one Claude and one Codex matrix in parallel, use separate output files. The cap applies to the combined number of paid sessions, while each agent's sessions remain sequential within its own output:
 
-    node benchmarks/run.mjs --parallel --claude-model "$CLAUDE_MODEL" --codex-model "$CODEX_MODEL" --effort high --arms after --scenarios L1 --repeats 1 --claude-out benchmarks/results/claude-pilot.jsonl --codex-out benchmarks/results/codex-pilot.jsonl --max-sessions 2 --allow-danger-full-access --execute
+    node benchmarks/run-local.mjs --parallel --claude-model "$CLAUDE_MODEL" --codex-model "$CODEX_MODEL" --effort high --arms after --scenarios L1 --repeats 1 --claude-out benchmarks/results/2026-10-30-local-claude-pilot.jsonl --codex-out benchmarks/results/2026-10-30-local-codex-pilot.jsonl --max-sessions 2 --allow-danger-full-access --execute
 
 The parallel runner preflights both CLIs and authentication before launching either paid matrix, shares one evaluator fingerprint between the two files, and prefixes their live output. Resume with `--resume` and both output paths; it reruns only missing or fingerprint-mismatched cells.
 
@@ -47,7 +56,7 @@ Both competitors can be evaluated against **native Claude Code plugin checkouts*
 
 After verifying the plugin manifests and that Claude Code supports `--plugin-dir`, inspect this command first **without** `--execute`:
 
-    node benchmarks/run.mjs --agent claude --model "$CLAUDE_MODEL" --arms before,after,bare,superpowers,ponytail --before-source ../ticketflow-before --superpowers-source ../superpowers --ponytail-source ../ponytail --repeats 3 --out benchmarks/results/full.jsonl --max-sessions 225
+    node benchmarks/run-local.mjs --agent claude --model "$CLAUDE_MODEL" --arms before,after,bare,superpowers,ponytail --before-source ../ticketflow-before --superpowers-source ../superpowers --ponytail-source ../ponytail --repeats 3 --out benchmarks/results/2026-10-30-local-full.jsonl --max-sessions 225
 
 Adding `--execute` runs the planned 225 paid sessions. Claude loads each pinned Superpowers or Ponytail checkout through its native `--plugin-dir` path automatically. Run the two-arm pilot and inspect actual outputs before doing that. Real costs depend on the chosen model and tasks and cannot be predicted here.
 
@@ -91,7 +100,16 @@ can expose that limitation, not silently bypass it.
 
 ## Publish existing rows (free)
 
-    node benchmarks/report.mjs benchmarks/results/full.jsonl --publish --label agentic
+    node benchmarks/report-local.mjs benchmarks/results/2026-10-30-local-full.jsonl --publish --label pilot
+
+To generate both suite reports from one plan, use arrays of ordinary reporter arguments:
+
+    {
+      "local": ["benchmarks/results/2026-10-30-local-full.jsonl", "--publish", "--label", "pilot"],
+      "workflow": ["benchmarks/results/2026-10-30-workflow-full.jsonl", "--publish", "--label", "pilot"]
+    }
+
+    node benchmarks/report.mjs --config my-report-plan.json
 
 The publisher writes a dated, sanitized Markdown report under [`benchmarks/results/`](results/), including revisions, models, methodology, per-arm and per-scenario pass rates, descriptive Wilson 95% ranges, timing, change size, costs and limitations. It refuses incomplete or unpinned publications; it never publishes raw session rows, answers, transcripts or local paths. See the [results index](results/README.md). Repeated paired task cells are not independent trials, so these summaries are **not statistical evidence of superiority**. All results must be traceable to actual sessions.
 
@@ -108,8 +126,12 @@ The publisher writes a dated, sanitized Markdown report under [`benchmarks/resul
 | File | Responsibility |
 | --- | --- |
 | `agent-eval.mjs` | One real agent run with hidden check and JSON row; paid only when explicitly invoked |
-| `run.mjs` | Balanced multi-arm, multi-repeat comparison; dry-run by default |
-| `report.mjs` | Deterministic Markdown/CSV reporting from recorded rows; no agents |
+| `run-local.mjs` | Balanced L1–L15 multi-arm, multi-repeat comparison; dry-run by default |
+| `run-workflow.mjs` | Paid opt-in W1–W7 GitHub workflow comparison; dry-run by default |
+| `run.mjs` | Configured local/workflow suite launcher; dry-run unless `--execute` is passed |
+| `report-local.mjs` | Deterministic Markdown/CSV reporting for local rows; no agents |
+| `report-workflow.mjs` | Deterministic full-pipeline Markdown reporting for workflow rows; no agents |
+| `report.mjs` | Configured local/workflow report launcher |
 | `scenarios/` | Task repositories, prompts and private-to-the-agent hidden check manifests |
 | `checks/` | Shared deterministic hidden checkers |
 | `tests/` | Fake-CLI runner tests, checker calibration and reporting tests |

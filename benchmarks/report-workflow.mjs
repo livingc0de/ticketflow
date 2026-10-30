@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 /** Offline comparison of coding and complete workflow delivery, not framework-specific commands. */
-import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
-import {dirname,resolve} from 'node:path';
+import {readFileSync} from 'node:fs';
+import {dirname,join,resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {parseArgs} from 'node:util';
 import { latestAttempts, outcomeOf } from './workflow/outcome.mjs';
+import { reportTarget, writeReport } from './lib/report-output.mjs';
+const HERE=dirname(fileURLToPath(import.meta.url));
 const median=v=>{
   if(!v.length||v.some(n=>typeof n!=='number'||!Number.isFinite(n)))return null;
   const s=[...v].sort((a,b)=>a-b),i=Math.floor(s.length/2);
@@ -99,13 +102,15 @@ export function render(rows){
   if(latest.some(r=>!Array.isArray(r.transcript_archives)||!r.transcript_archives.length))lines.push('**Transcript warning:** One or more workflow cells lack archived session evidence.');
   return lines.join('\n')+'\n';
 }
-if(process.argv[1]?.endsWith('workflow-report.mjs')){
+if(process.argv[1]?.endsWith('report-workflow.mjs')){
   try {
-    const {values:v,positionals}=parseArgs({options:{out:{type:'string'}},allowPositionals:true});
-    if(positionals.length!==1)throw Error('usage: node benchmarks/workflow-report.mjs RESULTS.jsonl [--out REPORT.md]');
+    const {values:v,positionals}=parseArgs({options:{out:{type:'string'},publish:{type:'boolean'},label:{type:'string'},date:{type:'string'},'results-dir':{type:'string'}},allowPositionals:true});
+    if(positionals.length!==1)throw Error('usage: node benchmarks/report-workflow.mjs RESULTS.jsonl [--out REPORT.md] [--publish --label slug --date YYYY-MM-DD --results-dir DIR]');
+    if(v['results-dir']&&!v.publish)throw Error('--results-dir requires --publish');
     const rows=readFileSync(resolve(positionals[0]),'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
     const output=render(rows);
-    if(v.out){const path=resolve(v.out);mkdirSync(dirname(path),{recursive:true});writeFileSync(path,output);console.log(path);}
+    const target=reportTarget({publish:v.publish,out:v.out,label:v.label,date:v.date,suite:'workflow',defaultLabel:'workflow',defaultDir:resolve(v['results-dir']??join(HERE,'results'))});
+    if(writeReport(target,output))console.log(target);
     else process.stdout.write(output);
-  }catch(e){console.error('workflow-report: '+e.message);process.exitCode=2;}
+  }catch(e){console.error('report-workflow: '+e.message);process.exitCode=2;}
 }

@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {render} from '../workflow-report.mjs';
+import {spawnSync} from 'node:child_process';
+import {existsSync,mkdirSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {render} from '../report-workflow.mjs';
+
+const tool=fileURLToPath(new URL('../report-workflow.mjs',import.meta.url));
 
 const row=(arm,pass,pipeline)=>({
   suite:'workflow',scenario:'W2',arm,agent:'claude',agent_version:'fake',
@@ -60,4 +67,19 @@ test('a fresh valid retry supersedes the original invalid measurement without er
 test('legacy rows without explicit status are flagged as ambiguous',()=>{
   const old=row('bare',false,false);delete old.outcome;
   assert.match(render([old]),/Legacy-record warning/);
+});
+
+test('workflow publication writes the shared dated report filename',()=>{
+  const dir=join(tmpdir(),`workflow-report-${process.pid}-${Date.now().toString(36)}`);
+  mkdirSync(dir,{recursive:true});
+  try {
+    const input=join(dir,'2026-10-30-workflow-pilot.jsonl'),results=join(dir,'results');
+    writeFileSync(input,JSON.stringify(row('bare',true,true))+'\n');
+    const result=spawnSync(process.execPath,[tool,input,'--publish','--label','pilot','--date','2026-10-30','--results-dir',results],{encoding:'utf8'});
+    assert.equal(result.status,0,result.stderr);
+    const report=join(results,'2026-10-30-workflow-pilot.md');
+    assert.match(result.stdout,/2026-10-30-workflow-pilot\.md/);
+    assert.ok(existsSync(report));
+    assert.match(readFileSync(report,'utf8'),/^# Full-pipeline workflow comparison/);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
 });

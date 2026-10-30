@@ -43,7 +43,7 @@ Commands for the supported full matrix, one agent (each cell is one paid session
 
 ```
 mkdir -p results
-node benchmarks/run.mjs --agent claude --model "$CLAUDE_MODEL" \
+node benchmarks/run-local.mjs --agent claude --model "$CLAUDE_MODEL" \
   --arms bare,after --after-source ../ticketflow-reviewed \
   --scenarios L1,L2,L3,L4 --repeats 1 --out results/claude.jsonl \
   --max-sessions 8 --execute

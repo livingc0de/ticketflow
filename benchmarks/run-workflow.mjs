@@ -13,14 +13,14 @@ import { makeProfile,destroyProfile } from './workflow/profile.mjs';
 import { scoreDelivery, projectSnapshot, meaningfulCheckpoint } from './workflow/check.mjs';
 import { selectProfileMode,approveDangerFullAccess } from './lib/profile-auth.mjs';
 import { validatePluginSource,validateSourceCheckout } from './lib/integrity.mjs';
-import { archiveSession,transcriptSessionId } from './lib/transcripts.mjs';
+import { archiveSession,readOrCreateAnswer,transcriptSessionId } from './lib/transcripts.mjs';
 import { terminateProcess } from './lib/process.mjs';
 import { classifyOutcome, outcomeOf } from './workflow/outcome.mjs';
 
 const HERE=dirname(fileURLToPath(import.meta.url)),ROOT=resolve(HERE,'..');
 const ARMS=new Set(['bare','ticketflow','superpowers','ponytail']);
 const EFFORTS=new Set(['low','medium','high','xhigh','max']);
-const help='workflow-run --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5,W6,W7] [--repeats 3] [--effort high] [--superpowers-source DIR --superpowers-sha SHA] [--ponytail-source DIR --ponytail-sha SHA] [--ticketflow-source DIR --ticketflow-sha SHA] [--resume] [--acknowledge-plugin-cleanup] [--execute --allow-github-writes] [--allow-danger-full-access]';
+const help='run-workflow --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5,W6,W7] [--repeats 3] [--effort high] [--superpowers-source DIR --superpowers-sha SHA] [--ponytail-source DIR --ponytail-sha SHA] [--ticketflow-source DIR --ticketflow-sha SHA] [--resume] [--acknowledge-plugin-cleanup] [--execute --allow-github-writes] [--allow-danger-full-access]';
 const readJson=(file)=>JSON.parse(readFileSync(file,'utf8'));
 const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
 const cellKey=(cell)=>cell.id+'|'+cell.arm+'|'+cell.repeat;
@@ -80,7 +80,7 @@ const planFor=(selected,arms,repeats)=>{
 };
 function fingerprint() {
   const hash=createHash('sha256');
-  for(const path of ['workflow-run.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs','workflow/profile.mjs','workflow/check.mjs','workflow/outcome.mjs','lib/integrity.mjs','lib/profile-auth.mjs','lib/process.mjs','lib/transcripts.mjs']) {
+  for(const path of ['run-workflow.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs','workflow/profile.mjs','workflow/check.mjs','workflow/outcome.mjs','lib/integrity.mjs','lib/profile-auth.mjs','lib/process.mjs','lib/transcripts.mjs']) {
     hash.update(path);hash.update('\0');hash.update(readFileSync(join(HERE,path)));
   }
   return hash.digest('hex');
@@ -169,7 +169,9 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
         const ends=events.filter(e=>e.type==='turn.completed');
         tokens=ends.length?ends.reduce((a,e)=>{for(const [k,v] of Object.entries(e.usage??{}))a[k]=(a[k]??0)+v;return a},{}):null;
       }
-      const answer=agent==='claude'?(result?.result??''):(()=>{try{return readFileSync(outfile,'utf8')}catch{return ''}})();
+      const answer=agent==='claude'?(result?.result??''):readOrCreateAnswer(outfile,'[No answer was produced by the agent before this invocation ended.]\n');
+      // An interrupted Codex invocation can exit before creating -o's file. Keep
+      // the transcript archiveable so a successful W5 recovery remains valid.
       if(agent==='claude')writeFileSync(outfile,answer,{mode:0o600});
       const external=['superpowers','ponytail'].includes(arm);
       const evidence=profile.nativePluginEvidence??(agent==='claude'&&external?'claude-plugin-dir':null);
@@ -405,4 +407,4 @@ async function main() {
     console.log('RESULT '+cell.key+' '+row.outcome.toUpperCase()+' '+JSON.stringify(row.outcome==='invalid'?row.invalid_reasons:row.delivery.steps));
   }
 }
-main().catch(e=>{console.error('workflow-run: '+e.message);process.exitCode=2});
+main().catch(e=>{console.error('run-workflow: '+e.message);process.exitCode=2});

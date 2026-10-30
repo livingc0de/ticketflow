@@ -1,4 +1,4 @@
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { join, relative, resolve } from 'node:path'
 
@@ -12,6 +12,16 @@ const ALLOWED = [
 const metadataOnly = (metadata) => Object.fromEntries(ALLOWED
     .filter((key) => Object.hasOwn(metadata ?? {}, key))
     .map((key) => [key, metadata[key]]))
+
+/** Read an answer file, materializing a deterministic fallback when interruption prevented creation. */
+export function readOrCreateAnswer(file, fallback) {
+    try { return readFileSync(file, 'utf8') }
+    catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+        writeFileSync(file, fallback, { mode: 0o600 })
+        return fallback
+    }
+}
 
 /**
  * Archive only the two textual session outputs and allowlisted metadata.

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { archiveSession } from '../lib/transcripts.mjs'
+import { archiveSession, readOrCreateAnswer } from '../lib/transcripts.mjs'
 
 test('transcript archives are collision-safe, private and allowlisted', () => {
     const root = mkdtempSync(join(tmpdir(), 'transcripts-'))
@@ -24,4 +24,12 @@ test('transcript archives are collision-safe, private and allowlisted', () => {
         assert.equal(statSync(join(dir, 'metadata.json')).mode & 0o777, 0o600)
     }
     assert.throws(() => archiveSession({ root: archiveRoot, sessionId: '../escape', agentOut, answerFile: answer, metadata }), /invalid transcript session id/)
+})
+
+test('missing interrupted answers get a deterministic archiveable fallback', () => {
+    const root = mkdtempSync(join(tmpdir(), 'transcript-answer-'))
+    const answer = join(root, 'answer.txt'), fallback = '[No answer was produced.]\n'
+    assert.equal(readOrCreateAnswer(answer, fallback), fallback)
+    assert.equal(readFileSync(answer, 'utf8'), fallback)
+    assert.equal(readOrCreateAnswer(answer, 'different'), fallback)
 })
