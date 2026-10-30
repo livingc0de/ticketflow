@@ -4,8 +4,10 @@ import { copyFileSync, chmodSync, mkdirSync, existsSync, rmSync, cpSync, writeFi
 import { homedir } from 'node:os';
 import { resolve, join, basename } from 'node:path';
 
-const clean = () => Object.fromEntries(Object.entries(process.env).filter(([k]) =>
-  !/(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(k)));
+// A strict allowlist avoids forwarding unrelated cloud/account secrets to paid agents.
+const SAFE_ENV=new Set(['PATH','LANG','LC_ALL','LC_CTYPE','TERM','TMPDIR','TMP','TEMP','SHELL','USER','LOGNAME',
+  'SYSTEMROOT','COMSPEC','PATHEXT','USERPROFILE','APPDATA','LOCALAPPDATA','HOME','XDG_CONFIG_HOME']);
+const clean=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>SAFE_ENV.has(k)));
 const call = (bin,args,env) => {
   const r=spawnSync(bin,args,{encoding:'utf8',env,timeout:60000});
   if(r.status!==0) throw Error(bin+' '+args.join(' ')+' failed: '+String(r.stderr||r.error?.message||r.status).slice(0,400));
