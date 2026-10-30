@@ -17,7 +17,7 @@ import { validatePluginSource } from './lib/integrity.mjs';
 const HERE=dirname(fileURLToPath(import.meta.url)),ROOT=resolve(HERE,'..');
 const ARMS=new Set(['bare','ticketflow','superpowers','ponytail']);
 const EFFORTS=new Set(['low','medium','high','xhigh','max']);
-const help='workflow-run --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5] [--repeats 3] [--effort high] [--superpowers-source DIR] [--ponytail-source DIR] [--after-source DIR] [--resume] [--max-sessions 60] [--execute --allow-github-writes] [--allow-danger-full-access]';
+const help='workflow-run --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5] [--repeats 3] [--effort high] [--superpowers-source DIR] [--ponytail-source DIR] [--ticketflow-source DIR] [--resume] [--max-sessions 72] [--execute --allow-github-writes] [--allow-danger-full-access]';
 const readJson=(file)=>JSON.parse(readFileSync(file,'utf8'));
 const gitSha=(dir)=>sh('git',['rev-parse','HEAD'],{cwd:dir,env:process.env});
 const cleanRepo=(dir)=>!sh('git',['status','--porcelain'],{cwd:dir,env:process.env});
@@ -76,8 +76,8 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
       '--model',model,...(effort?['--effort',effort]:[]),...profile.pluginArgs]:
       ['exec','--json',...(arm==='bare'||arm==='ticketflow'?['--ignore-user-config']:[]),'--sandbox','danger-full-access',
         '-C',dir,'-o',outfile,'-m',model,...(effort?['--config','model_reasoning_effort='+effort]:[]),'-'];
-    const env={...profile.env,GH_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN||process.env.WORKFLOW_BENCH_SETUP_TOKEN,
-      GITHUB_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN||process.env.WORKFLOW_BENCH_SETUP_TOKEN,GIT_TERMINAL_PROMPT:'0'};
+    const env={...profile.env,GH_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN,
+      GITHUB_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN,GIT_TERMINAL_PROMPT:'0'};
     const start=Date.now();let stdout='',stderr='',interrupted=false,reason=null,closed=false;
     let timer,watcher,child;
     const finish=async(code,signal)=>{
