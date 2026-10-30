@@ -207,6 +207,40 @@ if (name === 'codex' && args[0] === 'login' && args[1] === 'status') {
 }
 appendFileSync(process.env.FAKE_LOG, JSON.stringify({ name, args, stdin: readFileSync(0, 'utf8'), cwd: process.cwd(), tf: existsSync('.ticketflow/manifest.json'), home:process.env.HOME, codex_home:process.env.CODEX_HOME, claude_config:process.env.CLAUDE_CONFIG_DIR, claude_auth:existsSync(join(process.env.CLAUDE_CONFIG_DIR ?? '', '.credentials.json')), claude_settings:existsSync(join(process.env.CLAUDE_CONFIG_DIR ?? '', 'settings.json')), claude_api_key:!!process.env.ANTHROPIC_API_KEY, claude_oauth:!!process.env.CLAUDE_CODE_OAUTH_TOKEN, claude_extra:!!process.env.CLAUDE_EXTRA_TEST, anthropic_base:!!process.env.ANTHROPIC_BASE_URL, secret:process.env.OPENAI_API_KEY ?? null }) + '\\n')
 if (name === 'codex' && args[0] === 'plugin') {
+    if (process.env.FAKE_PERSIST_PLUGINS === '1') {
+        const stateFile = join(process.env.CODEX_HOME, 'fake-plugin-state.json')
+        let state = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, 'utf8')) : {
+            marketplaces: process.env.FAKE_EXISTING_PLUGIN ? [{ name: 'personal-market', root: 'existing' }] : [],
+            installed: process.env.FAKE_EXISTING_PLUGIN ? [{ name: process.env.FAKE_EXISTING_PLUGIN, marketplaceName: 'personal-market', installed: true, enabled: true }] : [],
+        }
+        const save = () => writeFileSync(stateFile, JSON.stringify(state))
+        if (args[1] === 'marketplace' && args[2] === 'list') { console.log(JSON.stringify({ marketplaces: state.marketplaces })); process.exit(0) }
+        if (args[1] === 'list') { console.log(JSON.stringify({ installed: state.installed })); process.exit(0) }
+        if (args[1] === 'marketplace' && args[2] === 'add') {
+            const market = JSON.parse(readFileSync(join(args[3], '.agents/plugins/marketplace.json'), 'utf8')).name
+            const exists = state.marketplaces.some((m) => m.name === market)
+            if (!exists) state.marketplaces.push({ name: market, root: args[3] })
+            save(); console.log(JSON.stringify({ marketplaceName: market, alreadyAdded: exists }))
+            process.exit(0)
+        }
+        if (args[1] === 'add') {
+            const [pluginName,marketName] = args[2].split('@')
+            state.installed.push({ name: pluginName, marketplaceName: marketName, installed: true, enabled: process.env.FAKE_PLUGIN_DISABLED !== '1' })
+            save(); console.log(JSON.stringify({ name: pluginName, marketplaceName: marketName }))
+            process.exit(0)
+        }
+        if (args[1] === 'remove') {
+            if (process.env.FAKE_PLUGIN_REMOVE_FAIL === '1') { console.error('simulated uninstall failure'); process.exit(2) }
+            const [pluginName, marketName] = args[2].split('@')
+            state.installed = state.installed.filter((p) => p.name !== pluginName || p.marketplaceName !== marketName)
+            save(); console.log(JSON.stringify({name:pluginName,marketplaceName:marketName})); process.exit(0)
+        }
+        if (args[1] === 'marketplace' && args[2] === 'remove') {
+            state.marketplaces = state.marketplaces.filter((m) => m.name !== args[3])
+            save(); console.log(JSON.stringify({ marketplaceName: args[3] })); process.exit(0)
+        }
+        process.exit(2)
+    }
     if (args[1] === 'marketplace' && args[2] === 'add') { console.log(JSON.stringify({marketplaceName:'ticketflow-benchmark'})); process.exit(0) }
     if (args[1] === 'add') { console.log(JSON.stringify({name:args[2].split('@')[0],marketplaceName:'ticketflow-benchmark'})); process.exit(0) }
     if (args[1] === 'list') { const n = process.env.FAKE_PLUGIN_NAME || 'ponytail'; console.log(JSON.stringify({installed:[{name:n,marketplaceName:'ticketflow-benchmark',installed:true,enabled:process.env.FAKE_PLUGIN_DISABLED!=='1'}]})); process.exit(0) }
