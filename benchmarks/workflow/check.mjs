@@ -112,11 +112,13 @@ function hiddenCorrectness(dir,hidden){
   writeFileSync(path,code);
   const r=spawnSync(process.execPath,[path],{cwd:dir,encoding:'utf8',timeout:60000,
     env:{PATH:process.env.PATH,HOME:process.env.HOME}});
+  if(r.error)throw Error('hidden checker could not be launched: '+r.error.message);
   return {pass:r.status===0,reason:(r.stderr??'').slice(0,500)};
 }
 function localTests(dir){
   const r=spawnSync('npm',['test'],{cwd:dir,encoding:'utf8',timeout:120000,
     env:{PATH:process.env.PATH,HOME:process.env.HOME}});
+  if(r.error)throw Error('repository tests could not be launched: '+r.error.message);
   return {pass:r.status===0,reason:(r.stderr??'').slice(0,500)};
 }
 /**
@@ -225,15 +227,20 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
   return {pass:pipeline,functionality:functional,delivery,pipeline,steps,process};
 }
 export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,resumed=false,initialPR=null,initialHead=null,baselineProjects=[]}){
-  const sc=scenarios[id],prs=pulls(repo),work=mkdtempSync(join(tmpdir(),'workflow-verify-'));
-  let hidden={pass:false,reason:'unverified'},suite={pass:false,reason:'unverified'},error=null;
+  const sc=scenarios[id],work=mkdtempSync(join(tmpdir(),'workflow-verify-'));
+  let prs=[],issueRows=[],hidden={pass:false,reason:'unverified'},
+    suite={pass:false,reason:'unverified'},error=null;
+  const recordError=e=>{error=(error?error+'; ':'')+e.message};
+  // A broken evaluator, failed API call or unavailable clone invalidates the
+  // measurement. It must never be converted into an apparent agent failure.
+  try{prs=pulls(repo)}catch(e){recordError(e)}
   try {
     command('gh',['repo','clone',repo,join(work,'checkout'),'--','--depth','1'],{timeout:120000});
     hidden=hiddenCorrectness(join(work,'checkout'),sc.hidden);
     suite=localTests(join(work,'checkout'));
-  }catch(e){error=e.message;}
-  finally{rmSync(work,{recursive:true,force:true});}
-  const issueRows=issueSnapshot(repo,seededIssues);
+  }catch(e){recordError(e)}
+  finally{rmSync(work,{recursive:true,force:true})}
+  try{issueRows=issueSnapshot(repo,seededIssues)}catch(e){recordError(e)}
   const merged=prs.filter(isMerged),checks=[],reviews=[],plans=[];
   for(const p of merged){
     try{
@@ -241,7 +248,7 @@ export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,res
       reviews.push({number:p.number,...reviewEvidence(repo,p,{seededPR:initialPR})});
       const files=all(repo,'pulls/'+p.number+'/files');
       plans.push(...files.map(f=>f.filename).filter(relevant));
-    }catch(e){error=(error?error+'; ':'')+e.message}
+    }catch(e){recordError(e)}
   }
   const result=evaluateEvidence({id,seededIssues,issues:issueRows,prs,checks,reviews,plans,
     interrupted,resumed,initialPR,initialHead,baselineProjects,hidden:hidden.pass,repoTests:suite.pass});
