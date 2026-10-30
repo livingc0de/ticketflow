@@ -12,20 +12,20 @@ import { validateOrg,newRepository,seedIssues,seedBrokenPull,cloneRepository,ins
 import { makeProfile,destroyProfile } from './workflow/profile.mjs';
 import { scoreDelivery, projectSnapshot } from './workflow/check.mjs';
 import { selectProfileMode,approveDangerFullAccess } from './lib/profile-auth.mjs';
-import { validatePluginSource } from './lib/integrity.mjs';
+import { validatePluginSource,validateSourceCheckout } from './lib/integrity.mjs';
+import { archiveSession,transcriptSessionId } from './lib/transcripts.mjs';
+import { terminateProcess } from './lib/process.mjs';
 
 const HERE=dirname(fileURLToPath(import.meta.url)),ROOT=resolve(HERE,'..');
 const ARMS=new Set(['bare','ticketflow','superpowers','ponytail']);
 const EFFORTS=new Set(['low','medium','high','xhigh','max']);
-const help='workflow-run --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5,W6,W7] [--repeats 3] [--effort high] [--superpowers-source DIR] [--ponytail-source DIR] [--ticketflow-source DIR] [--resume] [--max-sessions 96] [--execute --allow-github-writes] [--allow-danger-full-access]';
+const help='workflow-run --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5,W6,W7] [--repeats 3] [--effort high] [--superpowers-source DIR --superpowers-sha SHA] [--ponytail-source DIR --ponytail-sha SHA] [--ticketflow-source DIR --ticketflow-sha SHA] [--resume] [--max-sessions 96] [--execute --allow-github-writes] [--allow-danger-full-access]';
 const readJson=(file)=>JSON.parse(readFileSync(file,'utf8'));
-const gitSha=(dir)=>sh('git',['rev-parse','HEAD'],{cwd:dir,env:process.env});
-const cleanRepo=(dir)=>!sh('git',['status','--porcelain'],{cwd:dir,env:process.env});
 const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
-const idFor=(p,agent,model,effort,sourceShas,fingerprint)=>JSON.stringify({p,agent,model,effort,sourceShas,fingerprint});
+const idFor=(p,agent,model,effort,sourceShas,sourceMeta,fingerprint)=>JSON.stringify({p,agent,model,effort,sourceShas,sourceMeta,fingerprint});
 function fingerprint() {
   const hash=createHash('sha256');
-  for(const path of ['workflow-run.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs','workflow/profile.mjs','workflow/check.mjs']) {
+  for(const path of ['workflow-run.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs','workflow/profile.mjs','workflow/check.mjs','lib/integrity.mjs','lib/process.mjs','lib/transcripts.mjs']) {
     hash.update(path);hash.update('\0');hash.update(readFileSync(join(HERE,path)));
   }
   return hash.digest('hex');
@@ -35,7 +35,8 @@ function parse() {
   const {values:v}=parseArgs({options:{
     agent:{type:'string'},model:{type:'string'},owner:{type:'string'},out:{type:'string'},arms:{type:'string'},scenarios:{type:'string'},
     repeats:{type:'string'},effort:{type:'string'},'max-sessions':{type:'string'},'ticketflow-source':{type:'string'},
-    'superpowers-source':{type:'string'},'ponytail-source':{type:'string'},'allow-github-writes':{type:'boolean'},
+    'superpowers-source':{type:'string'},'ponytail-source':{type:'string'},'ticketflow-sha':{type:'string'},
+    'superpowers-sha':{type:'string'},'ponytail-sha':{type:'string'},'allow-github-writes':{type:'boolean'},
     'allow-danger-full-access':{type:'boolean'},execute:{type:'boolean'},resume:{type:'boolean'},
   }});
   if(!['claude','codex'].includes(v.agent)||!v.model?.trim()||!v.owner?.trim()||!v.out?.trim()) throw Error(help);
@@ -46,17 +47,21 @@ function parse() {
     new Set(selected).size!==selected.length || selected.some(x=>!ids.includes(x)) || !selected.length ||
     !Number.isSafeInteger(repeats)||repeats<1 || !Number.isSafeInteger(max)||max<1 ||
     (v.effort&&!EFFORTS.has(v.effort))) throw Error(help);
-  const sources={ticketflow:resolve(v['ticketflow-source']??ROOT)};
+  const sources={};
+  if(arms.includes('ticketflow')) sources.ticketflow=resolve(v['ticketflow-source']??ROOT);
   for(const arm of ['superpowers','ponytail']) if(arms.includes(arm)) {
     if(!v[arm+'-source']) throw Error('--'+arm+'-source must point to a pinned native plugin checkout');
     sources[arm]=resolve(v[arm+'-source']);
   }
+  const sourceMeta={};
   for(const [arm,dir] of Object.entries(sources)) {
-    if(!existsSync(dir)||!cleanRepo(dir)) throw Error(arm+' source must be an existing clean checkout');
+    if(!existsSync(dir)) throw Error(arm+' source must be an existing clean checkout');
+    const expectedRemote=arm==='ticketflow'?'https://github.com/livingc0de/ticketflow':null;
+    sourceMeta[arm]=validateSourceCheckout(dir,{name:arm,expectedSha:v[arm+'-sha']??null,expectedRemote});
     if(arm!=='ticketflow') validatePluginSource(dir,v.agent,arm);
     else if(!existsSync(join(dir,'core/scripts/runtime.mjs'))) throw Error('TicketFlow runtime not found at '+dir);
   }
-  return {v,arms,selected,repeats,max,sources,sourceShas:Object.fromEntries(Object.entries(sources).map(([a,d])=>[a,gitSha(d)])),
+  return {v,arms,selected,repeats,max,sources,sourceMeta,sourceShas:Object.fromEntries(Object.entries(sourceMeta).map(([a,m])=>[a,m.sha])),
     out:resolve(v.out),statePath:resolve(v.out)+'.state.json'};
 }
 function cliVersion(agent) {
@@ -64,7 +69,7 @@ function cliVersion(agent) {
   if(r.status!==0||!r.stdout?.trim()) throw Error(agent+' CLI/version unavailable');
   return r.stdout.trim();
 }
-function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs=35*60_000,interrupt=null}) {
+function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs=35*60_000,interrupt=null,archiveRoot=null,archiveMeta={}}) {
   return new Promise((done,reject)=>{
     let profile;
     try {profile=makeProfile(agent,arm,work,source,mode);}
@@ -79,15 +84,13 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
     const env={...profile.env,GH_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN,
       GITHUB_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN,GIT_TERMINAL_PROMPT:'0'};
     const start=Date.now();let stdout='',stderr='',interrupted=false,reason=null,closed=false;
-    let timer,watcher,child;
+    let timer,watcher,child,clearEscalation;
     const stop=()=>{
-      if(!child?.pid)return;
-      try {if(process.platform==='win32')child.kill('SIGTERM');
-        else process.kill(-child.pid,'SIGTERM');}
-      catch{try{child.kill('SIGTERM')}catch{}}
+      if(!child?.pid||closed||clearEscalation)return;
+      clearEscalation=terminateProcess(child,{onEscalate:()=>{stderr+='\nprocess group escalated to SIGKILL'}});
     };
     const finish=async(code,signal)=>{
-      if(closed)return;closed=true;clearTimeout(timer);clearInterval(watcher);
+      if(closed)return;closed=true;clearTimeout(timer);clearInterval(watcher);clearEscalation?.();
       let cleanupError=null;
       try{profile.cleanup()}catch(e){cleanupError=e.message;}
       if(mode==='isolated')destroyProfile(work,mode);
@@ -102,8 +105,21 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
         const ends=events.filter(e=>e.type==='turn.completed');
         tokens=ends.length?ends.reduce((a,e)=>{for(const [k,v] of Object.entries(e.usage??{}))a[k]=(a[k]??0)+v;return a},{}):null;
       }
+      const answer=agent==='claude'?(result?.result??''):(()=>{try{return readFileSync(outfile,'utf8')}catch{return ''}})();
+      if(agent==='claude')writeFileSync(outfile,answer,{mode:0o600});
+      const external=['superpowers','ponytail'].includes(arm);
+      const marker='TICKETFLOW_BENCH_PLUGIN_BOOTSTRAP='+arm;
+      const plugin_bootstrap=external?{status:(stdout+'\n'+stderr).split(/\r?\n/).includes(marker)?'verified':(code===0?'unknown':'failed'),evidence:(stdout+'\n'+stderr).split(/\r?\n/).includes(marker)?'native-session-marker':code===0?'missing-native-session-marker':'agent-exited-before-native-session-marker'}:null;
+      let archive=null,archive_error=null;
+      if(archiveRoot){
+        try{archive=archiveSession({root:archiveRoot,sessionId:transcriptSessionId('workflow',archiveMeta),agentOut:path,answerFile:outfile,
+          metadata:{...archiveMeta,agent,model:reportedModel,requested_model:model,arm,agent_exit:code,signal,interrupted,reason,
+            status:code===0?'completed':'failed',plugin_bootstrap,timestamp:new Date().toISOString()}})}
+        catch(e){archive_error=e.message;}
+      }
       done({exit:code,signal,interrupted,reason,seconds:(Date.now()-start)/1000,
-        cost_usd:cost,tokens,turns,observed_model:reportedModel,transcript:path,cleanup_error:cleanupError});
+        cost_usd:cost,tokens,turns,observed_model:reportedModel,transcript:path,answer:answer,
+        archive,archive_error,plugin_bootstrap,cleanup_error:cleanupError});
     };
     try {
       child=spawn(agent,args,{cwd:dir,env,stdio:['pipe','pipe','pipe'],detached:process.platform!=='win32'});
@@ -135,9 +151,11 @@ const mergeUsage=parts=>{
 };
 async function runCell(x,opts,state,mode,version,evalFingerprint) {
   const {v,sources,out,statePath}=opts,cell=state.cells[x.key]??{};
+  const rowId=cell.result_row_id??`workflow:${x.key}:${Date.now().toString(36)}`;
+  const archiveRoot=resolve(process.env.BENCHMARK_TRANSCRIPTS_DIR??join(ROOT,'benchmarks/results/transcripts'));
   const work=cell.work??newWork(),repo=cell.repo??v.owner+'/tfwf-'+state.runId+'-'+x.id.toLowerCase()+'-'+x.arm+'-'+x.repeat;
   if(!cell.repo) {
-    state.cells[x.key]={repo,work,phase:'creating',projectTitle:'Workflow '+state.runId+' '+x.id+' '+x.arm+' '+x.repeat};
+    state.cells[x.key]={repo,work,phase:'creating',result_row_id:rowId,projectTitle:'Workflow '+state.runId+' '+x.id+' '+x.arm+' '+x.repeat};
     safeOut(statePath,state);
     newRepository({repo,id:x.id,work});
     state.cells[x.key].phase='repository-created';safeOut(statePath,state);
@@ -189,7 +207,9 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   const source=sources[x.arm]??null,parts=[];
   let interrupted=false;
   if(x.id==='W5') {
-    const first=runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,message:initial,
+    const first=runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,message:initial,archiveRoot,
+      archiveMeta:{scenario:x.id,repeat:x.repeat,result_row_id:rowId,eval_fingerprint:evalFingerprint,source_sha:opts.sourceShas[x.arm]??null,
+        ticketflow_sha:x.arm==='ticketflow'?opts.sourceShas.ticketflow:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null},
       timeoutMs:15*60_000,interrupt:async()=>{
         const branches=JSON.parse(gh(['api','repos/'+repo+'/branches?per_page=100']));
         const prs=JSON.parse(gh(['pr','list','-R',repo,'--state','all','--json','mergedAt,number','--limit','100']));
@@ -200,10 +220,14 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     if(interrupted) {
       // A clean, separately cloned context proves recovery from remote GitHub state.
       const fresh=cloneRepository(repo,join(work,'resumed'));
-      parts.push(await runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir:fresh,work,
+      parts.push(await runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir:fresh,work,archiveRoot,
+        archiveMeta:{scenario:x.id,repeat:x.repeat,result_row_id:rowId,eval_fingerprint:evalFingerprint,source_sha:opts.sourceShas[x.arm]??null,
+          ticketflow_sha:x.arm==='ticketflow'?opts.sourceShas.ticketflow:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null},
         source,mode,message:'The previous session was interrupted. Recover the state from GitHub and resume without duplicating issues or pull requests.\n\n'+initial}));
     }
-  } else parts.push(await runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,message:initial}));
+  } else parts.push(await runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,message:initial,archiveRoot,
+    archiveMeta:{scenario:x.id,repeat:x.repeat,result_row_id:rowId,eval_fingerprint:evalFingerprint,source_sha:opts.sourceShas[x.arm]??null,
+      ticketflow_sha:x.arm==='ticketflow'?opts.sourceShas.ticketflow:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null}}));
   const result=scoreDelivery({repo,id:x.id,issues:current.issues,interrupted,
     initialPR:current.initialPR??null,initialHead:current.initialHead??null,
     baselineProjects:current.baselineProjects??[]});
@@ -216,8 +240,10 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     evaluation_mode:'non-adversarial',profile_isolation:mode,
     sandbox_mode:v.agent==='codex'?'danger-full-access':'not-applicable',
     profile_cleanup:parts.some(p=>p.cleanup_error)?'failed':'ok',
-    check:{pass:result.pass&&parts.at(-1).exit===0&&parts.every(p=>!p.cleanup_error),why:result.error??result.hidden_why??''},
-    delivery:result,invocations:parts,interrupted,agent_exit:parts.at(-1).exit,
+    check:{pass:result.pass&&parts.at(-1).exit===0&&parts.every(p=>!p.cleanup_error&&!p.archive_error),why:parts.some(p=>p.archive_error)?'transcript archive failed: '+parts.find(p=>p.archive_error).archive_error:result.error??result.hidden_why??''},
+    delivery:result,invocations:parts,interrupted,agent_exit:parts.at(-1).exit,result_row_id:rowId,
+    source_provenance:opts.sourceMeta[x.arm]??null,transcript_archives:parts.map(p=>p.archive).filter(Boolean),
+    plugin_bootstrap:parts.map(p=>p.plugin_bootstrap).find(Boolean)??null,
     ...metrics,workdir:work,repo,date:new Date().toISOString(),descendants:'unknown'
   };
   appendFileSync(out,JSON.stringify(row)+'\n',{mode:0o600});
@@ -226,13 +252,13 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   return row;
 }
 async function main() {
-  const opts=parse(),{v,arms,selected,repeats,max,out,statePath,sourceShas}=opts,evalFingerprint=fingerprint();
+  const opts=parse(),{v,arms,selected,repeats,max,out,statePath,sourceShas,sourceMeta}=opts,evalFingerprint=fingerprint();
   const plan=[];
   for(let rep=1;rep<=repeats;rep++)for(const [i,id] of selected.entries()){
     const rotated=arms.map((_,k)=>arms[(k+i+rep-1)%arms.length]);
     for(const arm of rotated) plan.push({id,arm,repeat:rep,key:id+'|'+arm+'|'+rep});
   }
-  const stamp=idFor(plan,v.agent,v.model,v.effort??null,sourceShas,evalFingerprint);
+  const stamp=idFor(plan,v.agent,v.model,v.effort??null,sourceShas,sourceMeta,evalFingerprint);
   const state=v.resume?readJson(statePath):null;
   if(state && state.signature!==stamp)throw Error('resume options, evaluator or source revisions changed');
   if(!v.resume && (existsSync(out)||existsSync(statePath)))throw Error('output already exists: use --resume or new output');

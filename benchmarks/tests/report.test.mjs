@@ -11,7 +11,7 @@ const row = (over = {}) => ({ scenario:'L1-trivial-copy', agent:'claude', agent_
     eval_fingerprint:'a'.repeat(64), evaluation_mode:'non-adversarial', profile_isolation:'isolated', sandbox_mode:'not-applicable',
     requested_effort:null,
     repeat:1, check:{pass:true}, wall_s:6, cost_usd:0.2, tokens:{input_tokens:100,output_tokens:20},
-    diff:{added:3,removed:1}, deps_added:0, agent_exit:0, descendants:'unknown', ...over })
+    diff:{added:3,removed:1}, deps_added:0, agent_exit:0, descendants:'unknown', result_row_id:'row-1', transcript_archive:'transcripts/row-1', ...over })
 function run(rows, opts = []) {
     const dir = tempDir('bench-report-'), file = join(dir, 'runs.jsonl'), out = join(dir, 'summary.md'), csv = join(dir, 'sessions.csv')
     writeFileSync(file, rows.map((r)=>JSON.stringify(r)).join('\n') + '\n')
@@ -71,7 +71,7 @@ test('report rejects unbalanced and duplicate scenario/repeat cells', () => {
 test('publication writes a dated sanitized report with provenance and methodology', () => {
     const dir = tempDir('bench-sensitive-')
     const r = publish([
-        row({ agent_version:'/tmp/private/cli 9.9', model:'model\n|with`markup', requested_model:'model\n|with`markup', workdir:join(dir,'workdir'), answer:'secret answer', diff:{added:3,removed:1,files:['/tmp/private/answer.txt']} }),
+        row({ agent_version:'/tmp/private/cli 9.9', model:'model\n|with`markup', requested_model:'model\n|with`markup', workdir:join(dir,'workdir'), answer:'secret answer', transcript_archive:{ directory:'transcripts/row-1', files:['agent.out','answer.txt','metadata.json'] }, diff:{added:3,removed:1,files:['/tmp/private/answer.txt']} }),
         row({ repeat:2, agent_version:'/tmp/private/cli 9.9', model:'model\n|with`markup', requested_model:'model\n|with`markup', check:{pass:false}, cost_usd:0.4, workdir:join(dir,'workdir-2'), answer:'another secret' }),
     ])
     assert.equal(r.status, 0, r.stderr)
@@ -154,4 +154,17 @@ test('incomplete benchmark-only plugin cleanup is flagged and blocks publication
     const rejected = publish([single])
     assert.equal(rejected.status, 2)
     assert.match(rejected.stderr, /publication refuses incomplete plugin cleanup/)
+})
+
+test('unknown external plugin bootstrap is visible in preview and blocks publication', () => {
+    const unknown = row({ arm:'ponytail', variant:'ponytail', plugin_sha:'b'.repeat(40), plugin_bootstrap:{ status:'unknown' } })
+    const preview = run([unknown])
+    assert.equal(preview.status, 0, preview.stderr)
+    assert.match(preview.markdown, /Plugin bootstrap is unknown or failed/)
+    const rejected = publish([unknown])
+    assert.equal(rejected.status, 2)
+    assert.match(rejected.stderr, /without verified plugin bootstrap evidence/)
+
+    const verified = publish([row({ arm:'ponytail', variant:'ponytail', plugin_sha:'b'.repeat(40), plugin_bootstrap:{ status:'verified' } })])
+    assert.equal(verified.status, 0, verified.stderr)
 })

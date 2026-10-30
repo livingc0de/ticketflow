@@ -43,10 +43,14 @@ const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
 for (const k of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) if (Object.keys(pkg[k] ?? {}).length) fail('added a dependency')
 if (config.requireTest) {
     const root = spawnSync('git', ['rev-list', '--max-parents=0', 'HEAD'], { cwd: dir, encoding: 'utf8' }).stdout.trim()
-    const changed = spawnSync('git', ['diff', '--name-only', '--diff-filter=AM', root, 'HEAD'], { cwd: dir, encoding: 'utf8' }).stdout.split('\n')
-    const staged = spawnSync('git', ['diff', '--name-only', '--diff-filter=AM'], { cwd: dir, encoding: 'utf8' }).stdout.split('\n')
-    const untracked = spawnSync('git', ['ls-files', '--others', '--exclude-standard'], { cwd: dir, encoding: 'utf8' }).stdout.split('\n')
-    const tests = [...new Set([...changed, ...staged, ...untracked].filter((s) => /(?:^|\/)(?:spec|tests?)\/.*\.[cm]?js$|\.(?:test|spec)\.[cm]?js$/.test(s)))]
+    const names = (...args) => spawnSync('git', args, { cwd: dir, encoding: 'utf8' }).stdout
+        .split('\n').map((s) => s.trim().replaceAll('\\', '/')).filter(Boolean)
+    const committed = names('diff', '--name-only', '--diff-filter=AM', root, 'HEAD')
+    const unstaged = names('diff', '--name-only', '--diff-filter=AM')
+    const staged = names('diff', '--cached', '--name-only', '--diff-filter=AM')
+    const untracked = names('ls-files', '--others', '--exclude-standard')
+    const tests = [...new Set([...committed, ...unstaged, ...staged, ...untracked])]
+        .filter((s) => /(?:^|\/)(?:spec|tests?)\/.*\.[cm]?js$|\.(?:test|spec)\.[cm]?js$/.test(s))
     if (!tests.length) fail('no regression test was written')
     if (spawnSync(process.execPath, ['--test', ...tests], { cwd: dir, env, encoding: 'utf8' }).status !== 0)
         fail(`${tests.join(', ')} fails on the repaired source`)

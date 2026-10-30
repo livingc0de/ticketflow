@@ -256,6 +256,7 @@ if (process.env.FAKE_NPM) { mkdirSync('node_modules/left-pad', { recursive: true
 if (process.env.FAKE_CREATE_AUTH && name === 'codex' && args[0] === 'exec') writeFileSync(join(process.env.CODEX_HOME, 'credentials.json'), 'generated')
 if (process.env.FAKE_CREATE_HOME_FILE && name === 'codex' && args[0] === 'exec') writeFileSync(join(process.env.HOME, 'outside-cache'), 'generated')
 if (process.env.FAKE_CREATE_CLAUDE_AUTH && name === 'claude') writeFileSync(join(process.env.CLAUDE_CONFIG_DIR, '.credentials.json'), 'generated')
+if (process.env.FAKE_PLUGIN_BOOTSTRAP) console.log(process.env.FAKE_PLUGIN_BOOTSTRAP)
 const o = args.indexOf('-o')
 if (o >= 0) writeFileSync(args[o + 1], process.env.FAKE_ANSWER ?? '')
 console.log(process.env.FAKE_OUT)
@@ -273,7 +274,7 @@ function sandbox() {
     for (const n of ['claude', 'codex']) { writeFileSync(join(bin, n), FAKE.replace('#!/usr/bin/env node', `#!${process.execPath}`)); chmodSync(join(bin, n), 0o755) }
     const log = join(bin, 'fake.log')
     const run = (args, env = {}, path = `${bin}:${process.env.PATH}`) => {
-        const r = spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', env: { ...process.env, PATH: path, TMPDIR: tmp, CODEX_HOME: codexAuth, CLAUDE_CONFIG_DIR: auth, ANTHROPIC_API_KEY: '', CLAUDE_CODE_OAUTH_TOKEN: '', FAKE_LOG: log, FAKE_OUT: CLAUDE_OUT(), ...env } })
+        const r = spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', env: { ...process.env, PATH: path, TMPDIR: tmp, CODEX_HOME: codexAuth, CLAUDE_CONFIG_DIR: auth, ANTHROPIC_API_KEY: '', CLAUDE_CODE_OAUTH_TOKEN: '', FAKE_LOG: log, FAKE_OUT: CLAUDE_OUT(), BENCHMARK_TRANSCRIPTS_DIR: join(tmp, 'transcripts'), ...env } })
         const row = r.stdout.trim().startsWith('{') ? JSON.parse(r.stdout) : null
         return { ...r, row, calls: existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [] }
     }
@@ -297,6 +298,12 @@ test('claude, ticketflow arm: installs TicketFlow like init does, runs the promp
     assert.equal(row.deps_added, 0)
     assert.equal(row.turns, 4); assert.equal(row.cost_usd, 0.42); assert.deepEqual(row.tokens, { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 30 })
     assert.equal(row.agent_exit, 0); assert.equal(row.descendants, 'unknown'); assert.equal(typeof row.wall_s, 'number'); assert.match(row.date, /^\d{4}-\d\d-\d\dT/)
+    assert.equal(row.result_row_id, row.transcript_archive.id)
+    assert.deepEqual(row.transcript_archive.files, ['agent.out', 'answer.txt', 'metadata.json'])
+    assert.ok(existsSync(join(tmp, row.transcript_archive.directory)))
+    const archive = join(tmp, row.transcript_archive.directory)
+    assert.deepEqual(readdirSync(archive).sort(), ['agent.out', 'answer.txt', 'metadata.json'])
+    assert.doesNotMatch(readFileSync(join(archive, 'metadata.json'), 'utf8'), /credentials|token|secret/i)
     assert.equal(readFileSync(out, 'utf8'), `${JSON.stringify(row)}\n`, '--out gets the same one-line row')
 
     assert.equal(calls.length, 1)
@@ -546,7 +553,8 @@ test('external frameworks load from clean native Claude plugin checkouts, not co
     assert.equal(r.row.repeat, 2)
     assert.equal(r.row.requested_model, 'pinned-model')
     assert.equal(r.row.variant, 'ponytail')
-    assert.match(r.row.plugin_native, /bootstrap not independently verified/)
+    assert.equal(r.row.plugin_native, 'unknown')
+    assert.equal(r.row.plugin_bootstrap.status, 'unknown')
     assert.deepEqual(r.calls[0].args.slice(-2), ['--plugin-dir', src])
     assert.equal(run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src]).status, 2)
     writeFileSync(join(src, 'stray.txt'), 'uncommitted')
@@ -562,7 +570,7 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned'); git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
     const authDir = tempDir('codex-auth-')
     writeFileSync(join(authDir, 'auth.json'), CODEX_LOGIN)
-    const r = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--model', 'gpt-test', '--allow-danger-full-access'], { FAKE_FIX: '1', FAKE_CREATE_AUTH: '1', FAKE_CREATE_HOME_FILE: '1', CODEX_HOME: authDir, OPENAI_API_KEY: 'should-not-reach-cli' })
+    const r = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--model', 'gpt-test', '--allow-danger-full-access'], { FAKE_FIX: '1', FAKE_PLUGIN_BOOTSTRAP: 'TICKETFLOW_BENCH_PLUGIN_BOOTSTRAP=ponytail', FAKE_CREATE_AUTH: '1', FAKE_CREATE_HOME_FILE: '1', CODEX_HOME: authDir, OPENAI_API_KEY: 'should-not-reach-cli' })
     assert.equal(r.status, 0, r.stdout + r.stderr)
     assert.deepEqual(r.calls.filter((c) => c.args[0] === 'plugin').map((c) => c.args.slice(0, 3)),
         [['plugin','marketplace','add'], ['plugin','add','ponytail@ticketflow-benchmark'], ['plugin','list','--json']])
@@ -577,7 +585,8 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     assert.ok(!existsSync(join(exec.codex_home, 'credentials.json')), 'generated credential state is never retained')
     assert.ok(!existsSync(join(r.row.workdir, 'home')), 'the entire temporary Codex home is removed')
     assert.equal(readFileSync(join(authDir, 'auth.json'), 'utf8'), CODEX_LOGIN, 'original credentials are untouched')
-    assert.match(r.row.plugin_native, /installed and enabled.*bootstrap not independently verified/)
+    assert.equal(r.row.plugin_native, 'verified')
+    assert.equal(r.row.plugin_bootstrap.status, 'verified')
     assert.equal(r.row.plugin_sha, git(src, 'rev-parse', 'HEAD'))
     assert.equal(r.row.ticketflow_sha, null)
 

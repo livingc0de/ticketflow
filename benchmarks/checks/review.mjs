@@ -11,7 +11,15 @@ if (git('status', '--porcelain') || git('rev-list', '--count', 'HEAD') !== '1') 
 let text
 try { text = readFileSync(answer, 'utf8') } catch { fail('no review answer') }
 const lines = text.split(/\r?\n/)
-const location = new RegExp(c.path.replaceAll('.', '\\.') + ':[Ll]?' + c.line + '(?!\\d)')
-const finding = lines.some((line) => location.test(line) && c.words.some((w) => new RegExp(w, 'i').test(line)))
-if (!finding) fail('missing correctly located finding: ' + c.path + ':' + c.line)
+const escaped = c.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const citation = new RegExp(`(?:^|[^A-Za-z0-9_./-])${escaped}:[Ll]?(\\d+)(?:-(\\d+))?(?=$|[^0-9])`)
+const parsed = lines.map((line) => ({ line, match: line.match(citation) })).filter((x) => x.match)
+const covers = parsed.filter(({ match }) => {
+    const first = Number(match[1]), last = Number(match[2] ?? match[1])
+    return first <= c.line && c.line <= last
+})
+const finding = covers.some(({ line }) => c.words.some((w) => new RegExp(w, 'i').test(line)))
+if (!parsed.length) fail('no line of the answer names ' + c.path + ':' + c.line + ' (citation heuristic)')
+if (!covers.length) fail('no line of the answer names ' + c.path + ':' + c.line + ' (range excludes required line)')
+if (!finding) fail('no line of the answer names ' + c.path + ':' + c.line + ' with the required finding language')
 console.log('PASS: located finding and no repository edits')

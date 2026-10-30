@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {spawnSync} from 'node:child_process';
-import {mkdtempSync,writeFileSync,readFileSync,existsSync,rmSync} from 'node:fs';
+import {spawn,spawnSync} from 'node:child_process';
+import {once} from 'node:events';
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {terminateProcess} from '../lib/process.mjs';
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const runner=fileURLToPath(new URL('../workflow-run.mjs',import.meta.url));
@@ -13,6 +15,16 @@ const env=Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^WORKFL
 const withTemp=(run)=>{
   const dir=mkdtempSync(join(tmpdir(),'workflow-dryrun-'));
   try{return run(dir)}finally{rmSync(dir,{recursive:true,force:true})}
+};
+const git=(dir,...args)=>spawnSync('git',['-c','user.name=test','-c','user.email=test@example.invalid',...args],{cwd:dir,encoding:'utf8'});
+const ticketflowSource=(dir,{remote='https://github.com/livingc0de/ticketflow.git',detached=false,label='source'}={})=>{
+  const source=join(dir,'ticketflow-'+label);
+  mkdirSync(join(source,'core/scripts'),{recursive:true});
+  writeFileSync(join(source,'core/scripts/runtime.mjs'),'export default {}\n');
+  git(source,'init','-q','-b','main');
+  git(source,'add','-A');git(source,'commit','-qm','source');git(source,'remote','add','origin',remote);
+  if(detached)git(source,'checkout','--detach','-q');
+  return {source,sha:git(source,'rev-parse','HEAD').stdout.trim()};
 };
 const args=(file)=>[runner,'--agent','claude','--model','benchmark-test-model',
   '--owner','example-benchmark-org','--arms','bare','--scenarios','W1','--repeats','1','--out',file];
@@ -48,3 +60,30 @@ test('wrapper forbids execute embedded in plan',()=>withTemp(dir=>{
   assert.equal(result.status,2);
   assert.match(result.stderr,/--execute/);
 }));
+test('TicketFlow workflow sources must be clean and reproducibly pinned',()=>withTemp(dir=>{
+  const {source,sha}=ticketflowSource(dir), file=join(dir,'runs.jsonl');
+  const base=[runner,'--agent','claude','--model','benchmark-test-model','--owner','example-benchmark-org',
+    '--arms','ticketflow','--scenarios','W1','--repeats','1','--out',file,'--ticketflow-source',source];
+  let result=spawnSync(process.execPath,[...base,'--ticketflow-sha',sha],{cwd:root,encoding:'utf8',env,timeout:30000});
+  assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/PLAN W1\|ticketflow\|1/);
+  result=spawnSync(process.execPath,base,{cwd:root,encoding:'utf8',env,timeout:30000});
+  assert.equal(result.status,2);assert.match(result.stderr,/detached or pinned/);
+  result=spawnSync(process.execPath,[...base,'--ticketflow-sha','0'.repeat(40)],{cwd:root,encoding:'utf8',env,timeout:30000});
+  assert.equal(result.status,2);assert.match(result.stderr,/does not match expected/);
+  const wrong=ticketflowSource(dir,{remote:'https://example.invalid/ticketflow.git',label:'wrong'});
+  result=spawnSync(process.execPath,[...base.slice(0,-1),wrong.source,'--ticketflow-sha',wrong.sha],{cwd:root,encoding:'utf8',env,timeout:30000});
+  assert.equal(result.status,2);assert.match(result.stderr,/origin must be/);
+  const pinned=ticketflowSource(dir,{detached:true,label:'detached'});
+  result=spawnSync(process.execPath,[...base.slice(0,-1),pinned.source],{cwd:root,encoding:'utf8',env,timeout:30000});
+  assert.equal(result.status,0,result.stderr);
+}));
+test('process termination escalates an uncooperative child after a bounded grace period',async()=>{
+  const child=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],{detached:process.platform!=='win32'});
+  await once(child,'spawn');
+  await new Promise((resolve)=>setTimeout(resolve,100));
+  let escalated=false;
+  const clear=terminateProcess(child,{graceMs:50,onEscalate:()=>{escalated=true}});
+  await Promise.race([once(child,'close'),new Promise((_,reject)=>setTimeout(()=>reject(new Error('child did not terminate')),2000))]);
+  clear();
+  assert.equal(escalated,true);
+});

@@ -51,6 +51,14 @@ After verifying the plugin manifests and that Claude Code supports `--plugin-dir
 
 Adding `--execute` runs the planned 225 paid sessions. Run the two-arm pilot and inspect actual outputs before doing that. Real costs depend on the chosen model and tasks and cannot be predicted here.
 
+For the GitHub workflow runner, every non-bare source must be reproducible. TicketFlow
+must come from the canonical `https://github.com/livingc0de/ticketflow` remote and be
+either detached or passed with `--ticketflow-sha <full-commit-sha>`; external arms
+likewise accept `--superpowers-sha` and `--ponytail-sha` for attached checkouts. Dirty
+files, moving branches, missing origins and unexpected origins are rejected before
+remote resources or paid sessions start. Selected source revisions are recorded in
+the JSONL row and resume identity.
+
 **Codex also supports all five arms** using the same pinned source checkouts with `--agent codex --model "$CODEX_MODEL"`. Every Codex task is invoked with `--sandbox danger-full-access`. This is intentional for hosts where the CLI's user-namespace sandbox cannot start, but it is not an OS security boundary: run the benchmark on a disposable machine with no personal, production or cloud credentials. The runner prints this notice and requires an explicit approval before Codex paid work; use `--allow-danger-full-access` for a non-interactive invocation. It records `sandbox_mode: danger-full-access` in every Codex row. For external arms, the evaluator builds a fresh local plugin marketplace, asks `codex plugin marketplace add` and `codex plugin add` to install that plugin into a temporary `CODEX_HOME`, then requires `codex plugin list --json` to confirm **exactly one installed and enabled plugin**. Codex's `--ignore-user-config` is omitted only for plugin arms so their isolated plugin configuration loads; the bare and TicketFlow arms retain that flag. In the default isolated mode, each run gets an isolated `HOME` to avoid personal plugins or marketplace files. When available, Codex login state is temporarily copied into the isolated profile and erased after the session; the original `~/.codex` is unchanged. Explicitly approved unisolated runs use the original profile instead and may change its local state.
 
 **Codex authentication preflight:** Before paid sessions, the runner copies `CODEX_HOME/auth.json` (default `~/.codex/auth.json`) into a disposable profile and invokes the CLI's offline `codex login status`. File-based ChatGPT subscription and API-key logins are supported. If the isolated login fails but `codex login status` succeeds on the original profile (for example, via OS keyring), the runner **asks once** whether to continue using that profile without isolation. Replying `yes` automatically continues compatible sessions; declining or having no interactive terminal stops without starting paid work. Raw `OPENAI_API_KEY` environment variables remain stripped. Missing credentials fail without prompting. These checks cannot prove that a token is still valid.
@@ -65,7 +73,20 @@ This requires a Codex CLI version with the `codex plugin` subcommands and native
 
 Recorded results include `profile_isolation: isolated|unisolated` and `sandbox_mode` (`danger-full-access` for Codex, `not-applicable` for Claude). Resuming into a different mode is blocked, and reports clearly distinguish the modes rather than silently pooling them. Scripted/noninteractive fallback fails closed; no manual installation commands are required for an approved run.
 
-**Native plugin activation is not proved by plugin registration alone.** Before publishing any competitor result, inspect preserved `agent.out` transcripts and confirm each framework's bootstrap/skills/hooks actually loaded for that CLI version; otherwise mark that arm unverified. Keep the exact model, model effort settings, permissions, CLI version, prompt, evaluator SHA and scenarios fixed. Check that no user-level instruction files or other plugins leak into the bare arm. Native Superpowers may require interactive design approval; a non-interactive harness can expose that limitation, not silently bypass it.
+**Native plugin activation is not proved by plugin registration alone.** The harness
+records `plugin_bootstrap.status` as `verified` only when the native session emits the
+exact marker `TICKETFLOW_BENCH_PLUGIN_BOOTSTRAP=<arm>`; a successful run without that
+marker is `unknown`, and a failed run is `failed`. Reports show unknown/failed plugin
+bootstrap and publication refuses it. Each session is archived under
+`benchmarks/results/transcripts/<session-id>/` with only `agent.out`, `answer.txt`
+and allowlisted `metadata.json`; profiles, auth files, environment variables and
+temporary workspaces are never copied. Rows link to the archive with
+`result_row_id` and `transcript_archive`. Inspect the archive and confirm the marker
+is meaningful for that CLI version before publishing. Keep the exact model, model
+effort settings, permissions, CLI version, prompt, evaluator SHA and scenarios fixed.
+Check that no user-level instruction files or other plugins leak into the bare arm.
+Native Superpowers may require interactive design approval; a non-interactive harness
+can expose that limitation, not silently bypass it.
 
 ## Publish existing rows (free)
 
@@ -78,7 +99,7 @@ The publisher writes a dated, sanitized Markdown report under [`benchmarks/resul
 - The harness runs each task in a temporary Git repository. It is **not a security sandbox**: tools can execute Node/npm scripts, competitor plugins can execute hooks, and an agent may discover evaluator files through the unrestricted Node/npm allowlist. Results are explicitly non-adversarial. Use a disposable VM with no GitHub, cloud, production, or personal credentials.
 - No runs are created by `npm test`, by CI, by inspecting the runner, or by running the report. Paid runs require `--execute`, an explicit pinned model, an output file, and a session cap.
 - `benchmarks/results/*.jsonl` and `*.csv` are ignored locally to avoid accidentally committing session identifiers and paths. Add sanitized evidence intentionally with `git add -f` when publishing.
-- `--source` checkouts should be clean and pinned. A different revision or CLI model invalidates a paired comparison. The harness records unknown descendant-agent token attribution and cannot establish manual-intervention cost from a headless session.
+- `--source` checkouts should be clean and pinned. A different revision or CLI model invalidates a paired comparison. The workflow runner escalates a timed-out process group from SIGTERM to SIGKILL after a bounded grace period. The harness records unknown descendant-agent token attribution and cannot establish manual-intervention cost from a headless session.
 - The original evaluator and all L1–L4 fixtures now live here; the maintainer upstream-change watcher in `skills/upstream/upstream-review.mjs` stays outside this module because it isn't a benchmark.
 
 ## Commands

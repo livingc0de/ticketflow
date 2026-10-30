@@ -18,6 +18,7 @@ import { parseArgs } from 'node:util'
 import { main } from '../core/lib/cli.mjs'
 import { evaluatorFingerprint, resolveScenario, validatePluginSource } from './lib/integrity.mjs'
 import { approveDangerFullAccess, selectProfileMode } from './lib/profile-auth.mjs'
+import { archiveSession, transcriptSessionId } from './lib/transcripts.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SCENARIOS = join(ROOT, 'benchmarks/scenarios')
@@ -26,6 +27,7 @@ const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
 const TOOLS = 'Read,Edit,Write,Glob,Grep,Bash(node *),Bash(npm *),Bash(git status *),Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git add *),Bash(git commit *)'
 const AGENT_TIMEOUT_MS = 30 * 60 * 1000   // shortcut: one fixed 30-minute ceiling so a hung paid session cannot run forever (a timeout is recorded as agent_exit null), add a --timeout option when a scenario needs longer
 const BUF = 1 << 28
+const TRANSCRIPT_ROOT = resolve(process.env.BENCHMARK_TRANSCRIPTS_DIR ?? join(ROOT, 'benchmarks/results/transcripts'))
 
 const run = (cmd, args, o = {}) => spawnSync(cmd, args, { encoding: 'utf8', maxBuffer: BUF, ...o })
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.name=eval', '-c', 'user.email=eval@example.invalid', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: BUF }).trim()
@@ -231,16 +233,34 @@ main('agent-eval', () => {
     const checkerPass = c.status === 0
     const pass = r.status === 0 && checkerPass   // a failed/timed-out agent is never a successful task
     const tf = (f) => (v.arm === 'ticketflow' ? orNull(f) : null)   // the bare arm has no TicketFlow revision
+    const evalSha = orNull(() => git(ROOT, 'rev-parse', 'HEAD'))
+    const pluginBootstrap = external ? (() => {
+        const marker = `TICKETFLOW_BENCH_PLUGIN_BOOTSTRAP=${v.arm}`
+        const nativeOutput = `${out}\n${r.stderr ?? ''}`.split(/\r?\n/)
+        return { status: nativeOutput.includes(marker) ? 'verified' : (r.status === 0 ? 'unknown' : 'failed'),
+            evidence: nativeOutput.includes(marker) ? 'native-session-marker' : (r.status === 0 ? 'missing-native-session-marker' : 'agent-exited-before-native-session-marker') }
+    })() : null
+    const resultRowId = transcriptSessionId('agent-eval', { scenario: id, agent: v.agent, arm: v.arm, repeat: v.rep ?? 0 })
+    let transcriptArchive = null, archiveError = null
+    try {
+        transcriptArchive = archiveSession({ root: TRANSCRIPT_ROOT, sessionId: resultRowId, agentOut: join(work, 'agent.out'), answerFile,
+            metadata: { agent: v.agent, model: got.model, requested_model: v.model ?? null, scenario: id, arm: v.arm,
+                repeat: v.rep ? +v.rep : null, result_row_id: resultRowId, status: pass ? 'completed' : 'failed',
+                checker_pass: checkerPass, agent_exit: r.status, eval_sha: evalSha, eval_fingerprint: evalFingerprint,
+                ticketflow_sha: tf(() => git(src, 'rev-parse', 'HEAD')), plugin_sha: external ? git(src, 'rev-parse', 'HEAD') : null,
+                plugin_bootstrap: pluginBootstrap, timestamp: new Date().toISOString() } })
+    } catch (e) { archiveError = e.message }
     const row = {
         scenario: id, agent: v.agent, agent_version: version.stdout.trim(), model: got.model, requested_model: v.model ?? null, arm: v.arm, variant: v.label ?? v.arm, repeat: v.rep ? +v.rep : null,
-        eval_sha: orNull(() => git(ROOT, 'rev-parse', 'HEAD')),   // the revision of this tool and its scenarios
+        eval_sha: evalSha,   // the revision of this tool and its scenarios
         eval_fingerprint: evalFingerprint,
         evaluation_mode: 'non-adversarial', profile_isolation: profileMode, sandbox_mode: claude ? 'not-applicable' : 'danger-full-access', requested_effort: v.effort ?? null, profile_cleanup: cleanupFailure ? 'failed' : 'ok',
         ticketflow_sha: tf(() => git(src, 'rev-parse', 'HEAD')), ticketflow_dirty: tf(() => git(src, 'status', '--porcelain', '--untracked-files=all').split('\n').some((l) => l && resolve(src, l.slice(3)) !== outFile)),
         ticketflow_version: tf(() => readFileSync(join(src, 'VERSION'), 'utf8').trim()),
         plugin_sha: external ? git(src, 'rev-parse', 'HEAD') : null,
-        plugin_native: external ? (claude ? 'claude --plugin-dir (bootstrap not independently verified)' : 'codex local marketplace: installed and enabled (bootstrap not independently verified)') : null,
-        check: { pass, why: r.status !== 0 && checkerPass
+        plugin_native: external ? pluginBootstrap.status : null, plugin_bootstrap: pluginBootstrap,
+        result_row_id: resultRowId, transcript_archive: transcriptArchive, archive_error: archiveError,
+        check: { pass: pass && !archiveError, why: archiveError ? `transcript archive failed: ${archiveError}` : r.status !== 0 && checkerPass
             ? `agent exited ${r.status ?? r.signal ?? 'unknown'} despite a passing checker`
             : `${c.stdout ?? ''}${c.stderr ?? ''}`.trim().split('\n')[0].slice(0, 300) || `check exited ${c.status}` },
         diff: { added: stat.reduce((n, s) => n + (+s[0] || 0), 0), removed: stat.reduce((n, s) => n + (+s[1] || 0), 0), files: stat.map((s) => s[2]) },

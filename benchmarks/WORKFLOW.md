@@ -54,8 +54,15 @@ The harness does not grant or expand permissions. Inspect the two token scopes a
 verify repository and Project access before paid runs. GitHub Actions can consume
 runner minutes independently of model charges.
 
-Pin competitor checkouts and the TicketFlow source to reviewed commits. The
-runner validates native plugin manifests and source provenance.
+Pin competitor checkouts and the TicketFlow source to reviewed commits. The runner
+validates native plugin manifests and source provenance. TicketFlow must have the
+canonical origin and either a detached HEAD or an explicit full SHA:
+
+    --ticketflow-source ../ticketflow-reviewed --ticketflow-sha <40-or-64-hex-sha>
+
+Use `--superpowers-sha` and `--ponytail-sha` for attached plugin checkouts. A clean
+checkout with a moving branch, dirty files, missing origin or unexpected origin is
+rejected before the dry-run plan is printed; detached checkouts may omit the SHA.
 
 ### Dry-run and pilot (free until --execute)
 
@@ -92,6 +99,15 @@ The runner stores per-cell remote repository and Project identities in a private
 source checkouts, model, effort, or CLI versions. A crash during remote creation
 may require manual reconciliation: the runner will never silently reuse an
 uncertain partially created repository. Keep the JSONL and sidecar together.
+
+Every agent invocation writes a local transcript archive beneath
+`benchmarks/results/transcripts/<session-id>/`: `agent.out`, `answer.txt` and
+allowlisted `metadata.json`. The row's `result_row_id` and `transcript_archives`
+link the scored cell to those files. Profiles, credentials, environment variables
+and temporary workspaces are excluded. External plugin rows are publishable only
+when the native process emitted the exact marker
+`TICKETFLOW_BENCH_PLUGIN_BOOTSTRAP=superpowers|ponytail`; registration alone is
+reported as `unknown` and blocks publication.
 
 ### Reports
 
@@ -130,8 +146,10 @@ Each child runner retains its own explicit paid-work and remote-write guards.
 - If Github Actions/Projects permissions, plugin bootstrap or agent authentication
   fail, do not treat the resulting cell as proof of framework inferiority.
 - Native plugin *registration* is not proof that hooks/skills activated. Review
-  saved transcripts and perform a small live pilot on both CLIs before
-  publishing comparisons.
+  saved transcript archives and perform a small live pilot on both CLIs before
+  publishing comparisons. W6 additionally requires actionable, distinct created
+  issues, valid dependency evidence and links from every created issue to delivery;
+  issue count alone is insufficient.
 - The runner has not been validated by a paid, live four-arm GitHub matrix.
   Deterministic fixture tests are not a substitute for that pilot.
 

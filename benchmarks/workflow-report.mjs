@@ -53,6 +53,8 @@ export function render(rows){
   if(rows.some(r=>r.descendants!=='included'))lines.push('**Sub-agent warning:** Full descendant usage cannot be independently verified.');
   if(rows.some(r=>r.profile_cleanup!=='ok'))lines.push('**Cleanup warning:** A profile cleanup was incomplete.');
   if(rows.some(r=>r.profile_isolation==='unisolated'))lines.push('**Isolation warning:** Unisolated profiles can change outcomes.');
+  if(rows.some(r=>r.plugin_sha&&r.plugin_bootstrap?.status!=='verified'))lines.push('**Plugin warning:** External plugin activation is unknown or failed; publication is not controlled.');
+  if(rows.some(r=>!Array.isArray(r.transcript_archives)||!r.transcript_archives.length))lines.push('**Transcript warning:** One or more workflow cells lack archived session evidence.');
   return lines.join('\n')+'\n';
 }
 if(process.argv[1]?.endsWith('workflow-report.mjs')){

@@ -42,8 +42,10 @@ test('TicketFlow config supplied to fixture is valid without requiring competito
   assert.doesNotThrow(()=>validate(cfg('bench/repo','bench',3,'claude')));
   assert.doesNotThrow(()=>validate(cfg('bench/repo','bench',3,'codex')));
 });
-const issue=(n,{seeded=false,closed=true,comments=1}={})=>({
+const issue=(n,{seeded=false,closed=true,comments=1,title=null,body=null}={})=>({
   number:n,seeded,state:closed?'closed':'open',comments,events:[],
+  title:title??`Implement independent workflow task ${n}`,
+  body:body??`Implement the independently actionable workflow task ${n}.${n>2?` Depends on #${n-1}.`:''}`,
 });
 const pr=(n,body,sha='aaaa')=>({number:n,body,headRefOid:sha,mergedAt:'2026-10-31T00:00:00Z'});
 const evidence=(id,{seeded=[],issues=[],prs=[],good=true,review=true,ci=true,interrupted=true,
@@ -91,6 +93,10 @@ test('W6 requires multiple useful tickets linked to delivered work, not count al
   assert.equal(pass.process.agent_created_issues,2);
   assert.equal(evidence('W6',{issues:tasks,prs:[pr(8,'Closes #2')]}).pipeline,false);
   assert.equal(evidence('W6',{issues:[issue(2)],prs:[pr(8,'Closes #2')]}).pipeline,false);
+  assert.equal(evidence('W6',{issues:[issue(2,{title:'Task #2',body:''}),issue(3)],prs:[pr(8,'Closes #2 and #3')]}).pipeline,false);
+  assert.equal(evidence('W6',{issues:[issue(2),issue(3,{title:issue(2).title,body:issue(2).body})],prs:[pr(8,'Closes #2 and #3')]}).pipeline,false);
+  assert.equal(evidence('W6',{issues:[issue(2,{body:'Implement the task without a dependency.'}),issue(3,{body:'Implement another task without a dependency.'})],prs:[pr(8,'Closes #2 and #3')]}).pipeline,false);
+  assert.equal(evidence('W6',{issues:[issue(2),issue(3,{body:'Implement task 3. Depends on #99.'})],prs:[pr(8,'Closes #2 and #3')]}).pipeline,false);
 });
 test('W7 checks four tickets and allows multiple safely merged PRs',()=>{
   const seed=[1,2,3,4],issues=seed.map(n=>issue(n));

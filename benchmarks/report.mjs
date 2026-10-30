@@ -31,6 +31,12 @@ const isRevision = (v) => typeof v === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64
 const validEffort = (v) => v === null || ['low', 'medium', 'high', 'xhigh', 'max'].includes(v)
 const validSandbox = (v) => ['not-applicable', 'danger-full-access'].includes(v)
 const revision = (v) => v === 'bare' ? 'bare' : isRevision(v) ? v.toLowerCase() : 'unknown'
+const pluginStatus = (r) => r.plugin_bootstrap?.status ?? (r.plugin_sha ? 'unknown' : null)
+const archiveRef = (r) => typeof r.transcript_archive === 'string' ? r.transcript_archive : r.transcript_archive?.directory
+const validArchive = (r) => typeof archiveRef(r) === 'string' && archiveRef(r).length > 0 &&
+    (typeof r.transcript_archive === 'string' ||
+        (Array.isArray(r.transcript_archive?.files) &&
+            ['agent.out', 'answer.txt', 'metadata.json'].every((name) => r.transcript_archive.files.includes(name))))
 const safeText = (v, limit = 160) => {
     let text = String(v ?? 'unknown').trim()
         .replace(/[\u0000-\u001f\u007f]+/g, ' ')
@@ -71,7 +77,8 @@ function reportIssues(rows, groups, evaluations, configurations) {
     if (new Set(rows.map((r) => r.profile_isolation ?? 'unknown')).size > 1) issues.push('Mixed profile isolation modes: do not pool as a controlled comparison.')
     if (rows.some((r) => !r.sandbox_mode)) issues.push('Sandbox mode is missing for some sessions; do not claim a controlled permissions comparison.')
     if (new Set(rows.map((r) => r.sandbox_mode ?? 'unknown')).size > 1) issues.push('Mixed sandbox modes: do not pool as a controlled comparison.')
-    if (rows.some((r) => r.plugin_sha && r.plugin_native?.includes('not independently verified'))) issues.push('Plugin bootstrap was requested but not independently verified in the agent transcript.')
+    if (rows.some((r) => r.plugin_sha && pluginStatus(r) !== 'verified')) issues.push('Plugin bootstrap is unknown or failed for at least one external arm; inspect native-session evidence.')
+    if (rows.some((r) => !r.result_row_id || !validArchive(r))) issues.push('Transcript archive metadata is missing for at least one session.')
     if (rows.some((r) => r.evaluation_mode !== 'non-adversarial')) issues.push('Evaluation mode is missing or not explicitly non-adversarial.')
     if (rows.some((r) => r.cost_usd == null)) issues.push('Missing cost data: no total cost or cost per success is inferred for affected arms.')
     if (rows.some((r) => r.descendants !== 'included')) issues.push('Descendant-agent token/cost inclusion is unknown; numbers may exclude subagents.')
@@ -104,6 +111,8 @@ function publicationErrors(rows, evaluations, issues) {
     if (rows.some((r) => r.evaluation_mode !== 'non-adversarial')) errors.push('publication requires evaluation_mode=non-adversarial for every row')
     if (rows.some((r) => r.repeat == null || !Number.isInteger(r.repeat) || r.repeat < 1)) errors.push('publication requires positive repetition identifiers')
     if (rows.some((r) => (r.ticketflow_sha || r.plugin_sha) && !isRevision(r.ticketflow_sha || r.plugin_sha))) errors.push('publication requires full hexadecimal source revisions')
+    if (rows.some((r) => !r.result_row_id || !validArchive(r))) errors.push('publication requires transcript archive metadata for every session')
+    if (rows.some((r) => r.plugin_sha && pluginStatus(r) !== 'verified')) errors.push('publication refuses external sessions without verified plugin bootstrap evidence')
     const structural = issues.filter((i) => /Duplicate scenario\/repeat|Incomplete repeat|Missing scenario\/repeat|Scenario\/repeat cell sets differ/.test(i))
     errors.push(...structural)
     if (issues.includes('Multiple agent versions/models: comparison is not controlled across them.')) errors.push('publication requires one consistent CLI version and requested/effective model configuration')
@@ -124,7 +133,7 @@ function render(rows, groups, evaluations, { published = false, date = null } = 
         'Requested effort: ' + [...new Set(rows.map((r) => safeText(r.requested_effort ?? 'default')))].join(', '), '',
         '> These are observed results, not simulated model outcomes. A green repository test suite does not prove agent performance.',
         '> Compare groups only when the agent, model, effort, permissions, scenario/repeat cells, evaluator revision and plugin bootstraps match.',
-        '> The CLI currently does not independently verify plugin activation, effort or subagent token inclusion.',
+        '> Native plugin activation is verified only by an exact session marker; missing markers remain unknown and block publication.',
         '> This harness is explicitly non-adversarial: agents can potentially discover evaluator files through the unrestricted node/npm allowlist.', '']
 
     if (published) {
@@ -168,7 +177,7 @@ function renderLimitations(lines, issues, published) {
     else for (const i of issues) lines.push('- ' + i)
     lines.push('', 'Pass rates use Wilson 95% ranges only as descriptive summaries; repeated paired task cells are not independent trials, so no inferential superiority claim is supported.',
         'Cost per success = all observed session costs (including failed runs) / successful tasks; it is unknown when any session cost is unavailable.',
-        'Plugin registration is not proof that skills or hooks activated in the agent. Descendant-agent attribution, manual intervention and effective effort may be unknown.',
+        'Plugin registration is not proof that skills or hooks activated in the agent; only the recorded native-session marker is positive. Descendant-agent attribution, manual intervention and effective effort may be unknown.',
         'This benchmark is non-adversarial and is not a security sandbox; agents may discover evaluator files through the unrestricted node/npm allowlist. Codex rows use danger-full-access and therefore require a disposable machine.',
         'A benchmark is not a substitute for the separate GitHub merge-gate integration probes.', '')
     if (published) lines.push('## Reproduction', '',
@@ -209,9 +218,9 @@ try {
     } else if (v.out) writeFileSync(v.out, markdown)
     else console.log(markdown)
     if (v.csv) {
-        const columns = ['scenario','agent','agent_version','requested_model','effective_model','arm','variant','repeat','ticketflow_sha','plugin_sha',
+        const columns = ['scenario','agent','agent_version','requested_model','effective_model','arm','variant','repeat','ticketflow_sha','plugin_sha','plugin_bootstrap_status','transcript_archive',
             'eval_sha','eval_fingerprint','evaluation_mode','requested_effort','profile_isolation','sandbox_mode','profile_cleanup','pass','wall_s','cost_usd','input_tokens','output_tokens','added','removed','deps_added','agent_exit']
-        const entries = rows.map((r) => [r.scenario,r.agent,r.agent_version,requestedModel(r),model(r),r.arm,r.variant??r.arm,r.repeat, r.ticketflow_sha,r.plugin_sha,
+        const entries = rows.map((r) => [r.scenario,r.agent,r.agent_version,requestedModel(r),model(r),r.arm,r.variant??r.arm,r.repeat, r.ticketflow_sha,r.plugin_sha,pluginStatus(r),archiveRef(r),
             r.eval_sha,r.eval_fingerprint,r.evaluation_mode,r.requested_effort??'default',r.profile_isolation??'unknown',r.sandbox_mode??'unknown',r.profile_cleanup??'unknown',r.check.pass,r.wall_s,r.cost_usd,r.tokens?.input_tokens,r.tokens?.output_tokens,r.diff?.added,r.diff?.removed,r.deps_added,r.agent_exit])
         writeFileSync(v.csv, columns.join(',') + '\n' + entries.map((r) => r.map(csv).join(',')).join('\n') + '\n')
     }

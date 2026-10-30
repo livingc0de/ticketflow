@@ -8,7 +8,7 @@ const PLUGINS = {
     ponytail: { owner: 'DietrichGebert', manifest: '.claude-plugin/plugin.json' },
 }
 
-const canonicalRemote = (url) => url.trim()
+export const canonicalRemote = (url) => url.trim()
     .replace(/^git@github\.com:/i, 'https://github.com/')
     .replace(/^ssh:\/\/git@github\.com\//i, 'https://github.com/')
     .replace(/^https?:\/\/github\.com\//i, 'https://github.com/')
@@ -21,6 +21,36 @@ const files = (dir, prefix = '') => readdirSync(dir, { withFileTypes: true }).fl
     if (entry.isDirectory()) return rel === 'results' ? [] : files(path, rel)
     return entry.isFile() ? [rel] : []
 }).sort()
+
+const git = (dir, ...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+
+const revision = (value) => typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(value)
+
+const detached = (dir) => {
+    try { return !git(dir, 'symbolic-ref', '--quiet', '--short', 'HEAD') } catch { return true }
+}
+
+/** Validate a clean, reproducible source before any paid or remote benchmark work. */
+export function validateSourceCheckout(dir, { name, expectedSha = null, expectedRemote = null } = {}) {
+    if (!dir || !name) throw new Error('source name and directory are required')
+    let sha, status
+    try {
+        sha = git(dir, 'rev-parse', 'HEAD')
+        status = git(dir, 'status', '--porcelain', '--untracked-files=all')
+    } catch (e) { throw new Error(`${name} source is not a Git checkout (${e.message})`) }
+    if (status) throw new Error(`${name} source must be clean; uncommitted files are present`)
+    const isDetached = detached(dir)
+    if (expectedSha !== null && !revision(expectedSha)) throw new Error(`--${name}-sha must be a full 40- or 64-character revision`)
+    if (expectedSha !== null && sha !== expectedSha) throw new Error(`${name} source revision ${sha} does not match expected ${expectedSha}`)
+    if (expectedSha === null && !isDetached) throw new Error(`${name} source must be detached or pinned with --${name}-sha`)
+    let origin = null
+    if (expectedRemote) {
+        try { origin = canonicalRemote(git(dir, 'remote', 'get-url', 'origin')) }
+        catch { throw new Error(`${name} source must have an origin remote`) }
+        if (origin !== canonicalRemote(expectedRemote)) throw new Error(`${name} source origin must be ${canonicalRemote(expectedRemote)}`)
+    }
+    return { name, sha, detached: isDetached, expected_sha: expectedSha, origin }
+}
 
 /** Fingerprint benchmark inputs by content, including dirty files, not only the repository HEAD. */
 export function evaluatorFingerprint(root, excluded = []) {

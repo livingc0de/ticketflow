@@ -8,4 +8,9 @@ Generate a report from a retained session file with:
 
 Publication fails closed unless evaluator and source revisions, model pins, requested effort, CLI versions, repetition cells and evaluation mode are present and comparable. The report includes revisions, models, effort, sandbox mode, methodology, pass rates, costs and limitations, but never copies answers, transcripts, local paths or raw session rows.
 
-Raw JSONL sessions and generated CSV files remain ignored by default. Keep them local; publish only the Markdown report after checking plugin activation, sensitive paths and provenance. See [benchmark methodology](../README.md) for the execution and safety requirements.
+Raw JSONL sessions, generated CSV files and `transcripts/` remain ignored by default.
+Each transcript directory contains only `agent.out`, `answer.txt` and allowlisted
+`metadata.json`; it is linked from the corresponding row by `result_row_id` and
+`transcript_archive`. Keep these artifacts local, inspect them for plugin bootstrap
+evidence and sensitive content, and publish only the sanitized Markdown report. See
+[benchmark methodology](../README.md) for execution and safety requirements.

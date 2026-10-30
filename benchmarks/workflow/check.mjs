@@ -42,7 +42,7 @@ const issueSnapshot=(repo,seed)=>{
     const comments=all(repo,'issues/'+issue.number+'/comments');
     const timeline=all(repo,'issues/'+issue.number+'/events');
     const project=projectSnapshot(repo,issue.number);
-    return {number:issue.number,title:issue.title,state:issue.state,created_at:issue.created_at,
+    return {number:issue.number,title:issue.title,body:issue.body??'',state:issue.state,created_at:issue.created_at,
       seeded:seed.includes(issue.number),comments:comments.length,
       comments_after_creation:comments.filter(c=>c.created_at>issue.created_at).length,
       milestone:issue.milestone?.title??null,labels:(issue.labels??[]).map(x=>x.name),
@@ -50,6 +50,13 @@ const issueSnapshot=(repo,seed)=>{
       events:timeline.map(e=>e.event),project};
   });
   return records;
+};
+const dependencyRefs=(text)=>[...String(text??'').matchAll(/\b(?:depends\s+on|blocked\s+by|blocks)\s*:?[ \t]*(?:#|issues\/)(\d+)\b/gi)].map(m=>Number(m[1]));
+const actionable=(issue)=>{
+  const title=String(issue.title??'').trim(),body=String(issue.body??'').trim();
+  return title.length>=8&&body.length>=20&&title!==body&&
+    !/^(?:task|issue|todo|work item|fix)\s*#?\d*$/i.test(title)&&
+    /\b(?:add|build|create|design|document|fix|handle|implement|improve|migrate|remove|refactor|support|test|update|verify)\w*\b/i.test(title+' '+body);
 };
 function checkRuns(repo,pr){
   if(!pr?.headRefOid||!pr?.mergedAt)return {pass:false,reason:'no merged PR and final head'};
@@ -112,7 +119,7 @@ function localTests(dir){
 export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],reviews=[],plans=[],interrupted=false,
   initialPR=null,initialHead=null,baselineProjects=[],hidden=false,repoTests=false}){
   if(!scenarios[id])throw Error('unknown workflow scenario '+id);
-  const merged=prs.filter(isMerged),mergedBodies=merged.map(p=>p.body??'').join('\n');
+  const merged=prs.filter(isMerged);
   const linked=issues.filter(i=>merged.some(p=>textLinks(i.number,p.body??'')));
   const created=issues.filter(i=>!seededIssues.includes(i.number));
   const seeded=issues.filter(i=>seededIssues.includes(i.number));
@@ -138,11 +145,28 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
   const limits={W1:1,W2:1,W3:3,W4:1,W5:1,W6:8,W7:4};
   const duplicate=prs.length>limits[id]||(id==='W4'&&(prs.length!==1||prs[0]?.number!==initialPR));
   const w4Fixed=id!=='W4'||Boolean(initialPR&&merged.some(p=>p.number===initialPR&&p.headRefOid!==initialHead));
+  const createdNumbers=new Set(created.map(i=>i.number));
+  const contentKeys=created.map(i=>`${String(i.title??'').trim().toLowerCase()}\0${String(i.body??'').trim().toLowerCase()}`);
+  const duplicateCreatedContent=new Set(contentKeys).size!==contentKeys.length;
+  const actionableIssues=created.filter(actionable);
+  const dependencyEdges=[],invalidDependencies=[];
+  for(const issue of created){
+    for(const target of dependencyRefs(`${issue.title??''}\n${issue.body??''}`)){
+      if(target===issue.number||!createdNumbers.has(target))invalidDependencies.push({from:issue.number,to:target});
+      else dependencyEdges.push({from:issue.number,to:target});
+    }
+  }
+  const w6Evidence=id!=='W6'||(
+    created.length>=2&&created.length<=12&&meaningfulNew.length>=2&&
+    actionableIssues.length===created.length&&!duplicateCreatedContent&&
+    !invalidDependencies.length&&dependencyEdges.length>=1&&
+    created.every(i=>linked.some(l=>l.number===i.number))
+  );
   const newTracking=(id==='W1'?meaningfulNew.length>=1:
-    id==='W6'?meaningfulNew.length>=2&&created.length<=12:true);
+    id==='W6'?w6Evidence:true);
   // W6 should have at least two thoughtfully created tasks; W1 one tracked request.
   // Others may use their own process, but transparent linkage is measured everywhere.
-  const tracking=required&&newTracking&&(id!=='W6'||created.every(i=>linked.some(l=>l.number===i.number))) &&
+  const tracking=required&&newTracking &&
     (id!=='W7'||seededIssues.length===4) && (id!=='W3'||seededIssues.length===3);
   const safeCI=merged.length>0&&merged.every(p=>checks.find(c=>c.number===p.number)?.pass===true);
   const steps={correctness:!!hidden,repository_tests:!!repoTests,
@@ -157,7 +181,9 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
     issues_linked:linked.length,issues_closed:closed.length,issues_closed_and_linked:closedTracked.length,
     issue_coverage:seededIssues.length?seededIssues.filter(n=>linked.some(i=>i.number===n&&i.state==='closed')).length/seededIssues.length:null,
     planning,review:reviewRelevant,pr_count:prs.length,merged_pr_count:merged.length,
-    plan_artifacts:plans,tracking,review_observed:reviewObserved};
+    plan_artifacts:plans,tracking,review_observed:reviewObserved,
+    actionable_created_issues:actionableIssues.length,duplicate_created_issue_content:duplicateCreatedContent,
+    dependency_edges:dependencyEdges,invalid_dependency_references:invalidDependencies};
   return {pass:pipeline,functionality:functional,delivery,pipeline,steps,process};
 }
 export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,initialPR=null,initialHead=null,baselineProjects=[]}){
