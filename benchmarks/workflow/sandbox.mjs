@@ -106,7 +106,8 @@ export function seedBrokenPull({repo,id,work,issue}) {
     '--title','Repair incoming webhook PR','--body','Refs #'+issue+' (benchmark fixture)']);
   const number=Number(url.match(/\/pull\/(\d+)$/)?.[1]);
   if(!number) throw Error('unexpected PR URL '+url);
-  gh(['pr','review',String(number),'-R',repo,'--comment','--body',sc.seedBrokenPR.review],{env});
+  // A fixture comment records the supplied review finding. A seed actor cannot formally review its own PR.
+  gh(['pr','comment',String(number),'-R',repo,'--body',sc.seedBrokenPR.review],{env});
   return number;
 }
 export function cloneRepository(repo,root,agent='claude') {
