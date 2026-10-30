@@ -102,7 +102,7 @@ const evaluatorFingerprint=()=>{
   for(const path of ['workflow-run.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs',
     'workflow/profile.mjs','workflow/check.mjs','workflow/outcome.mjs','lib/integrity.mjs',
     'lib/profile-auth.mjs','lib/process.mjs','lib/transcripts.mjs']){
-    hash.update(path);hash.update('\\0');hash.update(readFileSync(join(root,'benchmarks',path)));
+    hash.update(path);hash.update('\0');hash.update(readFileSync(join(root,'benchmarks',path)));
   }
   return hash.digest('hex');
 };
@@ -113,7 +113,7 @@ const resumeFixture=(dir,outcome,invalid_reasons=[])=>{
     sourceShas:{},sourceMeta:{},fingerprint});
   writeFileSync(file,JSON.stringify({scenario:'W1',arm:'bare',repeat:1,outcome,invalid_reasons,
     agent:'claude',agent_version:'fake',eval_fingerprint:fingerprint,result_row_id:'previous-row',
-    requested_model:'benchmark-test-model'})+'\\n');
+    requested_model:'benchmark-test-model'})+'\n');
   writeFileSync(file+'.state.json',JSON.stringify({signature,runId:'testrun',cells:{
     [cell.key]:{repo:'example-benchmark-org/tfwf-testrun-w1-bare-1',phase:'completed',
       result_row_id:'previous-row'}}}));
@@ -125,7 +125,7 @@ test('resume retries invalid measurements but never reruns an ordinary framework
   assert.equal(pending.status,0,pending.stderr);
   assert.match(pending.stdout,/"invalid_to_retry": 1/);
   assert.match(pending.stdout,/"pending": 1/);
-  assert.match(pending.stdout,/PLAN W1\\|bare\\|1/);
+  assert.match(pending.stdout,/PLAN W1\|bare\|1/);
   writeFileSync(file,readFileSync(file,'utf8').replace('"invalid"','"failure"'));
   const completed=spawnSync(process.execPath,[...args(file),'--resume'],{cwd:root,encoding:'utf8',env,timeout:30000});
   assert.equal(completed.status,0,completed.stderr);
@@ -135,7 +135,7 @@ test('resume retries invalid measurements but never reruns an ordinary framework
 test('failed cleanup requires explicit acknowledgment before paying for invalid retry',()=>withTemp(dir=>{
   const file=resumeFixture(dir,'invalid',['plugin_cleanup_failed']),ghLog=join(dir,'gh.log'),bin=join(dir,'bin');
   mkdirSync(bin);
-  writeFileSync(join(bin,'gh'),'#!/bin/sh\\necho called >> "$GH_PREFLIGHT_LOG"\\nexit 1\\n');
+  writeFileSync(join(bin,'gh'),'#!/bin/sh\necho called >> "$GH_PREFLIGHT_LOG"\nexit 1\n');
   chmodSync(join(bin,'gh'),0o755);
   const run=spawnSync(process.execPath,[...args(file),'--resume','--execute','--allow-github-writes'],
     {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_PREFLIGHT_LOG:ghLog},timeout:30000});
