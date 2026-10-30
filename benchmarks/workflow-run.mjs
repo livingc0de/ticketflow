@@ -17,7 +17,7 @@ import { validatePluginSource } from './lib/integrity.mjs';
 const HERE=dirname(fileURLToPath(import.meta.url)),ROOT=resolve(HERE,'..');
 const ARMS=new Set(['bare','ticketflow','superpowers','ponytail']);
 const EFFORTS=new Set(['low','medium','high','xhigh','max']);
-const help='workflow-run --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5] [--repeats 3] [--effort high] [--superpowers-source DIR] [--ponytail-source DIR] [--ticketflow-source DIR] [--resume] [--max-sessions 72] [--execute --allow-github-writes] [--allow-danger-full-access]';
+const help='workflow-run --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5,W6,W7] [--repeats 3] [--effort high] [--superpowers-source DIR] [--ponytail-source DIR] [--ticketflow-source DIR] [--resume] [--max-sessions 96] [--execute --allow-github-writes] [--allow-danger-full-access]';
 const readJson=(file)=>JSON.parse(readFileSync(file,'utf8'));
 const gitSha=(dir)=>sh('git',['rev-parse','HEAD'],{cwd:dir,env:process.env});
 const cleanRepo=(dir)=>!sh('git',['status','--porcelain'],{cwd:dir,env:process.env});
@@ -25,7 +25,7 @@ const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
 const idFor=(p,agent,model,effort,sourceShas,fingerprint)=>JSON.stringify({p,agent,model,effort,sourceShas,fingerprint});
 function fingerprint() {
   const hash=createHash('sha256');
-  for(const path of ['workflow-run.mjs','workflow/scenarios.mjs','workflow/sandbox.mjs','workflow/profile.mjs','workflow/check.mjs']) {
+  for(const path of ['workflow-run.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs','workflow/profile.mjs','workflow/check.mjs']) {
     hash.update(path);hash.update('\0');hash.update(readFileSync(join(HERE,path)));
   }
   return hash.digest('hex');
@@ -41,7 +41,7 @@ function parse() {
   if(!['claude','codex'].includes(v.agent)||!v.model?.trim()||!v.owner?.trim()||!v.out?.trim()) throw Error(help);
   const arms=(v.arms??'bare,ticketflow,superpowers,ponytail').split(',');
   const selected=(v.scenarios??ids.join(',')).split(',');
-  const repeats=Number(v.repeats??3),max=Number(v['max-sessions']??72);
+  const repeats=Number(v.repeats??3),max=Number(v['max-sessions']??96);
   if(new Set(arms).size!==arms.length || arms.some(x=>!ARMS.has(x)) || !arms.length ||
     new Set(selected).size!==selected.length || selected.some(x=>!ids.includes(x)) || !selected.length ||
     !Number.isSafeInteger(repeats)||repeats<1 || !Number.isSafeInteger(max)||max<1 ||
@@ -154,6 +154,8 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   }
   if(x.id==='W4'&&!current.initialPR) {
     current.initialPR=seedBrokenPull({repo,id:x.id,work,issue:current.issues[0]});
+    const initial=JSON.parse(sh('gh',['api','repos/'+repo+'/pulls/'+current.initialPR]));
+    current.initialHead=initial.head?.sha??null;
     safeOut(statePath,state);
   }
   // Check the restricted agent token can see and write this newly-created fixture.
@@ -174,11 +176,10 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   const source=sources[x.arm]??null,parts=[];
   let interrupted=false;
   if(x.id==='W5') {
-    const started=Date.now();
     const first=runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,message:initial,
       timeoutMs:15*60_000,interrupt:async()=>{
         const branches=JSON.parse(gh(['api','repos/'+repo+'/branches?per_page=100']));
-        return branches.some(b=>b.name!=='main') || Date.now()-started>30_000;
+        return branches.some(b=>b.name!=='main');
       }});
     parts.push(await first);
     interrupted=parts[0].interrupted;
@@ -189,7 +190,8 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
         source,mode,message:'The previous session was interrupted. Recover the state from GitHub and resume without duplicating issues or pull requests.\n\n'+initial}));
     }
   } else parts.push(await runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,message:initial}));
-  const result=scoreDelivery({repo,id:x.id,issues:current.issues,interrupted});
+  const result=scoreDelivery({repo,id:x.id,issues:current.issues,interrupted,
+    initialPR:current.initialPR??null,initialHead:current.initialHead??null});
   const metrics=mergeUsage(parts);
   const row={
     suite:'workflow',scenario:x.id,agent:v.agent,agent_version:version,requested_model:v.model,
