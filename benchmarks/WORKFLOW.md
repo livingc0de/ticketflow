@@ -109,15 +109,22 @@ link the scored cell to those files. Profiles, credentials, environment variable
 and temporary workspaces are excluded. Codex external rows use the native
 `codex plugin list --json` enabled-plugin result; Claude external rows use the
 validated pinned checkout through `--plugin-dir` and record that native loading
-path as loaded. This proves plugin availability to the session, not that the
-model invoked a particular skill or hook.
+path as loaded. The Codex Ponytail arm requires a reviewed, pinned source and a CLI exposing
+`codex exec --dangerously-bypass-hook-trust`. The runner passes this switch only
+for Ponytail, allowing its bundled lifecycle hooks to execute noninteractively
+without changing the user's saved hook trust. This is **hook-code execution without
+interactive trust review**; use only a disposable VM and a reviewed source checkout.
+The Codex plugin list plus requested bypass is recorded as `loaded`, not verified
+hook execution. Missing flag support fails closed before GitHub setup. This proves
+plugin availability to the session, not that the model invoked a particular skill
+or that hooks actually fired; inspect a live pilot before claiming full activation.
 
 ### Reports
 
     node benchmarks/workflow-report.mjs benchmarks/results/workflow-claude.jsonl \
       --out benchmarks/results/workflow-summary.md
 
-Functional correctness and full pipeline completion are **separate columns**.
+Functional correctness, successful benchmark execution, delivery evidence and valid full-pipeline completion are **separate columns**. The headline full-pipeline rate requires both recorded delivery and a successful agent/archive/cleanup result.
 Per-arm comparisons also include review evidence, tracking coverage, created
 issues, elapsed time and known cost. Raw transcripts remain local. Do not
 interpret three repeats as statistically conclusive evidence.
@@ -158,4 +165,4 @@ Each child runner retains its own explicit paid-work and remote-write guards.
 
 ## Reporting
 
-Run `node benchmarks/workflow-report.mjs benchmarks/results/workflow-claude.jsonl --out benchmarks/results/workflow-summary.md` for separate functionality and full-pipeline comparisons by arm and scenario. W1 checks agent-created tracked work; W6 requires at least two useful agent-created issues linked to delivery; W3 and W7 check that all seeded tickets were completed. Review evidence and plan counts are proxies, not definitive proof of review quality. Parallel execution is evaluated on correctness, reliability, elapsed time and cost, not rewarded merely for spawning agents.
+Run `node benchmarks/workflow-report.mjs benchmarks/results/workflow-claude.jsonl --out benchmarks/results/workflow-summary.md` for separate functionality and full-pipeline comparisons by arm and scenario. W1 checks agent-created tracked work; W6 requires at least two useful agent-created issues linked to delivery; W3 and W7 check that all seeded tickets were completed. Their coordination section records PR-to-ticket coverage and observed dependency closure order without awarding points merely for parallelism or extra PRs. Review evidence and plan counts are proxies, not definitive proof of review quality. Parallel execution is evaluated on correctness, reliability, elapsed time and cost, not rewarded merely for spawning agents.
