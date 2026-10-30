@@ -28,8 +28,10 @@ const ticketflowSource=(dir,{remote='https://github.com/livingc0de/ticketflow.gi
 };
 const pluginSource=(dir,arm='ponytail')=>{
   const source=join(dir,arm);
-  mkdirSync(join(source,'.claude-plugin'),{recursive:true});
-  writeFileSync(join(source,'.claude-plugin/plugin.json'),JSON.stringify({name:arm})+'\n');
+  for(const native of ['.claude-plugin','.codex-plugin']){
+    mkdirSync(join(source,native),{recursive:true});
+    writeFileSync(join(source,native,'plugin.json'),JSON.stringify({name:arm})+'\n');
+  }
   git(source,'init','-q','-b','main');
   const remote=arm==='ponytail'?'https://github.com/DietrichGebert/ponytail.git':'https://github.com/obra/superpowers.git';
   git(source,'add','-A');git(source,'commit','-qm','plugin');git(source,'remote','add','origin',remote);
@@ -76,6 +78,22 @@ test('workflow Claude plugin preflight rejects a CLI without native plugin loadi
   const result=spawnSync(process.execPath,args,{cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,
     WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token',GH_PREFLIGHT_LOG:ghLog},timeout:30000});
   assert.equal(result.status,2,result.stderr);assert.match(result.stderr,/does not advertise --plugin-dir/);
+  assert.ok(!existsSync(file));assert.ok(!existsSync(file+'.state.json'));assert.ok(!existsSync(ghLog));
+}));
+test('Codex Ponytail workflow preflight rejects missing hook trust bypass before GitHub writes',()=>withTemp(dir=>{
+  const plugin=pluginSource(dir),file=join(dir,'runs.jsonl'),bin=join(dir,'bin'),ghLog=join(dir,'gh.log');
+  mkdirSync(bin);
+  const codex=join(bin,'codex');
+  writeFileSync(codex,'#!/bin/sh\nif [ "$1" = "--version" ]; then echo fake-codex; exit 0; fi\necho "codex exec help without hook support"\n');
+  writeFileSync(join(bin,'gh'),'#!/bin/sh\necho called >> "$GH_PREFLIGHT_LOG"\nexit 1\n');
+  chmodSync(codex,0o755);chmodSync(join(bin,'gh'),0o755);
+  const args=[runner,'--agent','codex','--model','benchmark-test-model','--owner','example-benchmark-org',
+    '--arms','ponytail','--scenarios','W1','--repeats','1','--out',file,'--ponytail-source',plugin.source,
+    '--execute','--allow-github-writes','--allow-danger-full-access'];
+  const result=spawnSync(process.execPath,args,{cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,
+    WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token',GH_PREFLIGHT_LOG:ghLog},timeout:30000});
+  assert.equal(result.status,2,result.stderr);
+  assert.match(result.stderr,/--dangerously-bypass-hook-trust/);
   assert.ok(!existsSync(file));assert.ok(!existsSync(file+'.state.json'));assert.ok(!existsSync(ghLog));
 }));
 test('wrapper runs workflow dry-run only without execute',()=>withTemp(dir=>{
