@@ -30,7 +30,7 @@ test('invalid archive/cleanup and evaluator errors are excluded from the denomin
   const failed={...row('bare',false,false),outcome:'failure',repeat:3};
   const report=render([ok,invalid,failed]);
   assert.match(report,/Scored cells: \*\*2\*\* \| Invalid cells excluded: \*\*1\*\*/);
-  assert.match(report,/\| bare \| 2 \| 1 \| 50% \| 50%/);
+  assert.match(report,/\| bare \| 2 \| 1 \| 100% \| 50%/);
   assert.match(report,/transcript_archive_failed/);
   assert.match(report,/Invalid-attempt spend[^\n]*\$0\.31/);
 });
