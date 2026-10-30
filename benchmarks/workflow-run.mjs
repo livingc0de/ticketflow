@@ -72,7 +72,7 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
     const outfile=join(work,'agent-answer-'+Date.now()+'.txt');
     const args=agent==='claude'?['-p',message,'--output-format','json','--no-session-persistence',
       '--setting-sources','project,local',
-      '--allowedTools','Read,Edit,Write,Glob,Grep,Task,Agent,Bash(git *),Bash(gh *),Bash(node *),Bash(npm *),Bash(ls *),Bash(cat *)',
+      '--allowedTools','Read,Edit,Write,Glob,Grep,Task,Agent,Bash(git *),Bash(gh *),Bash(node *),Bash(npm *),Bash(npx *),Bash(ls *),Bash(cat *),Bash(rg *),Bash(find *),Bash(pwd),Bash(mkdir *),Bash(sed *),Bash(jq *),Bash(cp *),Bash(mv *),Bash(printf *),Bash(chmod *)',
       '--model',model,...(effort?['--effort',effort]:[]),...profile.pluginArgs]:
       ['exec','--json',...(arm==='bare'||arm==='ticketflow'?['--ignore-user-config']:[]),'--sandbox','danger-full-access',
         '-C',dir,'-o',outfile,'-m',model,...(effort?['--config','model_reasoning_effort='+effort]:[]),'-'];
@@ -251,7 +251,7 @@ async function main() {
   validateOrg(v.owner);const version=cliVersion(v.agent);
   if(rows.some(r=>r.agent_version!==version||r.eval_fingerprint!==evalFingerprint))throw Error('CLI or evaluator version changed; cannot resume');
   if(v.agent==='codex')approveDangerFullAccess({alreadyApproved:v['allow-danger-full-access'],count:pending.reduce((n,p)=>n+(p.id==='W5'?2:1),0)});
-  const mode=selectProfileMode(v.agent,arms,{count:pending.length});
+  const mode=selectProfileMode(v.agent,arms,{count:invocationCeiling});
   if(rows.some(r=>r.profile_isolation!==mode))throw Error('resume cannot mix isolated and unisolated profiles');
   const runState=state??{signature:stamp,runId:Date.now().toString(36),projectTitle:null,projectNumber:null,cells:{}};
   safeOut(statePath,runState);
