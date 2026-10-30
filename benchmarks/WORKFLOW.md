@@ -5,7 +5,7 @@ It compares four native approaches: bare agent, Superpowers, Ponytail and Ticket
 It does **not** ask competitors to follow TicketFlow's workflow.
 All arms receive the same product objective, code fixture, available GitHub Project and
 scenario-specific starting conditions. The framework decides its own steps.
-The runner measures product correctness, review evidence, tracking, CI, merge and recovery.
+The runner measures product correctness, review evidence, planning, ticket creation and lifecycle, coordination, CI, merge and recovery. It scores code functionality separately from end-to-end pipeline success.
 
 **Do not merge changes to this directory into the branch running an existing local L1–L15
 benchmark.** The local evaluator hashes all files under benchmarks/, so even changes
@@ -20,12 +20,14 @@ in this new module change its fingerprint. Finish existing runs on their pinned 
 | W3 | Three related issues | Agent-led coordination, dependencies, traceability and integration |
 | W4 | Existing failing PR and review comment | Repair, reverify current head, respond to review and merge |
 | W5 | One issue, deliberate session interruption | Reopen with a fresh session and recover GitHub state without duplicates |
+| W6 | Broad request, no issues | Brainstorm, create useful tickets, sequence work, and deliver complete solution |
+| W7 | Four independent existing issues | Coordinate parallelizable work without duplication, integration conflicts or unnecessary overhead |
 
 **GitHub Projects:** Each scenario/arm/repeat gets a new neutral Projects v2 board and
-a private repository. The harness creates *only* initial fixtures, not completed work.
+a private repository. The harness creates *only* initial fixtures, not completed work. For W1 and W6 it creates **no issues**. New issues and delivery evidence must be produced by the agent itself.
 All arms can read/write their own board. Only the TicketFlow arm installs/configures
 TicketFlow's native Project workflow and moves its seeded issues to Ready.
-Other arms are **not** forced to adopt TicketFlow labels, statuses or commands.
+Other arms are **not** forced to adopt TicketFlow labels, statuses or commands. They may accomplish the same outcomes using their native planning and review processes. TicketFlow does not receive credit simply for extra tickets, skill invocations, or generated artifacts.
 For W1 the Project is empty; agents may choose to create tracking issues.
 
 **Review:** The objective requires a reviewed, verified delivery but does not prescribe a
@@ -61,7 +63,7 @@ runner validates native plugin manifests and source provenance.
       --owner YOUR_DISPOSABLE_ORG \
       --arms bare,ticketflow,superpowers,ponytail \
       --superpowers-source ../superpowers --ponytail-source ../ponytail \
-      --scenarios W1,W2,W3,W4,W5 --repeats 3 \
+      --scenarios W1,W2,W3,W4,W5,W6,W7 --repeats 3 \
       --out benchmarks/results/workflow-claude.jsonl
 
 For the **first real pilot**, use just W1 with two arms and one repetition, review
@@ -80,8 +82,7 @@ OS security boundary. For unportable keyring logins, the shared auth preflight
 requires explicit consent before using the user's profile, potentially loading
 personal plugins/settings. A clean isolated profile is strongly preferred.
 
-The complete **5 × 4 × 3 matrix contains 60 scored cells** but up to **72 paid agent
-invocations**, because W5 deliberately interrupts and resumes. Explicit
+The complete **7 × 4 × 3 matrix contains 84 scored cells** but up to **96 paid agent invocations**, because W5 deliberately interrupts and resumes. Explicit
 --max-sessions limits possible agent invocations; a cell can also trigger multiple
 GitHub Actions runs. Interrupted invocations may not report tokens or USD, so
 total cost is unknown rather than estimated.
@@ -133,3 +134,7 @@ Each child runner retains its own explicit paid-work and remote-write guards.
   publishing comparisons.
 - The runner has not been validated by a paid, live four-arm GitHub matrix.
   Deterministic fixture tests are not a substitute for that pilot.
+
+## Reporting
+
+Run `node benchmarks/workflow-report.mjs benchmarks/results/workflow-claude.jsonl --out benchmarks/results/workflow-summary.md` for separate functionality and full-pipeline comparisons by arm and scenario. W1 checks agent-created tracked work; W6 requires at least two useful agent-created issues linked to delivery; W3 and W7 check that all seeded tickets were completed. Review evidence and plan counts are proxies, not definitive proof of review quality. Parallel execution is evaluated on correctness, reliability, elapsed time and cost, not rewarded merely for spawning agents.
