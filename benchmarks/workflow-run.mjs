@@ -80,6 +80,12 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
       GITHUB_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN,GIT_TERMINAL_PROMPT:'0'};
     const start=Date.now();let stdout='',stderr='',interrupted=false,reason=null,closed=false;
     let timer,watcher,child;
+    const stop=()=>{
+      if(!child?.pid)return;
+      try {if(process.platform==='win32')stop();
+        else process.kill(-child.pid,'SIGTERM');}
+      catch{try{child.kill('SIGTERM')}catch{}}
+    };
     const finish=async(code,signal)=>{
       if(closed)return;closed=true;clearTimeout(timer);clearInterval(watcher);
       let cleanupError=null;
@@ -100,7 +106,7 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
         cost_usd:cost,tokens,turns,observed_model:reportedModel,transcript:path,cleanup_error:cleanupError});
     };
     try {
-      child=spawn(agent,args,{cwd:dir,env,stdio:['pipe','pipe','pipe']});
+      child=spawn(agent,args,{cwd:dir,env,stdio:['pipe','pipe','pipe'],detached:process.platform!=='win32'});
       if(agent==='codex') child.stdin.end(message);else child.stdin.end();
       child.stdout.on('data',v=>{stdout+=v.toString();if(stdout.length>40_000_000)child.kill('SIGTERM')});
       child.stderr.on('data',v=>{stderr+=v.toString();if(stderr.length>10_000_000)child.kill('SIGTERM')});
@@ -175,6 +181,8 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     safeOut(statePath,state);
   }
   // Initial branch and issue state is prepared before the paid agent run.
+  if(current.phase==='agent-running')throw Error('previous paid session may still be active; inspect remote state before resume for '+repo);
+  current.phase='agent-running';safeOut(statePath,state);
   const dir=cloneRepository(repo,join(work,'attempt-'+Date.now()));
   const initial=prompt(x.id,repo,current.issues,current.initialPR??null,
     'https://github.com/orgs/'+v.owner+'/projects/'+current.project.number);
@@ -184,7 +192,8 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     const first=runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,message:initial,
       timeoutMs:15*60_000,interrupt:async()=>{
         const branches=JSON.parse(gh(['api','repos/'+repo+'/branches?per_page=100']));
-        return branches.some(b=>b.name!=='main');
+        const prs=JSON.parse(gh(['pr','list','-R',repo,'--state','all','--json','mergedAt,number','--limit','100']));
+        return prs.every(p=>!p.mergedAt) && branches.some(b=>b.name!=='main');
       }});
     parts.push(await first);
     interrupted=parts[0].interrupted;
