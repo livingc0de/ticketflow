@@ -20,7 +20,7 @@ import { classifyOutcome, outcomeOf } from './workflow/outcome.mjs';
 const HERE=dirname(fileURLToPath(import.meta.url)),ROOT=resolve(HERE,'..');
 const ARMS=new Set(['bare','ticketflow','superpowers','ponytail']);
 const EFFORTS=new Set(['low','medium','high','xhigh','max']);
-const help='workflow-run --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5,W6,W7] [--repeats 3] [--effort high] [--superpowers-source DIR --superpowers-sha SHA] [--ponytail-source DIR --ponytail-sha SHA] [--ticketflow-source DIR --ticketflow-sha SHA] [--resume] [--execute --allow-github-writes] [--allow-danger-full-access]';
+const help='workflow-run --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5,W6,W7] [--repeats 3] [--effort high] [--superpowers-source DIR --superpowers-sha SHA] [--ponytail-source DIR --ponytail-sha SHA] [--ticketflow-source DIR --ticketflow-sha SHA] [--resume] [--acknowledge-plugin-cleanup] [--execute --allow-github-writes] [--allow-danger-full-access]';
 const readJson=(file)=>JSON.parse(readFileSync(file,'utf8'));
 const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
 const idFor=(p,agent,model,effort,sourceShas,sourceMeta,fingerprint)=>JSON.stringify({p,agent,model,effort,sourceShas,sourceMeta,fingerprint});
