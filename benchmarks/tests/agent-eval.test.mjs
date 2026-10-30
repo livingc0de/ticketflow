@@ -189,7 +189,7 @@ import { join } from 'node:path'
 const args = process.argv.slice(2), name = process.argv[1].split('/').pop()
 if (args.includes('--version')) { console.log(name === 'claude' ? '9.9.9 (Claude Code)' : 'codex-cli 9.9.9'); process.exit(0) }
 if (args.includes('--help')) { console.log('--plugin-dir'); process.exit(0) }
-appendFileSync(process.env.FAKE_LOG, JSON.stringify({ name, args, stdin: readFileSync(0, 'utf8'), cwd: process.cwd(), tf: existsSync('.ticketflow/manifest.json'), home:process.env.HOME, codex_home:process.env.CODEX_HOME, secret:process.env.OPENAI_API_KEY ?? null }) + '\\n')
+appendFileSync(process.env.FAKE_LOG, JSON.stringify({ name, args, stdin: readFileSync(0, 'utf8'), cwd: process.cwd(), tf: existsSync('.ticketflow/manifest.json'), home:process.env.HOME, codex_home:process.env.CODEX_HOME, claude_config:process.env.CLAUDE_CONFIG_DIR, claude_auth:existsSync(join(process.env.CLAUDE_CONFIG_DIR ?? '', '.credentials.json')), claude_settings:existsSync(join(process.env.CLAUDE_CONFIG_DIR ?? '', 'settings.json')), claude_api_key:!!process.env.ANTHROPIC_API_KEY, claude_oauth:!!process.env.CLAUDE_CODE_OAUTH_TOKEN, claude_extra:!!process.env.CLAUDE_EXTRA_TEST, anthropic_base:!!process.env.ANTHROPIC_BASE_URL, secret:process.env.OPENAI_API_KEY ?? null }) + '\\n')
 if (name === 'codex' && args[0] === 'plugin') {
     if (args[1] === 'marketplace' && args[2] === 'add') { console.log(JSON.stringify({marketplaceName:'ticketflow-benchmark'})); process.exit(0) }
     if (args[1] === 'add') { console.log(JSON.stringify({name:args[2].split('@')[0],marketplaceName:'ticketflow-benchmark'})); process.exit(0) }
@@ -201,6 +201,7 @@ if (process.env.FAKE_FIX) edit('src/messages.js', 'recieve', 'receive')
 if (process.env.FAKE_DEP) edit('package.json', '"private"', '"dependencies":{"left-pad":"1"},"private"')
 if (process.env.FAKE_NPM) { mkdirSync('node_modules/left-pad', { recursive: true }); writeFileSync('node_modules/left-pad/index.js', 'x\\n'); writeFileSync('package-lock.json', '{}\\n') }
 if (process.env.FAKE_CREATE_AUTH && name === 'codex' && args[0] === 'exec') writeFileSync(join(process.env.CODEX_HOME, 'credentials.json'), 'generated')
+if (process.env.FAKE_CREATE_CLAUDE_AUTH && name === 'claude') writeFileSync(join(process.env.CLAUDE_CONFIG_DIR, '.credentials.json'), 'generated')
 const o = args.indexOf('-o')
 if (o >= 0) writeFileSync(args[o + 1], process.env.FAKE_ANSWER ?? '')
 console.log(process.env.FAKE_OUT)
@@ -214,7 +215,7 @@ function sandbox() {
     for (const n of ['claude', 'codex']) { writeFileSync(join(bin, n), FAKE.replace('#!/usr/bin/env node', `#!${process.execPath}`)); chmodSync(join(bin, n), 0o755) }
     const log = join(bin, 'fake.log')
     const run = (args, env = {}, path = `${bin}:${process.env.PATH}`) => {
-        const r = spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', env: { ...process.env, PATH: path, TMPDIR: tmp, FAKE_LOG: log, FAKE_OUT: CLAUDE_OUT(), ...env } })
+        const r = spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', env: { ...process.env, PATH: path, TMPDIR: tmp, CLAUDE_CONFIG_DIR: join(tmp, 'no-claude-auth'), ANTHROPIC_API_KEY: '', CLAUDE_CODE_OAUTH_TOKEN: '', FAKE_LOG: log, FAKE_OUT: CLAUDE_OUT(), ...env } })
         const row = r.stdout.trim().startsWith('{') ? JSON.parse(r.stdout) : null
         return { ...r, row, calls: existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [] }
     }
@@ -253,6 +254,43 @@ test('claude, ticketflow arm: installs TicketFlow like init does, runs the promp
     assert.equal(JSON.parse(readFileSync(join(repo, '.ticketflow/config.json'), 'utf8')).agents[0], 'claude')
     assert.equal(git(repo, 'rev-list', '--count', 'HEAD'), '1')
     assert.match(readFileSync(join(row.workdir, 'agent.out'), 'utf8'), /"num_turns":4/, 'the raw agent output is kept')
+})
+
+test('Claude uses a disposable profile, copies only existing login and deletes generated auth', () => {
+    const { run } = sandbox(), source = tempDir('claude-auth-')
+    writeFileSync(join(source, '.credentials.json'), '{"fake":"login"}')
+    writeFileSync(join(source, 'settings.json'), '{"personal":"config"}')
+    const r = run([L1, '--agent', 'claude', '--arm', 'bare'], {
+        CLAUDE_CONFIG_DIR: source, FAKE_FIX: '1', FAKE_CREATE_CLAUDE_AUTH: '1',
+        CLAUDE_EXTRA_TEST: 'personal-plugin-env', ANTHROPIC_BASE_URL: 'https://example.invalid',
+        OPENAI_API_KEY: 'must-be-stripped',
+    })
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    const call = r.calls[0], isolated = join(r.row.workdir, 'home/.claude')
+    assert.equal(call.home, join(r.row.workdir, 'home'))
+    assert.equal(call.claude_config, isolated)
+    assert.equal(call.claude_auth, true, 'the CLI can read a copied subscription login')
+    assert.equal(call.claude_settings, false, 'user settings were not copied')
+    assert.equal(call.claude_extra, false, 'personal Claude environment switches were removed')
+    assert.equal(call.anthropic_base, false, 'provider endpoint overrides were removed')
+    assert.equal(call.secret, null, 'unrelated API credentials were stripped')
+    assert.ok(!existsSync(join(r.row.workdir, 'home')), 'entire temporary Claude home was removed')
+    assert.equal(readFileSync(join(source, '.credentials.json'), 'utf8'), '{"fake":"login"}', 'source login unchanged')
+    assert.ok(existsSync(join(source, 'settings.json')), 'source settings unchanged')
+
+    const api = run([L1, '--agent', 'claude', '--arm', 'bare'], {
+        CLAUDE_CONFIG_DIR: source, FAKE_FIX: '1', ANTHROPIC_API_KEY: 'test-only',
+    })
+    assert.equal(api.status, 0, api.stdout + api.stderr)
+    assert.equal(api.calls.at(-1).claude_api_key, true, 'API authentication works in the isolated profile')
+    assert.equal(api.calls.at(-1).claude_auth, false, 'saved login is not copied alongside an explicit API key')
+    assert.ok(!existsSync(join(api.row.workdir, 'home')))
+
+    const failed = run([L1, '--agent', 'claude', '--arm', 'bare'], {
+        CLAUDE_CONFIG_DIR: source, FAKE_EXIT: '3', FAKE_CREATE_CLAUDE_AUTH: '1',
+    })
+    assert.equal(failed.status, 1)
+    assert.ok(!existsSync(join(failed.row.workdir, 'home')), 'failed sessions clean up credentials too')
 })
 
 test('bare arm installs nothing; a failed hidden check is recorded as fail (exit 1) and rows append; deps and a failing agent are recorded', () => {
