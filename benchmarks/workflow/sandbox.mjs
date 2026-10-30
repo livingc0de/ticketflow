@@ -47,33 +47,44 @@ export function newRepository({repo,id,work}) {
   gitPush(dir,env,'HEAD:main');
   return dir;
 }
-function projectCommand(source,config,command,extra=[]) {
-  const file=join(dirname(config?.path??config), 'project-config.json');
-  const actual=typeof config==='string'?config:file;
-  return sh(process.execPath,[join(source,'core/scripts/project.mjs'),command,...extra,'--config',actual]);
+/**
+ * Neutral GitHub Projects v2 setup, not TicketFlow's workflow.
+ * Every cell gets its own initially empty board, identically for all arms.
+ * TicketFlow may configure that board using its OWN setup when its arm installs.
+ */
+const graphql=(query,variables={})=>{
+  const args=['api','graphql','-f','query='+query];
+  for(const [key,value] of Object.entries(variables)) args.push('-f',key+'='+String(value));
+  const result=JSON.parse(gh(args));
+  if(result.errors?.length)throw Error('GitHub GraphQL: '+JSON.stringify(result.errors).slice(0,600));
+  return result.data;
+};
+export function linkProject({repo,owner,title}) {
+  const data=graphql('query($org:String!,$repo:String!){ organization(login:$org){id projectsV2(first:100){nodes{id number title} pageInfo{hasNextPage}}} repository(owner:$org,name:$repo){id}}',
+    {org:owner,repo:repo.split('/')[1]});
+  if(!data.organization||!data.repository)throw Error('Project owner or repository not accessible');
+  const projects=data.organization.projectsV2;
+  const matches=projects.nodes.filter(p=>p.title===title);
+  if(matches.length>1 || (projects.pageInfo.hasNextPage && matches.length===0))
+    throw Error('Project lookup is ambiguous; dedicated organization has too many projects');
+  if(matches.length) return {number:matches[0].number,id:matches[0].id};
+  const created=graphql('mutation($o:ID!,$r:ID!,$t:String!){createProjectV2(input:{ownerId:$o,repositoryId:$r,title:$t}){projectV2{id number}}}',
+    {o:data.organization.id,r:data.repository.id,t:title}).createProjectV2.projectV2;
+  if(!created?.id||!created?.number)throw Error('GitHub Project not created');
+  return created;
 }
-export function linkProject({source,work,repo,owner,number,title}) {
-  const file=join(work,'project-config.json');
-  writeFileSync(file,JSON.stringify(cfg(repo,owner,number??0,'claude',title)));
-  const output=projectCommand(source,file,'setup');
-  if(number) return number;
-  const hit=output.match(/created project [^/\s]+\/(\d+)/) || output.match(/project [^/\s]+\/(\d+) is at the standard/);
-  if(!hit) throw Error('cannot establish Project number from TicketFlow setup: '+output.slice(0,500));
-  return Number(hit[1]);
-}
-export function seedIssues({repo,id,source,work,owner,projectNumber,title}) {
-  const issueNumbers=[];
-  const file=join(work,'project-config.json');
-  writeFileSync(file,JSON.stringify(cfg(repo,owner,projectNumber,'claude',title)));
+export function seedIssues({repo,id,projectId}) {
+  const issues=[];
   for(const [index,body] of scenarios[id].issues.entries()) {
     const url=gh(['issue','create','-R',repo,'--title',id+' benchmark: '+(index+1),'--body',body]);
     const n=Number(url.match(/\/issues\/(\d+)$/)?.[1]);
-    if(!n) throw Error('unexpected issue URL '+url);
-    issueNumbers.push(n);
-    projectCommand(source,file,'add',[String(n)]);
-    projectCommand(source,file,'status',[String(n),'Ready']);
+    if(!n)throw Error('unexpected issue URL '+url);
+    issues.push(n);
+    const issue=JSON.parse(gh(['api','repos/'+repo+'/issues/'+n]));
+    graphql('mutation($p:ID!,$c:ID!){addProjectV2ItemById(input:{projectId:$p,contentId:$c}){item{id}}}',
+      {p:projectId,c:issue.node_id});
   }
-  return issueNumbers;
+  return issues;
 }
 export function seedBrokenPull({repo,id,work,issue}) {
   const sc=scenarios[id];
@@ -103,7 +114,7 @@ export function cloneRepository(repo,root,agent='claude') {
   git(dir,['config','user.email','workflow-benchmark@example.invalid'],env);
   return dir;
 }
-export function installTicketFlow({repo,dir,source,agent,owner,projectNumber,title}) {
+export function installTicketFlow({repo,dir,source,agent,owner,projectNumber,title,issues=[]}) {
   write(dir,'.ticketflow/config.json',JSON.stringify(cfg(repo,owner,projectNumber,agent,title)));
   sh('node',[join(source,'core/scripts/runtime.mjs'),source,dir],{cwd:dir});
   sh('node',[join(dir,'.ticketflow/scripts/gen-stubs.mjs'),join(dir,'.ticketflow'),dir],{cwd:dir});
@@ -112,6 +123,9 @@ export function installTicketFlow({repo,dir,source,agent,owner,projectNumber,tit
   git(dir,['add','-A'],env);
   git(dir,['-c','user.name=workflow-bench','-c','user.email=workflow-bench@example.invalid','commit','-qm','install TicketFlow benchmark runtime'],env);
   gitPush(dir,env,'HEAD:main');
+  // Only the TicketFlow arm configures its Project lifecycle and Ready queue.
+  sh(process.execPath,[join(dir,'.ticketflow/scripts/project.mjs'),'setup'],{cwd:dir});
+  for(const issue of issues) sh(process.execPath,[join(dir,'.ticketflow/scripts/project.mjs'),'status',String(issue),'Ready'],{cwd:dir});
 }
 export function cleanupLocal(work) {rmSync(work,{recursive:true,force:true});}
 export function newWork(){return mkdtempSync(join(tmpdir(),'tf-workflow-'));}
