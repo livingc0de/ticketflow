@@ -18,12 +18,13 @@ export function render(rows){
   const lines=['# Full-pipeline workflow comparison','',
     '> Coding correctness and complete delivery are separate. Review evidence and planning artifacts are observable proxies.',
     '> Unknown costs, descendant usage and human interventions must not be imputed.','',
-    'Scored cells: **'+rows.length+'**','','## Outcomes by arm','',
-    '| Arm | Cells | Coding | Full pipeline | Review evidence | Ticket tracking | Latest CI | Median minutes | Median USD |',
-    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'];
+    'Scored cells: **'+rows.length+'**','','Full pipeline requires both observed delivery and a valid benchmark execution. Delivery evidence is shown separately.','','## Outcomes by arm','',
+    '| Arm | Cells | Coding | Full pipeline | Delivery evidence | Valid execution | Review evidence | Ticket tracking | Latest CI | Median minutes | Median USD |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'];
   for(const [arm,part] of Object.entries(group(rows,r=>r.arm)).sort()){
     lines.push('| '+safe(arm)+' | '+part.length+' | '+rate(part,r=>r.delivery.functionality)+
-      ' | '+rate(part,r=>r.delivery.pipeline)+' | '+rate(part,r=>r.delivery.steps.review_evidence)+
+      ' | '+rate(part,r=>r.check.pass&&r.delivery.pipeline)+' | '+rate(part,r=>r.delivery.pipeline)+
+      ' | '+rate(part,r=>r.check.pass)+' | '+rate(part,r=>r.delivery.steps.review_evidence)+
       ' | '+rate(part,r=>r.delivery.steps.issue_tracking)+' | '+rate(part,r=>r.delivery.steps.latest_head_ci)+
       ' | '+fmt(median(part.map(r=>typeof r.wall_s==='number'?r.wall_s/60:null)))+
       ' | '+fmt(median(part.map(r=>r.cost_usd)),2)+' |');
@@ -43,12 +44,13 @@ export function render(rows){
     const [scenario,arm]=key.split(' ');
     const coverage=part.map(r=>r.delivery.process?.issue_coverage??null);
     lines.push('| '+safe(scenario)+' | '+safe(arm)+' | '+part.length+
-      ' | '+rate(part,r=>r.delivery.functionality)+' | '+rate(part,r=>r.delivery.pipeline)+
+      ' | '+rate(part,r=>r.delivery.functionality)+' | '+rate(part,r=>r.check.pass&&r.delivery.pipeline)+
       ' | '+fmt(median(coverage),2)+' |');
   }
   lines.push('','**Scenarios:** W1 plain request to tracked delivery, W2 existing ticket, W3 dependent tickets, W4 failing PR/review, W5 interrupted delivery, W6 brainstorming-to-tickets, W7 parallelizable independent tickets.');
   const configs=new Set(rows.map(r=>JSON.stringify([r.agent,r.agent_version,r.requested_model,r.requested_effort,r.eval_fingerprint,r.profile_isolation,r.sandbox_mode])));
   if(configs.size>1)lines.push('','**Comparability warning:** Multiple agents, models, evaluator fingerprints, profiles or sandbox modes are present. Analyze controlled subsets, not pooled averages.');
+  if(rows.some(r=>r.delivery.pipeline&&!r.check.pass))lines.push('**Execution warning:** Some cells have complete delivery evidence but failed execution, archive or cleanup checks; they are excluded from the full-pipeline success rate.');
   if(rows.some(r=>r.cost_usd==null))lines.push('**Cost warning:** One or more sessions have unknown cost. Median and total costs are not estimated.');
   if(rows.some(r=>r.descendants!=='included'))lines.push('**Sub-agent warning:** Full descendant usage cannot be independently verified.');
   if(rows.some(r=>r.profile_cleanup!=='ok'))lines.push('**Cleanup warning:** A profile cleanup was incomplete.');
