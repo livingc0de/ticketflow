@@ -5,6 +5,7 @@ import { appendFileSync, chmodSync, cpSync, mkdirSync, writeFileSync, existsSync
 import { join } from 'node:path'
 import { tempDir } from '../../tests/helpers.mjs'
 import { evaluatorFingerprint } from '../lib/integrity.mjs'
+import { approvalIsYes } from '../lib/profile-auth.mjs'
 
 const ROOT = new URL('../', import.meta.url).pathname
 const REPO = new URL('../../', import.meta.url).pathname
@@ -147,4 +148,43 @@ test('paid resume verifies the recorded CLI version before starting sessions', (
     assert.equal(unavailable.status, 2, unavailable.stderr)
     assert.match(unavailable.stderr, /cannot verify current claude CLI version/)
     assert.doesNotMatch(unavailable.stdout, /SESSION /)
+})
+
+test('unisolated confirmation recognizes explicit yes only', () => {
+    for (const value of ['y', 'Y', 'yes', 'YES', ' Yes ']) assert.equal(approvalIsYes(value), true)
+    for (const value of ['', 'n', 'no', 'perhaps', 'yes please', 'y\nno']) assert.equal(approvalIsYes(value), false)
+})
+
+test('batch fallback asks once in a TTY, then runs every approved session automatically', { skip: process.platform === 'win32' }, () => {
+    if (spawnSync('script', ['--version'], { encoding:'utf8' }).status !== 0) return
+    const dir = tempDir('benchmark-tty-'), auth = join(dir, 'empty-claude')
+    const bin = join(dir, 'bin'), out = join(dir, 'rows.jsonl')
+    mkdirSync(auth); mkdirSync(bin)
+    const fake = join(bin, 'claude')
+    writeFileSync(fake, `#!${process.execPath}
+const args = process.argv.slice(2)
+if (args.includes('--version')) { console.log('fake-claude 1.0'); process.exit(0) }
+if (args[0] === 'auth' && args[1] === 'status') { process.exit(process.env.CLAUDE_CONFIG_DIR === process.env.FAKE_KEYRING_HOME ? 0 : 1) }
+console.log(JSON.stringify({ type:'result', subtype:'success', is_error:false, num_turns:1, result:'done', usage:{input_tokens:1, output_tokens:1}, modelUsage:{'fake-model':{}}, total_cost_usd:0 }))
+`)
+    chmodSync(fake, 0o755)
+    const command = [process.execPath, CLI, '--agent', 'claude', '--model', 'fake-model', '--arms', 'bare', '--scenarios', 'L1,L2',
+        '--repeats', '1', '--out', out, '--max-sessions', '2', '--execute'].map((x)=> JSON.stringify(x)).join(' ')
+    const env = { ...process.env, PATH:bin+':'+process.env.PATH, CLAUDE_CONFIG_DIR:auth, FAKE_KEYRING_HOME:auth, ANTHROPIC_API_KEY:'', CLAUDE_CODE_OAUTH_TOKEN:'' }
+    const r = spawnSync('script', ['-qec',command,'/dev/null'], { input:'yes\n', env, encoding:'utf8', timeout:40_000 })
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    assert.equal((r.stdout.match(/Proceed without profile isolation/g) ?? []).length, 1, 'one prompt for the whole matrix')
+    assert.match(r.stdout, /SESSION 1\/2/)
+    assert.match(r.stdout, /SESSION 2\/2/)
+    const rows = readFileSync(out,'utf8').trim().split('\n').map(JSON.parse)
+    assert.equal(rows.length, 2)
+    assert.ok(rows.every((x)=>x.profile_isolation==='unisolated'))
+
+    const declinedOut = join(dir, 'declined.jsonl')
+    const declined = command.replace(out, declinedOut)
+    const no = spawnSync('script', ['-qec', declined, '/dev/null'], { input:'n\n', env, encoding:'utf8', timeout:40_000 })
+    assert.notEqual(no.status, 0, no.stdout + no.stderr)
+    assert.match(no.stdout, /Unisolated benchmark run declined/)
+    assert.doesNotMatch(no.stdout, /SESSION 1\/2/)
+    assert.ok(!existsSync(declinedOut), 'declining never creates a benchmark row')
 })

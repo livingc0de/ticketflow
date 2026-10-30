@@ -189,8 +189,61 @@ import { join } from 'node:path'
 const args = process.argv.slice(2), name = process.argv[1].split('/').pop()
 if (args.includes('--version')) { console.log(name === 'claude' ? '9.9.9 (Claude Code)' : 'codex-cli 9.9.9'); process.exit(0) }
 if (args.includes('--help')) { console.log('--plugin-dir'); process.exit(0) }
-appendFileSync(process.env.FAKE_LOG, JSON.stringify({ name, args, stdin: readFileSync(0, 'utf8'), cwd: process.cwd(), tf: existsSync('.ticketflow/manifest.json'), home:process.env.HOME, codex_home:process.env.CODEX_HOME, secret:process.env.OPENAI_API_KEY ?? null }) + '\\n')
+if (name === 'claude' && args[0] === 'auth' && args[1] === 'status') {
+    const logged = process.env.FAKE_CLAUDE_KEYRING === '1' && process.env.CLAUDE_CONFIG_DIR === process.env.FAKE_KEYRING_HOME
+    console.log(logged ? '{"loggedIn":true}' : '{"loggedIn":false}')
+    process.exit(logged ? 0 : 1)
+}
+if (name === 'codex' && args[0] === 'login' && args[1] === 'status') {
+    let auth
+    try { auth = JSON.parse(readFileSync(join(process.env.CODEX_HOME, 'auth.json'), 'utf8')) } catch {}
+    const present = (x) => typeof x === 'string' && x.trim().length > 0
+    const portable = (auth?.auth_mode === 'chatgpt' && present(auth?.tokens?.access_token)) ||
+        (auth?.auth_mode === 'apikey' && present(auth?.OPENAI_API_KEY)) ||
+        present(auth?.personal_access_token)
+    const keyring = process.env.FAKE_CODEX_KEYRING === '1' && process.env.CODEX_HOME === process.env.FAKE_KEYRING_HOME
+    console.log(portable ? 'Logged in' : keyring ? 'Logged in via keyring' : 'Not logged in')
+    process.exit(portable || keyring ? 0 : 1)
+}
+appendFileSync(process.env.FAKE_LOG, JSON.stringify({ name, args, stdin: readFileSync(0, 'utf8'), cwd: process.cwd(), tf: existsSync('.ticketflow/manifest.json'), home:process.env.HOME, codex_home:process.env.CODEX_HOME, claude_config:process.env.CLAUDE_CONFIG_DIR, claude_auth:existsSync(join(process.env.CLAUDE_CONFIG_DIR ?? '', '.credentials.json')), claude_settings:existsSync(join(process.env.CLAUDE_CONFIG_DIR ?? '', 'settings.json')), claude_api_key:!!process.env.ANTHROPIC_API_KEY, claude_oauth:!!process.env.CLAUDE_CODE_OAUTH_TOKEN, claude_extra:!!process.env.CLAUDE_EXTRA_TEST, anthropic_base:!!process.env.ANTHROPIC_BASE_URL, secret:process.env.OPENAI_API_KEY ?? null }) + '\\n')
 if (name === 'codex' && args[0] === 'plugin') {
+    if (process.env.FAKE_PERSIST_PLUGINS === '1') {
+        const stateFile = join(process.env.CODEX_HOME, 'fake-plugin-state.json')
+        let state = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, 'utf8')) : {
+            marketplaces: process.env.FAKE_EXISTING_PLUGIN ? [{ name: 'personal-market', root: 'existing' }] : [],
+            installed: process.env.FAKE_EXISTING_PLUGIN ? [{ name: process.env.FAKE_EXISTING_PLUGIN, marketplaceName: 'personal-market', installed: true, enabled: true }] : [],
+        }
+        const save = () => writeFileSync(stateFile, JSON.stringify(state))
+        if (args[1] === 'marketplace' && args[2] === 'list') { console.log(JSON.stringify({ marketplaces: state.marketplaces })); process.exit(0) }
+        if (args[1] === 'list') { console.log(JSON.stringify({ installed: state.installed })); process.exit(0) }
+        if (args[1] === 'marketplace' && args[2] === 'add') {
+            const market = JSON.parse(readFileSync(join(args[3], '.agents/plugins/marketplace.json'), 'utf8')).name
+            const exists = state.marketplaces.some((m) => m.name === market)
+            if (!exists) state.marketplaces.push({ name: market, root: args[3] })
+            save()
+            if (process.env.FAKE_MARKETPLACE_ADD_FAIL === '1') { console.error('simulated marketplace add failure'); process.exit(2) }
+            if (process.env.FAKE_MARKETPLACE_ADD_INVALID_JSON === '1') { console.log('not json'); process.exit(0) }
+            console.log(JSON.stringify({ marketplaceName: market, alreadyAdded: exists }))
+            process.exit(0)
+        }
+        if (args[1] === 'add') {
+            const [pluginName,marketName] = args[2].split('@')
+            state.installed.push({ name: pluginName, marketplaceName: marketName, installed: true, enabled: process.env.FAKE_PLUGIN_DISABLED !== '1' })
+            save(); console.log(JSON.stringify({ name: pluginName, marketplaceName: marketName }))
+            process.exit(0)
+        }
+        if (args[1] === 'remove') {
+            if (process.env.FAKE_PLUGIN_REMOVE_FAIL === '1') { console.error('simulated uninstall failure'); process.exit(2) }
+            const [pluginName, marketName] = args[2].split('@')
+            state.installed = state.installed.filter((p) => p.name !== pluginName || p.marketplaceName !== marketName)
+            save(); console.log(JSON.stringify({name:pluginName,marketplaceName:marketName})); process.exit(0)
+        }
+        if (args[1] === 'marketplace' && args[2] === 'remove') {
+            state.marketplaces = state.marketplaces.filter((m) => m.name !== args[3])
+            save(); console.log(JSON.stringify({ marketplaceName: args[3] })); process.exit(0)
+        }
+        process.exit(2)
+    }
     if (args[1] === 'marketplace' && args[2] === 'add') { console.log(JSON.stringify({marketplaceName:'ticketflow-benchmark'})); process.exit(0) }
     if (args[1] === 'add') { console.log(JSON.stringify({name:args[2].split('@')[0],marketplaceName:'ticketflow-benchmark'})); process.exit(0) }
     if (args[1] === 'list') { const n = process.env.FAKE_PLUGIN_NAME || 'ponytail'; console.log(JSON.stringify({installed:[{name:n,marketplaceName:'ticketflow-benchmark',installed:true,enabled:process.env.FAKE_PLUGIN_DISABLED!=='1'}]})); process.exit(0) }
@@ -201,20 +254,26 @@ if (process.env.FAKE_FIX) edit('src/messages.js', 'recieve', 'receive')
 if (process.env.FAKE_DEP) edit('package.json', '"private"', '"dependencies":{"left-pad":"1"},"private"')
 if (process.env.FAKE_NPM) { mkdirSync('node_modules/left-pad', { recursive: true }); writeFileSync('node_modules/left-pad/index.js', 'x\\n'); writeFileSync('package-lock.json', '{}\\n') }
 if (process.env.FAKE_CREATE_AUTH && name === 'codex' && args[0] === 'exec') writeFileSync(join(process.env.CODEX_HOME, 'credentials.json'), 'generated')
+if (process.env.FAKE_CREATE_HOME_FILE && name === 'codex' && args[0] === 'exec') writeFileSync(join(process.env.HOME, 'outside-cache'), 'generated')
+if (process.env.FAKE_CREATE_CLAUDE_AUTH && name === 'claude') writeFileSync(join(process.env.CLAUDE_CONFIG_DIR, '.credentials.json'), 'generated')
 const o = args.indexOf('-o')
 if (o >= 0) writeFileSync(args[o + 1], process.env.FAKE_ANSWER ?? '')
 console.log(process.env.FAKE_OUT)
 process.exit(+(process.env.FAKE_EXIT ?? 0))
 `
 const CLAUDE_OUT = (result = 'done') => JSON.stringify({ type: 'result', subtype: 'success', is_error: false, num_turns: 4, total_cost_usd: 0.42, result, usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 30 }, modelUsage: { 'fake-model': {} } })
+const CODEX_LOGIN = '{"auth_mode":"chatgpt","tokens":{"access_token":"test-token","refresh_token":"test-refresh"}}'
+const CODEX_API_LOGIN = '{"auth_mode":"apikey","OPENAI_API_KEY":"test-api-key"}'
 const CODEX_OUT = ['{"type":"thread.started","thread_id":"t"}', 'not json', '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":7}}', '{"type":"turn.completed","usage":{"input_tokens":50,"cached_input_tokens":40,"output_tokens":3}}'].join('\n')
 
 function sandbox() {
-    const bin = tempDir('bin-'), tmp = tempDir('tmp-')
+    const bin = tempDir('bin-'), tmp = tempDir('tmp-'), auth = tempDir('claude-test-auth-'), codexAuth = tempDir('codex-test-auth-')
+    writeFileSync(join(auth, '.credentials.json'), '{"fake":"login"}')
+    writeFileSync(join(codexAuth, 'auth.json'), CODEX_LOGIN)
     for (const n of ['claude', 'codex']) { writeFileSync(join(bin, n), FAKE.replace('#!/usr/bin/env node', `#!${process.execPath}`)); chmodSync(join(bin, n), 0o755) }
     const log = join(bin, 'fake.log')
     const run = (args, env = {}, path = `${bin}:${process.env.PATH}`) => {
-        const r = spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', env: { ...process.env, PATH: path, TMPDIR: tmp, FAKE_LOG: log, FAKE_OUT: CLAUDE_OUT(), ...env } })
+        const r = spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', env: { ...process.env, PATH: path, TMPDIR: tmp, CODEX_HOME: codexAuth, CLAUDE_CONFIG_DIR: auth, ANTHROPIC_API_KEY: '', CLAUDE_CODE_OAUTH_TOKEN: '', FAKE_LOG: log, FAKE_OUT: CLAUDE_OUT(), ...env } })
         const row = r.stdout.trim().startsWith('{') ? JSON.parse(r.stdout) : null
         return { ...r, row, calls: existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [] }
     }
@@ -255,6 +314,83 @@ test('claude, ticketflow arm: installs TicketFlow like init does, runs the promp
     assert.match(readFileSync(join(row.workdir, 'agent.out'), 'utf8'), /"num_turns":4/, 'the raw agent output is kept')
 })
 
+test('Claude authentication preflight fails before any paid session when no portable credentials exist', () => {
+    const { tmp, run, workdirs } = sandbox()
+    const absent = join(tmp, 'no-credentials')
+    const args = [L1, '--agent', 'claude', '--arm', 'bare']
+    const missing = run(args, { CLAUDE_CONFIG_DIR: absent })
+    assert.equal(missing.status, 2, missing.stdout + missing.stderr)
+    assert.match(missing.stderr, /authentication preflight failed/)
+    assert.match(missing.stderr, /CLAUDE_CODE_OAUTH_TOKEN/)
+    assert.match(missing.stderr, /no login available/)
+    assert.equal(missing.calls.length, 0, 'never launch a paid Claude agent session')
+    assert.deepEqual(workdirs(), [], 'no benchmark workspace is created')
+
+    mkdirSync(absent)
+    writeFileSync(join(absent, '.credentials.json'), '  ')
+    const empty = run(args, { CLAUDE_CONFIG_DIR: absent })
+    assert.equal(empty.status, 2)
+    assert.equal(empty.calls.length, 0, 'whitespace-only credentials are not accepted')
+
+    const oauth = run(args, { CLAUDE_CONFIG_DIR: absent, CLAUDE_CODE_OAUTH_TOKEN: 'test-token', FAKE_FIX: '1' })
+    assert.equal(oauth.status, 0, oauth.stdout + oauth.stderr)
+    assert.equal(oauth.calls[0].claude_oauth, true, 'explicit OAuth login works without a credential file')
+})
+
+test('non-portable Claude login offers an interactive fallback, and approval runs in the original profile', () => {
+    const { run } = sandbox(), keyring = tempDir('claude-keyring-')
+    const env = { CLAUDE_CONFIG_DIR: keyring, FAKE_CLAUDE_KEYRING: '1', FAKE_KEYRING_HOME: keyring, FAKE_FIX: '1' }
+    const args = [L1, '--agent', 'claude', '--arm', 'bare']
+    const refused = run(args, env)
+    assert.equal(refused.status, 2, refused.stdout + refused.stderr)
+    assert.match(refused.stderr, /interactive terminal is required/)
+    assert.equal(refused.calls.length, 0, 'noninteractive execution cannot accidentally start paid work')
+
+    const approved = run([...args, '--profile-mode', 'unisolated'], env)
+    assert.equal(approved.status, 0, approved.stdout + approved.stderr)
+    assert.equal(approved.calls.length, 1)
+    assert.equal(approved.calls[0].claude_config, keyring, 'original keyring profile is used')
+    assert.equal(approved.row.profile_isolation, 'unisolated')
+    assert.ok(!existsSync(join(approved.row.workdir, 'home')), 'no agent profile is copied or modified')
+})
+
+test('Claude uses a disposable profile, copies only existing login and deletes generated auth', () => {
+    const { run } = sandbox(), source = tempDir('claude-auth-')
+    writeFileSync(join(source, '.credentials.json'), '{"fake":"login"}')
+    writeFileSync(join(source, 'settings.json'), '{"personal":"config"}')
+    const r = run([L1, '--agent', 'claude', '--arm', 'bare'], {
+        CLAUDE_CONFIG_DIR: source, FAKE_FIX: '1', FAKE_CREATE_CLAUDE_AUTH: '1',
+        CLAUDE_EXTRA_TEST: 'personal-plugin-env', ANTHROPIC_BASE_URL: 'https://example.invalid',
+        OPENAI_API_KEY: 'must-be-stripped',
+    })
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    const call = r.calls[0], isolated = join(r.row.workdir, 'home/.claude')
+    assert.equal(call.home, join(r.row.workdir, 'home'))
+    assert.equal(call.claude_config, isolated)
+    assert.equal(call.claude_auth, true, 'the CLI can read a copied subscription login')
+    assert.equal(call.claude_settings, false, 'user settings were not copied')
+    assert.equal(call.claude_extra, false, 'personal Claude environment switches were removed')
+    assert.equal(call.anthropic_base, false, 'provider endpoint overrides were removed')
+    assert.equal(call.secret, null, 'unrelated API credentials were stripped')
+    assert.ok(!existsSync(join(r.row.workdir, 'home')), 'entire temporary Claude home was removed')
+    assert.equal(readFileSync(join(source, '.credentials.json'), 'utf8'), '{"fake":"login"}', 'source login unchanged')
+    assert.ok(existsSync(join(source, 'settings.json')), 'source settings unchanged')
+
+    const api = run([L1, '--agent', 'claude', '--arm', 'bare'], {
+        CLAUDE_CONFIG_DIR: source, FAKE_FIX: '1', ANTHROPIC_API_KEY: 'test-only',
+    })
+    assert.equal(api.status, 0, api.stdout + api.stderr)
+    assert.equal(api.calls.at(-1).claude_api_key, true, 'API authentication works in the isolated profile')
+    assert.equal(api.calls.at(-1).claude_auth, false, 'saved login is not copied alongside an explicit API key')
+    assert.ok(!existsSync(join(api.row.workdir, 'home')))
+
+    const failed = run([L1, '--agent', 'claude', '--arm', 'bare'], {
+        CLAUDE_CONFIG_DIR: source, FAKE_EXIT: '3', FAKE_CREATE_CLAUDE_AUTH: '1',
+    })
+    assert.equal(failed.status, 1)
+    assert.ok(!existsSync(join(failed.row.workdir, 'home')), 'failed sessions clean up credentials too')
+})
+
 test('bare arm installs nothing; a failed hidden check is recorded as fail (exit 1) and rows append; deps and a failing agent are recorded', () => {
     const { tmp, run } = sandbox(), out = join(tmp, 'rows.jsonl')
     let r = run([L1, '--agent', 'claude', '--arm', 'bare', '--out', out], { FAKE_FIX: '1' })
@@ -280,6 +416,71 @@ test('a successful checker cannot override a failed agent execution', () => {
  assert.equal(r.row.check.pass,false)
  assert.match(r.row.check.why,/agent exited 3 despite a passing checker/)
 })
+test('Codex authentication preflight rejects missing or invalid auth before a paid session', () => {
+    const { run, tmp, workdirs } = sandbox()
+    const unavailable = join(tmp, 'no-codex-login'), args = [L1, '--agent', 'codex', '--arm', 'bare']
+    const missing = run(args, { CODEX_HOME: unavailable, OPENAI_API_KEY: 'not-forwarded' })
+    assert.equal(missing.status, 2, missing.stdout + missing.stderr)
+    assert.match(missing.stderr, /Codex benchmark authentication preflight failed/)
+    assert.match(missing.stderr, /codex login/)
+    assert.equal(missing.calls.length, 0, 'no paid Codex session starts, even with an unrelated API key')
+    assert.deepEqual(workdirs(), [], 'no benchmark workspace created')
+
+    mkdirSync(unavailable)
+    for (const invalid of ['', ' ', '{', '{}', '[]']) {
+        writeFileSync(join(unavailable, 'auth.json'), invalid)
+        const r = run(args, { CODEX_HOME: unavailable })
+        assert.equal(r.status, 2, 'invalid auth must fail: ' + JSON.stringify(invalid))
+        assert.equal(r.calls.length, 0)
+    }
+    writeFileSync(join(unavailable, 'auth.json'), CODEX_LOGIN)
+    const ok = run(args, { CODEX_HOME: unavailable, FAKE_FIX: '1' })
+    assert.equal(ok.status, 0, ok.stdout + ok.stderr)
+    assert.equal(ok.calls.length, 1)
+    assert.equal(ok.calls[0].codex_home, join(ok.row.workdir, 'home/.codex'))
+    assert.ok(!existsSync(join(ok.row.workdir, 'home/.codex/auth.json')), 'copied login removed after the session')
+    assert.equal(readFileSync(join(unavailable, 'auth.json'), 'utf8'), CODEX_LOGIN)
+
+    writeFileSync(join(unavailable, 'auth.json'), CODEX_API_LOGIN)
+    const api = run(args, { CODEX_HOME: unavailable, FAKE_FIX: '1' })
+    assert.equal(api.status, 0, api.stdout + api.stderr)
+    assert.equal(api.calls.at(-1).args[0], 'exec', 'API key saved through codex login also works')
+
+    const keyringHome = join(tmp, 'keyring-login')
+    mkdirSync(keyringHome)
+    const keyring = run(args, { CODEX_HOME: keyringHome, FAKE_CODEX_KEYRING: '1', FAKE_KEYRING_HOME: keyringHome })
+    assert.equal(keyring.status, 2, keyring.stdout + keyring.stderr)
+    assert.match(keyring.stderr, /non-portable login/)
+    assert.match(keyring.stderr, /interactive terminal is required/)
+    assert.equal(keyring.calls.length, api.calls.length, 'keyring-only login must not trigger another paid session')
+    assert.ok(!existsSync(join(keyringHome, 'auth.json')), 'keyring-only login is not exported')
+
+    writeFileSync(join(keyringHome, 'auth.json'), '{"fake":"not-auth"}')
+    const unsupported = run(args, { CODEX_HOME: keyringHome })
+    assert.equal(unsupported.status, 2)
+    assert.match(unsupported.stderr, /no usable login/)
+    assert.equal(unsupported.calls.length, api.calls.length, 'unsupported login must not launch another agent session')
+})
+
+test('Codex keyring-only login needs approval and leaves original profile untouched', () => {
+    const { run } = sandbox(), source = tempDir('codex-keyring-')
+    const env = { CODEX_HOME: source, FAKE_CODEX_KEYRING: '1', FAKE_KEYRING_HOME: source, FAKE_FIX: '1' }
+    const args = [L1, '--agent', 'codex', '--arm', 'bare']
+    const blocked = run(args, env)
+    assert.equal(blocked.status, 2, blocked.stderr)
+    assert.match(blocked.stderr, /interactive terminal is required/)
+    assert.equal(blocked.calls.length, 0)
+
+    const approved = run([...args, '--profile-mode', 'unisolated'], env)
+    assert.equal(approved.status, 0, approved.stdout + approved.stderr)
+    assert.equal(approved.row.profile_isolation, 'unisolated')
+    assert.equal(approved.calls[0].codex_home, source)
+    assert.equal(approved.calls[0].home, process.env.HOME)
+    assert.ok(!approved.calls[0].args.includes('--ignore-user-config'), 'approved unisolated sessions load original auth-storage configuration')
+    assert.ok(!existsSync(join(approved.row.workdir, 'home')))
+    assert.deepEqual(readdirSync(source), [], 'the harness never installs anything into the original profile')
+})
+
 test('codex: exec --json in the workspace sandbox, tokens summed over turns, answer from -o, scenario by prefix', () => {
     const { run } = sandbox()
     const r = run(['L4', '--agent', 'codex', '--arm', 'ticketflow', '--model', 'gpt-test'], { FAKE_OUT: CODEX_OUT, FAKE_ANSWER: 'src/files.js:7 path traversal' })
@@ -349,8 +550,8 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     writeFileSync(join(src, '.codex-plugin/plugin.json'), '{"name":"ponytail"}')
     git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned'); git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
     const authDir = tempDir('codex-auth-')
-    writeFileSync(join(authDir, 'auth.json'), '{"fake":"login"}')
-    const r = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--model', 'gpt-test'], { FAKE_FIX: '1', FAKE_CREATE_AUTH: '1', CODEX_HOME: authDir, OPENAI_API_KEY: 'should-not-reach-cli' })
+    writeFileSync(join(authDir, 'auth.json'), CODEX_LOGIN)
+    const r = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--model', 'gpt-test'], { FAKE_FIX: '1', FAKE_CREATE_AUTH: '1', FAKE_CREATE_HOME_FILE: '1', CODEX_HOME: authDir, OPENAI_API_KEY: 'should-not-reach-cli' })
     assert.equal(r.status, 0, r.stdout + r.stderr)
     assert.deepEqual(r.calls.filter((c) => c.args[0] === 'plugin').map((c) => c.args.slice(0, 3)),
         [['plugin','marketplace','add'], ['plugin','add','ponytail@ticketflow-benchmark'], ['plugin','list','--json']])
@@ -363,7 +564,8 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     assert.ok(existsSync(join(r.row.workdir, 'marketplace/plugins/ponytail/.codex-plugin/plugin.json')))
     assert.ok(!existsSync(join(exec.codex_home, 'auth.json')), 'temporary authorization is never retained')
     assert.ok(!existsSync(join(exec.codex_home, 'credentials.json')), 'generated credential state is never retained')
-    assert.equal(readFileSync(join(authDir, 'auth.json'), 'utf8'), '{"fake":"login"}', 'original credentials are untouched')
+    assert.ok(!existsSync(join(r.row.workdir, 'home')), 'the entire temporary Codex home is removed')
+    assert.equal(readFileSync(join(authDir, 'auth.json'), 'utf8'), CODEX_LOGIN, 'original credentials are untouched')
     assert.match(r.row.plugin_native, /installed and enabled.*bootstrap not independently verified/)
     assert.equal(r.row.plugin_sha, git(src, 'rev-parse', 'HEAD'))
     assert.equal(r.row.ticketflow_sha, null)
@@ -371,10 +573,96 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     const { run: runDisabled } = sandbox()
     const disabled = runDisabled([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src], { FAKE_PLUGIN_DISABLED:'1' })
     assert.equal(disabled.status, 2)
-    assert.match(disabled.stderr, /not exclusively installed and enabled/)
+    assert.match(disabled.stderr, /not correctly installed and enabled/)
     assert.ok(!disabled.calls.some((c) => c.args[0] === 'exec'), 'no paid session if plugin is disabled')
     const invalid = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', tempDir('empty-plugin-')])
     assert.equal(invalid.status, 2)
+})
+
+test('approved unisolated Codex plugin arm installs only its pinned copy and preserves existing plugin', () => {
+    const { run } = sandbox(), src = tempDir('codex-owned-plugin-'), home = tempDir('codex-keyring-owned-')
+    mkdirSync(join(src, '.codex-plugin'))
+    writeFileSync(join(src, '.codex-plugin/plugin.json'), '{"name":"ponytail"}')
+    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned')
+    git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
+    const args = [L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--profile-mode', 'unisolated']
+    const env = { CODEX_HOME: home, FAKE_CODEX_KEYRING: '1', FAKE_KEYRING_HOME: home, FAKE_PERSIST_PLUGINS: '1',
+        FAKE_EXISTING_PLUGIN: 'ponytail', FAKE_FIX: '1' }
+    const ok = run(args, env)
+    assert.equal(ok.status, 0, ok.stdout + ok.stderr)
+    assert.equal(ok.row.profile_isolation, 'unisolated')
+    assert.equal(ok.calls.find((c) => c.args[0] === 'exec').codex_home, home)
+    assert.ok(ok.calls.some((c) => c.args[0] === 'plugin' && c.args[1] === 'add'))
+    const adds = ok.calls.filter((c) => c.args[0] === 'plugin' && c.args[1] === 'add')
+    assert.equal(adds.length, 1)
+    assert.match(adds[0].args[2], /^ponytail@ticketflow-benchmark-agent-eval-/)
+    const removes = ok.calls.filter((c) => c.args[0] === 'plugin' && c.args[1] === 'remove')
+    assert.deepEqual(removes.map((c) => c.args[2]), [adds[0].args[2]], 'only the benchmark-owned plugin is uninstalled')
+    const state = JSON.parse(readFileSync(join(home, 'fake-plugin-state.json'), 'utf8'))
+    assert.deepEqual(state.installed, [{ name: 'ponytail', marketplaceName: 'personal-market', installed: true, enabled: true }])
+    assert.deepEqual(state.marketplaces, [{ name: 'personal-market', root: 'existing' }])
+    assert.ok(!existsSync(join(home, 'auth.json')), 'keyring-only login remains in original keyring')
+    assert.equal(ok.calls.filter((c) => c.args[0] === 'plugin' && c.args[1] === 'marketplace' && c.args[2] === 'remove').length, 1)
+})
+
+test('unisolated Codex plugin cleanup runs on agent failure and on setup verification failure', () => {
+    const { run } = sandbox(), src = tempDir('codex-owned-plugin-'), home = tempDir('codex-keyring-owned-')
+    mkdirSync(join(src, '.codex-plugin'))
+    writeFileSync(join(src, '.codex-plugin/plugin.json'), '{"name":"ponytail"}')
+    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned')
+    git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
+    const args = [L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--profile-mode', 'unisolated']
+    const env = { CODEX_HOME: home, FAKE_CODEX_KEYRING: '1', FAKE_KEYRING_HOME: home, FAKE_PERSIST_PLUGINS: '1',
+        FAKE_EXISTING_PLUGIN: 'superpowers' }
+    const failedAgent = run(args, { ...env, FAKE_EXIT: '3' })
+    assert.equal(failedAgent.status, 1, failedAgent.stdout + failedAgent.stderr)
+    let state = JSON.parse(readFileSync(join(home, 'fake-plugin-state.json'), 'utf8'))
+    assert.deepEqual(state.installed.map((p) => p.name), ['superpowers'])
+    assert.deepEqual(state.marketplaces.map((m) => m.name), ['personal-market'])
+    const { run: runInstallFailure } = sandbox()
+    const failedInstall = runInstallFailure(args, { ...env, FAKE_PLUGIN_DISABLED: '1' })
+    assert.equal(failedInstall.status, 2, failedInstall.stdout + failedInstall.stderr)
+    assert.match(failedInstall.stderr, /not correctly installed and enabled/)
+    assert.ok(!failedInstall.calls.some((c) => c.args[0] === 'exec'), 'no agent ran when plugin verification failed')
+    state = JSON.parse(readFileSync(join(home, 'fake-plugin-state.json'), 'utf8'))
+    assert.deepEqual(state.installed.map((p) => p.name), ['superpowers'])
+    assert.deepEqual(state.marketplaces.map((m) => m.name), ['personal-market'])
+
+    const { run: runCleanupFailure } = sandbox()
+    const cleanupFailed = runCleanupFailure(args, { ...env, FAKE_FIX: '1', FAKE_PLUGIN_REMOVE_FAIL: '1' })
+    assert.equal(cleanupFailed.status, 2, cleanupFailed.stdout + cleanupFailed.stderr)
+    assert.equal(cleanupFailed.row.profile_cleanup, 'failed', 'the paid benchmark result is still retained')
+    assert.match(cleanupFailed.stderr, /Benchmark result recorded, but plugin cleanup failed/)
+    const afterFailure = JSON.parse(readFileSync(join(home, 'fake-plugin-state.json'), 'utf8'))
+    assert.ok(afterFailure.installed.some((p) => p.marketplaceName === 'personal-market' && p.name === 'superpowers'),
+        'pre-existing user plugin is never targeted even when benchmark cleanup fails')
+    assert.equal(afterFailure.installed.length, 2, 'benchmark-owned plugin is reported as still installed')
+
+    for (const failure of ['FAKE_MARKETPLACE_ADD_FAIL', 'FAKE_MARKETPLACE_ADD_INVALID_JSON']) {
+        const { run: runPartial, tmp: partialTmp } = sandbox(), partialHome = join(partialTmp, 'codex-keyring-partial-')
+        mkdirSync(partialHome)
+        const partial = runPartial(args, { ...env, CODEX_HOME: partialHome, FAKE_KEYRING_HOME: partialHome, [failure]: '1' })
+        assert.equal(partial.status, 2, partial.stdout + partial.stderr)
+        const partialState = JSON.parse(readFileSync(join(partialHome, 'fake-plugin-state.json'), 'utf8'))
+        assert.deepEqual(partialState.installed.map((p) => p.name), ['superpowers'], `${failure}: user plugin survives`)
+        assert.deepEqual(partialState.marketplaces.map((m) => m.name), ['personal-market'], `${failure}: partial marketplace is cleaned`)
+    }
+})
+
+test('approved unisolated Claude plugin loads pinned checkout without touching user plugins', () => {
+    const { run } = sandbox(), src = tempDir('claude-owned-plugin-'), profile = tempDir('claude-keyring-owned-')
+    mkdirSync(join(src, '.claude-plugin'))
+    writeFileSync(join(src, '.claude-plugin/plugin.json'), '{"name":"ponytail"}')
+    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned')
+    git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
+    const r = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src, '--profile-mode', 'unisolated'], {
+        CLAUDE_CONFIG_DIR: profile, FAKE_CLAUDE_KEYRING: '1', FAKE_KEYRING_HOME: profile, FAKE_FIX: '1',
+    })
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    assert.equal(r.row.profile_isolation, 'unisolated')
+    assert.equal(r.calls[0].claude_config, profile)
+    assert.deepEqual(r.calls[0].args.slice(-2), ['--plugin-dir', src])
+    assert.deepEqual(readdirSync(profile), [], 'the benchmark did not install or remove personal Claude plugins')
 })
 
 test('Codex bare control loads no plugin and uses an isolated home', () => {

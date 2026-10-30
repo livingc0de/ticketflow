@@ -12,11 +12,12 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { main } from '../core/lib/cli.mjs'
 import { evaluatorFingerprint, resolveScenario, validatePluginSource } from './lib/integrity.mjs'
+import { selectProfileMode } from './lib/profile-auth.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SCENARIOS = join(ROOT, 'benchmarks/scenarios')
@@ -33,14 +34,18 @@ const parse = (s) => orNull(() => JSON.parse(s))
 const depNames = (text) => new Set(['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'].flatMap((k) => Object.keys(parse(text)?.[k] ?? {})))
 const cleanEnv = (env) => Object.fromEntries(Object.entries(env).filter(([key]) => !/(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|TOKEN|SECRET|PASSWORD|PRIVATE_KEY|CREDENTIAL)/i.test(key)))
 
-/** A fresh Codex profile per run. Local native plugin packages are installed by Codex itself, not simulated as copied instructions. */
-function codexProfile(work, arm, src) {
-    const home = join(work, 'home'), codexHome = join(home, '.codex')
-    mkdirSync(codexHome, { recursive: true, mode: 0o700 })
-    const env = { ...cleanEnv(process.env), HOME: home, CODEX_HOME: codexHome }
-    if (!['superpowers', 'ponytail'].includes(arm)) return { env, codexHome, installed: false }
+/** Native Codex plugin runs. Isolated profiles own everything; direct runs own only a unique marketplace/plugin pair. */
+function codexProfile(work, arm, src, isolated = true) {
+    const home = join(work, 'home')
+    const codexHome = isolated ? join(home, '.codex') : resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex'))
+    if (isolated) mkdirSync(codexHome, { recursive: true, mode: 0o700 })
+    const env = isolated ? { ...cleanEnv(process.env), HOME: home, CODEX_HOME: codexHome }
+        : { ...cleanEnv(process.env), CODEX_HOME: codexHome }
+    if (!['superpowers', 'ponytail'].includes(arm)) return { env, home, codexHome }
 
-    const market = 'ticketflow-benchmark', root = join(work, 'marketplace'), plugin = join(root, 'plugins', arm)
+    // A unique namespace prevents touching a pre-existing installation of the same plugin.
+    const market = isolated ? 'ticketflow-benchmark' : 'ticketflow-benchmark-' + basename(work).toLowerCase().replace(/[^a-z0-9-]/g, '')
+    const root = join(work, 'marketplace'), plugin = join(root, 'plugins', arm)
     mkdirSync(join(root, '.agents', 'plugins'), { recursive: true })
     cpSync(src, plugin, { recursive: true, filter: (p) => !p.split(/[\\/]/).includes('.git') })
     writeFileSync(join(root, '.agents', 'plugins', 'marketplace.json'), JSON.stringify({
@@ -49,22 +54,81 @@ function codexProfile(work, arm, src) {
     }))
     const invoke = (args) => {
         const x = run('codex', args, { env, timeout: 60_000 })
-        if (x.error || x.status !== 0) throw new Error('Codex native plugin setup failed (' + args.slice(0, 3).join(' ') + '): ' +
+        if (x.error || x.status !== 0) throw new Error('Codex native plugin command failed (' + args.slice(0, 3).join(' ') + '): ' +
             String(x.stderr || x.error?.message || 'exit ' + x.status).slice(0, 400))
         const data = parse(x.stdout)
         if (!data) throw new Error('Codex plugin CLI returned invalid JSON for ' + args.slice(0, 3).join(' '))
         return data
     }
-    const marketResult = invoke(['plugin', 'marketplace', 'add', root, '--json'])
-    if (marketResult.marketplaceName !== market) throw new Error('Codex marketplace registration could not be verified')
-    const added = invoke(['plugin', 'add', arm + '@' + market, '--json'])
-    if (added.name !== arm || added.marketplaceName !== market) throw new Error('Codex native plugin installation could not be verified')
-    const list = invoke(['plugin', 'list', '--json'])
-    const installed = list.installed ?? []
-    if (!Array.isArray(installed) || installed.length !== 1 ||
-        !installed.some((p) => p.name === arm && p.marketplaceName === market && p.installed === true && p.enabled === true))
-        throw new Error('Codex native plugin was not exclusively installed and enabled; refusing the benchmark')
-    return { env, codexHome, installed: true }
+    const installedPlugins = () => {
+        const entries = invoke(['plugin', 'list', '--json']).installed
+        if (!Array.isArray(entries)) throw new Error('Codex plugin list omitted installed entries')
+        return entries
+    }
+    const marketplaces = () => {
+        const entries = invoke(['plugin', 'marketplace', 'list', '--json']).marketplaces
+        if (!Array.isArray(entries)) throw new Error('Codex marketplace list omitted marketplaces')
+        return entries
+    }
+    const marketplaceBelongsToHarness = (entry) => {
+        if (entry?.name !== market) return false
+        const location = entry.root ?? entry.path
+        return location === undefined || resolve(String(location)) === resolve(root)
+    }
+    let registeredByHarness = false
+    const cleanup = () => {
+        if (isolated || !registeredByHarness) return
+        // Delete only a marketplace the benchmark actually registered, never the user's own.
+        const owned = installedPlugins().filter((p) => p.marketplaceName === market)
+        if (owned.length > 1 || owned.some((p) => p.name !== arm))
+            throw new Error('Codex benchmark cleanup refused: unexpected entries in ' + market)
+        if (owned.length === 1) invoke(['plugin', 'remove', arm + '@' + market, '--json'])
+        if (marketplaces().some((m) => m.name === market))
+            invoke(['plugin', 'marketplace', 'remove', market, '--json'])
+    }
+    if (!isolated) {
+        if (marketplaces().some((m) => m.name === market) || installedPlugins().some((p) => p.marketplaceName === market))
+            throw new Error('Codex benchmark marketplace namespace already exists; refusing to modify it')
+    }
+    try {
+        const addedMarket = invoke(['plugin', 'marketplace', 'add', root, '--json'])
+        if (addedMarket.marketplaceName !== market || (!isolated && addedMarket.alreadyAdded))
+            throw new Error('Codex benchmark marketplace could not be uniquely registered')
+        registeredByHarness = !isolated
+        const added = invoke(['plugin', 'add', arm + '@' + market, '--json'])
+        if (added.name !== arm || added.marketplaceName !== market)
+            throw new Error('Codex native plugin installation could not be verified')
+        const installed = installedPlugins(), ours = installed.filter((p) => p.marketplaceName === market)
+        if ((isolated && installed.length !== 1) || ours.length !== 1 ||
+            ours[0].name !== arm || ours[0].installed !== true || ours[0].enabled !== true)
+            throw new Error('Codex native plugin was not correctly installed and enabled; refusing the benchmark')
+        return { env, home, codexHome, installed: true, cleanup }
+    } catch (e) {
+        if (!isolated) {
+            // marketplace add can mutate the profile before returning an error or invalid JSON.
+            // The namespace was absent above; claim it only if the post-failure listing identifies
+            // this benchmark's marketplace, then apply the same scoped cleanup.
+            try { registeredByHarness ||= marketplaces().some(marketplaceBelongsToHarness) } catch {}
+            try { cleanup() } catch (err) {
+                throw new Error(e.message + '; benchmark-only plugin cleanup failed: ' + err.message)
+            }
+        }
+        throw e
+    }
+}
+
+/** A fresh Claude profile per run. Keep only the selected authentication, not personal settings or plugins. */
+function claudeProfile(work) {
+    const home = join(work, 'home'), configDir = join(home, '.claude')
+    mkdirSync(configDir, { recursive: true, mode: 0o700 })
+    const env = Object.fromEntries(Object.entries(cleanEnv(process.env)).filter(([key]) => !/^(?:CLAUDE_|ANTHROPIC_)/i.test(key)))
+    Object.assign(env, { HOME: home, CLAUDE_CONFIG_DIR: configDir, XDG_CONFIG_HOME: join(home, '.config') })
+    if (process.platform === 'win32') Object.assign(env, {
+        USERPROFILE: home, APPDATA: join(home, 'AppData', 'Roaming'), LOCALAPPDATA: join(home, 'AppData', 'Local'),
+    })
+    for (const key of ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'])
+        if (process.env[key]) env[key] = process.env[key]
+    return { env, home, configDir }
 }
 
 /** The repo the agent works in: the scenario's repo/, plus (ticketflow arm) the install init does, all in one base commit. */
@@ -96,8 +160,8 @@ function report(agent, out, answerFile, model) {
 }
 
 main('agent-eval', () => {
-    const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, source: { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' } }, allowPositionals: true })
-    if (positionals.length !== 1 || !['claude', 'codex'].includes(v.agent) || !['ticketflow', 'bare', 'superpowers', 'ponytail'].includes(v.arm) || (v.rep !== undefined && (!/^[1-9]\d*$/.test(v.rep) || !Number.isSafeInteger(+v.rep))) || (v.label !== undefined && !/^[a-z][a-z0-9-]{0,30}$/.test(v.label))) throw new Error(usage)
+    const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, source: { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' }, 'profile-mode': { type: 'string' } }, allowPositionals: true })
+    if (positionals.length !== 1 || !['claude', 'codex'].includes(v.agent) || !['ticketflow', 'bare', 'superpowers', 'ponytail'].includes(v.arm) || (v.rep !== undefined && (!/^[1-9]\d*$/.test(v.rep) || !Number.isSafeInteger(+v.rep))) || (v.label !== undefined && !/^[a-z][a-z0-9-]{0,30}$/.test(v.label)) || (v['profile-mode'] !== undefined && v['profile-mode'] !== 'unisolated')) throw new Error(usage)
     const id = resolveScenario(SCENARIOS, positionals[0])
     const external = v.arm === 'superpowers' || v.arm === 'ponytail'
     if (external && !v.source) throw new Error(`--source requires a pinned checkout of ${v.arm}`)
@@ -110,33 +174,46 @@ main('agent-eval', () => {
     const version = run(v.agent, ['--version'])
     if (version.error || version.status !== 0) throw new Error(`${v.agent} is not installed or not on PATH`)
     if (external && v.agent === 'claude' && !run('claude', ['--help']).stdout?.includes('--plugin-dir')) throw new Error('Claude CLI does not advertise --plugin-dir; cannot load competitor natively')
+    const profileMode = selectProfileMode(v.agent, [v.arm], { alreadyApproved: v['profile-mode'] === 'unisolated' })
+    if (v['profile-mode'] === 'unisolated' && profileMode !== 'unisolated')
+        throw new Error('Requested unisolated mode no longer matches the available authentication; restart the benchmark runner.')
 
     const sdir = join(SCENARIOS, id), work = mkdtempSync(join(tmpdir(), 'agent-eval-')), evalFingerprint = evaluatorFingerprint(ROOT, outFile ? [outFile] : [])
     const { dir, base } = workspace(sdir, v.agent, v.arm, work, src)
-    const profile = v.agent === 'codex' ? codexProfile(work, v.arm, src) : null
+    const claude = v.agent === 'claude'
+    const isolated = profileMode === 'isolated'
+    const profile = claude ? (isolated ? claudeProfile(work) : { env: { ...process.env } })
+        : codexProfile(work, v.arm, src, isolated)
     const answerFile = join(work, 'answer.txt')
-    const prompt = readFileSync(join(sdir, 'prompt.md'), 'utf8'), claude = v.agent === 'claude'
+    const prompt = readFileSync(join(sdir, 'prompt.md'), 'utf8')
     const args = claude
         ? ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--setting-sources', 'project,local', '--allowedTools', TOOLS, ...(v.model ? ['--model', v.model] : []), ...(external ? ['--plugin-dir', src] : [])]
-        : ['exec', '--json', ...(!external ? ['--ignore-user-config'] : []), '--sandbox', 'workspace-write', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), '-']   // codex reads the prompt from stdin
+        : ['exec', '--json', ...(!external && isolated ? ['--ignore-user-config'] : []), '--sandbox', 'workspace-write', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), '-']   // codex reads the prompt from stdin
     const t0 = Date.now()
-    // Authentication is the only state carried into the empty Codex profile, then erased immediately after the session.
-    // Never put auth inside the task repository or leave it in the retained benchmark artifacts.
-    const privateAuth = profile && join(profile.codexHome, 'auth.json')
+    // Isolated profiles copy only authentication and erase it afterwards. Opted-in unisolated runs
+    // deliberately retain the original profile so OS-keyring credentials remain usable.
     const originalAuth = join(resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex')), 'auth.json')
-    let r
+    const originalClaudeAuth = join(resolve(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')), '.credentials.json')
+    let r, cleanupFailure = null
     try {
-        if (profile && existsSync(originalAuth)) {
-            copyFileSync(originalAuth, privateAuth)
-            chmodSync(privateAuth, 0o600)
+        if (claude) {
+            // Explicit API/OAuth environment auth takes precedence; do not copy unrelated saved credentials.
+            if (isolated && !profile.env.ANTHROPIC_API_KEY && !profile.env.CLAUDE_CODE_OAUTH_TOKEN && existsSync(originalClaudeAuth)) {
+                const dest = join(profile.configDir, '.credentials.json')
+                copyFileSync(originalClaudeAuth, dest)
+                chmodSync(dest, 0o600)
+            }
+        } else if (!claude && isolated && existsSync(originalAuth)) {
+            const dest = join(profile.codexHome, 'auth.json')
+            copyFileSync(originalAuth, dest)
+            chmodSync(dest, 0o600)
         }
-        r = run(v.agent, args, { cwd: dir, timeout: AGENT_TIMEOUT_MS,
-            ...(profile ? { env: profile.env } : {}),
+        r = run(v.agent, args, { cwd: dir, timeout: AGENT_TIMEOUT_MS, env: profile.env,
             ...(claude ? { stdio: ['ignore', 'pipe', 'pipe'] } : { input: prompt }) })
     } finally {
-        // Codex may create more than auth.json (for example credentials, token caches or logs); the whole
-        // temporary profile is disposable and must not remain in the retained workdir.
-        if (profile) rmSync(profile.codexHome, { recursive: true, force: true })
+        // Never erase a paid result solely because plugin cleanup failed.
+        try { profile.cleanup?.() } catch (e) { cleanupFailure = e }
+        if (isolated) rmSync(profile.home, { recursive: true, force: true })
     }
     const wall_s = Math.round((Date.now() - t0) / 100) / 10
     const out = r.stdout ?? ''
@@ -156,7 +233,7 @@ main('agent-eval', () => {
         scenario: id, agent: v.agent, agent_version: version.stdout.trim(), model: got.model, requested_model: v.model ?? null, arm: v.arm, variant: v.label ?? v.arm, repeat: v.rep ? +v.rep : null,
         eval_sha: orNull(() => git(ROOT, 'rev-parse', 'HEAD')),   // the revision of this tool and its scenarios
         eval_fingerprint: evalFingerprint,
-        evaluation_mode: 'non-adversarial',
+        evaluation_mode: 'non-adversarial', profile_isolation: profileMode, profile_cleanup: cleanupFailure ? 'failed' : 'ok',
         ticketflow_sha: tf(() => git(src, 'rev-parse', 'HEAD')), ticketflow_dirty: tf(() => git(src, 'status', '--porcelain', '--untracked-files=all').split('\n').some((l) => l && resolve(src, l.slice(3)) !== outFile)),
         ticketflow_version: tf(() => readFileSync(join(src, 'VERSION'), 'utf8').trim()),
         plugin_sha: external ? git(src, 'rev-parse', 'HEAD') : null,
@@ -172,5 +249,7 @@ main('agent-eval', () => {
     }
     console.log(JSON.stringify(row))
     if (v.out) appendFileSync(v.out, `${JSON.stringify(row)}\n`)
+    if (cleanupFailure) throw new Error('Benchmark result recorded, but plugin cleanup failed: ' + cleanupFailure.message +
+        '. Inspect benchmark-owned Codex plugins/marketplaces before another run; existing user plugins were not targeted.')
     return pass ? 0 : 1
 })
