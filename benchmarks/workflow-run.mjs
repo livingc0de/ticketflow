@@ -131,20 +131,19 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   const {v,sources,out,statePath}=opts,cell=state.cells[x.key]??{};
   const work=cell.work??newWork(),repo=cell.repo??v.owner+'/tfwf-'+state.runId+'-'+x.id.toLowerCase()+'-'+x.arm+'-'+x.repeat;
   if(!cell.repo) {
-    state.cells[x.key]={repo,work,phase:'creating'};
+    state.cells[x.key]={repo,work,phase:'creating',projectTitle:'Workflow '+state.runId+' '+x.id+' '+x.arm+' '+x.repeat};
     safeOut(statePath,state);
     newRepository({repo,id:x.id,work});
     state.cells[x.key].phase='repository-created';safeOut(statePath,state);
   }
-  if(!state.projectNumber) {
-    state.projectNumber=linkProject({source:sources.after,work,repo,owner:v.owner,number:null,title:state.projectTitle});
-    safeOut(statePath,state);
-  } else {
-    linkProject({source:sources.after,work,repo,owner:v.owner,number:state.projectNumber,title:state.projectTitle});
-  }
   const current=state.cells[x.key];
+  if(current.phase==='creating') throw Error('Repository creation interrupted: inspect '+repo+' before resuming');
+  if(!current.projectNumber) {
+    current.projectNumber=linkProject({source:sources.after,work,repo,owner:v.owner,number:null,title:current.projectTitle});
+    safeOut(statePath,state);
+  }
   if(!current.issues) {
-    current.issues=seedIssues({repo,id:x.id,source:sources.after,work,owner:v.owner,projectNumber:state.projectNumber,title:state.projectTitle});
+    current.issues=seedIssues({repo,id:x.id,source:sources.after,work,owner:v.owner,projectNumber:current.projectNumber,title:current.projectTitle});
     safeOut(statePath,state);
   }
   if(x.id==='W4'&&!current.initialPR) {
@@ -162,10 +161,11 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   const source=sources[x.arm]??null,parts=[];
   let interrupted=false;
   if(x.id==='W5') {
+    const started=Date.now();
     const first=runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,message:initial,
       timeoutMs:15*60_000,interrupt:async()=>{
         const branches=JSON.parse(gh(['api','repos/'+repo+'/branches?per_page=100']));
-        return branches.some(b=>b.name!=='main');
+        return branches.some(b=>b.name!=='main') || Date.now()-started>30_000;
       }});
     parts.push(await first);
     interrupted=parts[0].interrupted;
@@ -211,7 +211,7 @@ async function main() {
   const pending=plan.filter(x=>!completed.has(x.key));
   console.log(JSON.stringify({mode:v.execute?'PAID REMOTE GITHUB':'DRY RUN',agent:v.agent,model:v.model,effort:v.effort??null,
     owner:v.owner,scenarios:selected,arms,repeats,total:plan.length,completed:completed.size,pending:pending.length,
-    sourceShas,project:state?.projectNumber??'new benchmark project',output:out},null,2));
+    sourceShas,projects:'independent disposable Project per session',output:out},null,2));
   if(!v.execute){for(const p of pending)console.log('PLAN '+p.key);return}
   if(!v['allow-github-writes'])throw Error('--allow-github-writes required: creates private repos, real issues, Projects v2, PRs and Actions runs');
   if(pending.length>max)throw Error(pending.length+' sessions exceeds --max-sessions '+max);
@@ -221,7 +221,7 @@ async function main() {
   if(v.agent==='codex')approveDangerFullAccess({alreadyApproved:v['allow-danger-full-access'],count:pending.length});
   const mode=selectProfileMode(v.agent,arms,{count:pending.length});
   if(rows.some(r=>r.profile_isolation!==mode))throw Error('resume cannot mix isolated and unisolated profiles');
-  const runState=state??{signature:stamp,runId:Date.now().toString(36),projectTitle:'TicketFlow Workflow Bench '+Date.now().toString(36),projectNumber:null,cells:{}};
+  const runState=state??{signature:stamp,runId:Date.now().toString(36),projectTitle:null,projectNumber:null,cells:{}};
   safeOut(statePath,runState);
   for(const [i,cell] of pending.entries()){
     console.log('SESSION '+(i+1)+'/'+pending.length+' '+cell.key);
