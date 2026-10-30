@@ -35,6 +35,41 @@ test('dry-run shows every repeat and arm, requires no agent executable or output
     assert.equal(r.stdout.split('\n').filter((x)=>x.startsWith('PLAN ')).length, 12)
 })
 
+test('parallel execution keeps separate rows and overlaps one Claude and one Codex session', () => {
+    const dir = tempDir('bench-parallel-'), bin = join(dir, 'bin'), claudeAuth = join(dir, 'claude-auth'), codexHome = join(dir, 'codex-home')
+    const claudeOut = join(dir, 'claude.jsonl'), codexOut = join(dir, 'codex.jsonl'), log = join(dir, 'timing.log')
+    mkdirSync(bin); mkdirSync(claudeAuth); mkdirSync(codexHome)
+    writeFileSync(join(claudeAuth, '.credentials.json'), '{"portable":true}\n')
+    writeFileSync(join(codexHome, 'auth.json'), '{"auth_mode":"chatgpt","tokens":{"access_token":"test"}}\n')
+    const fake = join(bin, 'fake-agent')
+    writeFileSync(fake, `#!${process.execPath}
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+const name = process.argv[1].split('/').pop(), args = process.argv.slice(2), log = process.env.PARALLEL_LOG
+if (args.includes('--version')) { console.log(name === 'claude' ? 'fake-claude 1.0' : 'fake-codex 1.0'); process.exit(0) }
+if (name === 'codex' && args[0] === 'login' && args[1] === 'status') { process.exit(existsSync(join(process.env.CODEX_HOME, 'auth.json')) ? 0 : 1) }
+const start = Date.now(); appendFileSync(log, name + ':start:' + start + '\\n')
+const until = Date.now() + 400; while (Date.now() < until) {}
+if (name === 'codex') { const o = args.indexOf('-o'); writeFileSync(args[o + 1], 'src/files.js:7 path traversal') ; console.log(JSON.stringify({ type:'turn.completed', usage:{input_tokens:1, output_tokens:1} })) }
+else console.log(JSON.stringify({ type:'result', result:'src/files.js:7 path traversal', num_turns:1, total_cost_usd:0, usage:{input_tokens:1, output_tokens:1}, modelUsage:{'fake-model':{}} }))
+appendFileSync(log, name + ':end:' + Date.now() + '\\n')
+`)
+    chmodSync(fake, 0o755)
+    for (const name of ['claude', 'codex']) cpSync(fake, join(bin, name))
+    const r = call(['--parallel','--claude-model','claude-test','--codex-model','codex-test','--effort','high','--claude-out',claudeOut,'--codex-out',codexOut,
+        '--arms','bare','--scenarios','L4','--repeats','1','--max-sessions','2','--execute'], {
+        PATH: `${bin}:${process.env.PATH}`, CLAUDE_CONFIG_DIR: claudeAuth, CODEX_HOME: codexHome,
+        ANTHROPIC_API_KEY:'', CLAUDE_CODE_OAUTH_TOKEN:'', OPENAI_API_KEY:'', PARALLEL_LOG:log,
+    })
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    const claude = JSON.parse(readFileSync(claudeOut, 'utf8')), codex = JSON.parse(readFileSync(codexOut, 'utf8'))
+    assert.equal(claude.agent, 'claude'); assert.equal(claude.sandbox_mode, 'not-applicable'); assert.equal(claude.requested_effort, 'high'); assert.equal(claude.check.pass, true)
+    assert.equal(codex.agent, 'codex'); assert.equal(codex.sandbox_mode, 'danger-full-access'); assert.equal(codex.requested_effort, 'high'); assert.equal(codex.check.pass, true)
+    const events = readFileSync(log, 'utf8').trim().split('\n').map((line) => line.split(':')).reduce((m, [agent, phase, time]) => m.set(agent + phase, +time), new Map())
+    assert.ok(events.get('claudestart') < events.get('codexend') && events.get('codexstart') < events.get('claudeend'), 'agent sessions overlapped')
+    assert.match(r.stderr, /danger-full-access/)
+})
+
 test('paid execution is refused before invoking any agent if the cap is too low', () => {
     const r = call(['--agent','claude','--model','test','--arms','bare','--scenarios','L1,L2',
         '--repeats','2','--out',join(tempDir('bench-out-'), 'rows.jsonl'),'--max-sessions','1','--execute'])

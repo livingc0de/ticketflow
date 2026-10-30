@@ -44,14 +44,14 @@ function descriptor(r) {
     return {
         agent: r.agent ?? 'unknown', agentVersion: r.agent_version ?? 'unknown', requestedModel: requestedModel(r),
         effectiveModel: model(r), arm: r.variant ?? r.arm, source: source(r), evaluation: evaluation(r),
-        profileIsolation: r.profile_isolation ?? 'unknown',
+        profileIsolation: r.profile_isolation ?? 'unknown', sandboxMode: r.sandbox_mode ?? 'unknown', requestedEffort: r.requested_effort ?? 'default',
     }
 }
 
 function groupsFor(rows) {
     const groups = new Map()
     for (const r of rows) {
-        const d = descriptor(r), key = JSON.stringify([d.agent, d.agentVersion, d.requestedModel, d.effectiveModel, d.arm, d.source, d.evaluation, d.profileIsolation])
+        const d = descriptor(r), key = JSON.stringify([d.agent, d.agentVersion, d.requestedModel, d.effectiveModel, d.requestedEffort, d.arm, d.source, d.evaluation, d.profileIsolation, d.sandboxMode])
         if (!groups.has(key)) groups.set(key, { descriptor: d, rows: [] })
         groups.get(key).rows.push(r)
     }
@@ -67,6 +67,8 @@ function reportIssues(rows, groups, evaluations, configurations) {
     if (rows.some((r) => r.profile_isolation === 'unisolated')) issues.push('Unisolated agent profiles may load personal plugins, configuration and session state; comparisons need separate verification.')
     if (rows.some((r) => r.profile_cleanup === 'failed')) issues.push('At least one benchmark left its plugin cleanup incomplete; inspect the original Codex profile.')
     if (new Set(rows.map((r) => r.profile_isolation ?? 'unknown')).size > 1) issues.push('Mixed profile isolation modes: do not pool as a controlled comparison.')
+    if (rows.some((r) => !r.sandbox_mode)) issues.push('Sandbox mode is missing for some sessions; do not claim a controlled permissions comparison.')
+    if (new Set(rows.map((r) => r.sandbox_mode ?? 'unknown')).size > 1) issues.push('Mixed sandbox modes: do not pool as a controlled comparison.')
     if (rows.some((r) => r.plugin_sha && r.plugin_native?.includes('not independently verified'))) issues.push('Plugin bootstrap was requested but not independently verified in the agent transcript.')
     if (rows.some((r) => r.evaluation_mode !== 'non-adversarial')) issues.push('Evaluation mode is missing or not explicitly non-adversarial.')
     if (rows.some((r) => r.cost_usd == null)) issues.push('Missing cost data: no total cost or cost per success is inferred for affected arms.')
@@ -102,16 +104,20 @@ function publicationErrors(rows, evaluations, issues) {
     errors.push(...structural)
     if (issues.includes('Multiple agent versions/models: comparison is not controlled across them.')) errors.push('publication requires one consistent CLI version and requested/effective model configuration')
     if (issues.includes('Mixed profile isolation modes: do not pool as a controlled comparison.')) errors.push('publication refuses mixed profile isolation modes')
+    if (issues.includes('Sandbox mode is missing for some sessions; do not claim a controlled permissions comparison.')) errors.push('publication requires sandbox mode metadata for every row')
+    if (issues.includes('Mixed sandbox modes: do not pool as a controlled comparison.')) errors.push('publication refuses mixed sandbox modes')
     if (issues.includes('At least one benchmark left its plugin cleanup incomplete; inspect the original Codex profile.')) errors.push('publication refuses incomplete plugin cleanup')
     return [...new Set(errors)]
 }
 
 function render(rows, groups, evaluations, { published = false, date = null } = {}) {
-    const configurations = [...new Set(rows.map((r) => safeText(`${r.agent ?? 'unknown'}/${r.agent_version ?? 'unknown'}/${requestedModel(r)}/${model(r)}`)))]
+    const configurations = [...new Set(rows.map((r) => safeText(`${r.agent ?? 'unknown'}/${r.agent_version ?? 'unknown'}/${requestedModel(r)}/${model(r)}/${r.requested_effort ?? 'default'}`)))]
     const lines = [published ? `# Agent benchmark report — ${date}` : '# Agent benchmark results', '',
         `Recorded sessions: **${rows.length}** · Evaluation revisions: ${evaluations.map(revision).join(', ')}`,
         'Agent/model configurations: ' + configurations.join(', '),
-        'Profile isolation: ' + [...new Set(rows.map((r) => safeText(r.profile_isolation ?? 'unknown')))].join(', '), '',
+        'Profile isolation: ' + [...new Set(rows.map((r) => safeText(r.profile_isolation ?? 'unknown')))].join(', '),
+        'Sandbox mode: ' + [...new Set(rows.map((r) => safeText(r.sandbox_mode ?? 'unknown')))].join(', '), '',
+        'Requested effort: ' + [...new Set(rows.map((r) => safeText(r.requested_effort ?? 'default')))].join(', '), '',
         '> These are observed results, not simulated model outcomes. A green repository test suite does not prove agent performance.',
         '> Compare groups only when the agent, model, effort, permissions, scenario/repeat cells, evaluator revision and plugin bootstraps match.',
         '> The CLI currently does not independently verify plugin activation, effort or subagent token inclusion.',
@@ -119,16 +125,16 @@ function render(rows, groups, evaluations, { published = false, date = null } = 
 
     if (published) {
         lines.push('## Revisions and models', '',
-            '| Arm | Source revision | Evaluator revision | Agent | CLI version | Requested model | Effective model | Profile isolation | Sessions |',
-            '| --- | --- | --- | --- | --- | --- | --- | --- | ---: |')
+            '| Arm | Source revision | Evaluator revision | Agent | CLI version | Requested model | Effective model | Effort | Profile isolation | Sandbox mode | Sessions |',
+            '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: |')
         for (const { descriptor: d, rows: part } of groups.sort((a, b) => JSON.stringify(a.descriptor).localeCompare(JSON.stringify(b.descriptor)))) {
-            lines.push(`| ${safeText(d.arm)} | ${d.source === 'bare' ? 'bare' : revision(d.source)} | ${revision(d.evaluation)} | ${safeText(d.agent)} | ${safeText(d.agentVersion)} | ${safeText(d.requestedModel)} | ${safeText(d.effectiveModel)} | ${safeText(d.profileIsolation)} | ${part.length} |`)
+            lines.push(`| ${safeText(d.arm)} | ${d.source === 'bare' ? 'bare' : revision(d.source)} | ${revision(d.evaluation)} | ${safeText(d.agent)} | ${safeText(d.agentVersion)} | ${safeText(d.requestedModel)} | ${safeText(d.effectiveModel)} | ${safeText(d.requestedEffort)} | ${safeText(d.profileIsolation)} | ${safeText(d.sandboxMode)} | ${part.length} |`)
         }
         lines.push('', '## Methodology', '',
             '- Each session uses a fresh temporary Git repository and the scenario’s hidden checker; the repository test suite is part of the applicable checks.',
             '- A task passes only when its deterministic hidden check passes. Failed agent invocations remain in the denominator and their known costs remain in totals.',
             '- Reported metrics are pass rate, descriptive Wilson 95% range, median elapsed seconds, median net lines changed, tokens when supplied, total USD, and USD per successful task.',
-            '- Repeated scenario/repeat cells are paired observations, not independent trials. Keep evaluator, source revisions, models, permissions and plugin bootstraps fixed for comparisons.',
+            '- Repeated scenario/repeat cells are paired observations, not independent trials. Keep evaluator, source revisions, models, sandbox modes and plugin bootstraps fixed for comparisons.',
             '- No paid sessions are run by tests or CI. Raw JSONL rows, transcripts, answers and local paths are not included in this report.', '')
     }
 
@@ -159,7 +165,7 @@ function renderLimitations(lines, issues, published) {
     lines.push('', 'Pass rates use Wilson 95% ranges only as descriptive summaries; repeated paired task cells are not independent trials, so no inferential superiority claim is supported.',
         'Cost per success = all observed session costs (including failed runs) / successful tasks; it is unknown when any session cost is unavailable.',
         'Plugin registration is not proof that skills or hooks activated in the agent. Descendant-agent attribution, manual intervention and effective effort may be unknown.',
-        'This benchmark is non-adversarial and is not a security sandbox; agents may discover evaluator files through the unrestricted node/npm allowlist.',
+        'This benchmark is non-adversarial and is not a security sandbox; agents may discover evaluator files through the unrestricted node/npm allowlist. Codex rows use danger-full-access and therefore require a disposable machine.',
         'A benchmark is not a substitute for the separate GitHub merge-gate integration probes.', '')
     if (published) lines.push('## Reproduction', '',
         'Run the deterministic reporter on a locally retained JSONL session file, after checking source revisions, model pins, plugin activation and sensitive paths:', '',
@@ -200,9 +206,9 @@ try {
     else console.log(markdown)
     if (v.csv) {
         const columns = ['scenario','agent','agent_version','requested_model','effective_model','arm','variant','repeat','ticketflow_sha','plugin_sha',
-            'eval_sha','eval_fingerprint','evaluation_mode','profile_isolation','profile_cleanup','pass','wall_s','cost_usd','input_tokens','output_tokens','added','removed','deps_added','agent_exit']
+            'eval_sha','eval_fingerprint','evaluation_mode','requested_effort','profile_isolation','sandbox_mode','profile_cleanup','pass','wall_s','cost_usd','input_tokens','output_tokens','added','removed','deps_added','agent_exit']
         const entries = rows.map((r) => [r.scenario,r.agent,r.agent_version,requestedModel(r),model(r),r.arm,r.variant??r.arm,r.repeat, r.ticketflow_sha,r.plugin_sha,
-            r.eval_sha,r.eval_fingerprint,r.evaluation_mode,r.profile_isolation??'unknown',r.profile_cleanup??'unknown',r.check.pass,r.wall_s,r.cost_usd,r.tokens?.input_tokens,r.tokens?.output_tokens,r.diff?.added,r.diff?.removed,r.deps_added,r.agent_exit])
+            r.eval_sha,r.eval_fingerprint,r.evaluation_mode,r.requested_effort??'default',r.profile_isolation??'unknown',r.sandbox_mode??'unknown',r.profile_cleanup??'unknown',r.check.pass,r.wall_s,r.cost_usd,r.tokens?.input_tokens,r.tokens?.output_tokens,r.diff?.added,r.diff?.removed,r.deps_added,r.agent_exit])
         writeFileSync(v.csv, columns.join(',') + '\n' + entries.map((r) => r.map(csv).join(',')).join('\n') + '\n')
     }
 } catch (e) { console.error('benchmarks report: ' + e.message); process.exitCode = 2 }

@@ -283,11 +283,12 @@ const sha = git(ROOT, 'rev-parse', 'HEAD')
 
 test('claude, ticketflow arm: installs TicketFlow like init does, runs the prompt, records every field', () => {
     const { tmp, run } = sandbox(), out = join(tmp, 'rows.jsonl')
-    const r = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--out', out], { FAKE_FIX: '1' })
+    const r = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--effort', 'high', '--out', out], { FAKE_FIX: '1' })
     assert.equal(r.status, 0, r.stderr)
     const { row, calls } = r
     assert.equal(row.scenario, L1)
     assert.equal(row.agent, 'claude'); assert.equal(row.agent_version, '9.9.9 (Claude Code)'); assert.equal(row.model, 'fake-model'); assert.equal(row.arm, 'ticketflow')
+    assert.equal(row.requested_effort, 'high')
     assert.equal(row.ticketflow_sha, sha); assert.equal(row.eval_sha, sha)
     assert.match(row.eval_fingerprint, /^[0-9a-f]{64}$/); assert.equal(row.evaluation_mode, 'non-adversarial')
     assert.equal(typeof row.ticketflow_dirty, 'boolean'); assert.equal(row.ticketflow_version, readFileSync(join(ROOT, 'VERSION'), 'utf8').trim())
@@ -302,6 +303,7 @@ test('claude, ticketflow arm: installs TicketFlow like init does, runs the promp
     const prompt = readFileSync(join(SCEN, L1, 'prompt.md'), 'utf8')
     assert.deepEqual(calls[0].args.slice(0, 8), ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--setting-sources', 'project,local', '--allowedTools'])   // no user-level settings or plugins
     assert.match(calls[0].args[8], /Edit/); assert.doesNotMatch(calls[0].args.join(' '), /--dangerously|bypassPermissions/)
+    assert.equal(calls[0].args[calls[0].args.indexOf('--effort') + 1], 'high')
     assert.equal(calls[0].stdin, '', 'the prompt is the argument, stdin is empty (a piped stdin would be appended to it)')
     const repo = join(row.workdir, 'repo')
     assert.equal(realpathSync(calls[0].cwd), realpathSync(repo)); assert.ok(calls[0].tf, 'installed before the agent started')
@@ -481,16 +483,19 @@ test('Codex keyring-only login needs approval and leaves original profile untouc
     assert.deepEqual(readdirSync(source), [], 'the harness never installs anything into the original profile')
 })
 
-test('codex: exec --json in the workspace sandbox, tokens summed over turns, answer from -o, scenario by prefix', () => {
+test('codex: exec --json uses danger-full-access, tokens summed over turns, answer from -o, scenario by prefix', () => {
     const { run } = sandbox()
-    const r = run(['L4', '--agent', 'codex', '--arm', 'ticketflow', '--model', 'gpt-test'], { FAKE_OUT: CODEX_OUT, FAKE_ANSWER: 'src/files.js:7 path traversal' })
+    const r = run(['L4', '--agent', 'codex', '--arm', 'ticketflow', '--model', 'gpt-test', '--effort', 'high'], { FAKE_OUT: CODEX_OUT, FAKE_ANSWER: 'src/files.js:7 path traversal' })
     assert.equal(r.status, 0, r.stdout + r.stderr)
     assert.equal(r.row.scenario, L4); assert.equal(r.row.agent, 'codex'); assert.equal(r.row.agent_version, 'codex-cli 9.9.9'); assert.equal(r.row.model, null)
     assert.equal(r.row.check.pass, true)
+    assert.equal(r.row.sandbox_mode, 'danger-full-access')
+    assert.equal(r.row.requested_effort, 'high')
     assert.deepEqual(r.row.tokens, { input_tokens: 150, cached_input_tokens: 100, output_tokens: 10 })
     assert.equal(r.row.turns, null); assert.equal(r.row.cost_usd, null); assert.equal(r.row.descendants, 'unknown')
     const { args, stdin } = r.calls[0]
-    assert.deepEqual(args.slice(0, 6), ['exec', '--json', '--ignore-user-config', '--sandbox', 'workspace-write', '-C'])   // no user-level config
+    assert.deepEqual(args.slice(0, 6), ['exec', '--json', '--ignore-user-config', '--sandbox', 'danger-full-access', '-C'])   // no user-level config
+    assert.equal(args[args.indexOf('--config') + 1], 'model_reasoning_effort=high')
     assert.equal(args.at(-1), '-'); assert.equal(args[args.indexOf('-m') + 1], 'gpt-test')
     assert.equal(stdin, readFileSync(join(SCEN, L4, 'prompt.md'), 'utf8'))
     assert.ok(existsSync(join(r.row.workdir, 'repo/.agents/skills/implement-ticket/SKILL.md')) && !existsSync(join(r.row.workdir, 'repo/.claude/skills')))
@@ -695,6 +700,7 @@ test('a bad scenario, agent or arm, a missing option or a missing CLI exits 2 be
     bad([L1, '--agent', 'gemini', '--arm', 'bare'], /usage: agent-eval/)
     bad([L1, '--agent', 'claude', '--arm', 'both'], /usage: agent-eval/)
     bad([L1, '--agent', 'claude'], /usage: agent-eval/)
+    bad([L1, '--agent', 'claude', '--arm', 'bare', '--effort', 'turbo'], /usage: agent-eval/)
     bad([], /usage: agent-eval/)
     bad([L1, '--agent', 'claude', '--arm', 'bare', '--out', join(tmp, 'missing', 'rows.jsonl')], /cannot be written/)
     bad([L1, '--agent', 'claude', '--arm', 'bare', '--out', tmp], /cannot be written/)   // a directory: refused before the paid run, not at the append after it

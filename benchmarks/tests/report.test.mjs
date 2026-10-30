@@ -8,7 +8,7 @@ import { tempDir } from '../../tests/helpers.mjs'
 const TOOL = new URL('../report.mjs', import.meta.url).pathname
 const row = (over = {}) => ({ scenario:'L1-trivial-copy', agent:'claude', agent_version:'9.9', requested_model:'test-model',
     model:'test-model', arm:'bare', variant:'bare', eval_sha:'a'.repeat(40), ticketflow_sha:null, plugin_sha:null,
-    eval_fingerprint:'a'.repeat(64), evaluation_mode:'non-adversarial', profile_isolation:'isolated',
+    eval_fingerprint:'a'.repeat(64), evaluation_mode:'non-adversarial', profile_isolation:'isolated', sandbox_mode:'not-applicable',
     repeat:1, check:{pass:true}, wall_s:6, cost_usd:0.2, tokens:{input_tokens:100,output_tokens:20},
     diff:{added:3,removed:1}, deps_added:0, agent_exit:0, descendants:'unknown', ...over })
 function run(rows, opts = []) {
