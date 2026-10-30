@@ -65,6 +65,7 @@ function reportIssues(rows, groups, evaluations, configurations) {
     if (rows.some((r) => !r.model)) issues.push('Effective model was not reported for some sessions; model parity requires operator verification.')
     if (rows.some((r) => r.ticketflow_dirty === true)) issues.push('At least one TicketFlow checkout was dirty.')
     if (rows.some((r) => r.profile_isolation === 'unisolated')) issues.push('Unisolated agent profiles may load personal plugins, configuration and session state; comparisons need separate verification.')
+    if (rows.some((r) => r.profile_cleanup === 'failed')) issues.push('At least one benchmark left its plugin cleanup incomplete; inspect the original Codex profile.')
     if (new Set(rows.map((r) => r.profile_isolation ?? 'unknown')).size > 1) issues.push('Mixed profile isolation modes: do not pool as a controlled comparison.')
     if (rows.some((r) => r.plugin_sha && r.plugin_native?.includes('not independently verified'))) issues.push('Plugin bootstrap was requested but not independently verified in the agent transcript.')
     if (rows.some((r) => r.evaluation_mode !== 'non-adversarial')) issues.push('Evaluation mode is missing or not explicitly non-adversarial.')
@@ -101,6 +102,7 @@ function publicationErrors(rows, evaluations, issues) {
     errors.push(...structural)
     if (issues.includes('Multiple agent versions/models: comparison is not controlled across them.')) errors.push('publication requires one consistent CLI version and requested/effective model configuration')
     if (issues.includes('Mixed profile isolation modes: do not pool as a controlled comparison.')) errors.push('publication refuses mixed profile isolation modes')
+    if (issues.includes('At least one benchmark left its plugin cleanup incomplete; inspect the original Codex profile.')) errors.push('publication refuses incomplete plugin cleanup')
     return [...new Set(errors)]
 }
 
@@ -198,9 +200,9 @@ try {
     else console.log(markdown)
     if (v.csv) {
         const columns = ['scenario','agent','agent_version','requested_model','effective_model','arm','variant','repeat','ticketflow_sha','plugin_sha',
-            'eval_sha','eval_fingerprint','evaluation_mode','profile_isolation','pass','wall_s','cost_usd','input_tokens','output_tokens','added','removed','deps_added','agent_exit']
+            'eval_sha','eval_fingerprint','evaluation_mode','profile_isolation','profile_cleanup','pass','wall_s','cost_usd','input_tokens','output_tokens','added','removed','deps_added','agent_exit']
         const entries = rows.map((r) => [r.scenario,r.agent,r.agent_version,requestedModel(r),model(r),r.arm,r.variant??r.arm,r.repeat, r.ticketflow_sha,r.plugin_sha,
-            r.eval_sha,r.eval_fingerprint,r.evaluation_mode,r.profile_isolation??'unknown',r.check.pass,r.wall_s,r.cost_usd,r.tokens?.input_tokens,r.tokens?.output_tokens,r.diff?.added,r.diff?.removed,r.deps_added,r.agent_exit])
+            r.eval_sha,r.eval_fingerprint,r.evaluation_mode,r.profile_isolation??'unknown',r.profile_cleanup??'unknown',r.check.pass,r.wall_s,r.cost_usd,r.tokens?.input_tokens,r.tokens?.output_tokens,r.diff?.added,r.diff?.removed,r.deps_added,r.agent_exit])
         writeFileSync(v.csv, columns.join(',') + '\n' + entries.map((r) => r.map(csv).join(',')).join('\n') + '\n')
     }
 } catch (e) { console.error('benchmarks report: ' + e.message); process.exitCode = 2 }
