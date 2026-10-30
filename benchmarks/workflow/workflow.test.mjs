@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join,dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { scenarios,ids,fixture,prompt } from './scenarios.mjs';
-import { evaluateEvidence } from './check.mjs';
+import { evaluateEvidence, meaningfulCheckpoint } from './check.mjs';
 import { cfg } from './sandbox.mjs';
 import { validate } from '../../core/lib/config.mjs';
 
@@ -49,11 +49,11 @@ const issue=(n,{seeded=false,closed=true,comments=1,title=null,body=null}={})=>(
 });
 const pr=(n,body,sha='aaaa')=>({number:n,body,headRefOid:sha,mergedAt:'2026-10-31T00:00:00Z'});
 const evidence=(id,{seeded=[],issues=[],prs=[],good=true,review=true,ci=true,interrupted=true,
-  initialPR=null,initialHead=null}={})=>
+  initialPR=null,initialHead=null,resumed=true}={})=>
   evaluateEvidence({id,seededIssues:seeded,issues,prs,
     checks:prs.map(p=>({number:p.number,pass:ci})),
     reviews:prs.map(p=>({number:p.number,observed:review,unresolved:false})),
-    plans:[],hidden:good,repoTests:true,interrupted,initialPR,initialHead});
+    plans:[],hidden:good,repoTests:true,interrupted,resumed,initialPR,initialHead});
 test('W1 scores newly created and linked ticket, not a supplied empty project',()=>{
   const p=pr(20,'Closes #7');const pass=evidence('W1',{issues:[issue(7)],prs:[p]});
   assert.equal(pass.pipeline,true);
@@ -85,6 +85,15 @@ test('W5 requires an actual recorded interruption and recovery',()=>{
   const source={seeded:[1],issues:[issue(1)],prs:[pr(2,'Closes #1')]};
   assert.equal(evidence('W5',{...source,interrupted:true}).pipeline,true);
   assert.equal(evidence('W5',{...source,interrupted:false}).pipeline,false);
+  assert.equal(evidence('W5',{...source,interrupted:true,resumed:false}).pipeline,false);
+});
+test('W5 remote checkpoint requires pushed product changes and an unmerged PR state',()=>{
+  const branches=[{name:'main'},{name:'feature'}],prs=[{mergedAt:null}];
+  assert.equal(meaningfulCheckpoint({branches,prs,compares:{feature:{ahead_by:1,files:[]}}}),false);
+  assert.equal(meaningfulCheckpoint({branches,prs,compares:{feature:{ahead_by:1,files:[{filename:'docs/notes.md'}]}}}),false);
+  assert.equal(meaningfulCheckpoint({branches,prs,compares:{feature:{ahead_by:1,files:[{filename:'src/orders.mjs'}]}}}),true);
+  assert.equal(meaningfulCheckpoint({branches,prs:[{mergedAt:'2026-10-30T14:00:00Z'}],
+    compares:{feature:{ahead_by:1,files:[{filename:'src/orders.mjs'}]}}}),false);
 });
 test('W6 requires multiple useful tickets linked to delivered work, not count alone',()=>{
   const tasks=[issue(2),issue(3)];
