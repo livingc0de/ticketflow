@@ -169,7 +169,8 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
 
   // Initial branch and issue state is prepared before the paid agent run.
   const dir=cloneRepository(repo,join(work,'attempt-'+Date.now()));
-  const initial=prompt(x.id,repo,current.issues,current.initialPR??null);
+  const initial=prompt(x.id,repo,current.issues,current.initialPR??null,
+    'https://github.com/orgs/'+v.owner+'/projects/'+current.project.number);
   const source=sources[x.arm]??null,parts=[];
   let interrupted=false;
   if(x.id==='W5') {
