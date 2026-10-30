@@ -67,6 +67,9 @@ function confirmUnisolated(agent, count, arms) {
         (agent === 'codex' && arms.some((arm) => arm === 'superpowers' || arm === 'ponytail')
             ? 'Codex will install a separate benchmark plugin and marketplace, then remove only those additions; existing plugins are preserved. An interruption or cleanup failure may leave benchmark additions behind.\n'
             : '') +
+        (agent === 'codex' && arms.includes('ponytail')
+            ? 'Ponytail uses --dangerously-bypass-hook-trust; in an unisolated profile this can also execute OTHER enabled, untrusted hooks from your existing settings. Run only on a disposable VM with reviewed hooks.\n'
+            : '') +
         'The temporary task Git repository remains separate; this is not an OS security sandbox.\n' +
         'Proceed without profile isolation for ' + count + ' paid benchmark session(s)? [y/N] ')
     const input = []
