@@ -3,7 +3,7 @@
  * Maintainer tool, never shipped to installed repos: runs one eval scenario (benchmarks/scenarios/<id>) with a real agent CLI in a fresh
  * temp git repo and appends one JSON row (benchmarks/SCENARIOS.md). It starts a PAID agent session; nothing here runs in CI.
  *
- * Usage: agent-eval.mjs <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--source dir] [--rep n] [--label name] [--out file.jsonl]
+ * Usage: agent-eval.mjs <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--rep n] [--label name] [--out file.jsonl] [--eval-fingerprint sha256] [--allow-danger-full-access]
  *   <scenario> is a directory name or its prefix (L1). The ticketflow arm installs a TicketFlow checkout (--source, default this one; an
  *   older tag's worktree compares revisions) the way `init` does (runtime, gen-stubs, render); the bare arm installs nothing. The scenario's hidden check.mjs runs on the result; the row is printed and appended to --out.
  * Exit: 0 = the hidden check passed, 1 = it failed (the row is still recorded), 2 = usage, unknown scenario or missing CLI, before any run.
@@ -17,11 +17,12 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { main } from '../core/lib/cli.mjs'
 import { evaluatorFingerprint, resolveScenario, validatePluginSource } from './lib/integrity.mjs'
-import { selectProfileMode } from './lib/profile-auth.mjs'
+import { approveDangerFullAccess, selectProfileMode } from './lib/profile-auth.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SCENARIOS = join(ROOT, 'benchmarks/scenarios')
-const usage = 'usage: agent-eval <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--source dir] [--rep n] [--out file.jsonl]'
+const usage = 'usage: agent-eval <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--rep n] [--out file.jsonl] [--eval-fingerprint sha256] [--allow-danger-full-access]'
+const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
 const TOOLS = 'Read,Edit,Write,Glob,Grep,Bash(node *),Bash(npm *),Bash(git status *),Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git add *),Bash(git commit *)'
 const AGENT_TIMEOUT_MS = 30 * 60 * 1000   // shortcut: one fixed 30-minute ceiling so a hung paid session cannot run forever (a timeout is recorded as agent_exit null), add a --timeout option when a scenario needs longer
 const BUF = 1 << 28
@@ -160,8 +161,8 @@ function report(agent, out, answerFile, model) {
 }
 
 main('agent-eval', () => {
-    const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, source: { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' }, 'profile-mode': { type: 'string' } }, allowPositionals: true })
-    if (positionals.length !== 1 || !['claude', 'codex'].includes(v.agent) || !['ticketflow', 'bare', 'superpowers', 'ponytail'].includes(v.arm) || (v.rep !== undefined && (!/^[1-9]\d*$/.test(v.rep) || !Number.isSafeInteger(+v.rep))) || (v.label !== undefined && !/^[a-z][a-z0-9-]{0,30}$/.test(v.label)) || (v['profile-mode'] !== undefined && v['profile-mode'] !== 'unisolated')) throw new Error(usage)
+    const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, effort: { type: 'string' }, source: { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' }, 'profile-mode': { type: 'string' }, 'eval-fingerprint': { type: 'string' }, 'allow-danger-full-access': { type: 'boolean' } }, allowPositionals: true })
+    if (positionals.length !== 1 || !['claude', 'codex'].includes(v.agent) || !['ticketflow', 'bare', 'superpowers', 'ponytail'].includes(v.arm) || (v.effort !== undefined && !EFFORTS.has(v.effort)) || (v.rep !== undefined && (!/^[1-9]\d*$/.test(v.rep) || !Number.isSafeInteger(+v.rep))) || (v.label !== undefined && !/^[a-z][a-z0-9-]{0,30}$/.test(v.label)) || (v['profile-mode'] !== undefined && v['profile-mode'] !== 'unisolated') || (v['eval-fingerprint'] !== undefined && !/^[0-9a-f]{64}$/i.test(v['eval-fingerprint']))) throw new Error(usage)
     const id = resolveScenario(SCENARIOS, positionals[0])
     const external = v.arm === 'superpowers' || v.arm === 'ponytail'
     if (external && !v.source) throw new Error(`--source requires a pinned checkout of ${v.arm}`)
@@ -177,8 +178,9 @@ main('agent-eval', () => {
     const profileMode = selectProfileMode(v.agent, [v.arm], { alreadyApproved: v['profile-mode'] === 'unisolated' })
     if (v['profile-mode'] === 'unisolated' && profileMode !== 'unisolated')
         throw new Error('Requested unisolated mode no longer matches the available authentication; restart the benchmark runner.')
+    if (v.agent === 'codex') approveDangerFullAccess({ alreadyApproved: v['allow-danger-full-access'] })
 
-    const sdir = join(SCENARIOS, id), work = mkdtempSync(join(tmpdir(), 'agent-eval-')), evalFingerprint = evaluatorFingerprint(ROOT, outFile ? [outFile] : [])
+    const sdir = join(SCENARIOS, id), work = mkdtempSync(join(tmpdir(), 'agent-eval-')), evalFingerprint = v['eval-fingerprint'] ?? evaluatorFingerprint(ROOT, outFile ? [outFile] : [])
     const { dir, base } = workspace(sdir, v.agent, v.arm, work, src)
     const claude = v.agent === 'claude'
     const isolated = profileMode === 'isolated'
@@ -187,8 +189,8 @@ main('agent-eval', () => {
     const answerFile = join(work, 'answer.txt')
     const prompt = readFileSync(join(sdir, 'prompt.md'), 'utf8')
     const args = claude
-        ? ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--setting-sources', 'project,local', '--allowedTools', TOOLS, ...(v.model ? ['--model', v.model] : []), ...(external ? ['--plugin-dir', src] : [])]
-        : ['exec', '--json', ...(!external && isolated ? ['--ignore-user-config'] : []), '--sandbox', 'workspace-write', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), '-']   // codex reads the prompt from stdin
+        ? ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--setting-sources', 'project,local', '--allowedTools', TOOLS, ...(v.model ? ['--model', v.model] : []), ...(v.effort ? ['--effort', v.effort] : []), ...(external ? ['--plugin-dir', src] : [])]
+        : ['exec', '--json', ...(!external && isolated ? ['--ignore-user-config'] : []), '--sandbox', 'danger-full-access', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), ...(v.effort ? ['--config', `model_reasoning_effort=${v.effort}`] : []), '-']   // codex reads the prompt from stdin; danger-full-access is required on hosts where user namespaces are unavailable
     const t0 = Date.now()
     // Isolated profiles copy only authentication and erase it afterwards. Opted-in unisolated runs
     // deliberately retain the original profile so OS-keyring credentials remain usable.
@@ -233,7 +235,7 @@ main('agent-eval', () => {
         scenario: id, agent: v.agent, agent_version: version.stdout.trim(), model: got.model, requested_model: v.model ?? null, arm: v.arm, variant: v.label ?? v.arm, repeat: v.rep ? +v.rep : null,
         eval_sha: orNull(() => git(ROOT, 'rev-parse', 'HEAD')),   // the revision of this tool and its scenarios
         eval_fingerprint: evalFingerprint,
-        evaluation_mode: 'non-adversarial', profile_isolation: profileMode, profile_cleanup: cleanupFailure ? 'failed' : 'ok',
+        evaluation_mode: 'non-adversarial', profile_isolation: profileMode, sandbox_mode: claude ? 'not-applicable' : 'danger-full-access', requested_effort: v.effort ?? null, profile_cleanup: cleanupFailure ? 'failed' : 'ok',
         ticketflow_sha: tf(() => git(src, 'rev-parse', 'HEAD')), ticketflow_dirty: tf(() => git(src, 'status', '--porcelain', '--untracked-files=all').split('\n').some((l) => l && resolve(src, l.slice(3)) !== outFile)),
         ticketflow_version: tf(() => readFileSync(join(src, 'VERSION'), 'utf8').trim()),
         plugin_sha: external ? git(src, 'rev-parse', 'HEAD') : null,

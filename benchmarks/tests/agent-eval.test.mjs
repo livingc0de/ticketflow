@@ -283,11 +283,12 @@ const sha = git(ROOT, 'rev-parse', 'HEAD')
 
 test('claude, ticketflow arm: installs TicketFlow like init does, runs the prompt, records every field', () => {
     const { tmp, run } = sandbox(), out = join(tmp, 'rows.jsonl')
-    const r = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--out', out], { FAKE_FIX: '1' })
+    const r = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--effort', 'high', '--out', out], { FAKE_FIX: '1' })
     assert.equal(r.status, 0, r.stderr)
     const { row, calls } = r
     assert.equal(row.scenario, L1)
     assert.equal(row.agent, 'claude'); assert.equal(row.agent_version, '9.9.9 (Claude Code)'); assert.equal(row.model, 'fake-model'); assert.equal(row.arm, 'ticketflow')
+    assert.equal(row.requested_effort, 'high')
     assert.equal(row.ticketflow_sha, sha); assert.equal(row.eval_sha, sha)
     assert.match(row.eval_fingerprint, /^[0-9a-f]{64}$/); assert.equal(row.evaluation_mode, 'non-adversarial')
     assert.equal(typeof row.ticketflow_dirty, 'boolean'); assert.equal(row.ticketflow_version, readFileSync(join(ROOT, 'VERSION'), 'utf8').trim())
@@ -302,6 +303,7 @@ test('claude, ticketflow arm: installs TicketFlow like init does, runs the promp
     const prompt = readFileSync(join(SCEN, L1, 'prompt.md'), 'utf8')
     assert.deepEqual(calls[0].args.slice(0, 8), ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--setting-sources', 'project,local', '--allowedTools'])   // no user-level settings or plugins
     assert.match(calls[0].args[8], /Edit/); assert.doesNotMatch(calls[0].args.join(' '), /--dangerously|bypassPermissions/)
+    assert.equal(calls[0].args[calls[0].args.indexOf('--effort') + 1], 'high')
     assert.equal(calls[0].stdin, '', 'the prompt is the argument, stdin is empty (a piped stdin would be appended to it)')
     const repo = join(row.workdir, 'repo')
     assert.equal(realpathSync(calls[0].cwd), realpathSync(repo)); assert.ok(calls[0].tf, 'installed before the agent started')
@@ -418,7 +420,7 @@ test('a successful checker cannot override a failed agent execution', () => {
 })
 test('Codex authentication preflight rejects missing or invalid auth before a paid session', () => {
     const { run, tmp, workdirs } = sandbox()
-    const unavailable = join(tmp, 'no-codex-login'), args = [L1, '--agent', 'codex', '--arm', 'bare']
+    const unavailable = join(tmp, 'no-codex-login'), args = [L1, '--agent', 'codex', '--arm', 'bare', '--allow-danger-full-access']
     const missing = run(args, { CODEX_HOME: unavailable, OPENAI_API_KEY: 'not-forwarded' })
     assert.equal(missing.status, 2, missing.stdout + missing.stderr)
     assert.match(missing.stderr, /Codex benchmark authentication preflight failed/)
@@ -471,7 +473,7 @@ test('Codex keyring-only login needs approval and leaves original profile untouc
     assert.match(blocked.stderr, /interactive terminal is required/)
     assert.equal(blocked.calls.length, 0)
 
-    const approved = run([...args, '--profile-mode', 'unisolated'], env)
+    const approved = run([...args, '--profile-mode', 'unisolated', '--allow-danger-full-access'], env)
     assert.equal(approved.status, 0, approved.stdout + approved.stderr)
     assert.equal(approved.row.profile_isolation, 'unisolated')
     assert.equal(approved.calls[0].codex_home, source)
@@ -481,17 +483,26 @@ test('Codex keyring-only login needs approval and leaves original profile untouc
     assert.deepEqual(readdirSync(source), [], 'the harness never installs anything into the original profile')
 })
 
-test('codex: exec --json in the workspace sandbox, tokens summed over turns, answer from -o, scenario by prefix', () => {
+test('direct Codex eval requires danger approval, then uses danger-full-access and parses the result', () => {
     const { run } = sandbox()
-    const r = run(['L4', '--agent', 'codex', '--arm', 'ticketflow', '--model', 'gpt-test'], { FAKE_OUT: CODEX_OUT, FAKE_ANSWER: 'src/files.js:7 path traversal' })
+    const codexArgs = ['L4', '--agent', 'codex', '--arm', 'ticketflow', '--model', 'gpt-test', '--effort', 'high']
+    const env = { FAKE_OUT: CODEX_OUT, FAKE_ANSWER: 'src/files.js:7 path traversal' }
+    const blocked = run(codexArgs, env)
+    assert.equal(blocked.status, 2, blocked.stderr)
+    assert.match(blocked.stderr, /requires an interactive approval or --allow-danger-full-access/)
+    assert.equal(blocked.calls.length, 0)
+    const r = run([...codexArgs, '--allow-danger-full-access'], env)
     assert.equal(r.status, 0, r.stdout + r.stderr)
     assert.equal(r.row.scenario, L4); assert.equal(r.row.agent, 'codex'); assert.equal(r.row.agent_version, 'codex-cli 9.9.9'); assert.equal(r.row.model, null)
     assert.equal(r.row.check.pass, true)
+    assert.equal(r.row.sandbox_mode, 'danger-full-access')
+    assert.equal(r.row.requested_effort, 'high')
     assert.deepEqual(r.row.tokens, { input_tokens: 150, cached_input_tokens: 100, output_tokens: 10 })
     assert.equal(r.row.turns, null); assert.equal(r.row.cost_usd, null); assert.equal(r.row.descendants, 'unknown')
-    const { args, stdin } = r.calls[0]
-    assert.deepEqual(args.slice(0, 6), ['exec', '--json', '--ignore-user-config', '--sandbox', 'workspace-write', '-C'])   // no user-level config
-    assert.equal(args.at(-1), '-'); assert.equal(args[args.indexOf('-m') + 1], 'gpt-test')
+    const { args: cliArgs, stdin } = r.calls[0]
+    assert.deepEqual(cliArgs.slice(0, 6), ['exec', '--json', '--ignore-user-config', '--sandbox', 'danger-full-access', '-C'])   // no user-level config
+    assert.equal(cliArgs[cliArgs.indexOf('--config') + 1], 'model_reasoning_effort=high')
+    assert.equal(cliArgs.at(-1), '-'); assert.equal(cliArgs[cliArgs.indexOf('-m') + 1], 'gpt-test')
     assert.equal(stdin, readFileSync(join(SCEN, L4, 'prompt.md'), 'utf8'))
     assert.ok(existsSync(join(r.row.workdir, 'repo/.agents/skills/implement-ticket/SKILL.md')) && !existsSync(join(r.row.workdir, 'repo/.claude/skills')))
 })
@@ -551,7 +562,7 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned'); git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
     const authDir = tempDir('codex-auth-')
     writeFileSync(join(authDir, 'auth.json'), CODEX_LOGIN)
-    const r = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--model', 'gpt-test'], { FAKE_FIX: '1', FAKE_CREATE_AUTH: '1', FAKE_CREATE_HOME_FILE: '1', CODEX_HOME: authDir, OPENAI_API_KEY: 'should-not-reach-cli' })
+    const r = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--model', 'gpt-test', '--allow-danger-full-access'], { FAKE_FIX: '1', FAKE_CREATE_AUTH: '1', FAKE_CREATE_HOME_FILE: '1', CODEX_HOME: authDir, OPENAI_API_KEY: 'should-not-reach-cli' })
     assert.equal(r.status, 0, r.stdout + r.stderr)
     assert.deepEqual(r.calls.filter((c) => c.args[0] === 'plugin').map((c) => c.args.slice(0, 3)),
         [['plugin','marketplace','add'], ['plugin','add','ponytail@ticketflow-benchmark'], ['plugin','list','--json']])
@@ -571,7 +582,7 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     assert.equal(r.row.ticketflow_sha, null)
 
     const { run: runDisabled } = sandbox()
-    const disabled = runDisabled([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src], { FAKE_PLUGIN_DISABLED:'1' })
+    const disabled = runDisabled([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--allow-danger-full-access'], { FAKE_PLUGIN_DISABLED:'1' })
     assert.equal(disabled.status, 2)
     assert.match(disabled.stderr, /not correctly installed and enabled/)
     assert.ok(!disabled.calls.some((c) => c.args[0] === 'exec'), 'no paid session if plugin is disabled')
@@ -585,7 +596,7 @@ test('approved unisolated Codex plugin arm installs only its pinned copy and pre
     writeFileSync(join(src, '.codex-plugin/plugin.json'), '{"name":"ponytail"}')
     git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned')
     git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
-    const args = [L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--profile-mode', 'unisolated']
+    const args = [L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--profile-mode', 'unisolated', '--allow-danger-full-access']
     const env = { CODEX_HOME: home, FAKE_CODEX_KEYRING: '1', FAKE_KEYRING_HOME: home, FAKE_PERSIST_PLUGINS: '1',
         FAKE_EXISTING_PLUGIN: 'ponytail', FAKE_FIX: '1' }
     const ok = run(args, env)
@@ -611,7 +622,7 @@ test('unisolated Codex plugin cleanup runs on agent failure and on setup verific
     writeFileSync(join(src, '.codex-plugin/plugin.json'), '{"name":"ponytail"}')
     git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned')
     git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
-    const args = [L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--profile-mode', 'unisolated']
+    const args = [L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--profile-mode', 'unisolated', '--allow-danger-full-access']
     const env = { CODEX_HOME: home, FAKE_CODEX_KEYRING: '1', FAKE_KEYRING_HOME: home, FAKE_PERSIST_PLUGINS: '1',
         FAKE_EXISTING_PLUGIN: 'superpowers' }
     const failedAgent = run(args, { ...env, FAKE_EXIT: '3' })
@@ -667,7 +678,7 @@ test('approved unisolated Claude plugin loads pinned checkout without touching u
 
 test('Codex bare control loads no plugin and uses an isolated home', () => {
     const { run } = sandbox()
-    const r = run([L1, '--agent', 'codex', '--arm', 'bare'], { FAKE_FIX: '1' })
+    const r = run([L1, '--agent', 'codex', '--arm', 'bare', '--allow-danger-full-access'], { FAKE_FIX: '1' })
     assert.equal(r.status, 0, r.stderr)
     assert.ok(!r.calls.some((c) => c.args[0] === 'plugin'))
     const exec = r.calls[0]
@@ -695,6 +706,7 @@ test('a bad scenario, agent or arm, a missing option or a missing CLI exits 2 be
     bad([L1, '--agent', 'gemini', '--arm', 'bare'], /usage: agent-eval/)
     bad([L1, '--agent', 'claude', '--arm', 'both'], /usage: agent-eval/)
     bad([L1, '--agent', 'claude'], /usage: agent-eval/)
+    bad([L1, '--agent', 'claude', '--arm', 'bare', '--effort', 'turbo'], /usage: agent-eval/)
     bad([], /usage: agent-eval/)
     bad([L1, '--agent', 'claude', '--arm', 'bare', '--out', join(tmp, 'missing', 'rows.jsonl')], /cannot be written/)
     bad([L1, '--agent', 'claude', '--arm', 'bare', '--out', tmp], /cannot be written/)   // a directory: refused before the paid run, not at the append after it
