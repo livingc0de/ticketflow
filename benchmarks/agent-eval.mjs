@@ -12,7 +12,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { main } from '../core/lib/cli.mjs'
@@ -34,14 +34,18 @@ const parse = (s) => orNull(() => JSON.parse(s))
 const depNames = (text) => new Set(['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'].flatMap((k) => Object.keys(parse(text)?.[k] ?? {})))
 const cleanEnv = (env) => Object.fromEntries(Object.entries(env).filter(([key]) => !/(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|TOKEN|SECRET|PASSWORD|PRIVATE_KEY|CREDENTIAL)/i.test(key)))
 
-/** A fresh Codex profile per run. Local native plugin packages are installed by Codex itself, not simulated as copied instructions. */
-function codexProfile(work, arm, src) {
-    const home = join(work, 'home'), codexHome = join(home, '.codex')
-    mkdirSync(codexHome, { recursive: true, mode: 0o700 })
-    const env = { ...cleanEnv(process.env), HOME: home, CODEX_HOME: codexHome }
-    if (!['superpowers', 'ponytail'].includes(arm)) return { env, codexHome, installed: false }
+/** Native Codex plugin runs. Isolated profiles own everything; direct runs own only a unique marketplace/plugin pair. */
+function codexProfile(work, arm, src, isolated = true) {
+    const home = join(work, 'home')
+    const codexHome = isolated ? join(home, '.codex') : resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex'))
+    if (isolated) mkdirSync(codexHome, { recursive: true, mode: 0o700 })
+    const env = isolated ? { ...cleanEnv(process.env), HOME: home, CODEX_HOME: codexHome }
+        : { ...cleanEnv(process.env), CODEX_HOME: codexHome }
+    if (!['superpowers', 'ponytail'].includes(arm)) return { env, codexHome }
 
-    const market = 'ticketflow-benchmark', root = join(work, 'marketplace'), plugin = join(root, 'plugins', arm)
+    // A unique namespace prevents touching a pre-existing installation of the same plugin.
+    const market = isolated ? 'ticketflow-benchmark' : 'ticketflow-benchmark-' + basename(work).toLowerCase().replace(/[^a-z0-9-]/g, '')
+    const root = join(work, 'marketplace'), plugin = join(root, 'plugins', arm)
     mkdirSync(join(root, '.agents', 'plugins'), { recursive: true })
     cpSync(src, plugin, { recursive: true, filter: (p) => !p.split(/[\\/]/).includes('.git') })
     writeFileSync(join(root, '.agents', 'plugins', 'marketplace.json'), JSON.stringify({
@@ -50,22 +54,57 @@ function codexProfile(work, arm, src) {
     }))
     const invoke = (args) => {
         const x = run('codex', args, { env, timeout: 60_000 })
-        if (x.error || x.status !== 0) throw new Error('Codex native plugin setup failed (' + args.slice(0, 3).join(' ') + '): ' +
+        if (x.error || x.status !== 0) throw new Error('Codex native plugin command failed (' + args.slice(0, 3).join(' ') + '): ' +
             String(x.stderr || x.error?.message || 'exit ' + x.status).slice(0, 400))
         const data = parse(x.stdout)
         if (!data) throw new Error('Codex plugin CLI returned invalid JSON for ' + args.slice(0, 3).join(' '))
         return data
     }
-    const marketResult = invoke(['plugin', 'marketplace', 'add', root, '--json'])
-    if (marketResult.marketplaceName !== market) throw new Error('Codex marketplace registration could not be verified')
-    const added = invoke(['plugin', 'add', arm + '@' + market, '--json'])
-    if (added.name !== arm || added.marketplaceName !== market) throw new Error('Codex native plugin installation could not be verified')
-    const list = invoke(['plugin', 'list', '--json'])
-    const installed = list.installed ?? []
-    if (!Array.isArray(installed) || installed.length !== 1 ||
-        !installed.some((p) => p.name === arm && p.marketplaceName === market && p.installed === true && p.enabled === true))
-        throw new Error('Codex native plugin was not exclusively installed and enabled; refusing the benchmark')
-    return { env, codexHome, installed: true }
+    const installedPlugins = () => {
+        const entries = invoke(['plugin', 'list', '--json']).installed
+        if (!Array.isArray(entries)) throw new Error('Codex plugin list omitted installed entries')
+        return entries
+    }
+    const marketplaces = () => {
+        const entries = invoke(['plugin', 'marketplace', 'list', '--json']).marketplaces
+        if (!Array.isArray(entries)) throw new Error('Codex marketplace list omitted marketplaces')
+        return entries
+    }
+    const cleanup = () => {
+        if (isolated) return
+        // This marketplace did not exist before the run. Remove only its one plugin and
+        // registration; an existing Superpowers/Ponytail in another marketplace is never touched.
+        const owned = installedPlugins().filter((p) => p.marketplaceName === market)
+        if (owned.length > 1 || owned.some((p) => p.name !== arm))
+            throw new Error('Codex benchmark cleanup refused: unexpected entries in ' + market)
+        if (owned.length === 1) invoke(['plugin', 'remove', arm + '@' + market, '--json'])
+        if (marketplaces().some((m) => m.name === market))
+            invoke(['plugin', 'marketplace', 'remove', market, '--json'])
+    }
+    if (!isolated) {
+        if (marketplaces().some((m) => m.name === market) || installedPlugins().some((p) => p.marketplaceName === market))
+            throw new Error('Codex benchmark marketplace namespace already exists; refusing to modify it')
+    }
+    try {
+        const addedMarket = invoke(['plugin', 'marketplace', 'add', root, '--json'])
+        if (addedMarket.marketplaceName !== market || (!isolated && addedMarket.alreadyAdded))
+            throw new Error('Codex benchmark marketplace could not be uniquely registered')
+        const added = invoke(['plugin', 'add', arm + '@' + market, '--json'])
+        if (added.name !== arm || added.marketplaceName !== market)
+            throw new Error('Codex native plugin installation could not be verified')
+        const installed = installedPlugins(), ours = installed.filter((p) => p.marketplaceName === market)
+        if ((isolated && installed.length !== 1) || ours.length !== 1 ||
+            ours[0].name !== arm || ours[0].installed !== true || ours[0].enabled !== true)
+            throw new Error('Codex native plugin was not correctly installed and enabled; refusing the benchmark')
+        return { env, codexHome, installed: true, cleanup }
+    } catch (e) {
+        if (!isolated) {
+            try { cleanup() } catch (err) {
+                throw new Error(e.message + '; benchmark-only plugin cleanup failed: ' + err.message)
+            }
+        }
+        throw e
+    }
 }
 
 /** A fresh Claude profile per run. Keep only the selected authentication, not personal settings or plugins. */
@@ -133,8 +172,8 @@ main('agent-eval', () => {
     const { dir, base } = workspace(sdir, v.agent, v.arm, work, src)
     const claude = v.agent === 'claude'
     const isolated = profileMode === 'isolated'
-    const profile = isolated ? (claude ? claudeProfile(work) : codexProfile(work, v.arm, src))
-        : { env: claude ? { ...process.env } : { ...cleanEnv(process.env), CODEX_HOME: resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex')) } }
+    const profile = claude ? (isolated ? claudeProfile(work) : { env: { ...process.env } })
+        : codexProfile(work, v.arm, src, isolated)
     const answerFile = join(work, 'answer.txt')
     const prompt = readFileSync(join(sdir, 'prompt.md'), 'utf8')
     const args = claude
@@ -163,8 +202,10 @@ main('agent-eval', () => {
             ...(claude ? { stdio: ['ignore', 'pipe', 'pipe'] } : { input: prompt }) })
     } finally {
         // Clean the complete temporary home for Claude, and the credential-bearing Codex profile.
-        if (isolated && claude) rmSync(profile.home, { recursive: true, force: true })
-        else if (isolated) rmSync(profile.codexHome, { recursive: true, force: true })
+        try { profile.cleanup?.() } finally {
+            if (isolated && claude) rmSync(profile.home, { recursive: true, force: true })
+            else if (isolated) rmSync(profile.codexHome, { recursive: true, force: true })
+        }
     }
     const wall_s = Math.round((Date.now() - t0) / 100) / 10
     const out = r.stdout ?? ''
