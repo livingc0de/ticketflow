@@ -89,7 +89,7 @@ export function render(rows){
   lines.push('','**Scenarios:** W1 plain request to tracked delivery, W2 existing ticket, W3 dependent tickets, W4 failing PR/review, W5 interrupted delivery, W6 brainstorming-to-tickets, W7 parallelizable independent tickets.');
   const configs=new Set(latest.map(r=>JSON.stringify([r.agent,r.agent_version,r.requested_model,r.requested_effort,r.eval_fingerprint,r.profile_isolation,r.sandbox_mode])));
   if(configs.size>1)lines.push('','**Comparability warning:** Multiple agents, models, evaluator fingerprints, profiles or sandbox modes are present. Analyze controlled subsets, not pooled averages.');
-  if(invalid.length)lines.push('**Invalid-run warning:** Excluded infrastructure attempts require a fresh rerun; no automatic success or failure is imputed.');
+  if(invalid.length)lines.push('**Invalid-run warning:** Excluded infrastructure attempts require a fresh rerun; no automatic success or failure is imputed. Compare arms only after filling invalid cells or clearly disclosing incomplete scenario coverage.');
   if(latest.some(r=>!r.outcome))lines.push('**Legacy-record warning:** Older rows lack explicit outcome provenance; failures cannot be reliably distinguished from invalid measurements.');
   if(rows.some(r=>r.cost_usd==null))lines.push('**Cost warning:** One or more sessions have unknown cost. Median and total costs are not estimated.');
   if(rows.some(r=>r.descendants!=='included'))lines.push('**Sub-agent warning:** Full descendant usage cannot be independently verified.');
