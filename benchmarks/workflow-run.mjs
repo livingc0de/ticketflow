@@ -19,7 +19,7 @@ import { terminateProcess } from './lib/process.mjs';
 const HERE=dirname(fileURLToPath(import.meta.url)),ROOT=resolve(HERE,'..');
 const ARMS=new Set(['bare','ticketflow','superpowers','ponytail']);
 const EFFORTS=new Set(['low','medium','high','xhigh','max']);
-const help='workflow-run --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5,W6,W7] [--repeats 3] [--effort high] [--superpowers-source DIR --superpowers-sha SHA] [--ponytail-source DIR --ponytail-sha SHA] [--ticketflow-source DIR --ticketflow-sha SHA] [--resume] [--max-sessions 96] [--execute --allow-github-writes] [--allow-danger-full-access]';
+const help='workflow-run --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5,W6,W7] [--repeats 3] [--effort high] [--superpowers-source DIR --superpowers-sha SHA] [--ponytail-source DIR --ponytail-sha SHA] [--ticketflow-source DIR --ticketflow-sha SHA] [--resume] [--execute --allow-github-writes] [--allow-danger-full-access] [--allow-unverified-plugin]';
 const readJson=(file)=>JSON.parse(readFileSync(file,'utf8'));
 const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
 const idFor=(p,agent,model,effort,sourceShas,sourceMeta,fingerprint)=>JSON.stringify({p,agent,model,effort,sourceShas,sourceMeta,fingerprint});
@@ -37,7 +37,7 @@ function parse() {
     repeats:{type:'string'},effort:{type:'string'},'max-sessions':{type:'string'},'ticketflow-source':{type:'string'},
     'superpowers-source':{type:'string'},'ponytail-source':{type:'string'},'ticketflow-sha':{type:'string'},
     'superpowers-sha':{type:'string'},'ponytail-sha':{type:'string'},'allow-github-writes':{type:'boolean'},
-    'allow-danger-full-access':{type:'boolean'},execute:{type:'boolean'},resume:{type:'boolean'},
+    'allow-danger-full-access':{type:'boolean'},'allow-unverified-plugin':{type:'boolean'},execute:{type:'boolean'},resume:{type:'boolean'},
   }});
   if(!['claude','codex'].includes(v.agent)||!v.model?.trim()||!v.owner?.trim()||!v.out?.trim()) throw Error(help);
   const arms=(v.arms??'bare,ticketflow,superpowers,ponytail').split(',');
@@ -257,8 +257,8 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
 }
 async function main() {
   const opts=parse(),{v,arms,selected,repeats,max,out,statePath,sourceShas,sourceMeta}=opts;
-  if(v.execute&&v.agent==='claude'&&arms.some(arm=>arm==='superpowers'||arm==='ponytail'))
-    throw Error('Claude external plugin arms are unsupported until Claude exposes native plugin-owned activation evidence');
+  if(v.execute&&v.agent==='claude'&&arms.some(arm=>arm==='superpowers'||arm==='ponytail')&&!v['allow-unverified-plugin'])
+    throw Error('Claude external plugin arms require --allow-unverified-plugin until Claude exposes native plugin-owned activation evidence');
   const evalFingerprint=fingerprint();
   const plan=[];
   for(let rep=1;rep<=repeats;rep++)for(const [i,id] of selected.entries()){

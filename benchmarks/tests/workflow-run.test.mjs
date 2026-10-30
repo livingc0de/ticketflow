@@ -26,6 +26,16 @@ const ticketflowSource=(dir,{remote='https://github.com/livingc0de/ticketflow.gi
   if(detached)git(source,'checkout','--detach','-q');
   return {source,sha:git(source,'rev-parse','HEAD').stdout.trim()};
 };
+const pluginSource=(dir,arm='ponytail')=>{
+  const source=join(dir,arm);
+  mkdirSync(join(source,'.claude-plugin'),{recursive:true});
+  writeFileSync(join(source,'.claude-plugin/plugin.json'),JSON.stringify({name:arm})+'\n');
+  git(source,'init','-q','-b','main');
+  const remote=arm==='ponytail'?'https://github.com/DietrichGebert/ponytail.git':'https://github.com/obra/superpowers.git';
+  git(source,'add','-A');git(source,'commit','-qm','plugin');git(source,'remote','add','origin',remote);
+  git(source,'checkout','--detach','-q');
+  return {source,sha:git(source,'rev-parse','HEAD').stdout.trim()};
+};
 const args=(file)=>[runner,'--agent','claude','--model','benchmark-test-model',
   '--owner','example-benchmark-org','--arms','bare','--scenarios','W1','--repeats','1','--out',file];
 test('workflow dry-run makes no remote resources, result files or paid CLI calls',()=>withTemp(dir=>{
@@ -44,6 +54,17 @@ test('paid invocation without remote-write consent is rejected before token chec
   assert.match(result.stderr,/allow-github-writes/);
   assert.ok(!existsSync(file));
   assert.ok(!existsSync(file+'.state.json'));
+}));
+test('Claude workflow plugin arms require explicit opt-in before remote work',()=>withTemp(dir=>{
+  const plugin=pluginSource(dir),file=join(dir,'runs.jsonl');
+  const base=[runner,'--agent','claude','--model','benchmark-test-model','--owner','example-benchmark-org',
+    '--arms','ponytail','--scenarios','W1','--repeats','1','--out',file,'--ponytail-source',plugin.source,'--execute'];
+  let result=spawnSync(process.execPath,base,{cwd:root,encoding:'utf8',env,timeout:30000});
+  assert.equal(result.status,2,result.stderr);assert.match(result.stderr,/require --allow-unverified-plugin/);
+  assert.ok(!existsSync(file));assert.ok(!existsSync(file+'.state.json'));
+  result=spawnSync(process.execPath,[...base,'--allow-unverified-plugin'],{cwd:root,encoding:'utf8',env,timeout:30000});
+  assert.equal(result.status,2,result.stderr);assert.match(result.stderr,/allow-github-writes/);
+  assert.ok(!existsSync(file));assert.ok(!existsSync(file+'.state.json'));
 }));
 test('wrapper runs workflow dry-run only without execute',()=>withTemp(dir=>{
   const file=join(dir,'runs.jsonl'), config=join(dir,'plan.json');

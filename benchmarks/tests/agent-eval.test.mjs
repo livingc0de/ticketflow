@@ -553,15 +553,25 @@ test('--source installs another checkout (an older tag) and records its revision
     assert.equal(bad.status, 2); assert.match(bad.stderr, /not a Git checkout|is not a ticketflow checkout/)
 })
 
-test('Claude external plugin arms fail closed without native plugin-owned activation evidence', () => {
+test('Claude external plugin arms require an explicit unverified opt-in and then run in isolation', () => {
     const { run } = sandbox(), src = tempDir('plugin-')
     mkdirSync(join(src, '.claude-plugin'), { recursive: true })
     writeFileSync(join(src, '.claude-plugin/plugin.json'), '{"name":"ponytail"}')
     git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned'); git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git'); git(src, 'checkout', '--detach', '-q')
-    const r = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src, '--model', 'pinned-model', '--rep', '2', '--label', 'ponytail'], { FAKE_FIX: '1' })
-    assert.equal(r.status, 2, r.stdout+r.stderr)
-    assert.match(r.stderr, /unsupported until Claude exposes native plugin-owned activation evidence/)
-    assert.ok(!r.calls.some((call) => call.args[0] === '-p'), 'no paid Claude session starts')
+    const denied = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src, '--model', 'pinned-model', '--rep', '2', '--label', 'ponytail'], { FAKE_FIX: '1' })
+    assert.equal(denied.status, 2, denied.stdout+denied.stderr)
+    assert.match(denied.stderr, /requires --allow-unverified-plugin/)
+    assert.ok(!denied.calls.some((call) => call.args[0] === '-p'), 'no paid Claude session starts without explicit opt-in')
+
+    const r = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src, '--model', 'pinned-model', '--rep', '2', '--label', 'ponytail', '--allow-unverified-plugin'], { FAKE_FIX: '1' })
+    assert.equal(r.status, 0, r.stdout+r.stderr)
+    assert.equal(r.row.plugin_native, 'unknown')
+    assert.deepEqual(r.row.plugin_bootstrap, { status: 'unknown', evidence: 'native-plugin-activation-unobserved' })
+    const session = r.calls.find((call) => call.args[0] === '-p')
+    assert.ok(session, 'the Claude plugin arm starts a paid session')
+    assert.ok(session.args.includes('--plugin-dir'))
+    assert.equal(session.args[session.args.indexOf('--plugin-dir') + 1], src)
+    assert.equal(r.row.profile_isolation, 'isolated')
     assert.equal(run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src]).status, 2)
     writeFileSync(join(src, 'stray.txt'), 'uncommitted')
     const dirty = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src])
@@ -681,12 +691,14 @@ test('approved unisolated Claude plugin loads pinned checkout without touching u
     writeFileSync(join(src, '.claude-plugin/plugin.json'), '{"name":"ponytail"}')
     git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned'); git(src, 'checkout', '--detach', '-q')
     git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
-    const r = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src, '--profile-mode', 'unisolated'], {
+    const r = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src, '--profile-mode', 'unisolated', '--allow-unverified-plugin'], {
         CLAUDE_CONFIG_DIR: profile, FAKE_CLAUDE_KEYRING: '1', FAKE_KEYRING_HOME: profile, FAKE_FIX: '1',
     })
-    assert.equal(r.status, 2, r.stdout + r.stderr)
-    assert.match(r.stderr, /unsupported until Claude exposes native plugin-owned activation evidence/)
-    assert.ok(!r.calls.some((call) => call.args[0] === '-p'), 'no paid Claude session starts')
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    assert.equal(r.row.plugin_native, 'unknown')
+    assert.deepEqual(r.row.plugin_bootstrap, { status: 'unknown', evidence: 'native-plugin-activation-unobserved' })
+    assert.ok(r.calls.some((call) => call.args[0] === '-p'), 'the Claude plugin arm starts a paid session')
+    assert.equal(r.row.profile_isolation, 'unisolated')
     assert.deepEqual(readdirSync(profile), [], 'the benchmark did not install or remove personal Claude plugins')
 })
 

@@ -133,7 +133,7 @@ function render(rows, groups, evaluations, { published = false, date = null } = 
         'Requested effort: ' + [...new Set(rows.map((r) => safeText(r.requested_effort ?? 'default')))].join(', '), '',
         '> These are observed results, not simulated model outcomes. A green repository test suite does not prove agent performance.',
         '> Compare groups only when the agent, model, effort, permissions, scenario/repeat cells, evaluator revision and plugin bootstraps match.',
-        '> Native plugin activation is not verified from agent output; Codex uses native enabled-plugin evidence, while unsupported Claude external sessions cannot be published.',
+        '> Native plugin activation is not verified from agent output; Codex uses native enabled-plugin evidence, while Claude external sessions require explicit unverified opt-in and cannot be published without stronger evidence.',
         '> This harness is explicitly non-adversarial: agents can potentially discover evaluator files through the unrestricted node/npm allowlist.', '']
 
     if (published) {

@@ -172,13 +172,18 @@ test('Codex can preview the complete five-arm matrix with native pinned plugin s
     assert.equal(r.stdout.split('\n').filter((x) => x.startsWith('PLAN ')).length, 10)
 })
 
-test('parallel execution refuses unsupported external Claude arms before any paid child starts', () => {
-    const r = call(['--parallel','--claude-model','claude-test','--codex-model','codex-test',
-        '--claude-out',join(tempDir('bench-out-'),'claude.jsonl'),'--codex-out',join(tempDir('bench-out-'),'codex.jsonl'),
-        '--arms','ponytail','--scenarios','L1','--repeats','1','--max-sessions','2','--allow-danger-full-access','--execute'])
+test('Claude external plugin arms require explicit opt-in before paid execution', () => {
+    const r = call(['--agent','claude','--model','claude-test','--arms','ponytail','--scenarios','L1','--repeats','1','--max-sessions','1','--execute'])
     assert.equal(r.status, 2, r.stdout + r.stderr)
-    assert.match(r.stderr, /unsupported until Claude exposes native plugin-owned activation evidence/)
+    assert.match(r.stderr, /require --allow-unverified-plugin/)
     assert.doesNotMatch(r.stdout, /SESSION /)
+
+    const ponytail = source(true, 'claude', 'ponytail')
+    const preview = call(['--agent','claude','--model','claude-test','--arms','ponytail','--ponytail-source',ponytail,
+        '--scenarios','L1','--repeats','1','--max-sessions','1','--allow-unverified-plugin'])
+    assert.equal(preview.status, 0, preview.stdout + preview.stderr)
+    assert.match(preview.stdout, /DRY RUN \(free\)/)
+    assert.match(preview.stdout, /PLAN L1 ponytail rep=1/)
 })
 
 test('invalid paths and missing native Codex manifests are rejected without paid work', () => {

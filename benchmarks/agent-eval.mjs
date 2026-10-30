@@ -3,7 +3,7 @@
  * Maintainer tool, never shipped to installed repos: runs one eval scenario (benchmarks/scenarios/<id>) with a real agent CLI in a fresh
  * temp git repo and appends one JSON row (benchmarks/SCENARIOS.md). It starts a PAID agent session; nothing here runs in CI.
  *
- * Usage: agent-eval.mjs <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--ticketflow-sha sha] [--superpowers-sha sha] [--ponytail-sha sha] [--rep n] [--label name] [--out file.jsonl] [--eval-fingerprint sha256] [--allow-danger-full-access]
+ * Usage: agent-eval.mjs <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--ticketflow-sha sha] [--superpowers-sha sha] [--ponytail-sha sha] [--rep n] [--label name] [--out file.jsonl] [--eval-fingerprint sha256] [--allow-danger-full-access] [--allow-unverified-plugin]
  *   <scenario> is a directory name or its prefix (L1). The ticketflow arm installs a TicketFlow checkout (--source, default this one; an
  *   older tag's worktree compares revisions) the way `init` does (runtime, gen-stubs, render); the bare arm installs nothing. The scenario's hidden check.mjs runs on the result; the row is printed and appended to --out.
  * Exit: 0 = the hidden check passed, 1 = it failed (the row is still recorded), 2 = usage, unknown scenario or missing CLI, before any run.
@@ -23,7 +23,7 @@ import { archiveSession, transcriptSessionId } from './lib/transcripts.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SCENARIOS = join(ROOT, 'benchmarks/scenarios')
-const usage = 'usage: agent-eval <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--ticketflow-sha sha] [--superpowers-sha sha] [--ponytail-sha sha] [--rep n] [--out file.jsonl] [--eval-fingerprint sha256] [--allow-danger-full-access]'
+const usage = 'usage: agent-eval <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--ticketflow-sha sha] [--superpowers-sha sha] [--ponytail-sha sha] [--rep n] [--out file.jsonl] [--eval-fingerprint sha256] [--allow-danger-full-access] [--allow-unverified-plugin]'
 const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
 const TOOLS = 'Read,Edit,Write,Glob,Grep,Bash(node *),Bash(npm *),Bash(git status *),Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git add *),Bash(git commit *)'
 const AGENT_TIMEOUT_MS = 30 * 60 * 1000   // shortcut: one fixed 30-minute ceiling so a hung paid session cannot run forever (a timeout is recorded as agent_exit null), add a --timeout option when a scenario needs longer
@@ -164,7 +164,7 @@ function report(agent, out, answerFile, model) {
 }
 
 main('agent-eval', async () => {
-    const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, effort: { type: 'string' }, source: { type: 'string' }, 'ticketflow-sha': { type: 'string' }, 'superpowers-sha': { type: 'string' }, 'ponytail-sha': { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' }, 'profile-mode': { type: 'string' }, 'eval-fingerprint': { type: 'string' }, 'allow-danger-full-access': { type: 'boolean' } }, allowPositionals: true })
+    const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, effort: { type: 'string' }, source: { type: 'string' }, 'ticketflow-sha': { type: 'string' }, 'superpowers-sha': { type: 'string' }, 'ponytail-sha': { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' }, 'profile-mode': { type: 'string' }, 'eval-fingerprint': { type: 'string' }, 'allow-danger-full-access': { type: 'boolean' }, 'allow-unverified-plugin': { type: 'boolean' } }, allowPositionals: true })
     if (positionals.length !== 1 || !['claude', 'codex'].includes(v.agent) || !['ticketflow', 'bare', 'superpowers', 'ponytail'].includes(v.arm) || (v.effort !== undefined && !EFFORTS.has(v.effort)) || (v.rep !== undefined && (!/^[1-9]\d*$/.test(v.rep) || !Number.isSafeInteger(+v.rep))) || (v.label !== undefined && !/^[a-z][a-z0-9-]{0,30}$/.test(v.label)) || (v['profile-mode'] !== undefined && v['profile-mode'] !== 'unisolated') || (v['eval-fingerprint'] !== undefined && !/^[0-9a-f]{64}$/i.test(v['eval-fingerprint']))) throw new Error(usage)
     const id = resolveScenario(SCENARIOS, positionals[0])
     const external = v.arm === 'superpowers' || v.arm === 'ponytail'
@@ -175,7 +175,8 @@ main('agent-eval', async () => {
         expectedRemote: v.arm === 'ticketflow' ? 'https://github.com/livingc0de/ticketflow' : null,
     })
     if (external) validatePluginSource(src, v.agent, v.arm)
-    if (external && v.agent === 'claude') throw new Error(`${v.arm} arm is unsupported until Claude exposes native plugin-owned activation evidence`)
+    if (external && v.agent === 'claude' && !v['allow-unverified-plugin'])
+        throw new Error(`${v.arm} arm requires --allow-unverified-plugin until Claude exposes native plugin-owned activation evidence`)
     const outFile = v.out && resolve(v.out)   // the harness's own result file is not a change to a source checkout it sits in
     if (v.out) try { appendFileSync(v.out, '') } catch (e) { throw new Error(`--out ${v.out} cannot be written (${e.code})`) }   // before the paid run, not after it
     if (v.arm === 'ticketflow' && !existsSync(join(src, 'core/scripts/runtime.mjs'))) throw new Error(`${src} is not a ticketflow checkout`)

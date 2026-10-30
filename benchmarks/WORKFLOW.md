@@ -107,10 +107,11 @@ Every agent invocation writes a local transcript archive beneath
 allowlisted `metadata.json`. The row's `result_row_id` and `transcript_archives`
 link the scored cell to those files. Profiles, credentials, environment variables
 and temporary workspaces are excluded. Codex external rows can use the native
-`codex plugin list --json` enabled-plugin result; Claude external rows are rejected
-until a future native plugin-owned evidence channel is available. A marker in agent
-stdout/stderr, answer text or session JSON is not trusted; registration alone is not
-activation evidence.
+`codex plugin list --json` enabled-plugin result; Claude external rows require
+`--allow-unverified-plugin` and use the pinned checkout through `--plugin-dir`, but
+remain unverified until a future native plugin-owned evidence channel is available.
+A marker in agent stdout/stderr, answer text or session JSON is not trusted;
+registration alone is not activation evidence.
 
 ### Reports
 

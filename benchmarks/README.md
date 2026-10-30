@@ -47,9 +47,9 @@ Both competitors can be evaluated against **native Claude Code plugin checkouts*
 
 After verifying the plugin manifests and that Claude Code supports `--plugin-dir`, inspect this command first **without** `--execute`:
 
-    node benchmarks/run.mjs --agent claude --model "$CLAUDE_MODEL" --arms before,after,bare,superpowers,ponytail --before-source ../ticketflow-before --superpowers-source ../superpowers --ponytail-source ../ponytail --repeats 3 --out benchmarks/results/full.jsonl --max-sessions 225
+    node benchmarks/run.mjs --agent claude --model "$CLAUDE_MODEL" --arms before,after,bare,superpowers,ponytail --before-source ../ticketflow-before --superpowers-source ../superpowers --ponytail-source ../ponytail --repeats 3 --out benchmarks/results/full.jsonl --max-sessions 225 --allow-unverified-plugin
 
-Adding `--execute` runs the planned 225 paid sessions. Run the two-arm pilot and inspect actual outputs before doing that. Real costs depend on the chosen model and tasks and cannot be predicted here.
+Adding `--execute` runs the planned 225 paid sessions. The explicit `--allow-unverified-plugin` opt-in is required when Claude includes Superpowers or Ponytail; it keeps the native `--plugin-dir` loading path but acknowledges that the harness cannot independently prove activation. Run the two-arm pilot and inspect actual outputs before doing that. Real costs depend on the chosen model and tasks and cannot be predicted here.
 
 For the GitHub workflow runner, every non-bare source must be reproducible. TicketFlow
 must come from the canonical `https://github.com/livingc0de/ticketflow` remote and be
@@ -69,15 +69,16 @@ This requires a Codex CLI version with the `codex plugin` subcommands and native
 
 **Unisolated fallback is explicit and informed.** When the original Claude or Codex login is available but cannot be transferred to the isolated profile, the runner asks once, before starting any paid work, whether to proceed in the original profile. The warning explicitly says that **existing configuration, personal plugins, skills and hooks can influence benchmark results**, and that the agent may modify its original profile. The matrix runner uses the answer for every pending session automatically. Declining or having no interactive terminal stops safely.
 
-**External plugin arms are deliberately limited.** Claude Superpowers/Ponytail paid sessions are refused until Claude exposes a native plugin-owned activation channel; agent stdout/stderr and answer text cannot establish activation. Codex uses a unique, benchmark-owned marketplace name per session, installs the pinned plugin, and treats the native `codex plugin list --json` enabled-plugin result as structured evidence; cleanup removes only that plugin and marketplace registration. A pre-existing Superpowers/Ponytail plugin from another marketplace is never uninstalled, replaced or disabled. If cleanup fails, the paid session row is retained and marked `profile_cleanup: failed`; the benchmark stops and the report refuses publication until the leftover entry is addressed. These are configuration boundaries, not OS security sandboxes.
+**External plugin arms require an explicit opt-in.** Claude Superpowers/Ponytail sessions use the pinned checkout through Claude's native `--plugin-dir` loading path in the isolated profile. Pass `--allow-unverified-plugin` to acknowledge that the harness cannot independently prove activation from the session output; the row and transcript still record the run, and publication remains blocked unless activation evidence is verified. Codex uses a unique, benchmark-owned marketplace name per session, installs the pinned plugin, and treats the native `codex plugin list --json` enabled-plugin result as structured evidence; cleanup removes only that plugin and marketplace registration. A pre-existing Superpowers/Ponytail plugin from another marketplace is never uninstalled, replaced or disabled. If cleanup fails, the paid session row is retained and marked `profile_cleanup: failed`; the benchmark stops and the report refuses publication until the leftover entry is addressed. These are configuration boundaries, not OS security sandboxes.
 
 Recorded results include `profile_isolation: isolated|unisolated` and `sandbox_mode` (`danger-full-access` for Codex, `not-applicable` for Claude). Resuming into a different mode is blocked, and reports clearly distinguish the modes rather than silently pooling them. Scripted/noninteractive fallback fails closed; no manual installation commands are required for an approved run.
 
 **Native plugin activation is not proved by agent output.** Codex rows may be
 `verified` only from the native `codex plugin list --json` enabled-plugin result;
-Claude external arms fail closed because no equivalent plugin-owned channel is
-available. A marker printed by an agent CLI is retained only as untrusted transcript
-context. Failed or unsupported runs are not publishable. Each session is archived under
+Claude external arms require the explicit `--allow-unverified-plugin` opt-in because
+no equivalent plugin-owned channel is available. A marker printed by an agent CLI is
+retained only as untrusted transcript context. Failed or unverified runs are not
+publishable. Each session is archived under
 `benchmarks/results/transcripts/<session-id>/` with only `agent.out`, `answer.txt`
 and allowlisted `metadata.json`; profiles, auth files, environment variables and
 temporary workspaces are never copied. Rows link to the archive with
