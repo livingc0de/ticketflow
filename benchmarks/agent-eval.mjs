@@ -42,7 +42,7 @@ function claudeHasPortableAuth() {
 
 /** The Codex benchmark uses a copied login file, not the caller's API keys or profile settings. */
 function codexHasPortableAuth() {
-    const from = join(resolve(process.env.CODEX_HOME || join(homedir(), '.codex')), 'auth.json')
+    const from = join(resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex')), 'auth.json')
     const data = orNull(() => JSON.parse(readFileSync(from, 'utf8')))
     return data !== null && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).length > 0
 }
