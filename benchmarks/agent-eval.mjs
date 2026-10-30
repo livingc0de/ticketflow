@@ -139,7 +139,7 @@ main('agent-eval', () => {
     const prompt = readFileSync(join(sdir, 'prompt.md'), 'utf8')
     const args = claude
         ? ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--setting-sources', 'project,local', '--allowedTools', TOOLS, ...(v.model ? ['--model', v.model] : []), ...(external ? ['--plugin-dir', src] : [])]
-        : ['exec', '--json', ...(!external ? ['--ignore-user-config'] : []), '--sandbox', 'workspace-write', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), '-']   // codex reads the prompt from stdin
+        : ['exec', '--json', ...(!external && isolated ? ['--ignore-user-config'] : []), '--sandbox', 'workspace-write', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), '-']   // codex reads the prompt from stdin
     const t0 = Date.now()
     // Isolated profiles copy only authentication and erase it afterwards. Opted-in unisolated runs
     // deliberately retain the original profile so OS-keyring credentials remain usable.
