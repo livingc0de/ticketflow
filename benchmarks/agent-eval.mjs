@@ -67,6 +67,20 @@ function codexProfile(work, arm, src) {
     return { env, codexHome, installed: true }
 }
 
+/** A fresh Claude profile per run. Keep only the selected authentication, not personal settings or plugins. */
+function claudeProfile(work) {
+    const home = join(work, 'home'), configDir = join(home, '.claude')
+    mkdirSync(configDir, { recursive: true, mode: 0o700 })
+    const env = Object.fromEntries(Object.entries(cleanEnv(process.env)).filter(([key]) => !/^(?:CLAUDE_|ANTHROPIC_)/i.test(key)))
+    Object.assign(env, { HOME: home, CLAUDE_CONFIG_DIR: configDir, XDG_CONFIG_HOME: join(home, '.config') })
+    if (process.platform === 'win32') Object.assign(env, {
+        USERPROFILE: home, APPDATA: join(home, 'AppData', 'Roaming'), LOCALAPPDATA: join(home, 'AppData', 'Local'),
+    })
+    for (const key of ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'])
+        if (process.env[key]) env[key] = process.env[key]
+    return { env, home, configDir }
+}
+
 /** The repo the agent works in: the scenario's repo/, plus (ticketflow arm) the install init does, all in one base commit. */
 function workspace(sdir, agent, arm, work, src) {
     const dir = join(work, 'repo')
@@ -113,30 +127,38 @@ main('agent-eval', () => {
 
     const sdir = join(SCENARIOS, id), work = mkdtempSync(join(tmpdir(), 'agent-eval-')), evalFingerprint = evaluatorFingerprint(ROOT, outFile ? [outFile] : [])
     const { dir, base } = workspace(sdir, v.agent, v.arm, work, src)
-    const profile = v.agent === 'codex' ? codexProfile(work, v.arm, src) : null
+    const claude = v.agent === 'claude'
+    const profile = claude ? claudeProfile(work) : codexProfile(work, v.arm, src)
     const answerFile = join(work, 'answer.txt')
-    const prompt = readFileSync(join(sdir, 'prompt.md'), 'utf8'), claude = v.agent === 'claude'
+    const prompt = readFileSync(join(sdir, 'prompt.md'), 'utf8')
     const args = claude
         ? ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--setting-sources', 'project,local', '--allowedTools', TOOLS, ...(v.model ? ['--model', v.model] : []), ...(external ? ['--plugin-dir', src] : [])]
         : ['exec', '--json', ...(!external ? ['--ignore-user-config'] : []), '--sandbox', 'workspace-write', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), '-']   // codex reads the prompt from stdin
     const t0 = Date.now()
-    // Authentication is the only state carried into the empty Codex profile, then erased immediately after the session.
-    // Never put auth inside the task repository or leave it in the retained benchmark artifacts.
-    const privateAuth = profile && join(profile.codexHome, 'auth.json')
+    // Only authentication enters an isolated profile; never copy settings, plugins or personal history.
+    // Neither agent's credentials may remain in the retained benchmark artifacts.
     const originalAuth = join(resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex')), 'auth.json')
+    const originalClaudeAuth = join(resolve(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')), '.credentials.json')
     let r
     try {
-        if (profile && existsSync(originalAuth)) {
-            copyFileSync(originalAuth, privateAuth)
-            chmodSync(privateAuth, 0o600)
+        if (claude) {
+            // Explicit API/OAuth environment auth takes precedence; do not copy unrelated saved credentials.
+            if (!profile.env.ANTHROPIC_API_KEY && !profile.env.CLAUDE_CODE_OAUTH_TOKEN && existsSync(originalClaudeAuth)) {
+                const dest = join(profile.configDir, '.credentials.json')
+                copyFileSync(originalClaudeAuth, dest)
+                chmodSync(dest, 0o600)
+            }
+        } else if (existsSync(originalAuth)) {
+            const dest = join(profile.codexHome, 'auth.json')
+            copyFileSync(originalAuth, dest)
+            chmodSync(dest, 0o600)
         }
-        r = run(v.agent, args, { cwd: dir, timeout: AGENT_TIMEOUT_MS,
-            ...(profile ? { env: profile.env } : {}),
+        r = run(v.agent, args, { cwd: dir, timeout: AGENT_TIMEOUT_MS, env: profile.env,
             ...(claude ? { stdio: ['ignore', 'pipe', 'pipe'] } : { input: prompt }) })
     } finally {
-        // Codex may create more than auth.json (for example credentials, token caches or logs); the whole
-        // temporary profile is disposable and must not remain in the retained workdir.
-        if (profile) rmSync(profile.codexHome, { recursive: true, force: true })
+        // Clean the complete temporary home for Claude, and the credential-bearing Codex profile.
+        if (claude) rmSync(profile.home, { recursive: true, force: true })
+        else rmSync(profile.codexHome, { recursive: true, force: true })
     }
     const wall_s = Math.round((Date.now() - t0) / 100) / 10
     const out = r.stdout ?? ''
