@@ -124,7 +124,31 @@ or that hooks actually fired; inspect a live pilot before claiming full activati
     node benchmarks/workflow-report.mjs benchmarks/results/workflow-claude.jsonl \
       --out benchmarks/results/workflow-summary.md
 
-Functional correctness, successful benchmark execution, delivery evidence and valid full-pipeline completion are **separate columns**. The headline full-pipeline rate requires both recorded delivery and a successful agent/archive/cleanup result.
+The report uses three mutually exclusive outcomes:
+
+- **Success:** The agent completes the required product and workflow delivery.
+- **Failure:** The agent exits unsuccessfully, times out, fails the hidden/product tests,
+  or does not complete the required tracked/reviewed/merged workflow. Such runs count
+  against the arm in its success rate. The deliberate first W5 interruption is not
+  a failure if its fresh session successfully resumes.
+- **Invalid:** Infrastructure prevents trustworthy measurement, e.g. GitHub evidence
+  retrieval/clone failures, evaluator-launch errors, failed transcript archival, or
+  failed benchmark-owned plugin cleanup. Invalid results are **excluded** from every
+  arm and scenario success-rate denominator, never converted to agent failures.
+
+Every attempt remains in the append-only JSONL. The report scores the **latest**
+attempt per cell, displays excluded invalid cells and reasons separately, and
+discloses costs incurred by invalid attempts without attributing them to the
+framework. A cell with only invalid attempts has a success rate of `n/a`, not
+zero. Older records without explicit outcome provenance are flagged as ambiguous.
+
+`--resume` skips valid success/failure cells and plans **only invalid cells for
+fresh retries**, on new repositories and Projects. It keeps their earlier remote
+resources, rows and archives untouched. A previous plugin-cleanup failure blocks
+paid retries until the operator inspects/removes benchmark-owned leftovers and
+explicitly passes `--acknowledge-plugin-cleanup` with the usual execute/write
+approvals. Pre-agent setup or authentication failures stop without a scored row;
+they are not interpreted as competitor failures.
 Per-arm comparisons also include review evidence, tracking coverage, created
 issues, elapsed time and known cost. Raw transcripts remain local. Do not
 interpret three repeats as statistically conclusive evidence.
