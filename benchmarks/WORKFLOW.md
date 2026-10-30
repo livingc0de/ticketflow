@@ -182,6 +182,9 @@ The local matrix runner is:
 The combined suite wrapper is `benchmarks/run.mjs`. Provide a
 JSON file with 'local' and 'workflow' string-arrays of ordinary CLI arguments:
 
+Omitting `--suite` runs both configured suites; pass `--suite local` or
+`--suite workflow` to select one.
+
     node benchmarks/run.mjs --config my-benchmark-plan.json --suite both
     node benchmarks/run.mjs --config my-benchmark-plan.json --suite both --execute
 
@@ -195,7 +198,7 @@ per suite:
 
     node benchmarks/report.mjs --config my-report-plan.json --suite both
 
-For example, a plan can contain `"local": ["results/local.jsonl", "--publish", "--label", "pilot"]`
+For example, a plan can contain `"local": ["benchmarks/results/2026-10-30-local-full.jsonl", "--publish", "--label", "pilot"]`
 and a corresponding `workflow` array. Use `report-local.mjs` or
 `report-workflow.mjs` directly when only one ledger needs publishing.
 

@@ -10,7 +10,7 @@ Generate a workflow report with the same dated publication convention:
 
     node benchmarks/report-workflow.mjs <recorded-workflow.jsonl> --publish --label pilot
 
-Publication fails closed unless evaluator and source revisions, model pins, requested effort, CLI versions, repetition cells and evaluation mode are present and comparable. The report includes revisions, models, effort, sandbox mode, methodology, pass rates, costs and limitations, but never copies answers, transcripts, local paths or raw session rows.
+Local publication fails closed unless evaluator and source revisions, model pins, requested effort, CLI versions, repetition cells and evaluation mode are present and comparable. Workflow reporting validates the workflow record shape and renders invalid attempts and provenance warnings for audit, but does not enforce the local publisher's metadata gate. Inspect workflow revisions, plugin evidence, invalid cells and cleanup state before treating that report as a controlled comparison. Reports never copy answers, transcripts, local paths or raw session rows.
 
 Raw JSONL sessions, workflow `.state.json` sidecars, generated CSV files and
 `transcripts/` remain ignored by default. Local JSONL rows are the resume ledger;

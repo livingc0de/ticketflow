@@ -16,9 +16,9 @@ This directory is deliberately **outside `core/` and `practices/`**. TicketFlow'
 
 - `run-local.mjs` runs the L1–L15 local matrix; `agent-eval.mjs` runs one local cell.
 - `run-workflow.mjs` runs the W1–W7 GitHub workflow matrix.
-- `run.mjs` launches a configured local and/or workflow suite in sequence.
+- `run.mjs` launches a configured local and/or workflow suite in sequence; it defaults to both suites, or accepts `--suite local|workflow`.
 - `report-local.mjs` publishes local results; `report-workflow.mjs` publishes workflow results. Both use dated Markdown names of the form `YYYY-MM-DD-<suite>-<label>.md`.
-- `report.mjs` generates both reports, or one selected report, from a configured plan.
+- `report.mjs` generates both reports, or one selected report, from a configured plan; it also defaults to both suites, or accepts `--suite local|workflow`.
 - Raw session ledgers are dated `*.jsonl` files chosen with `--out`; they remain ignored. Workflow runs also retain the matching `<file>.state.json` resume sidecar. Transcript archives remain under `benchmarks/results/transcripts/` and are ignored.
 
 ## Quick smoke / pilot: no paid work by default
@@ -78,7 +78,7 @@ This requires a Codex CLI version with the `codex plugin` subcommands and native
 
 **Unisolated fallback is explicit and informed.** When the original Claude or Codex login is available but cannot be transferred to the isolated profile, the runner asks once, before starting any paid work, whether to proceed in the original profile. The warning explicitly says that **existing configuration, personal plugins, skills and hooks can influence benchmark results**, and that the agent may modify its original profile. The matrix runner uses the answer for every pending session automatically. Declining or having no interactive terminal stops safely.
 
-**External plugin arms load automatically.** Claude Superpowers/Ponytail sessions use the validated pinned checkout through Claude's native `--plugin-dir` loading path in the isolated profile, and a successful session records `plugin_bootstrap.status: loaded` with `claude-plugin-dir` evidence. Codex uses a unique, benchmark-owned marketplace name per session, installs the pinned plugin, and treats the native `codex plugin list --json` enabled-plugin result as structured evidence; cleanup removes only that plugin and marketplace registration. A pre-existing Superpowers/Ponytail plugin from another marketplace is never uninstalled, replaced or disabled. If cleanup fails, the paid session row is retained and marked `profile_cleanup: failed`; the benchmark stops and the report refuses publication until the leftover entry is addressed. These are configuration boundaries, not OS security sandboxes.
+**External plugin arms load automatically.** Claude Superpowers/Ponytail sessions use the validated pinned checkout through Claude's native `--plugin-dir` loading path in the isolated profile, and a successful session records `plugin_bootstrap.status: loaded` with `claude-plugin-dir` evidence. Codex uses a unique, benchmark-owned marketplace name per session, installs the pinned plugin, and treats the native `codex plugin list --json` enabled-plugin result as structured evidence; cleanup removes only that plugin and marketplace registration. A pre-existing Superpowers/Ponytail plugin from another marketplace is never uninstalled, replaced or disabled. If cleanup fails, the paid session row is retained and marked `profile_cleanup: failed`; the benchmark stops, and the workflow report exposes the attempt as invalid. Do not treat that report as a controlled publication until the leftover entry is addressed. These are configuration boundaries, not OS security sandboxes.
 
 Recorded results include `profile_isolation: isolated|unisolated` and `sandbox_mode` (`danger-full-access` for Codex, `not-applicable` for Claude). Resuming into a different mode is blocked, and reports clearly distinguish the modes rather than silently pooling them. Scripted/noninteractive fallback fails closed; no manual installation commands are required for an approved run.
 
@@ -111,7 +111,7 @@ To generate both suite reports from one plan, use arrays of ordinary reporter ar
 
     node benchmarks/report.mjs --config my-report-plan.json
 
-The publisher writes a dated, sanitized Markdown report under [`benchmarks/results/`](results/), including revisions, models, methodology, per-arm and per-scenario pass rates, descriptive Wilson 95% ranges, timing, change size, costs and limitations. It refuses incomplete or unpinned publications; it never publishes raw session rows, answers, transcripts or local paths. See the [results index](results/README.md). Repeated paired task cells are not independent trials, so these summaries are **not statistical evidence of superiority**. All results must be traceable to actual sessions.
+The reporters write dated, sanitized Markdown reports under [`benchmarks/results/`](results/). Local reports include revisions, models, methodology, per-arm and per-scenario pass rates, descriptive Wilson 95% ranges, timing, change size, costs and limitations. The local publisher refuses incomplete or unpinned publications. Workflow reports instead separate coding and full-pipeline outcomes, show invalid attempts and their reasons, and summarize workflow evidence, coordination, timing and costs; they are an audit view and do not enforce the local publisher's metadata gate. Inspect workflow provenance, invalid cells and plugin cleanup before treating a workflow report as a controlled comparison. Neither reporter publishes raw session rows, answers, transcripts or local paths. See the [results index](results/README.md). Repeated paired task cells are not independent trials, so these summaries are **not statistical evidence of superiority**. All results must be traceable to actual sessions.
 
 ## Safety and operational limits
 
