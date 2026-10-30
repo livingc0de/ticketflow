@@ -188,7 +188,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { join } from 'node:path'
 const args = process.argv.slice(2), name = process.argv[1].split('/').pop()
 if (args.includes('--version')) { console.log(name === 'claude' ? '9.9.9 (Claude Code)' : 'codex-cli 9.9.9'); process.exit(0) }
-if (args.includes('--help')) { console.log('--plugin-dir'); process.exit(0) }
+if (args.includes('--help')) { console.log(name === 'codex' ? (process.env.FAKE_NO_CODEX_HOOK_BYPASS === '1' ? '--json' : '--dangerously-bypass-hook-trust') : '--plugin-dir'); process.exit(0) }
 if (name === 'claude' && args[0] === 'auth' && args[1] === 'status') {
     const logged = process.env.FAKE_CLAUDE_KEYRING === '1' && process.env.CLAUDE_CONFIG_DIR === process.env.FAKE_KEYRING_HOME
     console.log(logged ? '{"loggedIn":true}' : '{"loggedIn":false}')
@@ -589,6 +589,7 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     assert.ok(exec, 'the coding session ran after plugin verification')
     assert.equal(exec.secret, null, 'credential-bearing environment variables are not passed to the agent')
     assert.ok(!exec.args.includes('--ignore-user-config'), 'Codex must load the isolated profile with its installed plugin')
+    assert.ok(exec.args.includes('--dangerously-bypass-hook-trust'), 'Ponytail hooks are enabled for the pinned disposable plugin')
     assert.equal(exec.codex_home, join(r.row.workdir, 'home/.codex'))
     assert.equal(exec.home, join(r.row.workdir, 'home'))
     assert.ok(existsSync(join(r.row.workdir, 'marketplace/plugins/ponytail/.codex-plugin/plugin.json')))
@@ -596,11 +597,17 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     assert.ok(!existsSync(join(exec.codex_home, 'credentials.json')), 'generated credential state is never retained')
     assert.ok(!existsSync(join(r.row.workdir, 'home')), 'the entire temporary Codex home is removed')
     assert.equal(readFileSync(join(authDir, 'auth.json'), 'utf8'), CODEX_LOGIN, 'original credentials are untouched')
-    assert.equal(r.row.plugin_native, 'verified')
-    assert.equal(r.row.plugin_bootstrap.status, 'verified')
+    assert.equal(r.row.plugin_native, 'loaded')
+    assert.equal(r.row.plugin_bootstrap.status, 'loaded')
     assert.equal(r.row.plugin_sha, git(src, 'rev-parse', 'HEAD'))
     assert.equal(r.row.ticketflow_sha, null)
 
+    const { run: runWithoutHooks } = sandbox()
+    const missingHookSwitch=runWithoutHooks([L1,'--agent','codex','--arm','ponytail','--source',src,'--allow-danger-full-access'],
+        { FAKE_NO_CODEX_HOOK_BYPASS:'1' })
+    assert.equal(missingHookSwitch.status,2)
+    assert.match(missingHookSwitch.stderr,/--dangerously-bypass-hook-trust/)
+    assert.ok(!missingHookSwitch.calls.some(c=>c.args[0]==='exec'), 'no paid session without the native bypass switch')
     const { run: runDisabled } = sandbox()
     const disabled = runDisabled([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--allow-danger-full-access'], { FAKE_PLUGIN_DISABLED:'1' })
     assert.equal(disabled.status, 2)
