@@ -597,8 +597,8 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     assert.ok(!existsSync(join(exec.codex_home, 'credentials.json')), 'generated credential state is never retained')
     assert.ok(!existsSync(join(r.row.workdir, 'home')), 'the entire temporary Codex home is removed')
     assert.equal(readFileSync(join(authDir, 'auth.json'), 'utf8'), CODEX_LOGIN, 'original credentials are untouched')
-    assert.equal(r.row.plugin_native, 'verified')
-    assert.equal(r.row.plugin_bootstrap.status, 'verified')
+    assert.equal(r.row.plugin_native, 'unknown')
+    assert.equal(r.row.plugin_bootstrap.status, 'unknown')
     assert.equal(r.row.plugin_sha, git(src, 'rev-parse', 'HEAD'))
     assert.equal(r.row.ticketflow_sha, null)
 

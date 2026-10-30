@@ -106,11 +106,10 @@ Every agent invocation writes a local transcript archive beneath
 `benchmarks/results/transcripts/<session-id>/`: `agent.out`, `answer.txt` and
 allowlisted `metadata.json`. The row's `result_row_id` and `transcript_archives`
 link the scored cell to those files. Profiles, credentials, environment variables
-and temporary workspaces are excluded. External plugin rows are publishable only
-when the native CLI/plugin emitted the exact marker on the CLI process's raw stderr:
-`TICKETFLOW_BENCH_PLUGIN_BOOTSTRAP=superpowers|ponytail`. A marker in agent answer
-text or session JSON is not trusted; registration alone is reported as `unknown` and
-blocks publication.
+and temporary workspaces are excluded. External plugin rows remain `unknown` and
+unpublishable until a future native plugin-owned evidence channel is available. A
+marker in agent stdout/stderr, answer text or session JSON is not trusted; registration
+alone is also reported as `unknown`.
 
 ### Reports
 
@@ -140,8 +139,8 @@ Each child runner retains its own explicit paid-work and remote-write guards.
 - Real remote resources are created **only** with --execute and --allow-github-writes.
   CI tests and dry-run do not create repositories, Projects or paid sessions.
 - The runner creates one private repository and one Project for each cell by
-  default to avoid cross-cell contamination. The 60-cell matrix can thus create
-  60 repositories and 60 Projects. No production repository is touched.
+  default to avoid cross-cell contamination. The 84-cell matrix can thus create
+  84 repositories and 84 Projects. No production repository is touched.
 - Remote resources are **preserved after runs** for auditable evidence. This
   initial implementation does **not** automatically delete GitHub Projects,
   repos, issues, PRs or local transcripts. Only delete resources whose IDs

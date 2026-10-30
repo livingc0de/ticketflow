@@ -18,7 +18,7 @@ const source = (external = false, agent = 'claude', plugin = 'ponytail') => {
     mkdirSync(join(dir, marker, '..'), { recursive: true })
     writeFileSync(join(dir, marker), external ? JSON.stringify({ name: plugin }) + '\n' : '// test source\n')
     git(dir, 'init', '-q', '-b', 'main'); git(dir, 'add', '-A'); git(dir, 'commit', '-qm', 'pinned-' + dir.slice(-6))
-    if (external) git(dir, 'remote', 'add', 'origin', `https://github.com/${plugin === 'superpowers' ? 'obra' : 'DietrichGebert'}/${plugin}.git`)
+    git(dir, 'remote', 'add', 'origin', external ? `https://github.com/${plugin === 'superpowers' ? 'obra' : 'DietrichGebert'}/${plugin}.git` : 'https://github.com/livingc0de/ticketflow.git')
     return dir
 }
 
@@ -143,12 +143,15 @@ test('resume reruns a row recorded with a different evaluator fingerprint', () =
 test('the selected result file is excluded from the evaluator fingerprint', () => {
     const dir = tempDir('bench-fingerprint-'), out = join(dir, 'benchmarks/custom.jsonl')
     cpSync(join(REPO, 'benchmarks'), join(dir, 'benchmarks'), { recursive: true })
+    cpSync(join(REPO, 'core/lib'), join(dir, 'core/lib'), { recursive: true })
     mkdirSync(join(dir, 'benchmarks'), { recursive: true })
     writeFileSync(out, 'one\n')
     const first = evaluatorFingerprint(dir, [out])
     appendFileSync(out, 'two\n')
     assert.equal(first, evaluatorFingerprint(dir, [out]))
     assert.notEqual(first, evaluatorFingerprint(dir))
+    appendFileSync(join(dir, 'core/lib/cli.mjs'), '\n// evaluator input mutation\n')
+    assert.notEqual(first, evaluatorFingerprint(dir, [out]))
 })
 
 test('before and after must be different revisions', () => {

@@ -6,7 +6,7 @@ import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,rmSync} from
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {terminateProcess} from '../lib/process.mjs';
+import {runProcess,terminateProcess} from '../lib/process.mjs';
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const runner=fileURLToPath(new URL('../workflow-run.mjs',import.meta.url));
@@ -86,4 +86,9 @@ test('process termination escalates an uncooperative child after a bounded grace
   await Promise.race([once(child,'close'),new Promise((_,reject)=>setTimeout(()=>reject(new Error('child did not terminate')),2000))]);
   clear();
   assert.equal(escalated,true);
+});
+test('runProcess waits for bounded escalation instead of resolving on SIGTERM',async()=>{
+  const result=await runProcess(process.execPath,['-e',"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],{timeoutMs:50,graceMs:50});
+  assert.equal(result.timedOut,true);
+  assert.equal(result.signal,'SIGKILL');
 });

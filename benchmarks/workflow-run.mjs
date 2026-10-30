@@ -109,8 +109,8 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
       if(agent==='claude')writeFileSync(outfile,answer,{mode:0o600});
       const external=['superpowers','ponytail'].includes(arm);
       const marker='TICKETFLOW_BENCH_PLUGIN_BOOTSTRAP='+arm;
-      const nativeOutput=stderr.split(/\r?\n/);
-      const plugin_bootstrap=external?{status:nativeOutput.includes(marker)?'verified':(code===0?'unknown':'failed'),evidence:nativeOutput.includes(marker)?'native-cli-stderr-marker':code===0?'missing-native-cli-stderr-marker':'agent-exited-before-native-session-marker'}:null;
+      const markerSeen=stderr.split(/\r?\n/).includes(marker);
+      const plugin_bootstrap=external?{status:code===0?'unknown':'failed',evidence:markerSeen?'agent-cli-stderr-marker-untrusted':code===0?'native-plugin-activation-unobserved':'agent-exited-before-native-plugin-evidence'}:null;
       let archive=null,archive_error=null;
       if(archiveRoot){
         try{archive=archiveSession({root:archiveRoot,sessionId:transcriptSessionId('workflow',archiveMeta),agentOut:path,answerFile:outfile,
@@ -246,8 +246,7 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     delivery:result,invocations:parts,interrupted,agent_exit:parts.at(-1).exit,result_row_id:rowId,
     source_provenance:opts.sourceMeta[x.arm]??null,transcript_archives:parts.map(p=>p.archive).filter(Boolean),
     plugin_bootstrap:parts.some(p=>p.plugin_bootstrap?.status==='failed')?{status:'failed',evidence:'one-or-more-invocations-failed'}:
-      parts.every(p=>p.plugin_bootstrap?.status==='verified')?{status:'verified',evidence:'all-native-cli-stderr-markers'}:
-      parts.some(p=>p.plugin_bootstrap)?{status:'unknown',evidence:'not-all-invocations-emitted-native-cli-stderr-marker'}:null,
+      parts.some(p=>p.plugin_bootstrap)?{status:'unknown',evidence:'native-plugin-activation-unobserved'}:null,
     ...metrics,workdir:work,repo,date:new Date().toISOString(),descendants:'unknown'
   };
   appendFileSync(out,JSON.stringify(row)+'\n',{mode:0o600});

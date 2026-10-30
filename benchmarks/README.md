@@ -73,12 +73,11 @@ This requires a Codex CLI version with the `codex plugin` subcommands and native
 
 Recorded results include `profile_isolation: isolated|unisolated` and `sandbox_mode` (`danger-full-access` for Codex, `not-applicable` for Claude). Resuming into a different mode is blocked, and reports clearly distinguish the modes rather than silently pooling them. Scripted/noninteractive fallback fails closed; no manual installation commands are required for an approved run.
 
-**Native plugin activation is not proved by plugin registration alone.** The harness
-records `plugin_bootstrap.status` as `verified` only when the native CLI/plugin emits
-the exact marker `TICKETFLOW_BENCH_PLUGIN_BOOTSTRAP=<arm>` on the CLI process's raw
-stderr; a marker inside the agent answer or session JSON is not trusted. A successful
-run without that marker is `unknown`, and a failed run is `failed`. Reports show
-unknown/failed plugin bootstrap and publication refuses it. Each session is archived under
+**Native plugin activation is not proved by plugin registration or agent output.** The
+harness records external `plugin_bootstrap.status` as `unknown` because the agent CLI's
+stdout and stderr are not plugin-owned evidence; a marker printed there is retained only
+as untrusted transcript context. A failed run is `failed`. Reports show unknown/failed
+plugin bootstrap and publication refuses it. Each session is archived under
 `benchmarks/results/transcripts/<session-id>/` with only `agent.out`, `answer.txt`
 and allowlisted `metadata.json`; profiles, auth files, environment variables and
 temporary workspaces are never copied. Rows link to the archive with

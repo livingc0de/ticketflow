@@ -133,7 +133,7 @@ function render(rows, groups, evaluations, { published = false, date = null } = 
         'Requested effort: ' + [...new Set(rows.map((r) => safeText(r.requested_effort ?? 'default')))].join(', '), '',
         '> These are observed results, not simulated model outcomes. A green repository test suite does not prove agent performance.',
         '> Compare groups only when the agent, model, effort, permissions, scenario/repeat cells, evaluator revision and plugin bootstraps match.',
-        '> Native plugin activation is verified only by an exact session marker; missing markers remain unknown and block publication.',
+        '> Native plugin activation is not verified from agent output; external sessions remain unknown and block publication until native plugin-owned evidence exists.',
         '> This harness is explicitly non-adversarial: agents can potentially discover evaluator files through the unrestricted node/npm allowlist.', '']
 
     if (published) {

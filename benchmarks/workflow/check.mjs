@@ -156,10 +156,21 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
       else dependencyEdges.push({from:issue.number,to:target});
     }
   }
+  const dependencyGraph=new Map(created.map(i=>[i.number,[]]));
+  for(const edge of dependencyEdges)dependencyGraph.get(edge.from).push(edge.to);
+  const visiting=new Set(),visited=new Set();
+  const hasCycle=(node)=>{
+    if(visiting.has(node))return true;
+    if(visited.has(node))return false;
+    visiting.add(node);
+    if(dependencyGraph.get(node).some(hasCycle))return true;
+    visiting.delete(node);visited.add(node);return false;
+  };
+  const dependencyCycle=[...dependencyGraph.keys()].some(hasCycle);
   const w6Evidence=id!=='W6'||(
     created.length>=2&&created.length<=12&&meaningfulNew.length>=2&&
     actionableIssues.length===created.length&&!duplicateCreatedContent&&
-    !invalidDependencies.length&&dependencyEdges.length>=1&&
+    !invalidDependencies.length&&!dependencyCycle&&dependencyEdges.length>=1&&
     created.every(i=>linked.some(l=>l.number===i.number))
   );
   const newTracking=(id==='W1'?meaningfulNew.length>=1:
@@ -183,7 +194,7 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
     planning,review:reviewRelevant,pr_count:prs.length,merged_pr_count:merged.length,
     plan_artifacts:plans,tracking,review_observed:reviewObserved,
     actionable_created_issues:actionableIssues.length,duplicate_created_issue_content:duplicateCreatedContent,
-    dependency_edges:dependencyEdges,invalid_dependency_references:invalidDependencies};
+    dependency_edges:dependencyEdges,invalid_dependency_references:invalidDependencies,dependency_cycle:dependencyCycle};
   return {pass:pipeline,functionality:functional,delivery,pipeline,steps,process};
 }
 export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,initialPR=null,initialHead=null,baselineProjects=[]}){

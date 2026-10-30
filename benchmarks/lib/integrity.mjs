@@ -55,10 +55,15 @@ export function validateSourceCheckout(dir, { name, expectedSha = null, expected
 /** Fingerprint benchmark inputs by content, including dirty files, not only the repository HEAD. */
 export function evaluatorFingerprint(root, excluded = []) {
     const base = resolve(root), skip = new Set(excluded.map((p) => resolve(p))), hash = createHash('sha256')
-    for (const rel of files(join(base, 'benchmarks'))) {
-        if (skip.has(resolve(base, 'benchmarks', rel))) continue
+    const inputs = [
+        ...files(join(base, 'benchmarks')).map((rel) => ['benchmarks/' + rel, join(base, 'benchmarks', rel)]),
+        ['core/lib/cli.mjs', join(base, 'core/lib/cli.mjs')],
+        ['core/lib/config.mjs', join(base, 'core/lib/config.mjs')],
+    ]
+    for (const [rel, path] of inputs) {
+        if (skip.has(resolve(path))) continue
         hash.update(rel.replaceAll('\\', '/') + '\0')
-        hash.update(readFileSync(join(base, 'benchmarks', rel)))
+        hash.update(readFileSync(path))
     }
     return hash.digest('hex')
 }

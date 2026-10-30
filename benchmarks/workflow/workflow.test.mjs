@@ -97,6 +97,9 @@ test('W6 requires multiple useful tickets linked to delivered work, not count al
   assert.equal(evidence('W6',{issues:[issue(2),issue(3,{title:issue(2).title,body:issue(2).body})],prs:[pr(8,'Closes #2 and #3')]}).pipeline,false);
   assert.equal(evidence('W6',{issues:[issue(2,{body:'Implement the task without a dependency.'}),issue(3,{body:'Implement another task without a dependency.'})],prs:[pr(8,'Closes #2 and #3')]}).pipeline,false);
   assert.equal(evidence('W6',{issues:[issue(2),issue(3,{body:'Implement task 3. Depends on #99.'})],prs:[pr(8,'Closes #2 and #3')]}).pipeline,false);
+  const cyclic=evidence('W6',{issues:[issue(2,{body:'Implement task 2. Depends on #3.'}),issue(3,{body:'Implement task 3. Depends on #2.'})],prs:[pr(8,'Closes #2 and #3')]});
+  assert.equal(cyclic.pipeline,false);
+  assert.equal(cyclic.process.dependency_cycle,true);
 });
 test('W7 checks four tickets and allows multiple safely merged PRs',()=>{
   const seed=[1,2,3,4],issues=seed.map(n=>issue(n));

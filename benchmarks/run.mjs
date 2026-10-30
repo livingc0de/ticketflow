@@ -3,13 +3,14 @@
  * Maintainer-only comparison matrix. Dry-run by default; --execute intentionally starts PAID agent sessions.
  * No npm dependencies and no GitHub credentials required. See benchmarks/README.md before execution.
  */
-import { spawn, spawnSync, execFileSync } from 'node:child_process'
+import { spawnSync, execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { resolve, join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { evaluatorFingerprint, resolveScenario, validatePluginSource } from './lib/integrity.mjs'
+import { evaluatorFingerprint, resolveScenario, validatePluginSource, validateSourceCheckout } from './lib/integrity.mjs'
 import { approveDangerFullAccess, selectProfileMode } from './lib/profile-auth.mjs'
+import { runProcess } from './lib/process.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url)), ROOT = resolve(HERE, '..')
 const SESSION_TIMEOUT_MS = 35 * 60_000
@@ -27,16 +28,9 @@ const readRows = (out) => readFileSync(out, 'utf8').split(/\r?\n/).filter(Boolea
 const identity = (i, agent, model, effort, evalFingerprint) => [i.scenario, i.arm, i.rep, agent, model, effort ?? 'default', i.source_sha ?? 'bare', evalFingerprint].join('|')
 
 function spawnSession(args, label) {
-    return new Promise((resolveRun) => {
-        const child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'pipe'] })
-        let settled = false
-        const timeout = setTimeout(() => { child.kill('SIGTERM'); finish({ status: null, signal: 'SIGTERM' }) }, SESSION_TIMEOUT_MS)
-        const finish = (result) => { if (!settled) { settled = true; clearTimeout(timeout); resolveRun(result) } }
-        child.stdout.on('data', (data) => process.stdout.write(`[${label}] ${data}`))
-        child.stderr.on('data', (data) => process.stderr.write(`[${label}] ${data}`))
-        child.on('error', (error) => finish({ status: null, error }))
-        child.on('close', (status, signal) => finish({ status, signal }))
-    })
+    return runProcess(process.execPath, args, { timeoutMs: SESSION_TIMEOUT_MS,
+        onStdout: (data) => process.stdout.write(`[${label}] ${data}`),
+        onStderr: (data) => process.stderr.write(`[${label}] ${data}`) })
 }
 
 async function runOneParallel(agent, list, argsFor) {
@@ -76,7 +70,7 @@ async function main() {
             new Set(arms).size !== arms.length || arms.some((x) => !validArms.has(x)) ||
             new Set(scenarios).size !== scenarios.length || scenarios.some((x) => !/^L\d+$/.test(x))) throw Error(usage)
 
-        const available = new Map()
+        const available = new Map(), sourceMeta = new Map()
         for (const name of ['before', 'after', 'superpowers', 'ponytail']) {
             const path = v[name + '-source']
             if (path) {
@@ -90,7 +84,9 @@ async function main() {
         for (const name of ['superpowers', 'ponytail']) if (arms.includes(name) && !available.has(name)) throw Error(name + ' requires --' + name + '-source')
         if (arms.includes('before') && arms.includes('after') && sha(available.get('before')) === sha(available.get('after'))) throw Error('before and after must be different pinned revisions')
         for (const [name, dir] of available) {
-            if (execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' }).trim()) throw Error(name + ' source is dirty')
+            const arm = name === 'before' || name === 'after' ? 'ticketflow' : name
+            sourceMeta.set(name, validateSourceCheckout(dir, { name: arm, expectedSha: sha(dir),
+                expectedRemote: arm === 'ticketflow' ? 'https://github.com/livingc0de/ticketflow' : null }))
             for (const agent of agents) {
                 const marker = name === 'superpowers' || name === 'ponytail' ? (agent === 'codex' ? '.codex-plugin/plugin.json' : '.claude-plugin/plugin.json') : 'core/scripts/runtime.mjs'
                 if (!existsSync(join(dir, marker))) throw Error(name + ' missing ' + marker + ' for ' + agent)
@@ -106,7 +102,7 @@ async function main() {
             const rotated = [...arms.slice((rep + i - 1) % arms.length), ...arms.slice(0, (rep + i - 1) % arms.length)]
             for (const arm of rotated) {
                 const path = available.get(arm)
-                items.push({ scenario, arm, rep, source: path ?? null, source_sha: path ? sha(path) : null })
+                items.push({ scenario, arm, rep, source: path ?? null, source_sha: path ? sourceMeta.get(arm)?.sha ?? null : null })
             }
         }
 
@@ -127,7 +123,7 @@ async function main() {
         const remaining = agents.reduce((n, agent) => n + pending.get(agent).length, 0)
         const info = { mode: v.execute ? 'EXECUTE (paid)' : 'DRY RUN (free)', parallel, total: items.length * agents.length,
             already_recorded: items.length * agents.length - remaining, remaining, agents, models, effort: v.effort ?? null, outputs: output,
-            arms, scenarios, repeats, sources: Object.fromEntries([...available].map(([k, d]) => [k, { path: d, sha: sha(d) }])) }
+            arms, scenarios, repeats, sources: Object.fromEntries([...available].map(([k, d]) => [k, { path: d, sha: sourceMeta.get(k)?.sha ?? null }])) }
         if (!parallel) Object.assign(info, { agent: agents[0], model: models[agents[0]] })
         console.log(JSON.stringify(info, null, 2))
 
@@ -163,24 +159,24 @@ async function main() {
 
         const argsFor = (agent, x) => {
             const arm = x.arm === 'before' || x.arm === 'after' ? 'ticketflow' : x.arm
+            const sourceSha = x.source ? [`--${arm}-sha`, x.source_sha] : []
             return [join(HERE, 'agent-eval.mjs'), x.scenario, '--agent', agent, '--arm', arm,
                 '--model', models[agent], ...(v.effort ? ['--effort', v.effort] : []), '--rep', String(x.rep), '--label', x.arm, '--out', output[agent],
-                '--eval-fingerprint', evalFingerprint, ...(x.source ? ['--source', x.source] : []),
+                '--eval-fingerprint', evalFingerprint, ...(x.source ? ['--source', x.source, ...sourceSha] : []),
                 ...(profileModes.get(agent) === 'unisolated' ? ['--profile-mode', 'unisolated'] : []),
                 ...(agent === 'codex' ? ['--allow-danger-full-access'] : [])]
         }
-        const runOne = (agent) => {
+        const runOne = async (agent) => {
             const list = pending.get(agent)
             for (const [i, x] of list.entries()) {
                 console.log(`SESSION ${i + 1}/${list.length} ${x.scenario} ${x.arm} rep=${x.rep}`)
-                const result = spawnSync(process.execPath, argsFor(agent, x), { encoding: 'utf8', timeout: SESSION_TIMEOUT_MS })
-                if (result.stdout) process.stdout.write(result.stdout)
-                if (result.stderr) process.stderr.write(result.stderr)
+                const result = await runProcess(process.execPath, argsFor(agent, x), { timeoutMs: SESSION_TIMEOUT_MS,
+                    onStdout: (data) => process.stdout.write(data), onStderr: (data) => process.stderr.write(data) })
                 if (![0, 1].includes(result.status)) throw Error('session did not record a result; stopped at ' + agent + '/' + x.scenario + '/' + x.arm + '/rep' + x.rep)
             }
         }
         if (!parallel) {
-            runOne(agents[0])
+            await runOne(agents[0])
             return
         }
         const results = await Promise.all(agents.map(async (agent) => {

@@ -18,6 +18,7 @@ import { parseArgs } from 'node:util'
 import { main } from '../core/lib/cli.mjs'
 import { evaluatorFingerprint, resolveScenario, validatePluginSource, validateSourceCheckout } from './lib/integrity.mjs'
 import { approveDangerFullAccess, selectProfileMode } from './lib/profile-auth.mjs'
+import { runProcess } from './lib/process.mjs'
 import { archiveSession, transcriptSessionId } from './lib/transcripts.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -162,7 +163,7 @@ function report(agent, out, answerFile, model) {
     return { answer: orNull(() => readFileSync(answerFile, 'utf8')) ?? '', turns: null, cost_usd: null, tokens, model: null }   // Codex JSONL has not supplied a verified effective model
 }
 
-main('agent-eval', () => {
+main('agent-eval', async () => {
     const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, effort: { type: 'string' }, source: { type: 'string' }, 'ticketflow-sha': { type: 'string' }, 'superpowers-sha': { type: 'string' }, 'ponytail-sha': { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' }, 'profile-mode': { type: 'string' }, 'eval-fingerprint': { type: 'string' }, 'allow-danger-full-access': { type: 'boolean' } }, allowPositionals: true })
     if (positionals.length !== 1 || !['claude', 'codex'].includes(v.agent) || !['ticketflow', 'bare', 'superpowers', 'ponytail'].includes(v.arm) || (v.effort !== undefined && !EFFORTS.has(v.effort)) || (v.rep !== undefined && (!/^[1-9]\d*$/.test(v.rep) || !Number.isSafeInteger(+v.rep))) || (v.label !== undefined && !/^[a-z][a-z0-9-]{0,30}$/.test(v.label)) || (v['profile-mode'] !== undefined && v['profile-mode'] !== 'unisolated') || (v['eval-fingerprint'] !== undefined && !/^[0-9a-f]{64}$/i.test(v['eval-fingerprint']))) throw new Error(usage)
     const id = resolveScenario(SCENARIOS, positionals[0])
@@ -215,8 +216,8 @@ main('agent-eval', () => {
             copyFileSync(originalAuth, dest)
             chmodSync(dest, 0o600)
         }
-        r = run(v.agent, args, { cwd: dir, timeout: AGENT_TIMEOUT_MS, env: profile.env,
-            ...(claude ? { stdio: ['ignore', 'pipe', 'pipe'] } : { input: prompt }) })
+        r = await runProcess(v.agent, args, { cwd: dir, timeoutMs: AGENT_TIMEOUT_MS, env: profile.env,
+            ...(claude ? {} : { input: prompt }) })
     } finally {
         // Never erase a paid result solely because plugin cleanup failed.
         try { profile.cleanup?.() } catch (e) { cleanupFailure = e }
@@ -239,9 +240,9 @@ main('agent-eval', () => {
     const evalSha = orNull(() => git(ROOT, 'rev-parse', 'HEAD'))
     const pluginBootstrap = external ? (() => {
         const marker = `TICKETFLOW_BENCH_PLUGIN_BOOTSTRAP=${v.arm}`
-        const nativeOutput = rawStderr.split(/\r?\n/)
-        return { status: nativeOutput.includes(marker) ? 'verified' : (r.status === 0 ? 'unknown' : 'failed'),
-            evidence: nativeOutput.includes(marker) ? 'native-session-marker' : (r.status === 0 ? 'missing-native-session-marker' : 'agent-exited-before-native-session-marker') }
+        const markerSeen = rawStderr.split(/\r?\n/).includes(marker)
+        return { status: r.status === 0 ? 'unknown' : 'failed',
+            evidence: markerSeen ? 'agent-cli-stderr-marker-untrusted' : (r.status === 0 ? 'native-plugin-activation-unobserved' : 'agent-exited-before-native-plugin-evidence') }
     })() : null
     const resultRowId = transcriptSessionId('agent-eval', { scenario: id, agent: v.agent, arm: v.arm, repeat: v.rep ?? 0 })
     let transcriptArchive = null, archiveError = null
