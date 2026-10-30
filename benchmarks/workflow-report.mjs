@@ -47,6 +47,22 @@ export function render(rows){
       ' | '+rate(part,r=>r.delivery.functionality)+' | '+rate(part,r=>r.check.pass&&r.delivery.pipeline)+
       ' | '+fmt(median(coverage),2)+' |');
   }
+  lines.push('','## Coordination observations (W3 and W7)','',
+    'One integrated PR is valid. PR counts and closure order are descriptive proxies, not proof of agent orchestration or parallel execution.','',
+    '| Scenario | Arm | Mean merged PRs | Mean seeded tickets per merged PR | Dependency order violations |',
+    '| --- | --- | ---: | ---: | ---: |');
+  for(const [key,part] of Object.entries(group(rows.filter(r=>['W3','W7'].includes(r.scenario)),
+      r=>r.scenario+' '+r.arm)).sort()){
+    const [scenario,arm]=key.split(' ');
+    const mean=values=>values.length&&values.every(Number.isFinite)?
+      values.reduce((a,b)=>a+b,0)/values.length:null;
+    const coordination=part.map(r=>r.delivery.process?.coordination);
+    const prs=coordination.map(c=>c?.merged_pr_count);
+    const tickets=coordination.flatMap(c=>(c?.linked_seeded_per_merged_pr??[]).map(x=>x.count));
+    const violations=coordination.map(c=>c?.dependency_order_violations);
+    lines.push('| '+safe(scenario)+' | '+safe(arm)+' | '+fmt(mean(prs))+' | '+
+      fmt(mean(tickets))+' | '+(scenario==='W3'?fmt(mean(violations),0):'n/a')+' |');
+  }
   lines.push('','**Scenarios:** W1 plain request to tracked delivery, W2 existing ticket, W3 dependent tickets, W4 failing PR/review, W5 interrupted delivery, W6 brainstorming-to-tickets, W7 parallelizable independent tickets.');
   const configs=new Set(rows.map(r=>JSON.stringify([r.agent,r.agent_version,r.requested_model,r.requested_effort,r.eval_fingerprint,r.profile_isolation,r.sandbox_mode])));
   if(configs.size>1)lines.push('','**Comparability warning:** Multiple agents, models, evaluator fingerprints, profiles or sandbox modes are present. Analyze controlled subsets, not pooled averages.');
