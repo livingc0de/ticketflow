@@ -33,6 +33,13 @@ const parse = (s) => orNull(() => JSON.parse(s))
 const depNames = (text) => new Set(['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'].flatMap((k) => Object.keys(parse(text)?.[k] ?? {})))
 const cleanEnv = (env) => Object.fromEntries(Object.entries(env).filter(([key]) => !/(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|TOKEN|SECRET|PASSWORD|PRIVATE_KEY|CREDENTIAL)/i.test(key)))
 
+/** A presence-only check: a fresh Claude profile cannot read a login stored only in macOS Keychain. */
+function claudeHasPortableAuth() {
+    if (process.env.ANTHROPIC_API_KEY?.trim() || process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim()) return true
+    const from = join(resolve(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')), '.credentials.json')
+    return orNull(() => readFileSync(from, 'utf8').trim().length > 0) === true
+}
+
 /** A fresh Codex profile per run. Local native plugin packages are installed by Codex itself, not simulated as copied instructions. */
 function codexProfile(work, arm, src) {
     const home = join(work, 'home'), codexHome = join(home, '.codex')
@@ -124,6 +131,11 @@ main('agent-eval', () => {
     const version = run(v.agent, ['--version'])
     if (version.error || version.status !== 0) throw new Error(`${v.agent} is not installed or not on PATH`)
     if (external && v.agent === 'claude' && !run('claude', ['--help']).stdout?.includes('--plugin-dir')) throw new Error('Claude CLI does not advertise --plugin-dir; cannot load competitor natively')
+    if (v.agent === 'claude' && !claudeHasPortableAuth())
+        throw new Error('Claude benchmark authentication preflight failed: no credentials available for the isolated profile. ' +
+            'Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN, or provide a nonempty .credentials.json in ' +
+            'CLAUDE_CONFIG_DIR (default ~/.claude). macOS Keychain-only logins are not inherited. No paid session started. ' +
+            'This checks credential presence, not whether the login is valid.')
 
     const sdir = join(SCENARIOS, id), work = mkdtempSync(join(tmpdir(), 'agent-eval-')), evalFingerprint = evaluatorFingerprint(ROOT, outFile ? [outFile] : [])
     const { dir, base } = workspace(sdir, v.agent, v.arm, work, src)
