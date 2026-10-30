@@ -13,6 +13,10 @@ export const command = (bin,args,options={}) => {
 const json = (bin,args,options) => JSON.parse(command(bin,args,options));
 const gh = (args) => json('gh',args);
 const api = (endpoint) => gh(['api',endpoint]);
+const projectItems=(repo,number)=>{
+  try {return gh(['issue','view',String(number),'-R',repo,'--json','projectItems']).projectItems??null;}
+  catch {return null;}
+};
 export function pulls(repo) {
   return gh(['pr','list','-R',repo,'--state','all','--json','number,headRefOid,mergedAt,body,headRefName','--limit','100']);
 }
@@ -84,13 +88,23 @@ export function scoreDelivery({repo,id,issues,interrupted=false}) {
   const duplicate=prs.length>limit || (id==='W4' && prs.length!==1);
   const issueRows=api('repos/'+repo+'/issues?state=all&per_page=100').filter(i=>!i.pull_request);
   const tracking=linked(issues,done),newIssues=issueRows.filter(i=>!issues.includes(i.number)).length;
+  const issueProcess=issueRows.map(i=>{
+    const comments=api('repos/'+repo+'/issues/'+i.number+'/comments?per_page=100');
+    return {number:i.number,source:issues.includes(i.number)?'seeded':'agent-created',
+      projectItems:projectItems(repo,i.number),comments:comments.length};
+  });
+  const planFiles=done.flatMap(p=>{
+    try{return api('repos/'+repo+'/pulls/'+p.number+'/files?per_page=100').map(x=>x.filename);}
+    catch{return [];}
+  }).filter(f=>/(?:^|\/)(?:plans?|design|decisions)\/.*\.md$/i.test(f));
   // A universal delivery gate; extra evidence is measured independently rather than
   // demanding TicketFlow-specific process artifacts from competing approaches.
   const steps={correctness:hidden.pass,repo_tests:suite,ci_green:ci.pass,merged:done.length>0,
     no_duplicate_pr:!duplicate,recovery:id==='W5'?interrupted:true};
   const process={issue_linkage:tracking,agent_created_issues:newIssues,review_evidence:review.observed,
     unresolved_review:review.unresolved,pr_count:prs.length,merged_count:done.length,
-    tracking_coverage:issues.length?issues.filter(n=>new RegExp('(?:#|issues/)' + n + '(?!\\d)').test(done.map(p=>p.body??'').join('\n'))).length/ issues.length:null};
+    tracking_coverage:issues.length?issues.filter(n=>new RegExp('(?:#|issues/)' + n + '(?!\\d)').test(done.map(p=>p.body??'').join('\n'))).length/ issues.length:null,
+    issue_process:issueProcess,plan_artifacts:planFiles};
   const functionality=steps.correctness && steps.repo_tests;
   const pipeline=Object.values(steps).every(Boolean) && review.observed && !review.unresolved && tracking;
   return {pass:pipeline,functionality,pipeline,steps,process,merged_prs:done.map(p=>p.number),
