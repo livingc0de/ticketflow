@@ -30,7 +30,7 @@ export const checkpoint=(repo)=>pulls(repo).some(p=>!p.mergedAt);
 const textLinks=(n,body)=>new RegExp('(?:#|issues/)'+n+'(?!\\d)').test(body);
 const isMerged=(p)=>Boolean(p.mergedAt);
 const relevant=(name)=>/(?:^|\/)(?:plans?|design|decisions|docs\/architecture)\/.*\.md$/i.test(name);
-const projectSnapshot=(repo,n)=>{
+export const projectSnapshot=(repo,n)=>{
   try {
     const data=ghjson(['issue','view',String(n),'-R',repo,'--json','projectItems']);
     return {readable:true,items:data.projectItems??[]};
@@ -103,7 +103,7 @@ function localTests(dir){
  * No framework-specific status, label, artifact path, agent count or command is required.
  */
 export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],reviews=[],plans=[],interrupted=false,
-  initialPR=null,initialHead=null,hidden=false,repoTests=false}){
+  initialPR=null,initialHead=null,baselineProjects=[],hidden=false,repoTests=false}){
   if(!scenarios[id])throw Error('unknown workflow scenario '+id);
   const merged=prs.filter(isMerged),mergedBodies=merged.map(p=>p.body??'').join('\n');
   const linked=issues.filter(i=>merged.some(p=>textLinks(i.number,p.body??'')));
@@ -116,10 +116,17 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
   const required=seededIssues.every(n=>linked.some(i=>i.number===n&&i.state==='closed'));
   const optionalNewIssuesLinked=created.filter(i=>linked.some(l=>l.number===i.number));
   const meaningfulNew=optionalNewIssuesLinked.filter(i=>i.state==='closed');
+  const startingProject=new Map(baselineProjects.map(x=>[x.number,JSON.stringify(x.project?.items??[])]));
+  const projectProgress=issues.filter(i=>{
+    if(!i.project?.readable)return false;
+    if(!startingProject.has(i.number))return (i.project.items??[]).length>0;
+    return JSON.stringify(i.project.items??[])!==startingProject.get(i.number);
+  }).length;
   const planning={count:plans.length,issue_comments:issues.reduce((n,i)=>n+i.comments,0),
     issue_activity:issues.filter(i=>i.comments>0||i.events?.some(e=>e==='labeled'||e==='assigned'||e==='milestoned')).length,
     project_observed:issues.filter(i=>i.project?.readable).length,
     project_linked:issues.filter(i=>i.project?.items?.length>0).length,
+    project_changed_from_pre_agent_baseline:projectProgress,
     project_statuses:issues.flatMap(i=>(i.project?.items??[]).map(p=>p.status?.name??p.status??'unknown'))};
   const limits={W1:1,W2:1,W3:3,W4:1,W5:1,W6:8,W7:4};
   const duplicate=prs.length>limits[id]||(id==='W4'&&(prs.length!==1||prs[0]?.number!==initialPR));
@@ -146,7 +153,7 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
     plan_artifacts:plans,tracking,review_observed:reviewObserved};
   return {pass:pipeline,functionality:functional,delivery,pipeline,steps,process};
 }
-export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,initialPR=null,initialHead=null}){
+export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,initialPR=null,initialHead=null,baselineProjects=[]}){
   const sc=scenarios[id],prs=pulls(repo),work=mkdtempSync(join(tmpdir(),'workflow-verify-'));
   let hidden={pass:false,reason:'unverified'},suite={pass:false,reason:'unverified'},error=null;
   try {
@@ -166,7 +173,7 @@ export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,ini
     }catch(e){error=(error?error+'; ':'')+e.message}
   }
   const result=evaluateEvidence({id,seededIssues,issues:issueRows,prs,checks,reviews,plans,
-    interrupted,initialPR,initialHead,hidden:hidden.pass,repoTests:suite.pass});
+    interrupted,initialPR,initialHead,baselineProjects,hidden:hidden.pass,repoTests:suite.pass});
   return {...result,merged_prs:merged.map(p=>p.number),ci:checks,hidden_reason:hidden.reason,
     repo_test_reason:suite.reason,error};
 }
