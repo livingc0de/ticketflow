@@ -172,6 +172,15 @@ test('Codex can preview the complete five-arm matrix with native pinned plugin s
     assert.equal(r.stdout.split('\n').filter((x) => x.startsWith('PLAN ')).length, 10)
 })
 
+test('parallel execution refuses unsupported external Claude arms before any paid child starts', () => {
+    const r = call(['--parallel','--claude-model','claude-test','--codex-model','codex-test',
+        '--claude-out',join(tempDir('bench-out-'),'claude.jsonl'),'--codex-out',join(tempDir('bench-out-'),'codex.jsonl'),
+        '--arms','ponytail','--scenarios','L1','--repeats','1','--max-sessions','2','--allow-danger-full-access','--execute'])
+    assert.equal(r.status, 2, r.stdout + r.stderr)
+    assert.match(r.stderr, /unsupported until Claude exposes native plugin-owned activation evidence/)
+    assert.doesNotMatch(r.stdout, /SESSION /)
+})
+
 test('invalid paths and missing native Codex manifests are rejected without paid work', () => {
     for (const args of [
         ['--agent','claude','--model','m','--arms','before'],

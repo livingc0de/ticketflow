@@ -69,7 +69,7 @@ async function main() {
         if (!Number.isInteger(repeats) || !Number.isInteger(maximum) || !arms.length ||
             new Set(arms).size !== arms.length || arms.some((x) => !validArms.has(x)) ||
             new Set(scenarios).size !== scenarios.length || scenarios.some((x) => !/^L\d+$/.test(x))) throw Error(usage)
-        if (v.execute && v.agent === 'claude' && arms.some((arm) => arm === 'superpowers' || arm === 'ponytail'))
+        if (v.execute && (parallel || v.agent === 'claude') && arms.some((arm) => arm === 'superpowers' || arm === 'ponytail'))
             throw Error('Claude external plugin arms are unsupported until Claude exposes native plugin-owned activation evidence')
 
         const available = new Map(), sourceMeta = new Map()
