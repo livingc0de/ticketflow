@@ -162,6 +162,11 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     GITHUB_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN};
   const access=JSON.parse(sh('gh',['api','repos/'+repo],{env:agentEnv}));
   if(access.permissions?.push!==true)throw Error('agent token lacks push access to '+repo+'; no paid agent invoked');
+  const actions=JSON.parse(sh('gh',['api','repos/'+repo+'/actions/permissions'],{env:setupEnv()}));
+  if(!actions.enabled)throw Error('GitHub Actions is disabled for '+repo+'; no paid agent invoked');
+  try {sh('gh',['project','view',String(current.project.number),'--owner',v.owner,'--format','json'],{env:agentEnv});}
+  catch(e){throw Error('agent token cannot read benchmark Project '+current.project.number+'; no paid agent invoked: '+e.message);}
+
   // Initial branch and issue state is prepared before the paid agent run.
   const dir=cloneRepository(repo,join(work,'attempt-'+Date.now()));
   const initial=prompt(x.id,repo,current.issues,current.initialPR??null);
