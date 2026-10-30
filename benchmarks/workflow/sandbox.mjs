@@ -84,6 +84,10 @@ export function seedIssues({repo,id,projectId}) {
     graphql('mutation($p:ID!,$c:ID!){addProjectV2ItemById(input:{projectId:$p,contentId:$c}){item{id}}}',
       {p:projectId,c:issue.node_id});
   }
+  if(id==='W3' && issues.length===3) {
+    const body=scenarios.W3.issues[2]+'\n\nDepends on #'+issues[0]+', #'+issues[1]+'.';
+    gh(['issue','edit',String(issues[2]),'-R',repo,'--body',body]);
+  }
   return issues;
 }
 export function seedBrokenPull({repo,id,work,issue}) {
