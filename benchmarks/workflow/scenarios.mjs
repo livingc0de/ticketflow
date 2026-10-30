@@ -23,7 +23,7 @@ const common = {
 export const scenarios = {
   W1: {
     title: 'Small, proportional CSV feature',
-    issues: ['Add CSV export to the report formatter, retaining its existing TSV output. Handle embedded commas, quotation marks and newlines, and preserve column order.'],
+    issues: [],
     files: {
       'src/report.mjs': source([
         "export const columns = ['name', 'total'];",
@@ -38,7 +38,7 @@ export const scenarios = {
         "test('TSV format remains stable', () => assert.equal(tsv([{name:'A',total:2}]), 'name\\ttotal\\nA\\t2'));"
       ])
     },
-    goal: 'Implement CSV export. Keep the existing TSV behavior. Deliver a reviewed, CI-verified, merged pull request without unnecessary dependencies.',
+    goal: 'Starting from this request (there is no existing ticket), implement CSV export while keeping existing TSV behavior. Deliver a reviewed, verified change without unnecessary dependencies.',
     hidden: {
       exports: ['csv', 'tsv'],
       code: source([
@@ -89,7 +89,9 @@ export const scenarios = {
   W3: {
     title:'Three dependent changes with tenant boundary',
     issues:[
-      'Build a tenant-safe order API covering tenant-scoped lookup, paginated listings and integrated API behavior. Break the initiative into appropriately scoped and ordered implementation tasks before delivery.'
+      'Secure order lookup so a tenant cannot retrieve another tenant’s order, including colliding IDs. Add a behavioral regression test.',
+      'Fix pagination so pages are contiguous and the last page has no next cursor. Add edge-case tests.',
+      'Integrate the secured lookup and pagination with the order API. Depends on the lookup and pagination fixes; verify tenant isolation across page boundaries.'
     ],
     files:{
       'src/store.mjs': source([
@@ -113,7 +115,7 @@ export const scenarios = {
         "test('basic listing', () => assert.equal(listOrders([{tenant:'a',id:1}], 'a',0,10).items.length,1));"
       ])
     },
-    goal:'Decompose the initiative into suitable independently tracked work, handle dependencies, and deliver tenant-safe lookup, pagination and API integration through reviewed and verified PRs.',
+    goal:'Deliver all three existing related issues, respecting their dependency order. Use your available coordination approach and deliver tenant-safe lookup, pagination and API integration through verifiable changes.',
     hidden:{
       module:'src/api.mjs',
       code:source([
@@ -211,12 +213,11 @@ export function prompt(id, repo, issueNumbers, prNumber=null) {
   return [
     'You are working on a disposable evaluation repository: '+repo+'.',
     'Goal: '+s.goal,
-    'Existing issue(s):\n'+items,
+    issueNumbers.length ? 'Existing issue(s):\n'+items : 'There are no existing issues for this request.',
     prNumber ? 'An existing pull request needs repair: #'+prNumber+'. Continue that PR.' : 'No pull request has been started yet.',
-    'Use your available development approach and any native skills to complete the full delivery.',
-    'Use GitHub issues for tracking, implement the code, run appropriate tests, review the actual changes, and deliver through a pull request.',
-    'Merge only after the latest-head automated checks are green and review findings are resolved.',
-    'Never bypass protections or claim checks ran when they did not. Do not ask for owner approval merely to create a routine PR.',
+    'Use your own available development approach and native skills to deliver the requested work. Organize and track it as you judge appropriate.',
+    'A GitHub Project is available for tracking if useful. Implement, verify, review and deliver the change(s) through pull requests.',
+    'Only merge after verifying the latest head and resolving actionable findings. Never bypass required protections or claim tests ran when they did not.',
     'Finish with the PR URL and any unverified items. Do not modify other repositories.',
   ].join('\n\n');
 }
