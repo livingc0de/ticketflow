@@ -39,6 +39,23 @@ export function render(rows) {
       ratio(r=>r.check.pass)+' | '+ratio(r=>r.delivery.process?.review_evidence)+' | '+
       pct(avg(tracked))+' | '+fmt(avg(created))+' | '+fmt(median(group.map(r=>r.wall_s)))+' | '+fmt(total)+' |');
   }
+  lines.push('','## Process evidence (descriptive, not required to match TicketFlow)','',
+    '| Arm | Cells with plan artifacts | Issue comments / cell | Recorded Project statuses |',
+    '| --- | ---: | ---: | --- |');
+  for(const arm of arms) {
+    const group=rows.filter(r=>(r.variant??r.arm)===arm);
+    const planned=group.filter(r=>(r.delivery.process?.plan_artifacts??[]).length>0).length;
+    const comments=group.map(r=>(r.delivery.process?.issue_process??[]).reduce((n,x)=>n+(x.comments??0),0));
+    const states=new Map();
+    for(const r of group) for(const issue of r.delivery.process?.issue_process??[]) {
+      for(const item of issue.projectItems??[]) {
+        const status=typeof item.status==='string'?item.status:item.status?.name??'unknown';
+        states.set(status,(states.get(status)??0)+1);
+      }
+    }
+    const stateText=[...states].map(([k,n])=>safe(k)+': '+n).join('; ') || 'unknown';
+    lines.push('| '+safe(arm)+' | '+planned+'/'+group.length+' | '+fmt(avg(comments))+' | '+safe(stateText)+' |');
+  }
   lines.push('','## Per-scenario outcomes','',
     '| Scenario | Arm | Cells | Functional passes | Pipeline passes |',
     '| --- | --- | ---: | ---: | ---: |');
