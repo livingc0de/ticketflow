@@ -575,6 +575,71 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     assert.equal(invalid.status, 2)
 })
 
+test('approved unisolated Codex plugin arm installs only its pinned copy and preserves existing plugin', () => {
+    const { run } = sandbox(), src = tempDir('codex-owned-plugin-'), home = tempDir('codex-keyring-owned-')
+    mkdirSync(join(src, '.codex-plugin'))
+    writeFileSync(join(src, '.codex-plugin/plugin.json'), '{"name":"ponytail"}')
+    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned')
+    git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
+    const args = [L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--profile-mode', 'unisolated']
+    const env = { CODEX_HOME: home, FAKE_CODEX_KEYRING: '1', FAKE_KEYRING_HOME: home, FAKE_PERSIST_PLUGINS: '1',
+        FAKE_EXISTING_PLUGIN: 'ponytail', FAKE_FIX: '1' }
+    const ok = run(args, env)
+    assert.equal(ok.status, 0, ok.stdout + ok.stderr)
+    assert.equal(ok.row.profile_isolation, 'unisolated')
+    assert.equal(ok.calls.find((c) => c.args[0] === 'exec').codex_home, home)
+    assert.ok(ok.calls.some((c) => c.args[0] === 'plugin' && c.args[1] === 'add'))
+    const adds = ok.calls.filter((c) => c.args[0] === 'plugin' && c.args[1] === 'add')
+    assert.equal(adds.length, 1)
+    assert.match(adds[0].args[2], /^ponytail@ticketflow-benchmark-agent-eval-/)
+    const removes = ok.calls.filter((c) => c.args[0] === 'plugin' && c.args[1] === 'remove')
+    assert.deepEqual(removes.map((c) => c.args[2]), [adds[0].args[2]], 'only the benchmark-owned plugin is uninstalled')
+    const state = JSON.parse(readFileSync(join(home, 'fake-plugin-state.json'), 'utf8'))
+    assert.deepEqual(state.installed, [{ name: 'ponytail', marketplaceName: 'personal-market', installed: true, enabled: true }])
+    assert.deepEqual(state.marketplaces, [{ name: 'personal-market', root: 'existing' }])
+    assert.ok(!existsSync(join(home, 'auth.json')), 'keyring-only login remains in original keyring')
+    assert.equal(ok.calls.filter((c) => c.args[0] === 'plugin' && c.args[1] === 'marketplace' && c.args[2] === 'remove').length, 1)
+})
+
+test('unisolated Codex plugin cleanup runs on agent failure and on setup verification failure', () => {
+    const { run } = sandbox(), src = tempDir('codex-owned-plugin-'), home = tempDir('codex-keyring-owned-')
+    mkdirSync(join(src, '.codex-plugin'))
+    writeFileSync(join(src, '.codex-plugin/plugin.json'), '{"name":"ponytail"}')
+    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned')
+    git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
+    const args = [L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--profile-mode', 'unisolated']
+    const env = { CODEX_HOME: home, FAKE_CODEX_KEYRING: '1', FAKE_KEYRING_HOME: home, FAKE_PERSIST_PLUGINS: '1',
+        FAKE_EXISTING_PLUGIN: 'superpowers' }
+    const failedAgent = run(args, { ...env, FAKE_EXIT: '3' })
+    assert.equal(failedAgent.status, 1, failedAgent.stdout + failedAgent.stderr)
+    let state = JSON.parse(readFileSync(join(home, 'fake-plugin-state.json'), 'utf8'))
+    assert.deepEqual(state.installed.map((p) => p.name), ['superpowers'])
+    assert.deepEqual(state.marketplaces.map((m) => m.name), ['personal-market'])
+    const failedInstall = run(args, { ...env, FAKE_PLUGIN_DISABLED: '1' })
+    assert.equal(failedInstall.status, 2, failedInstall.stdout + failedInstall.stderr)
+    assert.match(failedInstall.stderr, /not correctly installed and enabled/)
+    assert.ok(!failedInstall.calls.some((c) => c.args[0] === 'exec'), 'no agent ran when plugin verification failed')
+    state = JSON.parse(readFileSync(join(home, 'fake-plugin-state.json'), 'utf8'))
+    assert.deepEqual(state.installed.map((p) => p.name), ['superpowers'])
+    assert.deepEqual(state.marketplaces.map((m) => m.name), ['personal-market'])
+})
+
+test('approved unisolated Claude plugin loads pinned checkout without touching user plugins', () => {
+    const { run } = sandbox(), src = tempDir('claude-owned-plugin-'), profile = tempDir('claude-keyring-owned-')
+    mkdirSync(join(src, '.claude-plugin'))
+    writeFileSync(join(src, '.claude-plugin/plugin.json'), '{"name":"ponytail"}')
+    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned')
+    git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
+    const r = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src, '--profile-mode', 'unisolated'], {
+        CLAUDE_CONFIG_DIR: profile, FAKE_CLAUDE_KEYRING: '1', FAKE_KEYRING_HOME: profile, FAKE_FIX: '1',
+    })
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    assert.equal(r.row.profile_isolation, 'unisolated')
+    assert.equal(r.calls[0].claude_config, profile)
+    assert.deepEqual(r.calls[0].args.slice(-2), ['--plugin-dir', src])
+    assert.deepEqual(readdirSync(profile), [], 'the benchmark did not install or remove personal Claude plugins')
+})
+
 test('Codex bare control loads no plugin and uses an isolated home', () => {
     const { run } = sandbox()
     const r = run([L1, '--agent', 'codex', '--arm', 'bare'], { FAKE_FIX: '1' })
