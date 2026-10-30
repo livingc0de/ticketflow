@@ -1,3 +1,4 @@
+import { extraScenarios } from './scenarios-extra.mjs';
 /**
  * Workflow benchmark fixtures. The agent sees only files and issue bodies, never
  * hidden acceptance cases. All arms receive identical product requirements.
@@ -201,6 +202,7 @@ export const scenarios = {
     }
   }
 };
+Object.assign(scenarios,extraScenarios);
 export const ids = Object.keys(scenarios);
 export function fixture(id) {
   const s=scenarios[id];
