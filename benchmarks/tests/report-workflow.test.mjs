@@ -35,6 +35,17 @@ test('workflow report keeps optional native-process evidence unknown when absent
   const result=render([native]);
   assert.match(result,/\| bare \| unknown \| unknown \| unknown \| unknown \|/);
 });
+test('workflow report computes arithmetic means for average evidence columns',()=>{
+  const withCounts=(base,plans,changes)=>({...base,delivery:{...base.delivery,process:{...base.delivery.process,
+    plan_artifacts:Array.from({length:plans},(_,i)=>'plan-'+i),
+    planning:{...base.delivery.process.planning,project_changed_from_pre_agent_baseline:changes}}}});
+  const result=render([
+    withCounts({...row('bare',true,true),repeat:1},0,0),
+    withCounts({...row('bare',true,true),repeat:2},0,0),
+    withCounts({...row('bare',true,true),repeat:3},6,6),
+  ]);
+  assert.match(result,/\| bare \| 0\.0 \| 1\.0 \| 2 \| 2 \|/);
+});
 
 test('invalid archive/cleanup and evaluator errors are excluded from the denominator',()=>{
   const ok=row('bare',true,true);

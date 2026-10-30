@@ -7,7 +7,7 @@ export const invalidReasons=({delivery,invocations=[],plugin_bootstrap=null,prof
   if(delivery?.error)reasons.push('evaluation_unavailable');
   if(invocations.some(p=>p.archive_error))reasons.push('transcript_archive_failed');
   if(profile_cleanup!=='ok'||invocations.some(p=>p.cleanup_error))reasons.push('plugin_cleanup_failed');
-  if(invocations.some(p=>p.signal==='error'))reasons.push('agent_launch_failed');
+  if(invocations.some(p=>p.signal==='error'||p.error||p.stdin_error))reasons.push('agent_launch_failed');
   if(plugin_bootstrap&& !['loaded','verified'].includes(plugin_bootstrap.status))
     reasons.push('plugin_activation_unverified');
   return [...new Set(reasons)];

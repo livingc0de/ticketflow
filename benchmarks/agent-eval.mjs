@@ -240,7 +240,8 @@ main('agent-eval', async () => {
     const before = depNames(orNull(() => git(dir, 'show', `${base}:package.json`)) ?? ''), after = depNames(orNull(() => readFileSync(join(dir, 'package.json'), 'utf8')) ?? '')
     const c = run(process.execPath, [join(sdir, 'check.mjs'), dir, answerFile], { timeout: 5 * 60 * 1000 })
     const checkerPass = c.status === 0
-    const pass = r.status === 0 && checkerPass   // a failed/timed-out agent is never a successful task
+    const processError = r.error?.message ?? null
+    const pass = r.status === 0 && !r.error && checkerPass   // a failed/timed-out agent is never a successful task
     const tf = (f) => (v.arm === 'ticketflow' ? orNull(f) : null)   // the bare arm has no TicketFlow revision
     const evalSha = orNull(() => git(ROOT, 'rev-parse', 'HEAD'))
     const pluginBootstrap = external ? (() => {
@@ -254,7 +255,8 @@ main('agent-eval', async () => {
         transcriptArchive = archiveSession({ root: TRANSCRIPT_ROOT, sessionId: resultRowId, agentOut: join(work, 'agent.out'), answerFile,
             metadata: { agent: v.agent, model: got.model, requested_model: v.model ?? null, scenario: id, arm: v.arm,
                 repeat: v.rep ? +v.rep : null, result_row_id: resultRowId, status: pass ? 'completed' : 'failed',
-                checker_pass: checkerPass, agent_exit: r.status, eval_sha: evalSha, eval_fingerprint: evalFingerprint,
+                checker_pass: checkerPass, agent_exit: r.error ? null : r.status, agent_error: processError,
+                eval_sha: evalSha, eval_fingerprint: evalFingerprint,
                 ticketflow_sha: tf(() => git(src, 'rev-parse', 'HEAD')), plugin_sha: external ? git(src, 'rev-parse', 'HEAD') : null,
                 plugin_bootstrap: pluginBootstrap, timestamp: new Date().toISOString() } })
     } catch (e) { archiveError = e.message }
@@ -269,12 +271,13 @@ main('agent-eval', async () => {
         plugin_native: external ? pluginBootstrap.status : null, plugin_bootstrap: pluginBootstrap,
         source_provenance: sourceMeta,
         result_row_id: resultRowId, transcript_archive: transcriptArchive, archive_error: archiveError,
-        check: { pass: pass && !archiveError, why: archiveError ? `transcript archive failed: ${archiveError}` : r.status !== 0 && checkerPass
+        check: { pass: pass && !archiveError, why: archiveError ? `transcript archive failed: ${archiveError}` : processError
+            ? `agent stdin/process failed: ${processError}` : r.status !== 0 && checkerPass
             ? `agent exited ${r.status ?? r.signal ?? 'unknown'} despite a passing checker`
             : `${c.stdout ?? ''}${c.stderr ?? ''}`.trim().split('\n')[0].slice(0, 300) || `check exited ${c.status}` },
         diff: { added: stat.reduce((n, s) => n + (+s[0] || 0), 0), removed: stat.reduce((n, s) => n + (+s[1] || 0), 0), files: stat.map((s) => s[2]) },
         deps_added: [...after].filter((d) => !before.has(d)).length,
-        turns: got.turns, tokens: got.tokens, cost_usd: got.cost_usd, wall_s, agent_exit: r.status,
+        turns: got.turns, tokens: got.tokens, cost_usd: got.cost_usd, wall_s, agent_exit: r.error ? null : r.status, agent_error: processError,
         descendants: 'unknown',   // shortcut: 'unknown' because no CLI is verified to count child agents in these totals, set `included` only after a live run shows it
         workdir: work, date: new Date().toISOString(),
     }

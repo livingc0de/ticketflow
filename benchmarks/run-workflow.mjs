@@ -148,6 +148,7 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
     const env={...profile.env,GH_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN,
       GITHUB_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN,GIT_TERMINAL_PROMPT:'0'};
     const start=Date.now();let stdout='',stderr='',interrupted=false,reason=null,closed=false,probing=false;
+    let childError=null,stdinError=null;
     let timer,watcher,child,clearEscalation;
     const stop=()=>{
       if(!child?.pid||closed||clearEscalation)return;
@@ -183,17 +184,21 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
             status:interrupted?'interrupted':code===0?'completed':'failed',plugin_bootstrap,timestamp:new Date().toISOString()}})}
         catch(e){archive_error=e.message;}
       }
+      const errorInfo=e=>e?{code:e.code??null,message:e.message}:null;
       done({exit:code,signal,interrupted,reason,seconds:(Date.now()-start)/1000,
         cost_usd:cost,tokens,turns,observed_model:reportedModel,transcript:path,answer:answer,
-        archive,archive_error,plugin_bootstrap,cleanup_error:cleanupError});
+        archive,archive_error,plugin_bootstrap,cleanup_error:cleanupError,
+        error:childError?.message??null,stdin_error:errorInfo(stdinError)});
     };
     try {
       child=spawn(agent,args,{cwd:dir,env,stdio:['pipe','pipe','pipe'],detached:process.platform!=='win32'});
-      if(agent==='codex') child.stdin.end(message);else child.stdin.end();
+      child.stdin.once('error',e=>{stdinError??=e;stderr+='\nstdin: '+e.message});
       child.stdout.on('data',v=>{stdout+=v.toString();if(stdout.length>40_000_000)stop()});
       child.stderr.on('data',v=>{stderr+=v.toString();if(stderr.length>10_000_000)stop()});
-      child.on('error',e=>{stderr+='\n'+e.message;finish(null,'error')});
-      child.on('close',(code,signal)=>finish(code,signal));
+      child.once('error',e=>{childError??=e;stderr+='\n'+e.message});
+      child.once('close',(code,signal)=>finish(code,childError?'error':signal));
+      try { if(agent==='codex') child.stdin.end(message);else child.stdin.end(); }
+      catch(e) { stdinError??=e;stderr+='\nstdin: '+e.message; }
       timer=setTimeout(()=>{reason='timeout';stop()},timeoutMs);
       if(interrupt) watcher=setInterval(async()=>{
         if(closed||interrupted||probing)return;

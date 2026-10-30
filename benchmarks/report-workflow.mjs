@@ -13,6 +13,7 @@ const median=v=>{
   return s.length%2?s[i]:(s[i-1]+s[i])/2;
 };
 const fmt=(v,d=1)=>typeof v==='number'&&Number.isFinite(v)?v.toFixed(d):'unknown';
+const averageValues=values=>values.length&&values.every(Number.isFinite)?values.reduce((a,b)=>a+b,0)/values.length:null;
 const rate=(rows,fn)=>rows.length?fmt(100*rows.filter(fn).length/rows.length,0)+'%':'n/a';
 const safe=s=>String(s??'unknown').replace(/[\r\n|<>]/g,'').slice(0,80);
 const group=(rows,key)=>rows.reduce((m,r)=>{const k=key(r);(m[k]??=[]).push(r);return m;},{});
@@ -47,11 +48,12 @@ export function render(rows){
   lines.push('','## Workflow evidence by arm','','| Arm | Avg agent-created issues | Avg closed+linked work items | Avg plan artifacts | Avg agent Project changes |',
     '| --- | ---: | ---: | ---: | ---: |');
   for(const [arm,part] of Object.entries(group(valid,r=>r.arm)).sort()){
-    const average=key=>{const vals=part.map(r=>r.delivery.process?.[key]);return vals.every(x=>Number.isFinite(x))?vals.reduce((a,b)=>a+b,0)/vals.length:null;};
+    const average=key=>averageValues(part.map(r=>r.delivery.process?.[key]));
     const plans=part.map(r=>r.delivery.process?.plan_artifacts?.length??null);
+    const projectChanges=part.map(r=>r.delivery.process?.planning?.project_changed_from_pre_agent_baseline??null);
     lines.push('| '+safe(arm)+' | '+fmt(average('agent_created_issues'))+
-      ' | '+fmt(average('issues_closed_and_linked'))+' | '+fmt(median(plans),0)+
-      ' | '+fmt(median(part.map(r=>r.delivery.process?.planning?.project_changed_from_pre_agent_baseline??null)),0)+' |');
+      ' | '+fmt(average('issues_closed_and_linked'))+' | '+fmt(averageValues(plans),0)+
+      ' | '+fmt(averageValues(projectChanges),0)+' |');
   }
   lines.push('','## Per scenario','','| Scenario | Arm | Valid | Invalid | Code | Pipeline | Seed ticket coverage |',
     '| --- | --- | ---: | ---: | ---: | ---: | ---: |');

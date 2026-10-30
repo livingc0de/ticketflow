@@ -52,6 +52,7 @@ export function runProcess(command, args, {
             return
         }
         let stdout = '', stderr = '', timedOut = false, outputLimit = false, stopping = false
+        let childError = null, stdinError = null
         let timeout, clearEscalation = () => {}
         const append = (which, value) => {
             const text = value.toString()
@@ -72,14 +73,19 @@ export function runProcess(command, args, {
         const finish = (status, signal, error = null) => {
             clearTimeout(timeout)
             clearEscalation()
-            resolve({ status, signal, error, stdout, stderr, timedOut, outputLimit })
+            resolve({ status, signal, error: error ?? stdinError, stdout, stderr, timedOut, outputLimit })
         }
         child.stdout.on('data', (value) => append('stdout', value))
         child.stderr.on('data', (value) => append('stderr', value))
-        child.once('error', (error) => finish(null, null, error))
-        child.once('close', (status, signal) => finish(status, signal))
-        if (input === null) child.stdin.end()
-        else child.stdin.end(input)
+        child.stdin.once('error', (error) => { stdinError ??= error })
+        child.once('error', (error) => { childError ??= error })
+        child.once('close', (status, signal) => finish(status, signal, childError))
+        try {
+            if (input === null) child.stdin.end()
+            else child.stdin.end(input)
+        } catch (error) {
+            stdinError ??= error
+        }
         if (timeoutMs > 0) timeout = setTimeout(() => { timedOut = true; stop() }, timeoutMs)
     })
 }

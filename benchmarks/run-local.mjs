@@ -48,7 +48,7 @@ async function runOneParallel(agent, list, argsFor) {
     for (const [i, x] of list.entries()) {
         console.log(`SESSION ${agent} ${i + 1}/${list.length} ${x.scenario} ${x.arm} rep=${x.rep}`)
         const result = await spawnSession(argsFor(agent, x), agent)
-        if (![0, 1].includes(result.status)) throw Error('session did not record a result; stopped at ' + agent + '/' + x.scenario + '/' + x.arm + '/rep' + x.rep)
+        if (result.error || ![0, 1].includes(result.status)) throw Error('session did not record a result; stopped at ' + agent + '/' + x.scenario + '/' + x.arm + '/rep' + x.rep)
     }
 }
 
@@ -183,7 +183,7 @@ async function main() {
                 console.log(`SESSION ${i + 1}/${list.length} ${x.scenario} ${x.arm} rep=${x.rep}`)
                 const result = await runProcess(process.execPath, argsFor(agent, x), { timeoutMs: SESSION_TIMEOUT_MS,
                     onStdout: (data) => process.stdout.write(data), onStderr: (data) => process.stderr.write(data) })
-                if (![0, 1].includes(result.status)) throw Error('session did not record a result; stopped at ' + agent + '/' + x.scenario + '/' + x.arm + '/rep' + x.rep)
+                if (result.error || ![0, 1].includes(result.status)) throw Error('session did not record a result; stopped at ' + agent + '/' + x.scenario + '/' + x.arm + '/rep' + x.rep)
             }
         }
         if (!parallel) {

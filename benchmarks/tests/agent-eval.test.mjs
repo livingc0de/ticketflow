@@ -280,19 +280,27 @@ function sandbox() {
     }
     return { bin, tmp, run, workdirs: () => readdirSync(tmp) }
 }
+function ticketflowSource() {
+    const source = tempDir('src-')
+    for (const p of ['core', 'skills', 'practices']) if (existsSync(join(ROOT, p))) cpSync(join(ROOT, p), join(source, p), { recursive: true })
+    writeFileSync(join(source, 'VERSION'), '0.0.1\n')
+    writeFileSync(join(source, '.gitignore'), 'results/\n')
+    git(source, 'init', '-q', '-b', 'main'); git(source, 'remote', 'add', 'origin', 'https://github.com/livingc0de/ticketflow.git'); git(source, 'add', '-A'); git(source, 'commit', '-qm', 'src'); git(source, 'checkout', '--detach', '-q')
+    return { source, sha: git(source, 'rev-parse', 'HEAD') }
+}
 const sha = git(ROOT, 'rev-parse', 'HEAD')
 
 test('claude, ticketflow arm: installs TicketFlow like init does, runs the prompt, records every field', () => {
-    const { tmp, run } = sandbox(), out = join(tmp, 'rows.jsonl')
-    const r = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--ticketflow-sha', sha, '--effort', 'high', '--out', out], { FAKE_FIX: '1' })
+    const { tmp, run } = sandbox(), source = ticketflowSource(), out = join(tmp, 'rows.jsonl')
+    const r = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', source.source, '--ticketflow-sha', source.sha, '--effort', 'high', '--out', out], { FAKE_FIX: '1' })
     assert.equal(r.status, 0, r.stderr)
     const { row, calls } = r
     assert.equal(row.scenario, L1)
     assert.equal(row.agent, 'claude'); assert.equal(row.agent_version, '9.9.9 (Claude Code)'); assert.equal(row.model, 'fake-model'); assert.equal(row.arm, 'ticketflow')
     assert.equal(row.requested_effort, 'high')
-    assert.equal(row.ticketflow_sha, sha); assert.equal(row.eval_sha, sha)
+    assert.equal(row.ticketflow_sha, source.sha); assert.equal(row.eval_sha, sha)
     assert.match(row.eval_fingerprint, /^[0-9a-f]{64}$/); assert.equal(row.evaluation_mode, 'non-adversarial')
-    assert.equal(typeof row.ticketflow_dirty, 'boolean'); assert.equal(row.ticketflow_version, readFileSync(join(ROOT, 'VERSION'), 'utf8').trim())
+    assert.equal(typeof row.ticketflow_dirty, 'boolean'); assert.equal(row.ticketflow_version, '0.0.1')
     assert.deepEqual(row.check, { pass: true, why: row.check.why }); assert.match(row.check.why, /^PASS/)
     assert.deepEqual(row.diff, { added: 1, removed: 1, files: ['src/messages.js'] })   // the install is in the base commit, not in the diff
     assert.equal(row.deps_added, 0)
@@ -501,8 +509,8 @@ test('Codex keyring-only login needs approval and leaves original profile untouc
 })
 
 test('direct Codex eval requires danger approval, then uses danger-full-access and parses the result', () => {
-    const { run } = sandbox()
-    const codexArgs = ['L4', '--agent', 'codex', '--arm', 'ticketflow', '--ticketflow-sha', sha, '--model', 'gpt-test', '--effort', 'high']
+    const { run } = sandbox(), source = ticketflowSource()
+    const codexArgs = ['L4', '--agent', 'codex', '--arm', 'ticketflow', '--source', source.source, '--ticketflow-sha', source.sha, '--model', 'gpt-test', '--effort', 'high']
     const env = { FAKE_OUT: CODEX_OUT, FAKE_ANSWER: 'src/files.js:7 path traversal' }
     const blocked = run(codexArgs, env)
     assert.equal(blocked.status, 2, blocked.stderr)
@@ -534,12 +542,7 @@ test('claude answer comes from the result; unreadable output is recorded as null
 })
 
 test('--source installs another checkout (an older tag) and records its revision, not this one\'s', () => {
-    const { run } = sandbox(), src = tempDir('src-')
-    for (const p of ['core', 'skills', 'practices']) if (existsSync(join(ROOT, p))) cpSync(join(ROOT, p), join(src, p), { recursive: true })
-    writeFileSync(join(src, 'VERSION'), '0.0.1\n')
-    writeFileSync(join(src, '.gitignore'), 'results/\n')
-    git(src, 'init', '-q', '-b', 'main'); git(src, 'remote', 'add', 'origin', 'https://github.com/livingc0de/ticketflow.git'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'src'); git(src, 'checkout', '--detach', '-q')
-    const sourceSha = git(src, 'rev-parse', 'HEAD')
+    const { run } = sandbox(), { source: src, sha: sourceSha } = ticketflowSource()
     const r = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', src, '--ticketflow-sha', sourceSha], { FAKE_FIX: '1' })
     assert.equal(r.status, 0, r.stdout + r.stderr)
     assert.equal(r.row.ticketflow_sha, git(src, 'rev-parse', 'HEAD')); assert.equal(r.row.ticketflow_version, '0.0.1'); assert.equal(r.row.ticketflow_dirty, false); assert.equal(r.row.eval_sha, sha)

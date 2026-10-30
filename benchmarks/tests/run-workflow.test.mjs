@@ -196,9 +196,9 @@ test('TicketFlow workflow sources must be clean and reproducibly pinned',()=>wit
 test('process termination escalates an uncooperative child after a bounded grace period',async()=>{
   const child=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],{detached:process.platform!=='win32'});
   await once(child,'spawn');
-  await new Promise((resolve)=>setTimeout(resolve,100));
+  await new Promise((resolve)=>setTimeout(resolve,300));
   let escalated=false;
-  const clear=terminateProcess(child,{graceMs:50,onEscalate:()=>{escalated=true}});
+  const clear=terminateProcess(child,{graceMs:100,onEscalate:()=>{escalated=true}});
   await Promise.race([once(child,'close'),new Promise((_,reject)=>setTimeout(()=>reject(new Error('child did not terminate')),2000))]);
   clear();
   assert.equal(escalated,true);
@@ -209,9 +209,9 @@ test('process termination escalates after the leader exits while a descendant re
   const leader=`const {spawn}=require('node:child_process');spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:'inherit'});process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},1000)`;
   const child=spawn(process.execPath,['-e',leader],{detached:true});
   await once(child,'spawn');
-  await new Promise(resolve=>setTimeout(resolve,100));
+  await new Promise(resolve=>setTimeout(resolve,300));
   let escalated=false;
-  const clear=terminateProcess(child,{graceMs:50,onEscalate:()=>{escalated=true}});
+  const clear=terminateProcess(child,{graceMs:100,onEscalate:()=>{escalated=true}});
   try {
     await Promise.race([once(child,'close'),new Promise((_,reject)=>setTimeout(()=>reject(new Error('descendant kept the pipes open')),2000))]);
   } finally {
@@ -221,7 +221,13 @@ test('process termination escalates after the leader exits while a descendant re
   assert.equal(escalated,true);
 });
 test('runProcess waits for bounded escalation instead of resolving on SIGTERM',async()=>{
-  const result=await runProcess(process.execPath,['-e',"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],{timeoutMs:50,graceMs:50});
+  const result=await runProcess(process.execPath,['-e',"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],{timeoutMs:200,graceMs:100});
   assert.equal(result.timedOut,true);
   assert.equal(result.signal,'SIGKILL');
+});
+test('runProcess records stdin stream errors without losing the child close result',async()=>{
+  if(process.platform==='win32')return;
+  const result=await runProcess('true',[],{input:'hello'.repeat(1024*1024)});
+  assert.equal(result.status,0);
+  assert.equal(result.error?.code,'EPIPE');
 });
