@@ -59,7 +59,7 @@ runner validates native plugin manifests and source provenance.
 
     node benchmarks/workflow-run.mjs --agent claude --model YOUR_MODEL \
       --owner YOUR_DISPOSABLE_ORG \
-      --arms bare,after,superpowers,ponytail \
+      --arms bare,ticketflow,superpowers,ponytail \
       --superpowers-source ../superpowers --ponytail-source ../ponytail \
       --scenarios W1,W2,W3,W4,W5 --repeats 3 \
       --out benchmarks/results/workflow-claude.jsonl
@@ -69,7 +69,7 @@ the created GitHub resources and transcripts, and then expand the matrix.
 Execute only after inspecting the printed plan:
 
     node benchmarks/workflow-run.mjs --agent claude --model YOUR_MODEL \
-      --owner YOUR_DISPOSABLE_ORG --arms bare,after \
+      --owner YOUR_DISPOSABLE_ORG --arms bare,ticketflow \
       --scenarios W1 --repeats 1 --max-sessions 2 \
       --out benchmarks/results/workflow-pilot.jsonl \
       --allow-github-writes --execute
