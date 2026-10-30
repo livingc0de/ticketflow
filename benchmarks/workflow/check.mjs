@@ -32,27 +32,31 @@ function testsPassed(dir,hidden) {
   const result=spawnSync(process.execPath,[file],{cwd:dir,encoding:'utf8',timeout:60000,env:{PATH:process.env.PATH,HOME:process.env.HOME}});
   return {pass:result.status===0,why:(result.stderr||'').trim().slice(0,450)};
 }
-function checkRun(repo,sha) {
+function checkRun(repo,sha,mergedAt) {
   if(!sha) return {pass:false,reason:'no PR head'};
   const checks=api('repos/'+repo+'/commits/'+sha+'/check-runs?per_page=100').check_runs ?? [];
   // The shared fixture supplies the same neutral "bench / tests" workflow to all arms.
   const x=checks.filter(c=>c.name==='tests' && c.app?.slug==='github-actions');
-  return {pass:x.some(c=>c.status==='completed' && c.conclusion==='success'),
+  return {pass:x.some(c=>c.status==='completed' && c.conclusion==='success' &&
+      c.completed_at && Date.parse(c.completed_at)<=Date.parse(mergedAt)),
     reason:x.length ? x.map(c=>c.conclusion ?? c.status).join(',') : 'missing GitHub Actions tests check'};
 }
 function reviewEvidence(repo,pr) {
   const reviews=api('repos/'+repo+'/pulls/'+pr.number+'/reviews?per_page=100');
   const commit=api('repos/'+repo+'/commits/'+pr.headRefOid);
   const headTime=Date.parse(commit.commit?.committer?.date??'');
+  const mergeTime=Date.parse(pr.mergedAt);
   const current=reviews.filter(r=>r.commit_id===pr.headRefOid &&
     ['COMMENTED','APPROVED','CHANGES_REQUESTED'].includes(r.state) &&
+    r.submitted_at && Date.parse(r.submitted_at)<=mergeTime &&
     (r.body??'').trim().length>=25);
   const comments=api('repos/'+repo+'/issues/'+pr.number+'/comments?per_page=100');
-  const recorded=comments.some(c=>Date.parse(c.created_at)>=headTime &&
+  const recorded=comments.some(c=>Date.parse(c.created_at)>=headTime && Date.parse(c.created_at)<=mergeTime &&
     /\b(review|finding|code quality|no blockers)\b/i.test(c.body??'') && (c.body??'').length>=80);
   const threads=api('repos/'+repo+'/pulls/'+pr.number+'/comments?per_page=100');
   const unresolved=reviews.some(r=>r.state==='CHANGES_REQUESTED' && r.commit_id===pr.headRefOid);
-  return {observed:current.length>0 || recorded || threads.some(c=>c.commit_id===pr.headRefOid && (c.body??'').length>=25),
+  return {observed:current.length>0 || recorded || threads.some(c=>c.commit_id===pr.headRefOid &&
+      Date.parse(c.created_at)<=mergeTime && (c.body??'').length>=25),
     unresolved,review_count:current.length,notes:recorded};
 }
 function linked(issueNumbers,prs) {
@@ -73,7 +77,7 @@ export function scoreDelivery({repo,id,issues,interrupted=false}) {
   finally {rmSync(work,{force:true,recursive:true});}
   if(done.length) {
     const x=done.at(-1);
-    try {ci=checkRun(repo,x.headRefOid);review=reviewEvidence(repo,x);}
+    try {ci=checkRun(repo,x.headRefOid,x.mergedAt);review=reviewEvidence(repo,x);}
     catch(e){err=(err?err+'; ':'')+e.message;}
   }
   const limit=id==='W3'?3:1;
