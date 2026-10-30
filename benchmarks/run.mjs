@@ -9,6 +9,7 @@ import { resolve, join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { evaluatorFingerprint, resolveScenario, validatePluginSource } from './lib/integrity.mjs'
+import { selectProfileMode } from './lib/profile-auth.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url)), ROOT = resolve(HERE, '..')
 const usage = 'usage: node benchmarks/run.mjs --agent claude|codex --model NAME [--arms before,after,bare,superpowers,ponytail] [--scenarios L1,L2] [--repeats 3] [--before-source DIR] [--after-source DIR] [--superpowers-source DIR] [--ponytail-source DIR] [--out results.jsonl] [--max-sessions N] [--resume] [--execute]'
@@ -86,11 +87,16 @@ try {
     } else {
         if (!out) throw Error('--execute requires --out to retain every run, including failures')
         if (pending.length > maximum) throw Error(pending.length + ' paid sessions exceeds --max-sessions ' + maximum + ': raise it explicitly')
+        // The parent confirms once; child processes receive the chosen mode without re-prompting.
+        const profileMode = pending.length ? selectProfileMode(v.agent, arms, { count: pending.length }) : null
+        if (v.resume && profileMode && recordedRows.some((r) => r.agent === v.agent && r.requested_model === v.model &&
+            r.eval_fingerprint === evalFingerprint && r.profile_isolation !== profileMode))
+            throw Error('--resume cannot mix isolated and unisolated sessions (or legacy rows without this metadata); use a separate --out file')
         for (const [i, x] of pending.entries()) {
             const arm = x.arm === 'before' || x.arm === 'after' ? 'ticketflow' : x.arm
             const args = [join(HERE, 'agent-eval.mjs'), x.scenario, '--agent', v.agent, '--arm', arm,
                 '--model', v.model, '--rep', String(x.rep), '--label', x.arm, '--out', out,
-                ...(x.source ? ['--source', x.source] : [])]
+                ...(x.source ? ['--source', x.source] : []), ...(profileMode === 'unisolated' ? ['--profile-mode', 'unisolated'] : [])]
             console.log('SESSION ' + (i + 1) + '/' + pending.length + ' ' + x.scenario + ' ' + x.arm + ' rep=' + x.rep)
             const run = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 35 * 60_000 })
             if (run.stdout) process.stdout.write(run.stdout)
