@@ -42,6 +42,22 @@ function codexAuthMode() {
 
 export const approvalIsYes = (answer) => /^y(?:es)?$/i.test(answer.trim())
 
+/** Explicit approval for the Codex benchmark's unrestricted sandbox. */
+export function approveDangerFullAccess({ alreadyApproved = false, count = 1 } = {}) {
+    process.stderr.write('NOTICE: Codex benchmark sessions use --sandbox danger-full-access. Run this on a disposable machine; this is not an OS security boundary.\n')
+    if (alreadyApproved) return
+    if (!process.stdin.isTTY) throw new Error('Codex danger-full-access requires an interactive approval or --allow-danger-full-access. No paid session started.')
+    process.stderr.write('Proceed with Codex --sandbox danger-full-access for ' + count + ' paid session(s)? [y/N] ')
+    const input = [], byte = Buffer.alloc(1)
+    while (input.length < 16) {
+        const n = readSync(process.stdin.fd, byte, 0, 1, null)
+        if (!n || byte[0] === 10 || byte[0] === 13) break
+        input.push(String.fromCharCode(byte[0]))
+    }
+    process.stderr.write('\n')
+    if (!approvalIsYes(input.join(''))) throw new Error('Codex danger-full-access run declined. No paid session started.')
+}
+
 /** One explicit approval; fail closed when no terminal is attached or the user declines. */
 function confirmUnisolated(agent, count, arms) {
     if (!process.stdin.isTTY) throw new Error(agent + ' uses a non-portable login. ' +

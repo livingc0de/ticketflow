@@ -4,12 +4,12 @@
  * No npm dependencies and no GitHub credentials required. See benchmarks/README.md before execution.
  */
 import { spawn, spawnSync, execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, readSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { resolve, join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { evaluatorFingerprint, resolveScenario, validatePluginSource } from './lib/integrity.mjs'
-import { selectProfileMode } from './lib/profile-auth.mjs'
+import { approveDangerFullAccess, selectProfileMode } from './lib/profile-auth.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url)), ROOT = resolve(HERE, '..')
 const SESSION_TIMEOUT_MS = 35 * 60_000
@@ -150,21 +150,7 @@ async function main() {
         if (!remaining) return
         for (const agent of agents) if (!cliVersions.has(agent)) cliVersions.set(agent, cliVersion(agent))
 
-        if (agents.includes('codex') && pending.get('codex').length) {
-            console.error('NOTICE: Codex benchmark sessions use --sandbox danger-full-access. Run this on a disposable machine; this is not an OS security boundary.')
-            if (!v['allow-danger-full-access']) {
-                if (!process.stdin.isTTY) throw Error('Codex danger-full-access requires an interactive approval or --allow-danger-full-access. No paid session started.')
-                process.stderr.write('Proceed with Codex --sandbox danger-full-access for ' + pending.get('codex').length + ' paid session(s)? [y/N] ')
-                const input = [], byte = Buffer.alloc(1)
-                while (input.length < 16) {
-                    const n = readSync(process.stdin.fd, byte, 0, 1, null)
-                    if (!n || byte[0] === 10 || byte[0] === 13) break
-                    input.push(String.fromCharCode(byte[0]))
-                }
-                process.stderr.write('\n')
-                if (!/^y(?:es)?$/i.test(input.join('').trim())) throw Error('Codex danger-full-access run declined. No paid session started.')
-            }
-        }
+        if (agents.includes('codex') && pending.get('codex').length) approveDangerFullAccess({ alreadyApproved: v['allow-danger-full-access'], count: pending.get('codex').length })
         const profileModes = new Map()
         for (const agent of agents) {
             if (!pending.get(agent).length) continue
@@ -180,7 +166,8 @@ async function main() {
             return [join(HERE, 'agent-eval.mjs'), x.scenario, '--agent', agent, '--arm', arm,
                 '--model', models[agent], ...(v.effort ? ['--effort', v.effort] : []), '--rep', String(x.rep), '--label', x.arm, '--out', output[agent],
                 '--eval-fingerprint', evalFingerprint, ...(x.source ? ['--source', x.source] : []),
-                ...(profileModes.get(agent) === 'unisolated' ? ['--profile-mode', 'unisolated'] : [])]
+                ...(profileModes.get(agent) === 'unisolated' ? ['--profile-mode', 'unisolated'] : []),
+                ...(agent === 'codex' ? ['--allow-danger-full-access'] : [])]
         }
         const runOne = (agent) => {
             const list = pending.get(agent)

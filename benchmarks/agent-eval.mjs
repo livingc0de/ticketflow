@@ -3,7 +3,7 @@
  * Maintainer tool, never shipped to installed repos: runs one eval scenario (benchmarks/scenarios/<id>) with a real agent CLI in a fresh
  * temp git repo and appends one JSON row (benchmarks/SCENARIOS.md). It starts a PAID agent session; nothing here runs in CI.
  *
- * Usage: agent-eval.mjs <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--rep n] [--label name] [--out file.jsonl] [--eval-fingerprint sha256]
+ * Usage: agent-eval.mjs <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--rep n] [--label name] [--out file.jsonl] [--eval-fingerprint sha256] [--allow-danger-full-access]
  *   <scenario> is a directory name or its prefix (L1). The ticketflow arm installs a TicketFlow checkout (--source, default this one; an
  *   older tag's worktree compares revisions) the way `init` does (runtime, gen-stubs, render); the bare arm installs nothing. The scenario's hidden check.mjs runs on the result; the row is printed and appended to --out.
  * Exit: 0 = the hidden check passed, 1 = it failed (the row is still recorded), 2 = usage, unknown scenario or missing CLI, before any run.
@@ -17,11 +17,11 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { main } from '../core/lib/cli.mjs'
 import { evaluatorFingerprint, resolveScenario, validatePluginSource } from './lib/integrity.mjs'
-import { selectProfileMode } from './lib/profile-auth.mjs'
+import { approveDangerFullAccess, selectProfileMode } from './lib/profile-auth.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SCENARIOS = join(ROOT, 'benchmarks/scenarios')
-const usage = 'usage: agent-eval <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--rep n] [--out file.jsonl] [--eval-fingerprint sha256]'
+const usage = 'usage: agent-eval <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--rep n] [--out file.jsonl] [--eval-fingerprint sha256] [--allow-danger-full-access]'
 const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
 const TOOLS = 'Read,Edit,Write,Glob,Grep,Bash(node *),Bash(npm *),Bash(git status *),Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git add *),Bash(git commit *)'
 const AGENT_TIMEOUT_MS = 30 * 60 * 1000   // shortcut: one fixed 30-minute ceiling so a hung paid session cannot run forever (a timeout is recorded as agent_exit null), add a --timeout option when a scenario needs longer
@@ -161,7 +161,7 @@ function report(agent, out, answerFile, model) {
 }
 
 main('agent-eval', () => {
-    const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, effort: { type: 'string' }, source: { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' }, 'profile-mode': { type: 'string' }, 'eval-fingerprint': { type: 'string' } }, allowPositionals: true })
+    const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, effort: { type: 'string' }, source: { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' }, 'profile-mode': { type: 'string' }, 'eval-fingerprint': { type: 'string' }, 'allow-danger-full-access': { type: 'boolean' } }, allowPositionals: true })
     if (positionals.length !== 1 || !['claude', 'codex'].includes(v.agent) || !['ticketflow', 'bare', 'superpowers', 'ponytail'].includes(v.arm) || (v.effort !== undefined && !EFFORTS.has(v.effort)) || (v.rep !== undefined && (!/^[1-9]\d*$/.test(v.rep) || !Number.isSafeInteger(+v.rep))) || (v.label !== undefined && !/^[a-z][a-z0-9-]{0,30}$/.test(v.label)) || (v['profile-mode'] !== undefined && v['profile-mode'] !== 'unisolated') || (v['eval-fingerprint'] !== undefined && !/^[0-9a-f]{64}$/i.test(v['eval-fingerprint']))) throw new Error(usage)
     const id = resolveScenario(SCENARIOS, positionals[0])
     const external = v.arm === 'superpowers' || v.arm === 'ponytail'
@@ -178,6 +178,7 @@ main('agent-eval', () => {
     const profileMode = selectProfileMode(v.agent, [v.arm], { alreadyApproved: v['profile-mode'] === 'unisolated' })
     if (v['profile-mode'] === 'unisolated' && profileMode !== 'unisolated')
         throw new Error('Requested unisolated mode no longer matches the available authentication; restart the benchmark runner.')
+    if (v.agent === 'codex') approveDangerFullAccess({ alreadyApproved: v['allow-danger-full-access'] })
 
     const sdir = join(SCENARIOS, id), work = mkdtempSync(join(tmpdir(), 'agent-eval-')), evalFingerprint = v['eval-fingerprint'] ?? evaluatorFingerprint(ROOT, outFile ? [outFile] : [])
     const { dir, base } = workspace(sdir, v.agent, v.arm, work, src)
