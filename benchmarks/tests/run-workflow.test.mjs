@@ -8,6 +8,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {runProcess,signalProcess,terminateProcess} from '../lib/process.mjs';
+import {makeProfile} from '../workflow/profile.mjs';
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const runner=fileURLToPath(new URL('../run-workflow.mjs',import.meta.url));
@@ -40,6 +41,18 @@ const pluginSource=(dir,arm='ponytail')=>{
 };
 const args=(file,selected='W1',repeats='1',arms='bare')=>[runner,'--agent','claude','--model','benchmark-test-model',
   '--owner','example-benchmark-org','--arms',arms,'--scenarios',selected,'--repeats',repeats,'--out',file];
+test('unisolated Claude workflow profiles preserve the approved config directory',()=>withTemp(dir=>{
+  const previousConfig=process.env.CLAUDE_CONFIG_DIR,previousToken=process.env.WORKFLOW_BENCH_AGENT_TOKEN;
+  process.env.CLAUDE_CONFIG_DIR=join(dir,'approved-claude');
+  process.env.WORKFLOW_BENCH_AGENT_TOKEN='test-only';
+  try {
+    const profile=makeProfile('claude','bare',dir,null,'unisolated');
+    assert.equal(profile.env.CLAUDE_CONFIG_DIR,process.env.CLAUDE_CONFIG_DIR);
+  } finally {
+    if(previousConfig===undefined)delete process.env.CLAUDE_CONFIG_DIR;else process.env.CLAUDE_CONFIG_DIR=previousConfig;
+    if(previousToken===undefined)delete process.env.WORKFLOW_BENCH_AGENT_TOKEN;else process.env.WORKFLOW_BENCH_AGENT_TOKEN=previousToken;
+  }
+}));
 test('workflow dry-run makes no remote resources, result files or paid CLI calls',()=>withTemp(dir=>{
   const file=join(dir,'runs.jsonl');
   const result=spawnSync(process.execPath,args(file),{cwd:root,encoding:'utf8',env,timeout:30000});

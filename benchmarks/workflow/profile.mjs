@@ -79,6 +79,10 @@ export function makeProfile(agent,arm,work,source,mode) {
       for(const key of ['ANTHROPIC_API_KEY','CLAUDE_CODE_OAUTH_TOKEN']) if(process.env[key]) env[key]=process.env[key];
       if(!env.ANTHROPIC_API_KEY && !env.CLAUDE_CODE_OAUTH_TOKEN)
         authFile(join(resolve(process.env.CLAUDE_CONFIG_DIR||join(homedir(),'.claude')),'.credentials.json'),join(dir,'.credentials.json'));
+    } else if(process.env.CLAUDE_CONFIG_DIR) {
+      // Unisolated Claude runs were explicitly approved against this profile;
+      // preserve it so the paid invocation uses the login that was checked.
+      env.CLAUDE_CONFIG_DIR=process.env.CLAUDE_CONFIG_DIR;
     }
     return {env,pluginArgs:arm==='superpowers'||arm==='ponytail'?['--plugin-dir',source]:[],cleanup:()=>{}};
   }
