@@ -27,6 +27,13 @@ const all=(repo,endpoint)=>{ // All pages or fail, rather than silently scoring 
 export const pulls=(repo)=>ghjson(['pr','list','-R',repo,'--state','all',
   '--json','number,headRefOid,mergedAt,body,headRefName,createdAt','--limit','100']);
 export const checkpoint=(repo)=>pulls(repo).some(p=>!p.mergedAt);
+/** A W5 checkpoint must contain product changes pushed remotely, not just a named branch.
+ * This is a trigger, not proof that the subsequent agent reused the work. */
+export function meaningfulCheckpoint({branches=[],prs=[],compares={}}={}) {
+  if(prs.some(p=>p.mergedAt))return false;
+  return branches.some(b=>b.name!=='main' && compares[b.name]?.ahead_by>0 &&
+    compares[b.name]?.files?.some(f=>/^(?:src|test)\//.test(f.filename)));
+}
 const textLinks=(n,body)=>new RegExp('(?:#|issues/)'+n+'(?!\\d)').test(body);
 const isMerged=(p)=>Boolean(p.mergedAt);
 const relevant=(name)=>/(?:^|\/)(?:plans?|design|decisions|docs\/architecture)\/.*\.md$/i.test(name);
@@ -117,7 +124,7 @@ function localTests(dir){
  * No framework-specific status, label, artifact path, agent count or command is required.
  */
 export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],reviews=[],plans=[],interrupted=false,
-  initialPR=null,initialHead=null,baselineProjects=[],hidden=false,repoTests=false}){
+  initialPR=null,initialHead=null,baselineProjects=[],hidden=false,repoTests=false,resumed=false}){
   if(!scenarios[id])throw Error('unknown workflow scenario '+id);
   const merged=prs.filter(isMerged);
   const linked=issues.filter(i=>merged.some(p=>textLinks(i.number,p.body??'')));
@@ -203,7 +210,7 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
   const steps={correctness:!!hidden,repository_tests:!!repoTests,
     merged:merged.length>0,latest_head_ci:safeCI,review_evidence:reviewObserved,
     issue_tracking:tracking,pr_deduplication:!duplicate,failed_pr_corrected:w4Fixed,
-    interruption_recovery:id!=='W5'||interrupted};
+    interruption_recovery:id!=='W5'||(interrupted&&resumed)};
   const functional=steps.correctness&&steps.repository_tests;
   const delivery=steps.merged&&steps.latest_head_ci&&steps.pr_deduplication&&steps.failed_pr_corrected;
   const pipeline=functional&&delivery&&steps.review_evidence&&steps.issue_tracking&&steps.interruption_recovery;
@@ -217,7 +224,7 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
     dependency_edges:dependencyEdges,invalid_dependency_references:invalidDependencies,dependency_cycle:dependencyCycle};
   return {pass:pipeline,functionality:functional,delivery,pipeline,steps,process};
 }
-export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,initialPR=null,initialHead=null,baselineProjects=[]}){
+export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,resumed=false,initialPR=null,initialHead=null,baselineProjects=[]}){
   const sc=scenarios[id],prs=pulls(repo),work=mkdtempSync(join(tmpdir(),'workflow-verify-'));
   let hidden={pass:false,reason:'unverified'},suite={pass:false,reason:'unverified'},error=null;
   try {
@@ -237,7 +244,7 @@ export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,ini
     }catch(e){error=(error?error+'; ':'')+e.message}
   }
   const result=evaluateEvidence({id,seededIssues,issues:issueRows,prs,checks,reviews,plans,
-    interrupted,initialPR,initialHead,baselineProjects,hidden:hidden.pass,repoTests:suite.pass});
+    interrupted,resumed,initialPR,initialHead,baselineProjects,hidden:hidden.pass,repoTests:suite.pass});
   return {...result,merged_prs:merged.map(p=>p.number),ci:checks,hidden_reason:hidden.reason,
     repo_test_reason:suite.reason,error};
 }
