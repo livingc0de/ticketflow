@@ -156,15 +156,18 @@ test('incomplete benchmark-only plugin cleanup is flagged and blocks publication
     assert.match(rejected.stderr, /publication refuses incomplete plugin cleanup/)
 })
 
-test('unknown external plugin bootstrap is visible in preview and blocks publication', () => {
+test('unknown external plugin loading is visible in preview and blocks publication', () => {
     const unknown = row({ arm:'ponytail', variant:'ponytail', plugin_sha:'b'.repeat(40), plugin_bootstrap:{ status:'unknown' } })
     const preview = run([unknown])
     assert.equal(preview.status, 0, preview.stderr)
-    assert.match(preview.markdown, /Plugin bootstrap is unknown or failed/)
+    assert.match(preview.markdown, /Plugin loading is unknown or failed/)
     const rejected = publish([unknown])
     assert.equal(rejected.status, 2)
-    assert.match(rejected.stderr, /without verified plugin bootstrap evidence/)
+    assert.match(rejected.stderr, /without loaded or verified plugin loading evidence/)
 
     const verified = publish([row({ arm:'ponytail', variant:'ponytail', plugin_sha:'b'.repeat(40), plugin_bootstrap:{ status:'verified' } })])
     assert.equal(verified.status, 0, verified.stderr)
+
+    const loaded = publish([row({ arm:'ponytail', variant:'ponytail', plugin_sha:'b'.repeat(40), plugin_bootstrap:{ status:'loaded', evidence:'claude-plugin-dir' } })])
+    assert.equal(loaded.status, 0, loaded.stderr)
 })

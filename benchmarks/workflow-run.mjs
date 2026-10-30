@@ -19,7 +19,7 @@ import { terminateProcess } from './lib/process.mjs';
 const HERE=dirname(fileURLToPath(import.meta.url)),ROOT=resolve(HERE,'..');
 const ARMS=new Set(['bare','ticketflow','superpowers','ponytail']);
 const EFFORTS=new Set(['low','medium','high','xhigh','max']);
-const help='workflow-run --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5,W6,W7] [--repeats 3] [--effort high] [--superpowers-source DIR --superpowers-sha SHA] [--ponytail-source DIR --ponytail-sha SHA] [--ticketflow-source DIR --ticketflow-sha SHA] [--resume] [--execute --allow-github-writes] [--allow-danger-full-access] [--allow-unverified-plugin]';
+const help='workflow-run --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5,W6,W7] [--repeats 3] [--effort high] [--superpowers-source DIR --superpowers-sha SHA] [--ponytail-source DIR --ponytail-sha SHA] [--ticketflow-source DIR --ticketflow-sha SHA] [--resume] [--execute --allow-github-writes] [--allow-danger-full-access]';
 const readJson=(file)=>JSON.parse(readFileSync(file,'utf8'));
 const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
 const idFor=(p,agent,model,effort,sourceShas,sourceMeta,fingerprint)=>JSON.stringify({p,agent,model,effort,sourceShas,sourceMeta,fingerprint});
@@ -37,7 +37,7 @@ function parse() {
     repeats:{type:'string'},effort:{type:'string'},'max-sessions':{type:'string'},'ticketflow-source':{type:'string'},
     'superpowers-source':{type:'string'},'ponytail-source':{type:'string'},'ticketflow-sha':{type:'string'},
     'superpowers-sha':{type:'string'},'ponytail-sha':{type:'string'},'allow-github-writes':{type:'boolean'},
-    'allow-danger-full-access':{type:'boolean'},'allow-unverified-plugin':{type:'boolean'},execute:{type:'boolean'},resume:{type:'boolean'},
+    'allow-danger-full-access':{type:'boolean'},execute:{type:'boolean'},resume:{type:'boolean'},
   }});
   if(!['claude','codex'].includes(v.agent)||!v.model?.trim()||!v.owner?.trim()||!v.out?.trim()) throw Error(help);
   const arms=(v.arms??'bare,ticketflow,superpowers,ponytail').split(',');
@@ -68,6 +68,10 @@ function cliVersion(agent) {
   const r=spawnSync(agent,['--version'],{encoding:'utf8',timeout:12000});
   if(r.status!==0||!r.stdout?.trim()) throw Error(agent+' CLI/version unavailable');
   return r.stdout.trim();
+}
+function requireClaudePluginDir() {
+  const r=spawnSync('claude',['--help'],{encoding:'utf8',timeout:12000});
+  if(r.status!==0||!r.stdout?.includes('--plugin-dir')) throw Error('Claude CLI does not advertise --plugin-dir; cannot load competitor natively');
 }
 function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs=35*60_000,interrupt=null,archiveRoot=null,archiveMeta={}}) {
   return new Promise((done,reject)=>{
@@ -108,9 +112,8 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
       const answer=agent==='claude'?(result?.result??''):(()=>{try{return readFileSync(outfile,'utf8')}catch{return ''}})();
       if(agent==='claude')writeFileSync(outfile,answer,{mode:0o600});
       const external=['superpowers','ponytail'].includes(arm);
-      const marker='TICKETFLOW_BENCH_PLUGIN_BOOTSTRAP='+arm;
-      const markerSeen=stderr.split(/\r?\n/).includes(marker);
-      const plugin_bootstrap=external?{status:code===0&&profile.nativePluginEvidence?'verified':code===0?'unknown':'failed',evidence:profile.nativePluginEvidence??(markerSeen?'agent-cli-stderr-marker-untrusted':'native-plugin-activation-unobserved')}:null;
+      const evidence=profile.nativePluginEvidence??(agent==='claude'&&external?'claude-plugin-dir':null);
+      const plugin_bootstrap=external?{status:code===0&&evidence?(agent==='claude'?'loaded':'verified'):'failed',evidence:evidence??'native-plugin-loading-failed'}:null;
       let archive=null,archive_error=null;
       if(archiveRoot){
         try{archive=archiveSession({root:archiveRoot,sessionId:transcriptSessionId('workflow',archiveMeta),agentOut:path,answerFile:outfile,
@@ -246,8 +249,9 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     delivery:result,invocations:parts,interrupted,agent_exit:parts.at(-1).exit,result_row_id:rowId,
     source_provenance:opts.sourceMeta[x.arm]??null,transcript_archives:parts.map(p=>p.archive).filter(Boolean),
     plugin_bootstrap:parts.some(p=>p.plugin_bootstrap?.status==='failed')?{status:'failed',evidence:'one-or-more-invocations-failed'}:
-      parts.length>0&&parts.every(p=>p.plugin_bootstrap?.status==='verified')?{status:'verified',evidence:'all-native-plugin-list-enabled'}:
-      parts.some(p=>p.plugin_bootstrap)?{status:'unknown',evidence:'native-plugin-activation-unobserved'}:null,
+      parts.length>0&&parts.every(p=>p.plugin_bootstrap?.status==='loaded')?{status:'loaded',evidence:'all-claude-plugin-dir-loads'}:
+      parts.length>0&&parts.every(p=>p.plugin_bootstrap?.status==='verified')?{status:'verified',evidence:'all-codex-plugin-list-loads'}:
+      parts.some(p=>p.plugin_bootstrap)?{status:'unknown',evidence:'native-plugin-loading-unobserved'}:null,
     ...metrics,workdir:work,repo,date:new Date().toISOString(),descendants:'unknown'
   };
   appendFileSync(out,JSON.stringify(row)+'\n',{mode:0o600});
@@ -257,8 +261,6 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
 }
 async function main() {
   const opts=parse(),{v,arms,selected,repeats,max,out,statePath,sourceShas,sourceMeta}=opts;
-  if(v.execute&&v.agent==='claude'&&arms.some(arm=>arm==='superpowers'||arm==='ponytail')&&!v['allow-unverified-plugin'])
-    throw Error('Claude external plugin arms require --allow-unverified-plugin until Claude exposes native plugin-owned activation evidence');
   const evalFingerprint=fingerprint();
   const plan=[];
   for(let rep=1;rep<=repeats;rep++)for(const [i,id] of selected.entries()){
@@ -281,7 +283,9 @@ async function main() {
   const invocationCeiling=pending.reduce((n,p)=>n+(p.id==='W5'?2:1),0);
   if(invocationCeiling>max)throw Error(invocationCeiling+' possible paid invocations exceeds --max-sessions '+max+' (W5 can require two invocations)');
   if(!process.env.WORKFLOW_BENCH_SETUP_TOKEN||!process.env.WORKFLOW_BENCH_AGENT_TOKEN)throw Error('Use dedicated WORKFLOW_BENCH_SETUP_TOKEN and WORKFLOW_BENCH_AGENT_TOKEN in a disposable GitHub organization');
-  validateOrg(v.owner);const version=cliVersion(v.agent);
+  const version=cliVersion(v.agent);
+  if(v.agent==='claude'&&arms.some(arm=>arm==='superpowers'||arm==='ponytail'))requireClaudePluginDir();
+  validateOrg(v.owner);
   if(rows.some(r=>r.agent_version!==version||r.eval_fingerprint!==evalFingerprint))throw Error('CLI or evaluator version changed; cannot resume');
   if(v.agent==='codex')approveDangerFullAccess({alreadyApproved:v['allow-danger-full-access'],count:pending.reduce((n,p)=>n+(p.id==='W5'?2:1),0)});
   const mode=selectProfileMode(v.agent,arms,{count:invocationCeiling});

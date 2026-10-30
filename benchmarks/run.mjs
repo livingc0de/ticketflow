@@ -14,7 +14,7 @@ import { runProcess } from './lib/process.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url)), ROOT = resolve(HERE, '..')
 const SESSION_TIMEOUT_MS = 35 * 60_000
-const usage = 'usage: node benchmarks/run.mjs --agent claude|codex --model NAME [--effort low|medium|high|xhigh|max] [--arms before,after,bare,superpowers,ponytail] [--scenarios L1,L2] [--repeats 3] [--before-source DIR] [--after-source DIR] [--superpowers-source DIR] [--ponytail-source DIR] [--out results.jsonl] [--max-sessions N] [--resume] [--execute] [--allow-danger-full-access] [--allow-unverified-plugin]\n   or: node benchmarks/run.mjs --parallel --claude-model NAME --codex-model NAME --claude-out FILE --codex-out FILE [common options]'
+const usage = 'usage: node benchmarks/run.mjs --agent claude|codex --model NAME [--effort low|medium|high|xhigh|max] [--arms before,after,bare,superpowers,ponytail] [--scenarios L1,L2] [--repeats 3] [--before-source DIR] [--after-source DIR] [--superpowers-source DIR] [--ponytail-source DIR] [--out results.jsonl] [--max-sessions N] [--resume] [--execute] [--allow-danger-full-access]\n   or: node benchmarks/run.mjs --parallel --claude-model NAME --codex-model NAME --claude-out FILE --codex-out FILE [common options]'
 const validArms = new Set(['before', 'after', 'bare', 'superpowers', 'ponytail'])
 const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
 const fail = (m) => { console.error('benchmarks: ' + m); process.exitCode = 2 }
@@ -49,7 +49,7 @@ async function main() {
             repeats: { type: 'string' }, 'before-source': { type: 'string' }, 'after-source': { type: 'string' },
             'superpowers-source': { type: 'string' }, 'ponytail-source': { type: 'string' },
             out: { type: 'string' }, 'max-sessions': { type: 'string' }, resume: { type: 'boolean' }, execute: { type: 'boolean' },
-            parallel: { type: 'boolean' }, 'allow-danger-full-access': { type: 'boolean' }, 'allow-unverified-plugin': { type: 'boolean' }, 'claude-model': { type: 'string' }, 'codex-model': { type: 'string' },
+            parallel: { type: 'boolean' }, 'allow-danger-full-access': { type: 'boolean' }, 'claude-model': { type: 'string' }, 'codex-model': { type: 'string' },
             'claude-out': { type: 'string' }, 'codex-out': { type: 'string' },
         }, allowPositionals: false }))
         const parallel = v.parallel === true
@@ -68,8 +68,6 @@ async function main() {
         if (!Number.isInteger(repeats) || !Number.isInteger(maximum) || !arms.length ||
             new Set(arms).size !== arms.length || arms.some((x) => !validArms.has(x)) ||
             new Set(scenarios).size !== scenarios.length || scenarios.some((x) => !/^L\d+$/.test(x))) throw Error(usage)
-        if (v.execute && (parallel || v.agent === 'claude') && arms.some((arm) => arm === 'superpowers' || arm === 'ponytail') && !v['allow-unverified-plugin'])
-            throw Error('Claude external plugin arms require --allow-unverified-plugin until Claude exposes native plugin-owned activation evidence')
         const available = new Map(), sourceMeta = new Map()
         for (const name of ['before', 'after', 'superpowers', 'ponytail']) {
             const path = v[name + '-source']
@@ -164,7 +162,6 @@ async function main() {
                 '--model', models[agent], ...(v.effort ? ['--effort', v.effort] : []), '--rep', String(x.rep), '--label', x.arm, '--out', output[agent],
                 '--eval-fingerprint', evalFingerprint, ...(x.source ? ['--source', x.source, ...sourceSha] : []),
                 ...(profileModes.get(agent) === 'unisolated' ? ['--profile-mode', 'unisolated'] : []),
-                ...(agent === 'claude' && (x.arm === 'superpowers' || x.arm === 'ponytail') && v['allow-unverified-plugin'] ? ['--allow-unverified-plugin'] : []),
                 ...(agent === 'codex' ? ['--allow-danger-full-access'] : [])]
         }
         const runOne = async (agent) => {

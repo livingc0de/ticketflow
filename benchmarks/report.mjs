@@ -32,6 +32,7 @@ const validEffort = (v) => v === null || ['low', 'medium', 'high', 'xhigh', 'max
 const validSandbox = (v) => ['not-applicable', 'danger-full-access'].includes(v)
 const revision = (v) => v === 'bare' ? 'bare' : isRevision(v) ? v.toLowerCase() : 'unknown'
 const pluginStatus = (r) => r.plugin_bootstrap?.status ?? (r.plugin_sha ? 'unknown' : null)
+const usablePluginStatus = (r) => ['loaded', 'verified'].includes(pluginStatus(r))
 const archiveRef = (r) => typeof r.transcript_archive === 'string' ? r.transcript_archive : r.transcript_archive?.directory
 const validArchive = (r) => typeof archiveRef(r) === 'string' && archiveRef(r).length > 0 &&
     (typeof r.transcript_archive === 'string' ||
@@ -77,7 +78,7 @@ function reportIssues(rows, groups, evaluations, configurations) {
     if (new Set(rows.map((r) => r.profile_isolation ?? 'unknown')).size > 1) issues.push('Mixed profile isolation modes: do not pool as a controlled comparison.')
     if (rows.some((r) => !r.sandbox_mode)) issues.push('Sandbox mode is missing for some sessions; do not claim a controlled permissions comparison.')
     if (new Set(rows.map((r) => r.sandbox_mode ?? 'unknown')).size > 1) issues.push('Mixed sandbox modes: do not pool as a controlled comparison.')
-    if (rows.some((r) => r.plugin_sha && pluginStatus(r) !== 'verified')) issues.push('Plugin bootstrap is unknown or failed for at least one external arm; inspect native-session evidence.')
+    if (rows.some((r) => r.plugin_sha && !usablePluginStatus(r))) issues.push('Plugin loading is unknown or failed for at least one external arm; inspect the native setup evidence.')
     if (rows.some((r) => !r.result_row_id || !validArchive(r))) issues.push('Transcript archive metadata is missing for at least one session.')
     if (rows.some((r) => r.evaluation_mode !== 'non-adversarial')) issues.push('Evaluation mode is missing or not explicitly non-adversarial.')
     if (rows.some((r) => r.cost_usd == null)) issues.push('Missing cost data: no total cost or cost per success is inferred for affected arms.')
@@ -112,7 +113,7 @@ function publicationErrors(rows, evaluations, issues) {
     if (rows.some((r) => r.repeat == null || !Number.isInteger(r.repeat) || r.repeat < 1)) errors.push('publication requires positive repetition identifiers')
     if (rows.some((r) => (r.ticketflow_sha || r.plugin_sha) && !isRevision(r.ticketflow_sha || r.plugin_sha))) errors.push('publication requires full hexadecimal source revisions')
     if (rows.some((r) => !r.result_row_id || !validArchive(r))) errors.push('publication requires transcript archive metadata for every session')
-    if (rows.some((r) => r.plugin_sha && pluginStatus(r) !== 'verified')) errors.push('publication refuses external sessions without verified plugin bootstrap evidence')
+    if (rows.some((r) => r.plugin_sha && !usablePluginStatus(r))) errors.push('publication refuses external sessions without loaded or verified plugin loading evidence')
     const structural = issues.filter((i) => /Duplicate scenario\/repeat|Incomplete repeat|Missing scenario\/repeat|Scenario\/repeat cell sets differ/.test(i))
     errors.push(...structural)
     if (issues.includes('Multiple agent versions/models: comparison is not controlled across them.')) errors.push('publication requires one consistent CLI version and requested/effective model configuration')
@@ -133,7 +134,7 @@ function render(rows, groups, evaluations, { published = false, date = null } = 
         'Requested effort: ' + [...new Set(rows.map((r) => safeText(r.requested_effort ?? 'default')))].join(', '), '',
         '> These are observed results, not simulated model outcomes. A green repository test suite does not prove agent performance.',
         '> Compare groups only when the agent, model, effort, permissions, scenario/repeat cells, evaluator revision and plugin bootstraps match.',
-        '> Native plugin activation is not verified from agent output; Codex uses native enabled-plugin evidence, while Claude external sessions require explicit unverified opt-in and cannot be published without stronger evidence.',
+        '> Claude plugin rows record the validated native --plugin-dir loading path as loaded; Codex rows use native enabled-plugin evidence as verified. This proves plugin availability to the session, not model use of a particular skill or hook.',
         '> This harness is explicitly non-adversarial: agents can potentially discover evaluator files through the unrestricted node/npm allowlist.', '']
 
     if (published) {
@@ -173,15 +174,15 @@ function render(rows, groups, evaluations, { published = false, date = null } = 
 
 function renderLimitations(lines, issues, published) {
     lines.push('', '## Interpretation and limitations', '')
-    if (!issues.length) lines.push('No additional metadata mismatches detected. Model effort, permission parity and real plugin activation still require an operator check.')
+    if (!issues.length) lines.push('No additional metadata mismatches detected. Model effort, permission parity and model use of plugin skills/hooks still require an operator check.')
     else for (const i of issues) lines.push('- ' + i)
     lines.push('', 'Pass rates use Wilson 95% ranges only as descriptive summaries; repeated paired task cells are not independent trials, so no inferential superiority claim is supported.',
         'Cost per success = all observed session costs (including failed runs) / successful tasks; it is unknown when any session cost is unavailable.',
-        'Plugin registration is not proof that skills or hooks activated in the agent; only the recorded native-session marker is positive. Descendant-agent attribution, manual intervention and effective effort may be unknown.',
+        'Plugin loading evidence proves the pinned plugin was made available to the agent session; it does not prove that the model invoked a particular skill or hook. Descendant-agent attribution, manual intervention and effective effort may be unknown.',
         'This benchmark is non-adversarial and is not a security sandbox; agents may discover evaluator files through the unrestricted node/npm allowlist. Codex rows use danger-full-access and therefore require a disposable machine.',
         'A benchmark is not a substitute for the separate GitHub merge-gate integration probes.', '')
     if (published) lines.push('## Reproduction', '',
-        'Run the deterministic reporter on a locally retained JSONL session file, after checking source revisions, model pins, plugin activation and sensitive paths:', '',
+        'Run the deterministic reporter on a locally retained JSONL session file, after checking source revisions, model pins, plugin loading and sensitive paths:', '',
         '    node benchmarks/report.mjs <recorded-runs.jsonl> --publish --label <slug>', '',
         'Only the resulting dated Markdown report should be considered for repository publication; raw session files stay local and ignored.', '')
 }

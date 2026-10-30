@@ -172,15 +172,10 @@ test('Codex can preview the complete five-arm matrix with native pinned plugin s
     assert.equal(r.stdout.split('\n').filter((x) => x.startsWith('PLAN ')).length, 10)
 })
 
-test('Claude external plugin arms require explicit opt-in before paid execution', () => {
-    const r = call(['--agent','claude','--model','claude-test','--arms','ponytail','--scenarios','L1','--repeats','1','--max-sessions','1','--execute'])
-    assert.equal(r.status, 2, r.stdout + r.stderr)
-    assert.match(r.stderr, /require --allow-unverified-plugin/)
-    assert.doesNotMatch(r.stdout, /SESSION /)
-
+test('Claude external plugin arms are included without a separate opt-in', () => {
     const ponytail = source(true, 'claude', 'ponytail')
     const preview = call(['--agent','claude','--model','claude-test','--arms','ponytail','--ponytail-source',ponytail,
-        '--scenarios','L1','--repeats','1','--max-sessions','1','--allow-unverified-plugin'])
+        '--scenarios','L1','--repeats','1','--max-sessions','1'])
     assert.equal(preview.status, 0, preview.stdout + preview.stderr)
     assert.match(preview.stdout, /DRY RUN \(free\)/)
     assert.match(preview.stdout, /PLAN L1 ponytail rep=1/)

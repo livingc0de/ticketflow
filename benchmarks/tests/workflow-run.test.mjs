@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn,spawnSync} from 'node:child_process';
 import {once} from 'node:events';
-import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,rmSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,rmSync,chmodSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -55,16 +55,28 @@ test('paid invocation without remote-write consent is rejected before token chec
   assert.ok(!existsSync(file));
   assert.ok(!existsSync(file+'.state.json'));
 }));
-test('Claude workflow plugin arms require explicit opt-in before remote work',()=>withTemp(dir=>{
+test('Claude workflow plugin arms reach the remote-write gate without a plugin opt-in',()=>withTemp(dir=>{
   const plugin=pluginSource(dir),file=join(dir,'runs.jsonl');
   const base=[runner,'--agent','claude','--model','benchmark-test-model','--owner','example-benchmark-org',
     '--arms','ponytail','--scenarios','W1','--repeats','1','--out',file,'--ponytail-source',plugin.source,'--execute'];
   let result=spawnSync(process.execPath,base,{cwd:root,encoding:'utf8',env,timeout:30000});
-  assert.equal(result.status,2,result.stderr);assert.match(result.stderr,/require --allow-unverified-plugin/);
-  assert.ok(!existsSync(file));assert.ok(!existsSync(file+'.state.json'));
-  result=spawnSync(process.execPath,[...base,'--allow-unverified-plugin'],{cwd:root,encoding:'utf8',env,timeout:30000});
   assert.equal(result.status,2,result.stderr);assert.match(result.stderr,/allow-github-writes/);
   assert.ok(!existsSync(file));assert.ok(!existsSync(file+'.state.json'));
+}));
+test('workflow Claude plugin preflight rejects a CLI without native plugin loading before GitHub setup',()=>withTemp(dir=>{
+  const plugin=pluginSource(dir),file=join(dir,'runs.jsonl'),bin=join(dir,'bin'),ghLog=join(dir,'gh.log');
+  mkdirSync(bin);
+  const claude=join(bin,'claude');
+  writeFileSync(claude,'#!/bin/sh\nif [ "$1" = "--version" ]; then echo fake-claude; exit 0; fi\necho --some-other-option\n');
+  writeFileSync(join(bin,'gh'),'#!/bin/sh\necho called >> "$GH_PREFLIGHT_LOG"\nexit 1\n');
+  chmodSync(claude,0o755);chmodSync(join(bin,'gh'),0o755);
+  const args=[runner,'--agent','claude','--model','benchmark-test-model','--owner','example-benchmark-org',
+    '--arms','ponytail','--scenarios','W1','--repeats','1','--out',file,'--ponytail-source',plugin.source,
+    '--execute','--allow-github-writes'];
+  const result=spawnSync(process.execPath,args,{cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,
+    WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token',GH_PREFLIGHT_LOG:ghLog},timeout:30000});
+  assert.equal(result.status,2,result.stderr);assert.match(result.stderr,/does not advertise --plugin-dir/);
+  assert.ok(!existsSync(file));assert.ok(!existsSync(file+'.state.json'));assert.ok(!existsSync(ghLog));
 }));
 test('wrapper runs workflow dry-run only without execute',()=>withTemp(dir=>{
   const file=join(dir,'runs.jsonl'), config=join(dir,'plan.json');
