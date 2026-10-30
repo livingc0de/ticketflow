@@ -21,7 +21,23 @@ const repairs={
     'src/api.mjs':"import {lookupOrder} from './store.mjs';\nimport {page} from './paging.mjs';\nexport const getOrder=(rows,tenant,id)=>lookupOrder(rows,tenant,id);\nexport const listOrders=(rows,tenant,start,size)=>page(rows.filter(x=>x.tenant===tenant),start,size);\n"
   },
   W4:{'src/webhook.mjs':"export const applyEvent=(s,e)=>s.seen.includes(e.id)?s:{balance:s.balance+e.delta,seen:[...s.seen,e.id]};\n"},
-  W5:{'src/orders.mjs':"const allowed={created:'paid',paid:'shipped'};\nexport const transition=(s,e)=>s.history.includes(e.id)||allowed[s.status]!==e.to?s:{status:e.to,history:[...s.history,e.id]};\n"}
+  W5:{'src/orders.mjs':"const allowed={created:'paid',paid:'shipped'};\nexport const transition=(s,e)=>s.history.includes(e.id)||allowed[s.status]!==e.to?s:{status:e.to,history:[...s.history,e.id]};\n"},
+  W6:{
+    'src/catalog.mjs':"export const listPlans=()=>[{id:'basic',priceCents:990},{id:'pro',priceCents:1990}];\n",
+    'src/subscription.mjs': [
+      "import {listPlans} from './catalog.mjs';",
+      "export const openSubscription=(planId,day)=>{if(!listPlans().some(p=>p.id===planId))throw Error('invalid plan');return {planId,status:'active',renewalDay:day+30};};",
+      "export const cancelSubscription=s=>s.status==='cancelled'?s:{...s,status:'cancelled'};",
+      "export const renewSubscription=s=>s.status==='active'?{...s,renewalDay:s.renewalDay+30}:s;"
+    ].join('\n')+'\n',
+    'src/billing.mjs':"import {listPlans} from './catalog.mjs';\nexport const invoicePreview=s=>({planId:s.planId,amountCents:s.status==='active'?listPlans().find(p=>p.id===s.planId).priceCents:0});\n"
+  },
+  W7:{
+    'src/html.mjs':"export const escapeHtml=value=>String(value).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));\n",
+    'src/paging.mjs':"export const page=(items,offset,limit)=>{if(!Number.isInteger(offset)||!Number.isInteger(limit)||offset<0||limit<=0)throw Error('bad page');return {items:items.slice(offset,offset+limit),next:offset+limit<items.length?offset+limit:null};};\n",
+    'src/money.mjs':"export const toCents=v=>Math.round((v+Number.EPSILON)*100);\n",
+    'src/ids.mjs':"export const parseRequestId=v=>typeof v==='string'&&/^[0-9a-f]{8}$/.test(v)?v:null;\n"
+  }
 };
 function check(id,correct) {
   const dir=mkdtempSync(join(tmpdir(),'workflow-fixture-test-'));
@@ -45,8 +61,10 @@ function check(id,correct) {
     return spawnSync(process.execPath,[checkPath],{cwd:dir,encoding:'utf8',timeout:6000});
   }finally{rmSync(dir,{recursive:true,force:true});}
 }
-test('five pipeline scenarios have distinct lifecycle starting states',()=>{
-  assert.deepEqual(ids,['W1','W2','W3','W4','W5']);
+test('seven pipeline scenarios have distinct lifecycle starting states',()=>{
+  assert.deepEqual(ids,['W1','W2','W3','W4','W5','W6','W7']);
+  assert.equal(scenarios.W6.issues.length,0);
+  assert.equal(scenarios.W7.issues.length,4);
   assert.equal(scenarios.W1.issues.length,0);
   assert.equal(scenarios.W2.issues.length,1);
   assert.equal(scenarios.W3.issues.length,3);
