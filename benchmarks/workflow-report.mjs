@@ -3,6 +3,7 @@
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
 import {dirname,resolve} from 'node:path';
 import {parseArgs} from 'node:util';
+import { latestAttempts, outcomeOf } from './workflow/outcome.mjs';
 const median=v=>{
   if(!v.length||v.some(n=>typeof n!=='number'||!Number.isFinite(n)))return null;
   const s=[...v].sort((a,b)=>a-b),i=Math.floor(s.length/2);
@@ -15,43 +16,54 @@ const group=(rows,key)=>rows.reduce((m,r)=>{const k=key(r);(m[k]??=[]).push(r);r
 export function render(rows){
   if(!rows.length||rows.some(r=>r.suite!=='workflow'||!r.delivery||typeof r.check?.pass!=='boolean'))
     throw Error('workflow report requires valid JSONL workflow records');
+  const latest=latestAttempts(rows),valid=latest.filter(r=>outcomeOf(r)!=='invalid');
+  const invalid=latest.filter(r=>outcomeOf(r)==='invalid');
+  const previousInvalid=rows.filter(r=>outcomeOf(r)==='invalid');
   const lines=['# Full-pipeline workflow comparison','',
     '> Coding correctness and complete delivery are separate. Review evidence and planning artifacts are observable proxies.',
     '> Unknown costs, descendant usage and human interventions must not be imputed.','',
-    'Scored cells: **'+rows.length+'**','','Full pipeline requires both observed delivery and a valid benchmark execution. Delivery evidence is shown separately.','','## Outcomes by arm','',
-    '| Arm | Cells | Coding | Full pipeline | Delivery evidence | Valid execution | Review evidence | Ticket tracking | Latest CI | Median minutes | Median USD |',
-    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'];
-  for(const [arm,part] of Object.entries(group(rows,r=>r.arm)).sort()){
-    lines.push('| '+safe(arm)+' | '+part.length+' | '+rate(part,r=>r.delivery.functionality)+
-      ' | '+rate(part,r=>r.check.pass&&r.delivery.pipeline)+' | '+rate(part,r=>r.delivery.pipeline)+
-      ' | '+rate(part,r=>r.check.pass)+' | '+rate(part,r=>r.delivery.steps.review_evidence)+
-      ' | '+rate(part,r=>r.delivery.steps.issue_tracking)+' | '+rate(part,r=>r.delivery.steps.latest_head_ci)+
-      ' | '+fmt(median(part.map(r=>typeof r.wall_s==='number'?r.wall_s/60:null)))+
-      ' | '+fmt(median(part.map(r=>r.cost_usd)),2)+' |');
+    'Scored cells: **'+valid.length+'** | Invalid cells excluded: **'+invalid.length+
+      '** | Recorded attempts including retries: **'+rows.length+'**','',
+    'Success and failure count toward arm rates. Invalid measurements do not. Retried cells use only their latest attempt.','',
+    '## Outcomes by arm','',
+    '| Arm | Valid | Invalid | Coding | Full pipeline | Delivery evidence | Agent completed | Review evidence | Ticket tracking | Latest CI | Median minutes | Median USD |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'];
+  for(const [arm,part] of Object.entries(group(latest,r=>r.arm)).sort()){
+    const scored=part.filter(r=>outcomeOf(r)!=='invalid');
+    lines.push('| '+safe(arm)+' | '+scored.length+' | '+(part.length-scored.length)+
+      ' | '+rate(scored,r=>r.delivery.functionality)+
+      ' | '+rate(scored,r=>outcomeOf(r)==='success')+
+      ' | '+rate(scored,r=>r.delivery.pipeline)+
+      ' | '+rate(scored,r=>r.agent_exit===0)+
+      ' | '+rate(scored,r=>r.delivery.steps.review_evidence)+
+      ' | '+rate(scored,r=>r.delivery.steps.issue_tracking)+
+      ' | '+rate(scored,r=>r.delivery.steps.latest_head_ci)+
+      ' | '+fmt(median(scored.map(r=>typeof r.wall_s==='number'?r.wall_s/60:null)))+
+      ' | '+fmt(median(scored.map(r=>r.cost_usd)),2)+' |');
   }
   lines.push('','## Workflow evidence by arm','','| Arm | Avg agent-created tickets | Avg closed+linked tickets | Avg plan artifacts | Avg agent Project changes |',
     '| --- | ---: | ---: | ---: | ---: |');
-  for(const [arm,part] of Object.entries(group(rows,r=>r.arm)).sort()){
+  for(const [arm,part] of Object.entries(group(valid,r=>r.arm)).sort()){
     const average=key=>{const vals=part.map(r=>r.delivery.process?.[key]);return vals.every(x=>Number.isFinite(x))?vals.reduce((a,b)=>a+b,0)/vals.length:null;};
     const plans=part.map(r=>r.delivery.process?.plan_artifacts?.length??null);
     lines.push('| '+safe(arm)+' | '+fmt(average('agent_created_issues'))+
       ' | '+fmt(average('issues_closed_and_linked'))+' | '+fmt(median(plans),0)+
       ' | '+fmt(median(part.map(r=>r.delivery.process?.planning?.project_changed_from_pre_agent_baseline??null)),0)+' |');
   }
-  lines.push('','## Per scenario','','| Scenario | Arm | N | Code | Pipeline | Seed ticket coverage |',
-    '| --- | --- | ---: | ---: | ---: | ---: |');
-  for(const [key,part] of Object.entries(group(rows,r=>r.scenario+' '+r.arm)).sort()){
-    const [scenario,arm]=key.split(' ');
-    const coverage=part.map(r=>r.delivery.process?.issue_coverage??null);
-    lines.push('| '+safe(scenario)+' | '+safe(arm)+' | '+part.length+
-      ' | '+rate(part,r=>r.delivery.functionality)+' | '+rate(part,r=>r.check.pass&&r.delivery.pipeline)+
+  lines.push('','## Per scenario','','| Scenario | Arm | Valid | Invalid | Code | Pipeline | Seed ticket coverage |',
+    '| --- | --- | ---: | ---: | ---: | ---: | ---: |');
+  for(const [key,part] of Object.entries(group(latest,r=>r.scenario+' '+r.arm)).sort()){
+    const [scenario,arm]=key.split(' '),scored=part.filter(r=>outcomeOf(r)!=='invalid');
+    const coverage=scored.map(r=>r.delivery.process?.issue_coverage??null);
+    lines.push('| '+safe(scenario)+' | '+safe(arm)+' | '+scored.length+' | '+(part.length-scored.length)+
+      ' | '+rate(scored,r=>r.delivery.functionality)+' | '+rate(scored,r=>outcomeOf(r)==='success')+
       ' | '+fmt(median(coverage),2)+' |');
   }
   lines.push('','## Coordination observations (W3 and W7)','',
     'One integrated PR is valid. PR counts and closure order are descriptive proxies, not proof of agent orchestration or parallel execution.','',
     '| Scenario | Arm | Mean merged PRs | Mean seeded tickets per merged PR | Dependency order violations |',
     '| --- | --- | ---: | ---: | ---: |');
-  for(const [key,part] of Object.entries(group(rows.filter(r=>['W3','W7'].includes(r.scenario)),
+  for(const [key,part] of Object.entries(group(valid.filter(r=>['W3','W7'].includes(r.scenario)),
       r=>r.scenario+' '+r.arm)).sort()){
     const [scenario,arm]=key.split(' ');
     const mean=values=>values.length&&values.every(Number.isFinite)?
@@ -63,16 +75,28 @@ export function render(rows){
     lines.push('| '+safe(scenario)+' | '+safe(arm)+' | '+fmt(mean(prs))+' | '+
       fmt(mean(tickets))+' | '+(scenario==='W3'?fmt(mean(violations),0):'n/a')+' |');
   }
+  lines.push('','## Invalid measurements','','| Scenario | Arm | Repeat | Reason |',
+    '| --- | --- | ---: | --- |');
+  for(const r of invalid)
+    lines.push('| '+safe(r.scenario)+' | '+safe(r.arm)+' | '+safe(r.repeat)+
+      ' | '+safe((r.invalid_reasons??['unknown provenance']).join(', '))+' |');
+  if(!invalid.length)lines.push('| None | | | |');
+  const invalidCosts=previousInvalid.map(r=>r.cost_usd);
+  lines.push('','Invalid-attempt spend (including superseded attempts): '+
+    (invalidCosts.length&&invalidCosts.every(n=>typeof n==='number'&&Number.isFinite(n))?
+      '$'+fmt(invalidCosts.reduce((a,b)=>a+b,0),2):invalidCosts.length?'unknown':'$0.00')+
+    '. These costs are disclosed but not attributed to framework performance.');
   lines.push('','**Scenarios:** W1 plain request to tracked delivery, W2 existing ticket, W3 dependent tickets, W4 failing PR/review, W5 interrupted delivery, W6 brainstorming-to-tickets, W7 parallelizable independent tickets.');
-  const configs=new Set(rows.map(r=>JSON.stringify([r.agent,r.agent_version,r.requested_model,r.requested_effort,r.eval_fingerprint,r.profile_isolation,r.sandbox_mode])));
+  const configs=new Set(latest.map(r=>JSON.stringify([r.agent,r.agent_version,r.requested_model,r.requested_effort,r.eval_fingerprint,r.profile_isolation,r.sandbox_mode])));
   if(configs.size>1)lines.push('','**Comparability warning:** Multiple agents, models, evaluator fingerprints, profiles or sandbox modes are present. Analyze controlled subsets, not pooled averages.');
-  if(rows.some(r=>r.delivery.pipeline&&!r.check.pass))lines.push('**Execution warning:** Some cells have complete delivery evidence but failed execution, archive or cleanup checks; they are excluded from the full-pipeline success rate.');
+  if(invalid.length)lines.push('**Invalid-run warning:** Excluded infrastructure attempts require a fresh rerun; no automatic success or failure is imputed.');
+  if(latest.some(r=>!r.outcome))lines.push('**Legacy-record warning:** Older rows lack explicit outcome provenance; failures cannot be reliably distinguished from invalid measurements.');
   if(rows.some(r=>r.cost_usd==null))lines.push('**Cost warning:** One or more sessions have unknown cost. Median and total costs are not estimated.');
   if(rows.some(r=>r.descendants!=='included'))lines.push('**Sub-agent warning:** Full descendant usage cannot be independently verified.');
   if(rows.some(r=>r.profile_cleanup!=='ok'))lines.push('**Cleanup warning:** A profile cleanup was incomplete.');
-  if(rows.some(r=>r.profile_isolation==='unisolated'))lines.push('**Isolation warning:** Unisolated profiles can change outcomes.');
-  if(rows.some(r=>r.plugin_sha&&!['loaded','verified'].includes(r.plugin_bootstrap?.status)))lines.push('**Plugin warning:** External plugin loading is unknown or failed; publication is not controlled.');
-  if(rows.some(r=>!Array.isArray(r.transcript_archives)||!r.transcript_archives.length))lines.push('**Transcript warning:** One or more workflow cells lack archived session evidence.');
+  if(latest.some(r=>r.profile_isolation==='unisolated'))lines.push('**Isolation warning:** Unisolated profiles can change outcomes.');
+  if(latest.some(r=>r.plugin_sha&&!['loaded','verified'].includes(r.plugin_bootstrap?.status)))lines.push('**Plugin warning:** External plugin loading is unknown or failed; publication is not controlled.');
+  if(latest.some(r=>!Array.isArray(r.transcript_archives)||!r.transcript_archives.length))lines.push('**Transcript warning:** One or more workflow cells lack archived session evidence.');
   return lines.join('\n')+'\n';
 }
 if(process.argv[1]?.endsWith('workflow-report.mjs')){
