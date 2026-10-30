@@ -10,7 +10,7 @@ import { scenarios,ids,prompt } from './workflow/scenarios.mjs';
 import { validateOrg,newRepository,seedIssues,seedBrokenPull,cloneRepository,installTicketFlow,
   linkProject,setupEnv,sh,gh,newWork } from './workflow/sandbox.mjs';
 import { makeProfile,destroyProfile } from './workflow/profile.mjs';
-import { scoreDelivery, projectSnapshot } from './workflow/check.mjs';
+import { scoreDelivery, projectSnapshot, meaningfulCheckpoint } from './workflow/check.mjs';
 import { selectProfileMode,approveDangerFullAccess } from './lib/profile-auth.mjs';
 import { validatePluginSource,validateSourceCheckout } from './lib/integrity.mjs';
 import { archiveSession,transcriptSessionId } from './lib/transcripts.mjs';
@@ -140,7 +140,7 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
             interrupted=true;reason='remote checkpoint reached';stop();
           }
         }catch(e){stderr+='\ncheckpoint probe: '+e.message}
-      },2500);
+      },1000);
     } catch(e) {
       try{profile.cleanup()}catch{}
       reject(e);
@@ -209,16 +209,24 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   const dir=cloneRepository(repo,join(work,'attempt-'+Date.now()));
   const initial=prompt(x.id,repo,current.issues,current.initialPR??null,
     'https://github.com/orgs/'+v.owner+'/projects/'+current.project.number);
+  // All arms receive the same early remote-checkpoint instruction in W5.
+  const stagedPrompt=x.id==='W5'?initial+
+    '\n\nFor interruption recovery, push meaningful src/ or test/ changes to a remote feature branch early, before opening or merging a PR. Continue normally after that checkpoint.':initial;
   const source=sources[x.arm]??null,parts=[];
   let interrupted=false;
   if(x.id==='W5') {
-    const first=runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,message:initial,archiveRoot,
+    const first=runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,message:stagedPrompt,archiveRoot,
       archiveMeta:{scenario:x.id,repeat:x.repeat,result_row_id:rowId,eval_fingerprint:evalFingerprint,source_sha:opts.sourceShas[x.arm]??null,
         ticketflow_sha:x.arm==='ticketflow'?opts.sourceShas.ticketflow:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null},
       timeoutMs:15*60_000,interrupt:async()=>{
         const branches=JSON.parse(gh(['api','repos/'+repo+'/branches?per_page=100']));
         const prs=JSON.parse(gh(['pr','list','-R',repo,'--state','all','--json','mergedAt,number','--limit','100']));
-        return prs.every(p=>!p.mergedAt) && branches.some(b=>b.name!=='main');
+        if(prs.some(p=>p.mergedAt))return false;
+        const compares={};
+        for(const branch of branches.filter(b=>b.name!=='main')){
+          compares[branch.name]=JSON.parse(gh(['api','repos/'+repo+'/compare/main...'+encodeURIComponent(branch.name)]));
+        }
+        return meaningfulCheckpoint({branches,prs,compares});
       }});
     parts.push(await first);
     interrupted=parts[0].interrupted;
@@ -233,7 +241,7 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   } else parts.push(await runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,message:initial,archiveRoot,
     archiveMeta:{scenario:x.id,repeat:x.repeat,result_row_id:rowId,eval_fingerprint:evalFingerprint,source_sha:opts.sourceShas[x.arm]??null,
       ticketflow_sha:x.arm==='ticketflow'?opts.sourceShas.ticketflow:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null}}));
-  const result=scoreDelivery({repo,id:x.id,issues:current.issues,interrupted,
+  const result=scoreDelivery({repo,id:x.id,issues:current.issues,interrupted,resumed:interrupted&&parts.length===2&&parts[1].exit===0,
     initialPR:current.initialPR??null,initialHead:current.initialHead??null,
     baselineProjects:current.baselineProjects??[]});
   const metrics=mergeUsage(parts);
