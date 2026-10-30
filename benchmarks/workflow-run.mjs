@@ -108,16 +108,16 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
     try {
       child=spawn(agent,args,{cwd:dir,env,stdio:['pipe','pipe','pipe'],detached:process.platform!=='win32'});
       if(agent==='codex') child.stdin.end(message);else child.stdin.end();
-      child.stdout.on('data',v=>{stdout+=v.toString();if(stdout.length>40_000_000)child.kill('SIGTERM')});
-      child.stderr.on('data',v=>{stderr+=v.toString();if(stderr.length>10_000_000)child.kill('SIGTERM')});
+      child.stdout.on('data',v=>{stdout+=v.toString();if(stdout.length>40_000_000)stop()});
+      child.stderr.on('data',v=>{stderr+=v.toString();if(stderr.length>10_000_000)stop()});
       child.on('error',e=>{stderr+='\n'+e.message;finish(null,'error')});
       child.on('close',(code,signal)=>finish(code,signal));
-      timer=setTimeout(()=>{reason='timeout';child.kill('SIGTERM')},timeoutMs);
+      timer=setTimeout(()=>{reason='timeout';stop()},timeoutMs);
       if(interrupt) watcher=setInterval(async()=>{
         if(closed||interrupted)return;
         try{
           if(await interrupt()) {
-            interrupted=true;reason='remote checkpoint reached';child.kill('SIGTERM');
+            interrupted=true;reason='remote checkpoint reached';stop();
           }
         }catch(e){stderr+='\ncheckpoint probe: '+e.message}
       },2500);
