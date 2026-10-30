@@ -71,6 +71,7 @@ export function seedIssues({repo,id,source,work,owner,projectNumber,title}) {
     if(!n) throw Error('unexpected issue URL '+url);
     issueNumbers.push(n);
     projectCommand(source,file,'add',[String(n)]);
+    projectCommand(source,file,'status',[String(n),'Ready']);
   }
   return issueNumbers;
 }
@@ -78,6 +79,9 @@ export function seedBrokenPull({repo,id,work,issue}) {
   const sc=scenarios[id];
   if(!sc.seedBrokenPR) return null;
   const dir=join(work,'seed'),env=setupEnv();
+  git(dir,['fetch','origin','main'],env);
+  git(dir,['checkout','main'],env);
+  git(dir,['reset','--hard','origin/main'],env);
   git(dir,['checkout','-qb',sc.seedBrokenPR.branch],env);
   for(const [path,source] of Object.entries(sc.seedBrokenPR.changes)) write(dir,path,source);
   git(dir,['add','-A'],env);
@@ -87,12 +91,16 @@ export function seedBrokenPull({repo,id,work,issue}) {
     '--title','Repair incoming webhook PR','--body','Refs #'+issue+' (benchmark fixture)']);
   const number=Number(url.match(/\/pull\/(\d+)$/)?.[1]);
   if(!number) throw Error('unexpected PR URL '+url);
-  gh(['pr','comment',String(number),'-R',repo,'--body',sc.seedBrokenPR.review],{env});
+  gh(['pr','review',String(number),'-R',repo,'--comment','--body',sc.seedBrokenPR.review],{env});
   return number;
 }
 export function cloneRepository(repo,root,agent='claude') {
   const dir=join(root,'repo');mkdirSync(root,{recursive:true});
   gh(['repo','clone',repo,dir,'--','--depth','1']);
+  const env=setupEnv();
+  git(dir,['config','credential.helper','!gh auth git-credential'],env);
+  git(dir,['config','user.name','workflow-benchmark-agent'],env);
+  git(dir,['config','user.email','workflow-benchmark@example.invalid'],env);
   return dir;
 }
 export function installTicketFlow({repo,dir,source,agent,owner,projectNumber,title}) {
