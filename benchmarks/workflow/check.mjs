@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { scenarios } from './scenarios.mjs';
 
 export const command = (bin,args,options={}) => {
-  const out=spawnSync(bin,args,{encoding:'utf8',timeout:options.timeout ?? 120000,maxBuffer:16*1024*1024,cwd:options.cwd,env:options.env ?? process.env});
+  const out=spawnSync(bin,args,{encoding:'utf8',timeout:options.timeout ?? 120000,maxBuffer:16*1024*1024,cwd:options.cwd,env:options.env ?? {...process.env,...(process.env.WORKFLOW_BENCH_SETUP_TOKEN?{GH_TOKEN:process.env.WORKFLOW_BENCH_SETUP_TOKEN,GITHUB_TOKEN:process.env.WORKFLOW_BENCH_SETUP_TOKEN}:{})}});
   if(out.error || out.status!==0) throw Error(bin+' '+args.slice(0,4).join(' ')+' failed: '+String(out.stderr || out.error?.message || out.status).slice(0,500));
   return out.stdout.trim();
 };
