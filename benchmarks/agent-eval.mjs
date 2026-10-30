@@ -184,7 +184,7 @@ main('agent-eval', () => {
     // deliberately retain the original profile so OS-keyring credentials remain usable.
     const originalAuth = join(resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex')), 'auth.json')
     const originalClaudeAuth = join(resolve(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')), '.credentials.json')
-    let r
+    let r, cleanupFailure = null
     try {
         if (claude) {
             // Explicit API/OAuth environment auth takes precedence; do not copy unrelated saved credentials.
@@ -201,11 +201,10 @@ main('agent-eval', () => {
         r = run(v.agent, args, { cwd: dir, timeout: AGENT_TIMEOUT_MS, env: profile.env,
             ...(claude ? { stdio: ['ignore', 'pipe', 'pipe'] } : { input: prompt }) })
     } finally {
-        // Clean the complete temporary home for Claude, and the credential-bearing Codex profile.
-        try { profile.cleanup?.() } finally {
-            if (isolated && claude) rmSync(profile.home, { recursive: true, force: true })
-            else if (isolated) rmSync(profile.codexHome, { recursive: true, force: true })
-        }
+        // Never erase a paid result solely because plugin cleanup failed.
+        try { profile.cleanup?.() } catch (e) { cleanupFailure = e }
+        if (isolated && claude) rmSync(profile.home, { recursive: true, force: true })
+        else if (isolated) rmSync(profile.codexHome, { recursive: true, force: true })
     }
     const wall_s = Math.round((Date.now() - t0) / 100) / 10
     const out = r.stdout ?? ''
@@ -225,7 +224,7 @@ main('agent-eval', () => {
         scenario: id, agent: v.agent, agent_version: version.stdout.trim(), model: got.model, requested_model: v.model ?? null, arm: v.arm, variant: v.label ?? v.arm, repeat: v.rep ? +v.rep : null,
         eval_sha: orNull(() => git(ROOT, 'rev-parse', 'HEAD')),   // the revision of this tool and its scenarios
         eval_fingerprint: evalFingerprint,
-        evaluation_mode: 'non-adversarial', profile_isolation: profileMode,
+        evaluation_mode: 'non-adversarial', profile_isolation: profileMode, profile_cleanup: cleanupFailure ? 'failed' : 'ok',
         ticketflow_sha: tf(() => git(src, 'rev-parse', 'HEAD')), ticketflow_dirty: tf(() => git(src, 'status', '--porcelain', '--untracked-files=all').split('\n').some((l) => l && resolve(src, l.slice(3)) !== outFile)),
         ticketflow_version: tf(() => readFileSync(join(src, 'VERSION'), 'utf8').trim()),
         plugin_sha: external ? git(src, 'rev-parse', 'HEAD') : null,
@@ -241,5 +240,7 @@ main('agent-eval', () => {
     }
     console.log(JSON.stringify(row))
     if (v.out) appendFileSync(v.out, `${JSON.stringify(row)}\n`)
+    if (cleanupFailure) throw new Error('Benchmark result recorded, but plugin cleanup failed: ' + cleanupFailure.message +
+        '. Inspect benchmark-owned Codex plugins/marketplaces before another run; existing user plugins were not targeted.')
     return pass ? 0 : 1
 })
