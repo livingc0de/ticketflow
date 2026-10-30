@@ -110,6 +110,19 @@ test('W7 checks four tickets and allows multiple safely merged PRs',()=>{
   const missing=evidence('W7',{seeded:seed,issues,prs:prs.slice(0,3)});
   assert.equal(missing.pipeline,false);
 });
+test('an empty PR set cannot count as observed review',()=>{
+  const result=evidence('W2',{seeded:[1],issues:[issue(1)],prs:[]});
+  assert.equal(result.steps.review_evidence,false);
+  assert.equal(result.process.review_observed,false);
+});
+test('coordination is observed separately from delivery and allows one integrated PR',()=>{
+  const rows=[issue(1),issue(2),issue(3)].map((x,i)=>({...x,closed_at:
+    ['2026-10-30T10:00:00Z','2026-10-30T10:05:00Z','2026-10-30T09:00:00Z'][i]}));
+  const result=evidence('W3',{seeded:[1,2,3],issues:rows,prs:[pr(8,'Closes #1 #2 #3')]});
+  assert.equal(result.pipeline,true);
+  assert.equal(result.process.coordination.dependency_order_violations,2);
+  assert.equal(result.process.coordination.linked_seeded_per_merged_pr[0].count,3);
+});
 test('pipeline gates remain independent of hidden code correctness',()=>{
   const c={seeded:[1],issues:[issue(1)],prs:[pr(6,'Closes #1')]};
   assert.equal(evidence('W2',{...c,good:false}).functionality,false);
