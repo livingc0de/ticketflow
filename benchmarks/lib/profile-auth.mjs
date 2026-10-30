@@ -47,9 +47,9 @@ function confirmUnisolated(agent, count, arms) {
     if (!process.stdin.isTTY) throw new Error(agent + ' uses a non-portable login. ' +
         'An interactive terminal is required to approve running without profile isolation. No paid session started.')
     process.stderr.write('\n' + agent + ': your login works in your original profile, but not an isolated benchmark profile.\n' +
-        'Your existing settings, plugins and hooks may affect benchmark outcomes. The agent can modify its real profile.\\n' +
+        'Your existing settings, plugins and hooks may affect benchmark outcomes. The agent can modify its real profile.\n' +
         (agent === 'codex' && arms.some((arm) => arm === 'superpowers' || arm === 'ponytail')
-            ? 'Codex will install a separate benchmark plugin and marketplace, then remove only those additions; existing plugins are preserved. An interruption or cleanup failure may leave benchmark additions behind.\\n'
+            ? 'Codex will install a separate benchmark plugin and marketplace, then remove only those additions; existing plugins are preserved. An interruption or cleanup failure may leave benchmark additions behind.\n'
             : '') +
         'The temporary task Git repository remains separate; this is not an OS security sandbox.\n' +
         'Proceed without profile isolation for ' + count + ' paid benchmark session(s)? [y/N] ')
