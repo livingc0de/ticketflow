@@ -152,7 +152,7 @@ test('paid resume verifies the recorded CLI version before starting sessions', (
 
 test('unisolated confirmation recognizes explicit yes only', () => {
     for (const value of ['y', 'Y', 'yes', 'YES', ' Yes ']) assert.equal(approvalIsYes(value), true)
-    for (const value of ['', 'n', 'no', 'perhaps', 'yes please', 'y\\nno']) assert.equal(approvalIsYes(value), false)
+    for (const value of ['', 'n', 'no', 'perhaps', 'yes please', 'y\nno']) assert.equal(approvalIsYes(value), false)
 })
 
 test('batch fallback asks once in a TTY, then runs every approved session automatically', { skip: process.platform === 'win32' }, () => {
@@ -169,22 +169,22 @@ console.log(JSON.stringify({ type:'result', subtype:'success', is_error:false, n
 `)
     chmodSync(fake, 0o755)
     const command = [process.execPath, CLI, '--agent', 'claude', '--model', 'fake-model', '--arms', 'bare', '--scenarios', 'L1,L2',
-        '--repeats', '1', '--out', out, '--max-sessions', '2', '--execute'].map((x)=> "'" + x.replaceAll("'", "'\\''") + "'").join(' ')
+        '--repeats', '1', '--out', out, '--max-sessions', '2', '--execute'].map((x)=> JSON.stringify(x)).join(' ')
     const env = { ...process.env, PATH:bin+':'+process.env.PATH, CLAUDE_CONFIG_DIR:auth, FAKE_KEYRING_HOME:auth, ANTHROPIC_API_KEY:'', CLAUDE_CODE_OAUTH_TOKEN:'' }
-    const r = spawnSync('script', ['-qec',command,'/dev/null'], { input:'yes\\n', env, encoding:'utf8', timeout:40_000 })
+    const r = spawnSync('script', ['-qec',command,'/dev/null'], { input:'yes\n', env, encoding:'utf8', timeout:40_000 })
     assert.equal(r.status, 0, r.stdout + r.stderr)
     assert.equal((r.stdout.match(/Proceed without profile isolation/g) ?? []).length, 1, 'one prompt for the whole matrix')
-    assert.match(r.stdout, /SESSION 1\\/2/)
-    assert.match(r.stdout, /SESSION 2\\/2/)
-    const rows = readFileSync(out,'utf8').trim().split('\\n').map(JSON.parse)
+    assert.match(r.stdout, /SESSION 1\/2/)
+    assert.match(r.stdout, /SESSION 2\/2/)
+    const rows = readFileSync(out,'utf8').trim().split('\n').map(JSON.parse)
     assert.equal(rows.length, 2)
     assert.ok(rows.every((x)=>x.profile_isolation==='unisolated'))
 
     const declinedOut = join(dir, 'declined.jsonl')
     const declined = command.replace(out, declinedOut)
-    const no = spawnSync('script', ['-qec', declined, '/dev/null'], { input:'n\\n', env, encoding:'utf8', timeout:40_000 })
+    const no = spawnSync('script', ['-qec', declined, '/dev/null'], { input:'n\n', env, encoding:'utf8', timeout:40_000 })
     assert.notEqual(no.status, 0, no.stdout + no.stderr)
     assert.match(no.stdout, /Unisolated benchmark run declined/)
-    assert.doesNotMatch(no.stdout, /SESSION 1\\/2/)
+    assert.doesNotMatch(no.stdout, /SESSION 1\/2/)
     assert.ok(!existsSync(declinedOut), 'declining never creates a benchmark row')
 })
