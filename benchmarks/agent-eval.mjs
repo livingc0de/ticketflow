@@ -181,6 +181,11 @@ main('agent-eval', async () => {
     const version = run(v.agent, ['--version'])
     if (version.error || version.status !== 0) throw new Error(`${v.agent} is not installed or not on PATH`)
     if (external && v.agent === 'claude' && !run('claude', ['--help']).stdout?.includes('--plugin-dir')) throw new Error('Claude CLI does not advertise --plugin-dir; cannot load competitor natively')
+    if (v.agent === 'codex' && v.arm === 'ponytail') {
+        const help = run('codex', ['exec', '--help'])
+        if (help.status !== 0 || !(`${help.stdout ?? ''}\n${help.stderr ?? ''}`).includes('--dangerously-bypass-hook-trust'))
+            throw new Error('Codex exec lacks --dangerously-bypass-hook-trust; cannot enable Ponytail lifecycle hooks noninteractively')
+    }
     const profileMode = selectProfileMode(v.agent, [v.arm], { alreadyApproved: v['profile-mode'] === 'unisolated' })
     if (v['profile-mode'] === 'unisolated' && profileMode !== 'unisolated')
         throw new Error('Requested unisolated mode no longer matches the available authentication; restart the benchmark runner.')
@@ -196,7 +201,7 @@ main('agent-eval', async () => {
     const prompt = readFileSync(join(sdir, 'prompt.md'), 'utf8')
     const args = claude
         ? ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--setting-sources', 'project,local', '--allowedTools', TOOLS, ...(v.model ? ['--model', v.model] : []), ...(v.effort ? ['--effort', v.effort] : []), ...(external ? ['--plugin-dir', src] : [])]
-        : ['exec', '--json', ...(!external && isolated ? ['--ignore-user-config'] : []), '--sandbox', 'danger-full-access', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), ...(v.effort ? ['--config', `model_reasoning_effort=${v.effort}`] : []), '-']   // codex reads the prompt from stdin; danger-full-access is required on hosts where user namespaces are unavailable
+        : ['exec', '--json', ...(v.arm === 'ponytail' ? ['--dangerously-bypass-hook-trust'] : []), ...(!external && isolated ? ['--ignore-user-config'] : []), '--sandbox', 'danger-full-access', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), ...(v.effort ? ['--config', `model_reasoning_effort=${v.effort}`] : []), '-']   // codex reads the prompt from stdin; danger-full-access is required on hosts where user namespaces are unavailable
     const t0 = Date.now()
     // Isolated profiles copy only authentication and erase it afterwards. Opted-in unisolated runs
     // deliberately retain the original profile so OS-keyring credentials remain usable.
@@ -240,7 +245,7 @@ main('agent-eval', async () => {
     const evalSha = orNull(() => git(ROOT, 'rev-parse', 'HEAD'))
     const pluginBootstrap = external ? (() => {
         const evidence = profile.nativePluginEvidence ?? (claude ? 'claude-plugin-dir' : null)
-        return { status: r.status === 0 && evidence ? (claude ? 'loaded' : 'verified') : 'failed',
+        return { status: r.status === 0 && evidence ? (claude || v.arm === 'ponytail' ? 'loaded' : 'verified') : 'failed',
             evidence: evidence ?? 'native-plugin-loading-failed' }
     })() : null
     const resultRowId = transcriptSessionId('agent-eval', { scenario: id, agent: v.agent, arm: v.arm, repeat: v.rep ?? 0 })
