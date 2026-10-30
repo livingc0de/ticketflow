@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn,spawnSync} from 'node:child_process';
 import {once} from 'node:events';
+import {createHash} from 'node:crypto';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,rmSync,chmodSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -95,6 +96,52 @@ test('Codex Ponytail workflow preflight rejects missing hook trust bypass before
   assert.equal(result.status,2,result.stderr);
   assert.match(result.stderr,/--dangerously-bypass-hook-trust/);
   assert.ok(!existsSync(file));assert.ok(!existsSync(file+'.state.json'));assert.ok(!existsSync(ghLog));
+}));
+const evaluatorFingerprint=()=>{
+  const hash=createHash('sha256');
+  for(const path of ['workflow-run.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs',
+    'workflow/profile.mjs','workflow/check.mjs','workflow/outcome.mjs','lib/integrity.mjs',
+    'lib/profile-auth.mjs','lib/process.mjs','lib/transcripts.mjs']){
+    hash.update(path);hash.update('\\0');hash.update(readFileSync(join(root,'benchmarks',path)));
+  }
+  return hash.digest('hex');
+};
+const resumeFixture=(dir,outcome,invalid_reasons=[])=>{
+  const file=join(dir,'runs.jsonl'),cell={id:'W1',arm:'bare',repeat:1,key:'W1|bare|1'};
+  const fingerprint=evaluatorFingerprint();
+  const signature=JSON.stringify({p:[cell],agent:'claude',model:'benchmark-test-model',effort:null,
+    sourceShas:{},sourceMeta:{},fingerprint});
+  writeFileSync(file,JSON.stringify({scenario:'W1',arm:'bare',repeat:1,outcome,invalid_reasons,
+    agent:'claude',agent_version:'fake',eval_fingerprint:fingerprint,result_row_id:'previous-row',
+    requested_model:'benchmark-test-model'})+'\\n');
+  writeFileSync(file+'.state.json',JSON.stringify({signature,runId:'testrun',cells:{
+    [cell.key]:{repo:'example-benchmark-org/tfwf-testrun-w1-bare-1',phase:'completed',
+      result_row_id:'previous-row'}}}));
+  return file;
+};
+test('resume retries invalid measurements but never reruns an ordinary framework failure',()=>withTemp(dir=>{
+  const file=resumeFixture(dir,'invalid',['transcript_archive_failed']);
+  const pending=spawnSync(process.execPath,[...args(file),'--resume'],{cwd:root,encoding:'utf8',env,timeout:30000});
+  assert.equal(pending.status,0,pending.stderr);
+  assert.match(pending.stdout,/"invalid_to_retry": 1/);
+  assert.match(pending.stdout,/"pending": 1/);
+  assert.match(pending.stdout,/PLAN W1\\|bare\\|1/);
+  writeFileSync(file,readFileSync(file,'utf8').replace('"invalid"','"failure"'));
+  const completed=spawnSync(process.execPath,[...args(file),'--resume'],{cwd:root,encoding:'utf8',env,timeout:30000});
+  assert.equal(completed.status,0,completed.stderr);
+  assert.match(completed.stdout,/"completed": 1/);
+  assert.match(completed.stdout,/"pending": 0/);
+}));
+test('failed cleanup requires explicit acknowledgment before paying for invalid retry',()=>withTemp(dir=>{
+  const file=resumeFixture(dir,'invalid',['plugin_cleanup_failed']),ghLog=join(dir,'gh.log'),bin=join(dir,'bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin,'gh'),'#!/bin/sh\\necho called >> "$GH_PREFLIGHT_LOG"\\nexit 1\\n');
+  chmodSync(join(bin,'gh'),0o755);
+  const run=spawnSync(process.execPath,[...args(file),'--resume','--execute','--allow-github-writes'],
+    {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_PREFLIGHT_LOG:ghLog},timeout:30000});
+  assert.equal(run.status,2,run.stderr);
+  assert.match(run.stderr,/--acknowledge-plugin-cleanup/);
+  assert.ok(!existsSync(ghLog));
 }));
 test('wrapper runs workflow dry-run only without execute',()=>withTemp(dir=>{
   const file=join(dir,'runs.jsonl'), config=join(dir,'plan.json');
