@@ -19,7 +19,8 @@ export const command=(bin,args,options={})=>{
 const api=(path)=>JSON.parse(command('gh',['api',path]));
 const ghjson=(args)=>JSON.parse(command('gh',args));
 const all=(repo,endpoint)=>{ // All pages or fail, rather than silently scoring partial evidence.
-  const data=ghjson(['api','--paginate','--slurp','repos/'+repo+'/'+endpoint+'?per_page=100']);
+  const separator=endpoint.includes('?')?'&':'?';
+  const data=ghjson(['api','--paginate','--slurp','repos/'+repo+'/'+endpoint+separator+'per_page=100']);
   if(!Array.isArray(data)||!data.every(Array.isArray))throw Error('GitHub pagination response invalid for '+endpoint);
   return data.flat();
 };
@@ -117,7 +118,8 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
     id==='W6'?meaningfulNew.length>=2&&created.length<=12:true);
   // W6 should have at least two thoughtfully created tasks; W1 one tracked request.
   // Others may use their own process, but transparent linkage is measured everywhere.
-  const tracking=required&&newTracking&&(id!=='W6'||created.every(i=>linked.some(l=>l.number===i.number)));
+  const tracking=required&&newTracking&&(id!=='W6'||created.every(i=>linked.some(l=>l.number===i.number))) &&
+    (id!=='W7'||seededIssues.length===4) && (id!=='W3'||seededIssues.length===3);
   const safeCI=merged.length>0&&merged.every(p=>checks.find(c=>c.number===p.number)?.pass===true);
   const steps={correctness:!!hidden,repository_tests:!!repoTests,
     merged:merged.length>0,latest_head_ci:safeCI,review_evidence:reviewObserved,
