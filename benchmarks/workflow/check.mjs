@@ -126,7 +126,7 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
   const closed=issues.filter(i=>i.state==='closed');
   const closedTracked=linked.filter(i=>i.state==='closed');
   const reviewRelevant=merged.map(p=>reviews.find(r=>r.number===p.number)).filter(Boolean);
-  const reviewObserved=reviewRelevant.length===merged.length&&reviewRelevant.every(r=>r.observed&&!r.unresolved);
+  const reviewObserved=merged.length>0&&reviewRelevant.length===merged.length&&reviewRelevant.every(r=>r.observed&&!r.unresolved);
   const required=seededIssues.every(n=>linked.some(i=>i.number===n&&i.state==='closed'));
   const optionalNewIssuesLinked=created.filter(i=>linked.some(l=>l.number===i.number));
   const meaningfulNew=optionalNewIssuesLinked.filter(i=>i.state==='closed');
@@ -180,6 +180,26 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
   const tracking=required&&newTracking &&
     (id!=='W7'||seededIssues.length===4) && (id!=='W3'||seededIssues.length===3);
   const safeCI=merged.length>0&&merged.every(p=>checks.find(c=>c.number===p.number)?.pass===true);
+  // Coordination is observed independently from code correctness and pipeline gates.
+  // A single well-integrated PR is valid; PR count alone never earns orchestration points.
+  const seededClosed=seeded.filter(i=>i.closed_at&&Number.isFinite(Date.parse(i.closed_at)));
+  const dependencies=id==='W3'&&seededIssues.length===3 ? [
+    {from:seededIssues[2],to:seededIssues[0]},
+    {from:seededIssues[2],to:seededIssues[1]},
+  ] : [];
+  const seededByNumber=new Map(seeded.map(i=>[i.number,i]));
+  const ordering=dependencies.map(({from,to})=>{
+    const dependent=seededByNumber.get(from),prerequisite=seededByNumber.get(to);
+    const a=Date.parse(dependent?.closed_at??''),b=Date.parse(prerequisite?.closed_at??'');
+    return {from,to,observed:Number.isFinite(a)&&Number.isFinite(b),
+      violation:Number.isFinite(a)&&Number.isFinite(b)&&a<b};
+  });
+  const coordination={seeded_closed_with_timestamps:seededClosed.length,
+    dependency_order:ordering,dependency_order_violations:ordering.filter(x=>x.violation).length,
+    linked_seeded_per_merged_pr:merged.map(p=>({
+      pr:p.number,count:seededIssues.filter(n=>textLinks(n,p.body??'')).length
+    })),
+    merged_pr_count:merged.length};
   const steps={correctness:!!hidden,repository_tests:!!repoTests,
     merged:merged.length>0,latest_head_ci:safeCI,review_evidence:reviewObserved,
     issue_tracking:tracking,pr_deduplication:!duplicate,failed_pr_corrected:w4Fixed,
@@ -192,7 +212,7 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
     issues_linked:linked.length,issues_closed:closed.length,issues_closed_and_linked:closedTracked.length,
     issue_coverage:seededIssues.length?seededIssues.filter(n=>linked.some(i=>i.number===n&&i.state==='closed')).length/seededIssues.length:null,
     planning,review:reviewRelevant,pr_count:prs.length,merged_pr_count:merged.length,
-    plan_artifacts:plans,tracking,review_observed:reviewObserved,
+    plan_artifacts:plans,tracking,review_observed:reviewObserved,coordination,
     actionable_created_issues:actionableIssues.length,duplicate_created_issue_content:duplicateCreatedContent,
     dependency_edges:dependencyEdges,invalid_dependency_references:invalidDependencies,dependency_cycle:dependencyCycle};
   return {pass:pipeline,functionality:functional,delivery,pipeline,steps,process};
