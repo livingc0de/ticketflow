@@ -211,12 +211,13 @@ const CLAUDE_OUT = (result = 'done') => JSON.stringify({ type: 'result', subtype
 const CODEX_OUT = ['{"type":"thread.started","thread_id":"t"}', 'not json', '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":7}}', '{"type":"turn.completed","usage":{"input_tokens":50,"cached_input_tokens":40,"output_tokens":3}}'].join('\n')
 
 function sandbox() {
-    const bin = tempDir('bin-'), tmp = tempDir('tmp-'), auth = tempDir('claude-test-auth-')
+    const bin = tempDir('bin-'), tmp = tempDir('tmp-'), auth = tempDir('claude-test-auth-'), codexAuth = tempDir('codex-test-auth-')
     writeFileSync(join(auth, '.credentials.json'), '{"fake":"login"}')
+    writeFileSync(join(codexAuth, 'auth.json'), '{"fake":"login"}')
     for (const n of ['claude', 'codex']) { writeFileSync(join(bin, n), FAKE.replace('#!/usr/bin/env node', `#!${process.execPath}`)); chmodSync(join(bin, n), 0o755) }
     const log = join(bin, 'fake.log')
     const run = (args, env = {}, path = `${bin}:${process.env.PATH}`) => {
-        const r = spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', env: { ...process.env, PATH: path, TMPDIR: tmp, CLAUDE_CONFIG_DIR: auth, ANTHROPIC_API_KEY: '', CLAUDE_CODE_OAUTH_TOKEN: '', FAKE_LOG: log, FAKE_OUT: CLAUDE_OUT(), ...env } })
+        const r = spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', env: { ...process.env, PATH: path, TMPDIR: tmp, CODEX_HOME: codexAuth, CLAUDE_CONFIG_DIR: auth, ANTHROPIC_API_KEY: '', CLAUDE_CODE_OAUTH_TOKEN: '', FAKE_LOG: log, FAKE_OUT: CLAUDE_OUT(), ...env } })
         const row = r.stdout.trim().startsWith('{') ? JSON.parse(r.stdout) : null
         return { ...r, row, calls: existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [] }
     }
@@ -342,6 +343,32 @@ test('a successful checker cannot override a failed agent execution', () => {
  assert.equal(r.row.check.pass,false)
  assert.match(r.row.check.why,/agent exited 3 despite a passing checker/)
 })
+test('Codex authentication preflight rejects missing or invalid auth before a paid session', () => {
+    const { run, tmp, workdirs } = sandbox()
+    const unavailable = join(tmp, 'no-codex-login'), args = [L1, '--agent', 'codex', '--arm', 'bare']
+    const missing = run(args, { CODEX_HOME: unavailable, OPENAI_API_KEY: 'not-forwarded' })
+    assert.equal(missing.status, 2, missing.stdout + missing.stderr)
+    assert.match(missing.stderr, /Codex benchmark authentication preflight failed/)
+    assert.match(missing.stderr, /codex login/)
+    assert.equal(missing.calls.length, 0, 'no paid Codex session starts, even with an unrelated API key')
+    assert.deepEqual(workdirs(), [], 'no benchmark workspace created')
+
+    mkdirSync(unavailable)
+    for (const invalid of ['', ' ', '{', '{}', '[]']) {
+        writeFileSync(join(unavailable, 'auth.json'), invalid)
+        const r = run(args, { CODEX_HOME: unavailable })
+        assert.equal(r.status, 2, 'invalid auth must fail: ' + JSON.stringify(invalid))
+        assert.equal(r.calls.length, 0)
+    }
+    writeFileSync(join(unavailable, 'auth.json'), '{"fake":"login"}')
+    const ok = run(args, { CODEX_HOME: unavailable, FAKE_FIX: '1' })
+    assert.equal(ok.status, 0, ok.stdout + ok.stderr)
+    assert.equal(ok.calls.length, 1)
+    assert.equal(ok.calls[0].codex_home, join(ok.row.workdir, 'home/.codex'))
+    assert.ok(!existsSync(join(ok.row.workdir, 'home/.codex/auth.json')), 'copied login removed after the session')
+    assert.equal(readFileSync(join(unavailable, 'auth.json'), 'utf8'), '{"fake":"login"}')
+})
+
 test('codex: exec --json in the workspace sandbox, tokens summed over turns, answer from -o, scenario by prefix', () => {
     const { run } = sandbox()
     const r = run(['L4', '--agent', 'codex', '--arm', 'ticketflow', '--model', 'gpt-test'], { FAKE_OUT: CODEX_OUT, FAKE_ANSWER: 'src/files.js:7 path traversal' })
