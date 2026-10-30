@@ -1,112 +1,160 @@
-/** Independently score observable GitHub delivery and hidden product behavior. */
-import { execFileSync, spawnSync } from 'node:child_process';
+/**
+ * Independent workflow evaluator. The agent never receives these hidden checks.
+ * Treat review/plan evidence as observable proxies, never a guarantee of review quality.
+ */
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { scenarios } from './scenarios.mjs';
 
-export const command = (bin,args,options={}) => {
-  const out=spawnSync(bin,args,{encoding:'utf8',timeout:options.timeout ?? 120000,maxBuffer:16*1024*1024,cwd:options.cwd,env:options.env ?? {...process.env,...(process.env.WORKFLOW_BENCH_SETUP_TOKEN?{GH_TOKEN:process.env.WORKFLOW_BENCH_SETUP_TOKEN,GITHUB_TOKEN:process.env.WORKFLOW_BENCH_SETUP_TOKEN}:{})}});
-  if(out.error || out.status!==0) throw Error(bin+' '+args.slice(0,4).join(' ')+' failed: '+String(out.stderr || out.error?.message || out.status).slice(0,500));
+export const command=(bin,args,options={})=>{
+  const env=options.env??{...process.env,...(process.env.WORKFLOW_BENCH_SETUP_TOKEN?{
+    GH_TOKEN:process.env.WORKFLOW_BENCH_SETUP_TOKEN,GITHUB_TOKEN:process.env.WORKFLOW_BENCH_SETUP_TOKEN}:{})};
+  const out=spawnSync(bin,args,{encoding:'utf8',timeout:options.timeout??120000,maxBuffer:16*1024*1024,cwd:options.cwd,env});
+  if(out.error||out.status!==0)throw Error(bin+' '+args.slice(0,4).join(' ')+' failed: '+
+    String(out.stderr||out.error?.message||out.status).slice(0,500));
   return out.stdout.trim();
 };
-const json = (bin,args,options) => JSON.parse(command(bin,args,options));
-const gh = (args) => json('gh',args);
-const api = (endpoint) => gh(['api',endpoint]);
-const projectItems=(repo,number)=>{
-  try {return gh(['issue','view',String(number),'-R',repo,'--json','projectItems']).projectItems??null;}
-  catch {return null;}
+const api=(path)=>JSON.parse(command('gh',['api',path]));
+const ghjson=(args)=>JSON.parse(command('gh',args));
+const all=(repo,endpoint)=>{ // All pages or fail, rather than silently scoring partial evidence.
+  const data=ghjson(['api','--paginate','--slurp','repos/'+repo+'/'+endpoint+'?per_page=100']);
+  if(!Array.isArray(data)||!data.every(Array.isArray))throw Error('GitHub pagination response invalid for '+endpoint);
+  return data.flat();
 };
-export function pulls(repo) {
-  return gh(['pr','list','-R',repo,'--state','all','--json','number,headRefOid,mergedAt,body,headRefName','--limit','100']);
+export const pulls=(repo)=>ghjson(['pr','list','-R',repo,'--state','all',
+  '--json','number,headRefOid,mergedAt,body,headRefName,createdAt','--limit','100']);
+export const checkpoint=(repo)=>pulls(repo).some(p=>!p.mergedAt);
+const textLinks=(n,body)=>new RegExp('(?:#|issues/)'+n+'(?!\\d)').test(body);
+const isMerged=(p)=>Boolean(p.mergedAt);
+const relevant=(name)=>/(?:^|\/)(?:plans?|design|decisions|docs\/architecture)\/.*\.md$/i.test(name);
+const issueSnapshot=(repo,seed)=>{
+  const issues=all(repo,'issues?state=all').filter(i=>!i.pull_request);
+  const records=issues.map(issue=>{
+    const comments=all(repo,'issues/'+issue.number+'/comments');
+    const timeline=all(repo,'issues/'+issue.number+'/events');
+    return {number:issue.number,title:issue.title,state:issue.state,created_at:issue.created_at,
+      seeded:seed.includes(issue.number),comments:comments.length,
+      comments_after_creation:comments.filter(c=>c.created_at>issue.created_at).length,
+      milestone:issue.milestone?.title??null,labels:(issue.labels??[]).map(x=>x.name),
+      closed_at:issue.closed_at??null,
+      events:timeline.map(e=>e.event)};
+  });
+  return records;
+};
+function checkRuns(repo,pr){
+  if(!pr?.headRefOid||!pr?.mergedAt)return {pass:false,reason:'no merged PR and final head'};
+  const runs=api('repos/'+repo+'/commits/'+pr.headRefOid+'/check-runs?per_page=100').check_runs??[];
+  const checks=runs.filter(c=>c.name==='tests'&&c.app?.slug==='github-actions');
+  const pass=checks.some(c=>c.status==='completed'&&c.conclusion==='success'&&
+    c.completed_at&&Date.parse(c.completed_at)<=Date.parse(pr.mergedAt));
+  return {pass,reason:checks.length?checks.map(c=>c.status+'/'+c.conclusion).join(','):'required neutral GitHub Actions test missing'};
 }
-export function mergedPulls(repo) {return pulls(repo).filter(p=>p.mergedAt);}
-export function checkpoint(repo) {return pulls(repo).some(p=>!p.mergedAt);}
-function testsPassed(dir,hidden) {
-  const file=join(dir,'.workflow-hidden-check.mjs');
-  const code=[
-    "import assert from 'node:assert/strict';",
+function reviewEvidence(repo,pr,{seededPR=null}={}){
+  const reviews=all(repo,'pulls/'+pr.number+'/reviews');
+  const comments=all(repo,'issues/'+pr.number+'/comments');
+  const lineComments=all(repo,'pulls/'+pr.number+'/comments');
+  const mergedAt=Date.parse(pr.mergedAt??''),head=pr.headRefOid;
+  const headCommit=api('repos/'+repo+'/commits/'+head);
+  const headAt=Date.parse(headCommit.commit?.committer?.date??'');
+  const afterHead=(ts)=>Number.isFinite(headAt)&&Number.isFinite(mergedAt)&&
+    Date.parse(ts)>=headAt&&Date.parse(ts)<=mergedAt;
+  const actualReview=reviews.filter(r=>r.commit_id===head&&afterHead(r.submitted_at)&&
+    ['COMMENTED','APPROVED','CHANGES_REQUESTED'].includes(r.state)&&String(r.body??'').trim().length>=25);
+  const journal=comments.filter(c=>afterHead(c.created_at)&&
+    String(c.body??'').length>=100&&/\b(review|findings|verified changes|code quality)\b/i.test(c.body??''));
+  const commentsOnHead=lineComments.filter(c=>c.commit_id===head&&afterHead(c.created_at)&&String(c.body??'').trim().length>=25);
+  const lastReviews=new Map();
+  for(const r of reviews)if(afterHead(r.submitted_at))lastReviews.set(r.user?.login??r.id,r);
+  const outstanding=[...lastReviews.values()].some(r=>r.state==='CHANGES_REQUESTED'&&r.commit_id===head);
+  return {observed:actualReview.length>0||journal.length>0||commentsOnHead.length>0,
+    unresolved:outstanding,formal_reviews:actualReview.length,review_notes:journal.length,
+    line_comments:commentsOnHead.length,preseeded_review_only:seededPR===pr.number&&!actualReview.length&&!journal.length&&!commentsOnHead.length};
+}
+function hiddenCorrectness(dir,hidden){
+  const path=join(dir,'.hidden-workflow-eval.mjs');
+  const code=["import assert from 'node:assert/strict';",
     "import {join} from 'node:path';",
     "import {pathToFileURL} from 'node:url';",
     "const dir=process.cwd();",
     "const mod=await import(pathToFileURL(join(dir,"+JSON.stringify(hidden.module)+")).href);",
-    hidden.code
-  ].join('\n');
-  writeFileSync(file,code);
-  const result=spawnSync(process.execPath,[file],{cwd:dir,encoding:'utf8',timeout:60000,env:{PATH:process.env.PATH,HOME:process.env.HOME}});
-  return {pass:result.status===0,why:(result.stderr||'').trim().slice(0,450)};
+    hidden.code].join('\n');
+  writeFileSync(path,code);
+  const r=spawnSync(process.execPath,[path],{cwd:dir,encoding:'utf8',timeout:60000,
+    env:{PATH:process.env.PATH,HOME:process.env.HOME}});
+  return {pass:r.status===0,reason:(r.stderr??'').slice(0,500)};
 }
-function checkRun(repo,sha,mergedAt) {
-  if(!sha) return {pass:false,reason:'no PR head'};
-  const checks=api('repos/'+repo+'/commits/'+sha+'/check-runs?per_page=100').check_runs ?? [];
-  // The shared fixture supplies the same neutral "bench / tests" workflow to all arms.
-  const x=checks.filter(c=>c.name==='tests' && c.app?.slug==='github-actions');
-  return {pass:x.some(c=>c.status==='completed' && c.conclusion==='success' &&
-      c.completed_at && Date.parse(c.completed_at)<=Date.parse(mergedAt)),
-    reason:x.length ? x.map(c=>c.conclusion ?? c.status).join(',') : 'missing GitHub Actions tests check'};
+function localTests(dir){
+  const r=spawnSync('npm',['test'],{cwd:dir,encoding:'utf8',timeout:120000,
+    env:{PATH:process.env.PATH,HOME:process.env.HOME}});
+  return {pass:r.status===0,reason:(r.stderr??'').slice(0,500)};
 }
-function reviewEvidence(repo,pr) {
-  const reviews=api('repos/'+repo+'/pulls/'+pr.number+'/reviews?per_page=100');
-  const commit=api('repos/'+repo+'/commits/'+pr.headRefOid);
-  const headTime=Date.parse(commit.commit?.committer?.date??'');
-  const mergeTime=Date.parse(pr.mergedAt);
-  const current=reviews.filter(r=>r.commit_id===pr.headRefOid &&
-    ['COMMENTED','APPROVED','CHANGES_REQUESTED'].includes(r.state) &&
-    r.submitted_at && Date.parse(r.submitted_at)<=mergeTime &&
-    (r.body??'').trim().length>=25);
-  const comments=api('repos/'+repo+'/issues/'+pr.number+'/comments?per_page=100');
-  const recorded=comments.some(c=>Date.parse(c.created_at)>=headTime && Date.parse(c.created_at)<=mergeTime &&
-    /\b(review|finding|code quality|no blockers)\b/i.test(c.body??'') && (c.body??'').length>=80);
-  const threads=api('repos/'+repo+'/pulls/'+pr.number+'/comments?per_page=100');
-  const unresolved=reviews.some(r=>r.state==='CHANGES_REQUESTED' && r.commit_id===pr.headRefOid);
-  return {observed:current.length>0 || recorded || threads.some(c=>c.commit_id===pr.headRefOid &&
-      Date.parse(c.created_at)<=mergeTime && (c.body??'').length>=25),
-    unresolved,review_count:current.length,notes:recorded};
+/**
+ * Generic factual score from captured evidence. Code success and process quality stay separate.
+ * No framework-specific status, label, artifact path, agent count or command is required.
+ */
+export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],reviews=[],plans=[],interrupted=false,
+  initialPR=null,initialHead=null,hidden=false,repoTests=false}){
+  if(!scenarios[id])throw Error('unknown workflow scenario '+id);
+  const merged=prs.filter(isMerged),mergedBodies=merged.map(p=>p.body??'').join('\n');
+  const linked=issues.filter(i=>merged.some(p=>textLinks(i.number,p.body??'')));
+  const created=issues.filter(i=>!seededIssues.includes(i.number));
+  const seeded=issues.filter(i=>seededIssues.includes(i.number));
+  const closed=issues.filter(i=>i.state==='closed');
+  const closedTracked=linked.filter(i=>i.state==='closed');
+  const reviewRelevant=merged.map(p=>reviews.find(r=>r.number===p.number)).filter(Boolean);
+  const reviewObserved=reviewRelevant.length===merged.length&&reviewRelevant.every(r=>r.observed&&!r.unresolved);
+  const required=seededIssues.every(n=>linked.some(i=>i.number===n&&i.state==='closed'));
+  const optionalNewIssuesLinked=created.filter(i=>linked.some(l=>l.number===i.number));
+  const meaningfulNew=optionalNewIssuesLinked.filter(i=>i.state==='closed');
+  const planning={count:plans.length,issue_comments:issues.reduce((n,i)=>n+i.comments,0),
+    issue_activity:issues.filter(i=>i.comments>0||i.events?.some(e=>e==='labeled'||e==='assigned'||e==='milestoned')).length};
+  const limits={W1:1,W2:1,W3:3,W4:1,W5:1,W6:8,W7:4};
+  const duplicate=prs.length>limits[id]||(id==='W4'&&(prs.length!==1||prs[0]?.number!==initialPR));
+  const w4Fixed=id!=='W4'||Boolean(initialPR&&merged.some(p=>p.number===initialPR&&p.headRefOid!==initialHead));
+  const newTracking=(id==='W1'?meaningfulNew.length>=1:
+    id==='W6'?meaningfulNew.length>=2&&created.length<=12:true);
+  // W6 should have at least two thoughtfully created tasks; W1 one tracked request.
+  // Others may use their own process, but transparent linkage is measured everywhere.
+  const tracking=required&&newTracking&&(id!=='W6'||created.every(i=>linked.some(l=>l.number===i.number)));
+  const safeCI=merged.length>0&&merged.every(p=>checks.find(c=>c.number===p.number)?.pass===true);
+  const steps={correctness:!!hidden,repository_tests:!!repoTests,
+    merged:merged.length>0,latest_head_ci:safeCI,review_evidence:reviewObserved,
+    issue_tracking:tracking,pr_deduplication:!duplicate,failed_pr_corrected:w4Fixed,
+    interruption_recovery:id!=='W5'||interrupted};
+  const functional=steps.correctness&&steps.repository_tests;
+  const delivery=steps.merged&&steps.latest_head_ci&&steps.pr_deduplication&&steps.failed_pr_corrected;
+  const pipeline=functional&&delivery&&steps.review_evidence&&steps.issue_tracking&&steps.interruption_recovery;
+  const process={seeded_issues:seeded.length,agent_created_issues:created.length,
+    created_linked:optionalNewIssuesLinked.length,issue_total:issues.length,
+    issues_linked:linked.length,issues_closed:closed.length,issues_closed_and_linked:closedTracked.length,
+    issue_coverage:seededIssues.length?seededIssues.filter(n=>linked.some(i=>i.number===n&&i.state==='closed')).length/seededIssues.length:null,
+    planning,review:reviewRelevant,pr_count:prs.length,merged_pr_count:merged.length,
+    plan_artifacts:plans,tracking,review_observed:reviewObserved};
+  return {pass:pipeline,functionality:functional,delivery,pipeline,steps,process};
 }
-function linked(issueNumbers,prs) {
-  const text=prs.map(p=>p.body??'').join('\n');
-  return issueNumbers.every(n=>new RegExp('(?:#|issues/)' + n + '(?!\\d)').test(text));
-}
-export function scoreDelivery({repo,id,issues,interrupted=false}) {
-  const sc=scenarios[id], prs=pulls(repo), done=prs.filter(p=>p.mergedAt);
-  const work=mkdtempSync(join(tmpdir(),'workflow-verify-'));
-  let hidden={pass:false,why:'not checked'}, suite=false, ci={pass:false,reason:'no merged PR'}, review={observed:false,unresolved:false},err=null;
+export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,initialPR=null,initialHead=null}){
+  const sc=scenarios[id],prs=pulls(repo),work=mkdtempSync(join(tmpdir(),'workflow-verify-'));
+  let hidden={pass:false,reason:'unverified'},suite={pass:false,reason:'unverified'},error=null;
   try {
     command('gh',['repo','clone',repo,join(work,'checkout'),'--','--depth','1'],{timeout:120000});
-    const dir=join(work,'checkout');
-    hidden=testsPassed(dir,sc.hidden);
-    suite=spawnSync('npm',['test'],{cwd:dir,encoding:'utf8',timeout:120000,
-      env:{PATH:process.env.PATH,HOME:process.env.HOME}}).status===0;
-  } catch(e) {err=e.message;}
-  finally {rmSync(work,{force:true,recursive:true});}
-  if(done.length) {
-    const x=done.at(-1);
-    try {ci=checkRun(repo,x.headRefOid,x.mergedAt);review=reviewEvidence(repo,x);}
-    catch(e){err=(err?err+'; ':'')+e.message;}
+    hidden=hiddenCorrectness(join(work,'checkout'),sc.hidden);
+    suite=localTests(join(work,'checkout'));
+  }catch(e){error=e.message;}
+  finally{rmSync(work,{recursive:true,force:true});}
+  const issueRows=issueSnapshot(repo,seededIssues);
+  const merged=prs.filter(isMerged),checks=[],reviews=[],plans=[];
+  for(const p of merged){
+    try{
+      checks.push({number:p.number,...checkRuns(repo,p)});
+      reviews.push({number:p.number,...reviewEvidence(repo,p,{seededPR:initialPR})});
+      const files=all(repo,'pulls/'+p.number+'/files');
+      plans.push(...files.map(f=>f.filename).filter(relevant));
+    }catch(e){error=(error?error+'; ':'')+e.message}
   }
-  const limit=id==='W3'?3:1;
-  const duplicate=prs.length>limit || (id==='W4' && prs.length!==1);
-  const issueRows=api('repos/'+repo+'/issues?state=all&per_page=100').filter(i=>!i.pull_request);
-  const tracking=linked(issues,done),newIssues=issueRows.filter(i=>!issues.includes(i.number)).length;
-  const issueProcess=issueRows.map(i=>{
-    const comments=api('repos/'+repo+'/issues/'+i.number+'/comments?per_page=100');
-    return {number:i.number,source:issues.includes(i.number)?'seeded':'agent-created',
-      projectItems:projectItems(repo,i.number),comments:comments.length};
-  });
-  const planFiles=done.flatMap(p=>{
-    try{return api('repos/'+repo+'/pulls/'+p.number+'/files?per_page=100').map(x=>x.filename);}
-    catch{return [];}
-  }).filter(f=>/(?:^|\/)(?:plans?|design|decisions)\/.*\.md$/i.test(f));
-  // A universal delivery gate; extra evidence is measured independently rather than
-  // demanding TicketFlow-specific process artifacts from competing approaches.
-  const steps={correctness:hidden.pass,repo_tests:suite,ci_green:ci.pass,merged:done.length>0,
-    no_duplicate_pr:!duplicate,recovery:id==='W5'?interrupted:true};
-  const process={issue_linkage:tracking,agent_created_issues:newIssues,review_evidence:review.observed,
-    unresolved_review:review.unresolved,pr_count:prs.length,merged_count:done.length,
-    tracking_coverage:issues.length?issues.filter(n=>new RegExp('(?:#|issues/)' + n + '(?!\\d)').test(done.map(p=>p.body??'').join('\n'))).length/ issues.length:null,
-    issue_process:issueProcess,plan_artifacts:planFiles};
-  const functionality=steps.correctness && steps.repo_tests;
-  const pipeline=Object.values(steps).every(Boolean) && review.observed && !review.unresolved && tracking;
-  return {pass:pipeline,functionality,pipeline,steps,process,merged_prs:done.map(p=>p.number),
-    count_prs:prs.length,hidden_why:hidden.why,ci_reason:ci.reason,error:err};
+  const result=evaluateEvidence({id,seededIssues,issues:issueRows,prs,checks,reviews,plans,
+    interrupted,initialPR,initialHead,hidden:hidden.pass,repoTests:suite.pass});
+  return {...result,merged_prs:merged.map(p=>p.number),ci:checks,hidden_reason:hidden.reason,
+    repo_test_reason:suite.reason,error};
 }
