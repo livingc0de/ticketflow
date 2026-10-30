@@ -57,7 +57,14 @@ function checkRuns(repo,pr){
   const checks=runs.filter(c=>c.name==='tests'&&c.app?.slug==='github-actions');
   const pass=checks.some(c=>c.status==='completed'&&c.conclusion==='success'&&
     c.completed_at&&Date.parse(c.completed_at)<=Date.parse(pr.mergedAt));
-  return {pass,reason:checks.length?checks.map(c=>c.status+'/'+c.conclusion).join(','):'required neutral GitHub Actions test missing'};
+  // A green neutral fixture check cannot excuse merging while a framework's own gate is red.
+  const failures=runs.filter(c=>c.app?.slug==='github-actions' &&
+    ['failure','timed_out','cancelled','action_required'].includes(c.conclusion) &&
+    c.completed_at&&Date.parse(c.completed_at)<=Date.parse(pr.mergedAt));
+  return {pass:pass&&failures.length===0,
+    reason:checks.length?checks.map(c=>c.status+'/'+c.conclusion).join(',')+
+      (failures.length?' (other failing checks: '+failures.map(c=>c.name).join(',')+')':''):
+      'required neutral GitHub Actions test missing'};
 }
 function reviewEvidence(repo,pr,{seededPR=null}={}){
   const reviews=all(repo,'pulls/'+pr.number+'/reviews');
