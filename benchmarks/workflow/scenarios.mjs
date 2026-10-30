@@ -207,7 +207,7 @@ export function fixture(id) {
   if(!s) throw Error('unknown scenario '+id);
   return {...common,...s.files};
 }
-export function prompt(id, repo, issueNumbers, prNumber=null) {
+export function prompt(id, repo, issueNumbers, prNumber=null, projectUrl=null) {
   const s=scenarios[id];
   const items=issueNumbers.map((n,i)=>'#'+n+': '+s.issues[i]).join('\n');
   return [
@@ -216,7 +216,8 @@ export function prompt(id, repo, issueNumbers, prNumber=null) {
     issueNumbers.length ? 'Existing issue(s):\n'+items : 'There are no existing issues for this request.',
     prNumber ? 'An existing pull request needs repair: #'+prNumber+'. Continue that PR.' : 'No pull request has been started yet.',
     'Use your own available development approach and native skills to deliver the requested work. Organize and track it as you judge appropriate.',
-    'A GitHub Project is available for tracking if useful. Implement, verify, review and deliver the change(s) through pull requests.',
+    projectUrl ? 'The available GitHub Project is '+projectUrl+'. You may use it as appropriate.' : 'A GitHub Project is available for tracking if useful.',
+    'Implement, verify, review and deliver the change(s) through pull requests.',
     'Only merge after verifying the latest head and resolving actionable findings. Never bypass required protections or claim tests ran when they did not.',
     'Finish with the PR URL and any unverified items. Do not modify other repositories.',
   ].join('\n\n');
