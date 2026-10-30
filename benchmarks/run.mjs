@@ -4,7 +4,7 @@
  * No npm dependencies and no GitHub credentials required. See benchmarks/README.md before execution.
  */
 import { spawn, spawnSync, execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readSync, readdirSync } from 'node:fs'
 import { resolve, join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -13,14 +13,14 @@ import { selectProfileMode } from './lib/profile-auth.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url)), ROOT = resolve(HERE, '..')
 const SESSION_TIMEOUT_MS = 35 * 60_000
-const usage = 'usage: node benchmarks/run.mjs --agent claude|codex --model NAME [--effort low|medium|high|xhigh|max] [--arms before,after,bare,superpowers,ponytail] [--scenarios L1,L2] [--repeats 3] [--before-source DIR] [--after-source DIR] [--superpowers-source DIR] [--ponytail-source DIR] [--out results.jsonl] [--max-sessions N] [--resume] [--execute]\n   or: node benchmarks/run.mjs --parallel --claude-model NAME --codex-model NAME --claude-out FILE --codex-out FILE [common options]'
+const usage = 'usage: node benchmarks/run.mjs --agent claude|codex --model NAME [--effort low|medium|high|xhigh|max] [--arms before,after,bare,superpowers,ponytail] [--scenarios L1,L2] [--repeats 3] [--before-source DIR] [--after-source DIR] [--superpowers-source DIR] [--ponytail-source DIR] [--out results.jsonl] [--max-sessions N] [--resume] [--execute] [--allow-danger-full-access]\n   or: node benchmarks/run.mjs --parallel --claude-model NAME --codex-model NAME --claude-out FILE --codex-out FILE [common options]'
 const validArms = new Set(['before', 'after', 'bare', 'superpowers', 'ponytail'])
 const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
 const fail = (m) => { console.error('benchmarks: ' + m); process.exitCode = 2 }
 const sha = (p) => { try { return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: p, encoding: 'utf8' }).trim() } catch { return null } }
 const cliVersion = (agent) => {
     const version = spawnSync(agent, ['--version'], { encoding: 'utf8', timeout: 10_000 })
-    if (version.error || version.status !== 0 || !version.stdout?.trim()) throw Error('cannot verify current ' + agent + ' CLI version for --resume')
+    if (version.error || version.status !== 0 || !version.stdout?.trim()) throw Error('cannot verify current ' + agent + ' CLI version')
     return version.stdout.trim()
 }
 const readRows = (out) => readFileSync(out, 'utf8').split(/\r?\n/).filter(Boolean).map((x) => JSON.parse(x))
@@ -55,7 +55,7 @@ async function main() {
             repeats: { type: 'string' }, 'before-source': { type: 'string' }, 'after-source': { type: 'string' },
             'superpowers-source': { type: 'string' }, 'ponytail-source': { type: 'string' },
             out: { type: 'string' }, 'max-sessions': { type: 'string' }, resume: { type: 'boolean' }, execute: { type: 'boolean' },
-            parallel: { type: 'boolean' }, 'claude-model': { type: 'string' }, 'codex-model': { type: 'string' },
+            parallel: { type: 'boolean' }, 'allow-danger-full-access': { type: 'boolean' }, 'claude-model': { type: 'string' }, 'codex-model': { type: 'string' },
             'claude-out': { type: 'string' }, 'codex-out': { type: 'string' },
         }, allowPositionals: false }))
         const parallel = v.parallel === true
@@ -131,9 +131,13 @@ async function main() {
         if (!parallel) Object.assign(info, { agent: agents[0], model: models[agents[0]] })
         console.log(JSON.stringify(info, null, 2))
 
+        const cliVersions = new Map()
+        if (v.execute) {
+            for (const agent of agents) if (pending.get(agent).length || v.resume) cliVersions.set(agent, cliVersion(agent))
+        }
         if (v.execute && v.resume) {
             for (const agent of agents) {
-                const version = cliVersion(agent)
+                const version = cliVersions.get(agent)
                 const prior = recorded.get(agent).filter((r) => r.agent === agent && r.requested_model === models[agent] && (r.requested_effort ?? null) === (v.effort ?? null))
                 if (prior.some((r) => !r.agent_version || r.agent_version !== version)) throw Error('--resume CLI version differs from recorded sessions or is missing: use a fresh output file')
             }
@@ -146,10 +150,24 @@ async function main() {
         if (remaining > maximum) throw Error(remaining + ' paid sessions exceeds --max-sessions ' + maximum + ': raise it explicitly')
         if (!remaining) return
 
+        if (agents.includes('codex') && pending.get('codex').length) {
+            console.error('NOTICE: Codex benchmark sessions use --sandbox danger-full-access. Run this on a disposable machine; this is not an OS security boundary.')
+            if (!v['allow-danger-full-access']) {
+                if (!process.stdin.isTTY) throw Error('Codex danger-full-access requires an interactive approval or --allow-danger-full-access. No paid session started.')
+                process.stderr.write('Proceed with Codex --sandbox danger-full-access for ' + pending.get('codex').length + ' paid session(s)? [y/N] ')
+                const input = [], byte = Buffer.alloc(1)
+                while (input.length < 16) {
+                    const n = readSync(process.stdin.fd, byte, 0, 1, null)
+                    if (!n || byte[0] === 10 || byte[0] === 13) break
+                    input.push(String.fromCharCode(byte[0]))
+                }
+                process.stderr.write('\n')
+                if (!/^y(?:es)?$/i.test(input.join('').trim())) throw Error('Codex danger-full-access run declined. No paid session started.')
+            }
+        }
         const profileModes = new Map()
         for (const agent of agents) {
             if (!pending.get(agent).length) continue
-            if (agent === 'codex') console.error('NOTICE: Codex benchmark sessions use --sandbox danger-full-access. Run this on a disposable machine; this is not an OS security boundary.')
             const mode = selectProfileMode(agent, arms, { count: pending.get(agent).length })
             profileModes.set(agent, mode)
             if (v.resume && recorded.get(agent).some((r) => r.agent === agent && r.requested_model === models[agent] && (r.requested_effort ?? null) === (v.effort ?? null) &&

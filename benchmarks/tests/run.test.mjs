@@ -56,11 +56,19 @@ appendFileSync(log, name + ':end:' + Date.now() + '\\n')
 `)
     chmodSync(fake, 0o755)
     for (const name of ['claude', 'codex']) cpSync(fake, join(bin, name))
-    const r = call(['--parallel','--claude-model','claude-test','--codex-model','codex-test','--effort','high','--claude-out',claudeOut,'--codex-out',codexOut,
-        '--arms','bare','--scenarios','L4','--repeats','1','--max-sessions','2','--execute'], {
+    const args = ['--parallel','--claude-model','claude-test','--codex-model','codex-test','--effort','high','--claude-out',claudeOut,'--codex-out',codexOut,
+        '--arms','bare','--scenarios','L4','--repeats','1','--max-sessions','2','--execute']
+    const env = {
         PATH: `${bin}:${process.env.PATH}`, CLAUDE_CONFIG_DIR: claudeAuth, CODEX_HOME: codexHome,
         ANTHROPIC_API_KEY:'', CLAUDE_CODE_OAUTH_TOKEN:'', OPENAI_API_KEY:'', PARALLEL_LOG:log,
-    })
+    }
+    const denied = call(args, env)
+    assert.equal(denied.status, 2, denied.stdout + denied.stderr)
+    assert.match(denied.stderr, /requires an interactive approval or --allow-danger-full-access/)
+    assert.doesNotMatch(denied.stdout, /SESSION /)
+    assert.equal(existsSync(log), false)
+
+    const r = call([...args.slice(0, -1), '--allow-danger-full-access', '--execute'], env)
     assert.equal(r.status, 0, r.stdout + r.stderr)
     const claude = JSON.parse(readFileSync(claudeOut, 'utf8')), codex = JSON.parse(readFileSync(codexOut, 'utf8'))
     assert.equal(claude.agent, 'claude'); assert.equal(claude.sandbox_mode, 'not-applicable'); assert.equal(claude.requested_effort, 'high'); assert.equal(claude.check.pass, true)
@@ -68,6 +76,35 @@ appendFileSync(log, name + ':end:' + Date.now() + '\\n')
     const events = readFileSync(log, 'utf8').trim().split('\n').map((line) => line.split(':')).reduce((m, [agent, phase, time]) => m.set(agent + phase, +time), new Map())
     assert.ok(events.get('claudestart') < events.get('codexend') && events.get('codexstart') < events.get('claudeend'), 'agent sessions overlapped')
     assert.match(r.stderr, /danger-full-access/)
+})
+
+test('parallel execution preflights both CLIs before any paid child starts', () => {
+    const dir = tempDir('bench-preflight-'), bin = join(dir, 'bin'), claudeAuth = join(dir, 'claude-auth'), codexHome = join(dir, 'codex-home')
+    const claudeOut = join(dir, 'claude.jsonl'), codexOut = join(dir, 'codex.jsonl'), log = join(dir, 'paid.log')
+    mkdirSync(bin); mkdirSync(claudeAuth); mkdirSync(codexHome)
+    writeFileSync(join(claudeAuth, '.credentials.json'), '{"portable":true}\n')
+    writeFileSync(join(codexHome, 'auth.json'), '{"auth_mode":"chatgpt","tokens":{"access_token":"test"}}\n')
+    const claude = join(bin, 'claude'), codex = join(bin, 'codex')
+    writeFileSync(claude, '#!/bin/sh\nexit 1\n')
+    chmodSync(claude, 0o755)
+    writeFileSync(codex, `#!${process.execPath}
+import { appendFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+const args = process.argv.slice(2)
+if (args.includes('--version')) { console.log('fake-codex 1.0'); process.exit(0) }
+if (args[0] === 'login' && args[1] === 'status') process.exit(existsSync(join(process.env.CODEX_HOME, 'auth.json')) ? 0 : 1)
+appendFileSync(process.env.PAID_LOG, 'paid\\n')
+`)
+    chmodSync(codex, 0o755)
+    const r = call(['--parallel','--claude-model','claude-test','--codex-model','codex-test','--claude-out',claudeOut,'--codex-out',codexOut,
+        '--arms','bare','--scenarios','L4','--repeats','1','--max-sessions','2','--allow-danger-full-access','--execute'], {
+        PATH: `${bin}:${process.env.PATH}`, CLAUDE_CONFIG_DIR: claudeAuth, CODEX_HOME: codexHome, PAID_LOG: log,
+        ANTHROPIC_API_KEY:'', CLAUDE_CODE_OAUTH_TOKEN:'', OPENAI_API_KEY:'',
+    })
+    assert.equal(r.status, 2, r.stdout + r.stderr)
+    assert.match(r.stderr, /cannot verify current claude CLI version/)
+    assert.doesNotMatch(r.stdout, /SESSION /)
+    assert.equal(existsSync(log), false)
 })
 
 test('paid execution is refused before invoking any agent if the cap is too low', () => {

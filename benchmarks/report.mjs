@@ -28,6 +28,8 @@ const source = (r) => r.ticketflow_sha || r.plugin_sha || 'bare'
 const evaluation = (r) => r.eval_fingerprint ?? r.eval_sha ?? 'unknown'
 const csv = (v) => '"' + String(v ?? '').replaceAll('"', '""') + '"'
 const isRevision = (v) => typeof v === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(v)
+const validEffort = (v) => v === null || ['low', 'medium', 'high', 'xhigh', 'max'].includes(v)
+const validSandbox = (v) => ['not-applicable', 'danger-full-access'].includes(v)
 const revision = (v) => v === 'bare' ? 'bare' : isRevision(v) ? v.toLowerCase() : 'unknown'
 const safeText = (v, limit = 160) => {
     let text = String(v ?? 'unknown').trim()
@@ -95,6 +97,8 @@ function publicationErrors(rows, evaluations, issues) {
     const errors = []
     if (evaluations.length !== 1 || evaluations[0] === 'unknown' || !isRevision(evaluations[0])) errors.push('publication requires one known evaluator revision')
     if (rows.some((r) => !r.requested_model || typeof r.requested_model !== 'string')) errors.push('publication requires a pinned requested model for every row')
+    if (rows.some((r) => !Object.hasOwn(r, 'requested_effort') || !validEffort(r.requested_effort))) errors.push('publication requires requested_effort to be present and one of null, low, medium, high, xhigh or max for every row')
+    if (rows.some((r) => !Object.hasOwn(r, 'sandbox_mode') || !validSandbox(r.sandbox_mode))) errors.push('publication requires sandbox_mode to be present and one of not-applicable or danger-full-access for every row')
     if (rows.some((r) => !r.agent || !r.agent_version)) errors.push('publication requires agent and CLI version metadata for every row')
     if (rows.some((r) => r.ticketflow_dirty === true)) errors.push('publication refuses dirty TicketFlow source rows')
     if (rows.some((r) => r.evaluation_mode !== 'non-adversarial')) errors.push('publication requires evaluation_mode=non-adversarial for every row')
@@ -188,7 +192,7 @@ try {
     if (!rows.length) throw Error('no sessions: cannot claim improvement')
     if (rows.some((r) => typeof r.scenario !== 'string' || !r.arm || !r.check || typeof r.check.pass !== 'boolean')) throw Error('invalid session row')
     const evaluations = [...new Set(rows.map(evaluation))], groups = groupsFor(rows)
-    const configurations = [...new Set(rows.map((r) => `${r.agent ?? 'unknown'}/${r.agent_version ?? 'unknown'}/${requestedModel(r)}/${model(r)}`))]
+    const configurations = [...new Set(rows.map((r) => `${r.agent ?? 'unknown'}/${r.agent_version ?? 'unknown'}/${requestedModel(r)}/${model(r)}/${r.requested_effort ?? 'default'}`))]
     const issues = reportIssues(rows, groups, evaluations, configurations)
     if (v.publish) {
         const errors = publicationErrors(rows, evaluations, issues)
