@@ -30,17 +30,24 @@ export const checkpoint=(repo)=>pulls(repo).some(p=>!p.mergedAt);
 const textLinks=(n,body)=>new RegExp('(?:#|issues/)'+n+'(?!\\d)').test(body);
 const isMerged=(p)=>Boolean(p.mergedAt);
 const relevant=(name)=>/(?:^|\/)(?:plans?|design|decisions|docs\/architecture)\/.*\.md$/i.test(name);
+const projectSnapshot=(repo,n)=>{
+  try {
+    const data=ghjson(['issue','view',String(n),'-R',repo,'--json','projectItems']);
+    return {readable:true,items:data.projectItems??[]};
+  } catch {return {readable:false,items:[]};}
+};
 const issueSnapshot=(repo,seed)=>{
   const issues=all(repo,'issues?state=all').filter(i=>!i.pull_request);
   const records=issues.map(issue=>{
     const comments=all(repo,'issues/'+issue.number+'/comments');
     const timeline=all(repo,'issues/'+issue.number+'/events');
+    const project=projectSnapshot(repo,issue.number);
     return {number:issue.number,title:issue.title,state:issue.state,created_at:issue.created_at,
       seeded:seed.includes(issue.number),comments:comments.length,
       comments_after_creation:comments.filter(c=>c.created_at>issue.created_at).length,
       milestone:issue.milestone?.title??null,labels:(issue.labels??[]).map(x=>x.name),
       closed_at:issue.closed_at??null,
-      events:timeline.map(e=>e.event)};
+      events:timeline.map(e=>e.event),project};
   });
   return records;
 };
@@ -110,7 +117,10 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
   const optionalNewIssuesLinked=created.filter(i=>linked.some(l=>l.number===i.number));
   const meaningfulNew=optionalNewIssuesLinked.filter(i=>i.state==='closed');
   const planning={count:plans.length,issue_comments:issues.reduce((n,i)=>n+i.comments,0),
-    issue_activity:issues.filter(i=>i.comments>0||i.events?.some(e=>e==='labeled'||e==='assigned'||e==='milestoned')).length};
+    issue_activity:issues.filter(i=>i.comments>0||i.events?.some(e=>e==='labeled'||e==='assigned'||e==='milestoned')).length,
+    project_observed:issues.filter(i=>i.project?.readable).length,
+    project_linked:issues.filter(i=>i.project?.items?.length>0).length,
+    project_statuses:issues.flatMap(i=>(i.project?.items??[]).map(p=>p.status?.name??p.status??'unknown'))};
   const limits={W1:1,W2:1,W3:3,W4:1,W5:1,W6:8,W7:4};
   const duplicate=prs.length>limits[id]||(id==='W4'&&(prs.length!==1||prs[0]?.number!==initialPR));
   const w4Fixed=id!=='W4'||Boolean(initialPR&&merged.some(p=>p.number===initialPR&&p.headRefOid!==initialHead));
