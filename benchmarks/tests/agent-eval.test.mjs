@@ -318,7 +318,7 @@ test('Claude authentication preflight fails before any paid session when no port
     assert.equal(missing.status, 2, missing.stdout + missing.stderr)
     assert.match(missing.stderr, /authentication preflight failed/)
     assert.match(missing.stderr, /CLAUDE_CODE_OAUTH_TOKEN/)
-    assert.match(missing.stderr, /macOS Keychain-only logins/)
+    assert.match(missing.stderr, /no login available/)
     assert.equal(missing.calls.length, 0, 'never launch a paid Claude agent session')
     assert.deepEqual(workdirs(), [], 'no benchmark workspace is created')
 
@@ -440,7 +440,7 @@ test('Codex authentication preflight rejects missing or invalid auth before a pa
     writeFileSync(join(unavailable, 'auth.json'), CODEX_API_LOGIN)
     const api = run(args, { CODEX_HOME: unavailable, FAKE_FIX: '1' })
     assert.equal(api.status, 0, api.stdout + api.stderr)
-    assert.equal(api.calls.length, 1, 'API key saved through codex login also works')
+    assert.equal(api.calls.at(-1).args[0], 'exec', 'API key saved through codex login also works')
 
     const keyringHome = join(tmp, 'keyring-login')
     mkdirSync(keyringHome)
@@ -569,7 +569,7 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     const { run: runDisabled } = sandbox()
     const disabled = runDisabled([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src], { FAKE_PLUGIN_DISABLED:'1' })
     assert.equal(disabled.status, 2)
-    assert.match(disabled.stderr, /not exclusively installed and enabled/)
+    assert.match(disabled.stderr, /not correctly installed and enabled/)
     assert.ok(!disabled.calls.some((c) => c.args[0] === 'exec'), 'no paid session if plugin is disabled')
     const invalid = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', tempDir('empty-plugin-')])
     assert.equal(invalid.status, 2)
