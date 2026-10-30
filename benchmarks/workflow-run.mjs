@@ -41,7 +41,7 @@ function parse() {
   if(!['claude','codex'].includes(v.agent)||!v.model?.trim()||!v.owner?.trim()||!v.out?.trim()) throw Error(help);
   const arms=(v.arms??'bare,after,superpowers,ponytail').split(',');
   const selected=(v.scenarios??ids.join(',')).split(',');
-  const repeats=Number(v.repeats??3),max=Number(v['max-sessions']??60);
+  const repeats=Number(v.repeats??3),max=Number(v['max-sessions']??72);
   if(new Set(arms).size!==arms.length || arms.some(x=>!ARMS.has(x)) || !arms.length ||
     new Set(selected).size!==selected.length || selected.some(x=>!ids.includes(x)) || !selected.length ||
     !Number.isSafeInteger(repeats)||repeats<1 || !Number.isSafeInteger(max)||max<1 ||
@@ -138,12 +138,12 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   }
   const current=state.cells[x.key];
   if(current.phase==='creating') throw Error('Repository creation interrupted: inspect '+repo+' before resuming');
-  if(!current.projectNumber) {
-    current.projectNumber=linkProject({source:sources.after,work,repo,owner:v.owner,number:null,title:current.projectTitle});
+  if(!current.project) {
+    current.project=linkProject({repo,owner:v.owner,title:current.projectTitle});
     safeOut(statePath,state);
   }
   if(!current.issues) {
-    current.issues=seedIssues({repo,id:x.id,source:sources.after,work,owner:v.owner,projectNumber:current.projectNumber,title:current.projectTitle});
+    current.issues=seedIssues({repo,id:x.id,projectId:current.project.id});
     safeOut(statePath,state);
   }
   if(x.id==='W4'&&!current.initialPR) {
@@ -210,11 +210,13 @@ async function main() {
   const completed=new Set(rows.map(r=>r.scenario+'|'+r.arm+'|'+r.repeat));
   const pending=plan.filter(x=>!completed.has(x.key));
   console.log(JSON.stringify({mode:v.execute?'PAID REMOTE GITHUB':'DRY RUN',agent:v.agent,model:v.model,effort:v.effort??null,
-    owner:v.owner,scenarios:selected,arms,repeats,total:plan.length,completed:completed.size,pending:pending.length,
+    owner:v.owner,scenarios:selected,arms,repeats,total_cells:plan.length,completed:completed.size,pending:pending.length,
+    maximum_paid_invocations:pending.reduce((n,p)=>n+(p.id==='W5'?2:1),0),
     sourceShas,projects:'independent disposable Project per session',output:out},null,2));
   if(!v.execute){for(const p of pending)console.log('PLAN '+p.key);return}
   if(!v['allow-github-writes'])throw Error('--allow-github-writes required: creates private repos, real issues, Projects v2, PRs and Actions runs');
-  if(pending.length>max)throw Error(pending.length+' sessions exceeds --max-sessions '+max);
+  const invocationCeiling=pending.reduce((n,p)=>n+(p.id==='W5'?2:1),0);
+  if(invocationCeiling>max)throw Error(invocationCeiling+' possible paid invocations exceeds --max-sessions '+max+' (W5 can require two invocations)');
   if(!process.env.WORKFLOW_BENCH_SETUP_TOKEN||!process.env.WORKFLOW_BENCH_AGENT_TOKEN)throw Error('Use dedicated WORKFLOW_BENCH_SETUP_TOKEN and WORKFLOW_BENCH_AGENT_TOKEN in a disposable GitHub organization');
   validateOrg(v.owner);const version=cliVersion(v.agent);
   if(rows.some(r=>r.agent_version!==version||r.eval_fingerprint!==evalFingerprint))throw Error('CLI or evaluator version changed; cannot resume');
