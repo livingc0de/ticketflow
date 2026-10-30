@@ -131,10 +131,15 @@ async function main() {
         if (!parallel) Object.assign(info, { agent: agents[0], model: models[agents[0]] })
         console.log(JSON.stringify(info, null, 2))
 
-        const cliVersions = new Map()
-        if (v.execute) {
-            for (const agent of agents) if (pending.get(agent).length || v.resume) cliVersions.set(agent, cliVersion(agent))
+        if (!v.execute) {
+            for (const agent of agents) for (const x of pending.get(agent)) console.log(`PLAN ${parallel ? agent + ' ' : ''}${x.scenario} ${x.arm} rep=${x.rep}`)
+            return
         }
+        if (agents.some((agent) => !output[agent])) throw Error(parallel ? '--execute requires --claude-out and --codex-out to retain every run, including failures' : '--execute requires --out to retain every run, including failures')
+        if (remaining > maximum) throw Error(remaining + ' paid sessions exceeds --max-sessions ' + maximum + ': raise it explicitly')
+
+        const cliVersions = new Map()
+        if (v.resume) for (const agent of agents) cliVersions.set(agent, cliVersion(agent))
         if (v.execute && v.resume) {
             for (const agent of agents) {
                 const version = cliVersions.get(agent)
@@ -142,13 +147,8 @@ async function main() {
                 if (prior.some((r) => !r.agent_version || r.agent_version !== version)) throw Error('--resume CLI version differs from recorded sessions or is missing: use a fresh output file')
             }
         }
-        if (!v.execute) {
-            for (const agent of agents) for (const x of pending.get(agent)) console.log(`PLAN ${parallel ? agent + ' ' : ''}${x.scenario} ${x.arm} rep=${x.rep}`)
-            return
-        }
-        if (agents.some((agent) => !output[agent])) throw Error(parallel ? '--execute requires --claude-out and --codex-out to retain every run, including failures' : '--execute requires --out to retain every run, including failures')
-        if (remaining > maximum) throw Error(remaining + ' paid sessions exceeds --max-sessions ' + maximum + ': raise it explicitly')
         if (!remaining) return
+        for (const agent of agents) if (!cliVersions.has(agent)) cliVersions.set(agent, cliVersion(agent))
 
         if (agents.includes('codex') && pending.get('codex').length) {
             console.error('NOTICE: Codex benchmark sessions use --sandbox danger-full-access. Run this on a disposable machine; this is not an OS security boundary.')
