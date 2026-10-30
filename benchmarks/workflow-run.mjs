@@ -25,7 +25,7 @@ const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
 const idFor=(p,agent,model,effort,sourceShas,sourceMeta,fingerprint)=>JSON.stringify({p,agent,model,effort,sourceShas,sourceMeta,fingerprint});
 function fingerprint() {
   const hash=createHash('sha256');
-  for(const path of ['workflow-run.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs','workflow/profile.mjs','workflow/check.mjs','lib/integrity.mjs','lib/process.mjs','lib/transcripts.mjs']) {
+  for(const path of ['workflow-run.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs','workflow/profile.mjs','workflow/check.mjs','lib/integrity.mjs','lib/profile-auth.mjs','lib/process.mjs','lib/transcripts.mjs']) {
     hash.update(path);hash.update('\0');hash.update(readFileSync(join(HERE,path)));
   }
   return hash.digest('hex');
@@ -109,7 +109,8 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
       if(agent==='claude')writeFileSync(outfile,answer,{mode:0o600});
       const external=['superpowers','ponytail'].includes(arm);
       const marker='TICKETFLOW_BENCH_PLUGIN_BOOTSTRAP='+arm;
-      const plugin_bootstrap=external?{status:(stdout+'\n'+stderr).split(/\r?\n/).includes(marker)?'verified':(code===0?'unknown':'failed'),evidence:(stdout+'\n'+stderr).split(/\r?\n/).includes(marker)?'native-session-marker':code===0?'missing-native-session-marker':'agent-exited-before-native-session-marker'}:null;
+      const nativeOutput=stderr.split(/\r?\n/);
+      const plugin_bootstrap=external?{status:nativeOutput.includes(marker)?'verified':(code===0?'unknown':'failed'),evidence:nativeOutput.includes(marker)?'native-cli-stderr-marker':code===0?'missing-native-cli-stderr-marker':'agent-exited-before-native-session-marker'}:null;
       let archive=null,archive_error=null;
       if(archiveRoot){
         try{archive=archiveSession({root:archiveRoot,sessionId:transcriptSessionId('workflow',archiveMeta),agentOut:path,answerFile:outfile,
@@ -152,6 +153,7 @@ const mergeUsage=parts=>{
 async function runCell(x,opts,state,mode,version,evalFingerprint) {
   const {v,sources,out,statePath}=opts,cell=state.cells[x.key]??{};
   const rowId=cell.result_row_id??`workflow:${x.key}:${Date.now().toString(36)}`;
+  if(!cell.result_row_id){cell.result_row_id=rowId;safeOut(statePath,state);}
   const archiveRoot=resolve(process.env.BENCHMARK_TRANSCRIPTS_DIR??join(ROOT,'benchmarks/results/transcripts'));
   const work=cell.work??newWork(),repo=cell.repo??v.owner+'/tfwf-'+state.runId+'-'+x.id.toLowerCase()+'-'+x.arm+'-'+x.repeat;
   if(!cell.repo) {
@@ -243,7 +245,9 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     check:{pass:result.pass&&parts.at(-1).exit===0&&parts.every(p=>!p.cleanup_error&&!p.archive_error),why:parts.some(p=>p.archive_error)?'transcript archive failed: '+parts.find(p=>p.archive_error).archive_error:result.error??result.hidden_why??''},
     delivery:result,invocations:parts,interrupted,agent_exit:parts.at(-1).exit,result_row_id:rowId,
     source_provenance:opts.sourceMeta[x.arm]??null,transcript_archives:parts.map(p=>p.archive).filter(Boolean),
-    plugin_bootstrap:parts.map(p=>p.plugin_bootstrap).find(Boolean)??null,
+    plugin_bootstrap:parts.some(p=>p.plugin_bootstrap?.status==='failed')?{status:'failed',evidence:'one-or-more-invocations-failed'}:
+      parts.every(p=>p.plugin_bootstrap?.status==='verified')?{status:'verified',evidence:'all-native-cli-stderr-markers'}:
+      parts.some(p=>p.plugin_bootstrap)?{status:'unknown',evidence:'not-all-invocations-emitted-native-cli-stderr-marker'}:null,
     ...metrics,workdir:work,repo,date:new Date().toISOString(),descendants:'unknown'
   };
   appendFileSync(out,JSON.stringify(row)+'\n',{mode:0o600});

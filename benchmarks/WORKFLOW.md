@@ -69,6 +69,7 @@ rejected before the dry-run plan is printed; detached checkouts may omit the SHA
     node benchmarks/workflow-run.mjs --agent claude --model YOUR_MODEL \
       --owner YOUR_DISPOSABLE_ORG \
       --arms bare,ticketflow,superpowers,ponytail \
+      --ticketflow-source ../ticketflow-reviewed --ticketflow-sha <ticketflow-commit> \
       --superpowers-source ../superpowers --ponytail-source ../ponytail \
       --scenarios W1,W2,W3,W4,W5,W6,W7 --repeats 3 \
       --out benchmarks/results/workflow-claude.jsonl
@@ -79,6 +80,7 @@ Execute only after inspecting the printed plan:
 
     node benchmarks/workflow-run.mjs --agent claude --model YOUR_MODEL \
       --owner YOUR_DISPOSABLE_ORG --arms bare,ticketflow \
+      --ticketflow-source ../ticketflow-reviewed --ticketflow-sha <ticketflow-commit> \
       --scenarios W1 --repeats 1 --max-sessions 2 \
       --out benchmarks/results/workflow-pilot.jsonl \
       --allow-github-writes --execute
@@ -105,9 +107,10 @@ Every agent invocation writes a local transcript archive beneath
 allowlisted `metadata.json`. The row's `result_row_id` and `transcript_archives`
 link the scored cell to those files. Profiles, credentials, environment variables
 and temporary workspaces are excluded. External plugin rows are publishable only
-when the native process emitted the exact marker
-`TICKETFLOW_BENCH_PLUGIN_BOOTSTRAP=superpowers|ponytail`; registration alone is
-reported as `unknown` and blocks publication.
+when the native CLI/plugin emitted the exact marker on the CLI process's raw stderr:
+`TICKETFLOW_BENCH_PLUGIN_BOOTSTRAP=superpowers|ponytail`. A marker in agent answer
+text or session JSON is not trusted; registration alone is reported as `unknown` and
+blocks publication.
 
 ### Reports
 

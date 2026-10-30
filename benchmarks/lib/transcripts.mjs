@@ -1,4 +1,4 @@
-import { chmodSync, copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { join, relative, resolve } from 'node:path'
 
@@ -20,8 +20,13 @@ const metadataOnly = (metadata) => Object.fromEntries(ALLOWED
 export function archiveSession({ root, sessionId, agentOut, answerFile, metadata }) {
     const base = resolve(root)
     if (!SAFE_ID.test(sessionId)) throw new Error('invalid transcript session id')
-    if (!existsSync(agentOut) || !existsSync(answerFile)) throw new Error('transcript source files are missing')
+    for (const file of [agentOut, answerFile]) {
+        if (!existsSync(file)) throw new Error('transcript source files are missing')
+        const stat = lstatSync(file)
+        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('transcript source files must be regular files')
+    }
     mkdirSync(base, { recursive: true, mode: 0o700 })
+    chmodSync(base, 0o700)
     let id = sessionId
     let n = 1
     while (existsSync(join(base, id))) id = `${sessionId}-${n++}`

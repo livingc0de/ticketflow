@@ -3,7 +3,7 @@
  * Maintainer tool, never shipped to installed repos: runs one eval scenario (benchmarks/scenarios/<id>) with a real agent CLI in a fresh
  * temp git repo and appends one JSON row (benchmarks/SCENARIOS.md). It starts a PAID agent session; nothing here runs in CI.
  *
- * Usage: agent-eval.mjs <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--rep n] [--label name] [--out file.jsonl] [--eval-fingerprint sha256] [--allow-danger-full-access]
+ * Usage: agent-eval.mjs <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--ticketflow-sha sha] [--superpowers-sha sha] [--ponytail-sha sha] [--rep n] [--label name] [--out file.jsonl] [--eval-fingerprint sha256] [--allow-danger-full-access]
  *   <scenario> is a directory name or its prefix (L1). The ticketflow arm installs a TicketFlow checkout (--source, default this one; an
  *   older tag's worktree compares revisions) the way `init` does (runtime, gen-stubs, render); the bare arm installs nothing. The scenario's hidden check.mjs runs on the result; the row is printed and appended to --out.
  * Exit: 0 = the hidden check passed, 1 = it failed (the row is still recorded), 2 = usage, unknown scenario or missing CLI, before any run.
@@ -16,13 +16,13 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { main } from '../core/lib/cli.mjs'
-import { evaluatorFingerprint, resolveScenario, validatePluginSource } from './lib/integrity.mjs'
+import { evaluatorFingerprint, resolveScenario, validatePluginSource, validateSourceCheckout } from './lib/integrity.mjs'
 import { approveDangerFullAccess, selectProfileMode } from './lib/profile-auth.mjs'
 import { archiveSession, transcriptSessionId } from './lib/transcripts.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SCENARIOS = join(ROOT, 'benchmarks/scenarios')
-const usage = 'usage: agent-eval <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--rep n] [--out file.jsonl] [--eval-fingerprint sha256] [--allow-danger-full-access]'
+const usage = 'usage: agent-eval <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--ticketflow-sha sha] [--superpowers-sha sha] [--ponytail-sha sha] [--rep n] [--out file.jsonl] [--eval-fingerprint sha256] [--allow-danger-full-access]'
 const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
 const TOOLS = 'Read,Edit,Write,Glob,Grep,Bash(node *),Bash(npm *),Bash(git status *),Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git add *),Bash(git commit *)'
 const AGENT_TIMEOUT_MS = 30 * 60 * 1000   // shortcut: one fixed 30-minute ceiling so a hung paid session cannot run forever (a timeout is recorded as agent_exit null), add a --timeout option when a scenario needs longer
@@ -163,13 +163,16 @@ function report(agent, out, answerFile, model) {
 }
 
 main('agent-eval', () => {
-    const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, effort: { type: 'string' }, source: { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' }, 'profile-mode': { type: 'string' }, 'eval-fingerprint': { type: 'string' }, 'allow-danger-full-access': { type: 'boolean' } }, allowPositionals: true })
+    const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, effort: { type: 'string' }, source: { type: 'string' }, 'ticketflow-sha': { type: 'string' }, 'superpowers-sha': { type: 'string' }, 'ponytail-sha': { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' }, 'profile-mode': { type: 'string' }, 'eval-fingerprint': { type: 'string' }, 'allow-danger-full-access': { type: 'boolean' } }, allowPositionals: true })
     if (positionals.length !== 1 || !['claude', 'codex'].includes(v.agent) || !['ticketflow', 'bare', 'superpowers', 'ponytail'].includes(v.arm) || (v.effort !== undefined && !EFFORTS.has(v.effort)) || (v.rep !== undefined && (!/^[1-9]\d*$/.test(v.rep) || !Number.isSafeInteger(+v.rep))) || (v.label !== undefined && !/^[a-z][a-z0-9-]{0,30}$/.test(v.label)) || (v['profile-mode'] !== undefined && v['profile-mode'] !== 'unisolated') || (v['eval-fingerprint'] !== undefined && !/^[0-9a-f]{64}$/i.test(v['eval-fingerprint']))) throw new Error(usage)
     const id = resolveScenario(SCENARIOS, positionals[0])
     const external = v.arm === 'superpowers' || v.arm === 'ponytail'
     if (external && !v.source) throw new Error(`--source requires a pinned checkout of ${v.arm}`)
     const src = resolve(v.source ?? ROOT)
-    if (external && (!orNull(() => git(src, 'rev-parse', 'HEAD')) || git(src, 'status', '--porcelain'))) throw new Error(`${src} must be a clean pinned plugin checkout`)
+    const sourceMeta = v.arm === 'bare' ? null : validateSourceCheckout(src, {
+        name: v.arm, expectedSha: v[v.arm + '-sha'] ?? null,
+        expectedRemote: v.arm === 'ticketflow' ? 'https://github.com/livingc0de/ticketflow' : null,
+    })
     if (external) validatePluginSource(src, v.agent, v.arm)
     const outFile = v.out && resolve(v.out)   // the harness's own result file is not a change to a source checkout it sits in
     if (v.out) try { appendFileSync(v.out, '') } catch (e) { throw new Error(`--out ${v.out} cannot be written (${e.code})`) }   // before the paid run, not after it
@@ -220,8 +223,8 @@ main('agent-eval', () => {
         if (isolated) rmSync(profile.home, { recursive: true, force: true })
     }
     const wall_s = Math.round((Date.now() - t0) / 100) / 10
-    const out = r.stdout ?? ''
-    writeFileSync(join(work, 'agent.out'), out)
+    const out = r.stdout ?? '', rawStderr = r.stderr ?? ''
+    writeFileSync(join(work, 'agent.out'), out + '\nSTDERR:\n' + rawStderr)
     const got = report(v.agent, out, answerFile, v.model ?? null)
     writeFileSync(answerFile, got.answer)
 
@@ -236,7 +239,7 @@ main('agent-eval', () => {
     const evalSha = orNull(() => git(ROOT, 'rev-parse', 'HEAD'))
     const pluginBootstrap = external ? (() => {
         const marker = `TICKETFLOW_BENCH_PLUGIN_BOOTSTRAP=${v.arm}`
-        const nativeOutput = `${out}\n${r.stderr ?? ''}`.split(/\r?\n/)
+        const nativeOutput = rawStderr.split(/\r?\n/)
         return { status: nativeOutput.includes(marker) ? 'verified' : (r.status === 0 ? 'unknown' : 'failed'),
             evidence: nativeOutput.includes(marker) ? 'native-session-marker' : (r.status === 0 ? 'missing-native-session-marker' : 'agent-exited-before-native-session-marker') }
     })() : null
@@ -259,6 +262,7 @@ main('agent-eval', () => {
         ticketflow_version: tf(() => readFileSync(join(src, 'VERSION'), 'utf8').trim()),
         plugin_sha: external ? git(src, 'rev-parse', 'HEAD') : null,
         plugin_native: external ? pluginBootstrap.status : null, plugin_bootstrap: pluginBootstrap,
+        source_provenance: sourceMeta,
         result_row_id: resultRowId, transcript_archive: transcriptArchive, archive_error: archiveError,
         check: { pass: pass && !archiveError, why: archiveError ? `transcript archive failed: ${archiveError}` : r.status !== 0 && checkerPass
             ? `agent exited ${r.status ?? r.signal ?? 'unknown'} despite a passing checker`
@@ -273,5 +277,5 @@ main('agent-eval', () => {
     if (v.out) appendFileSync(v.out, `${JSON.stringify(row)}\n`)
     if (cleanupFailure) throw new Error('Benchmark result recorded, but plugin cleanup failed: ' + cleanupFailure.message +
         '. Inspect benchmark-owned Codex plugins/marketplaces before another run; existing user plugins were not targeted.')
-    return pass ? 0 : 1
+    return pass && !archiveError ? 0 : 1
 })
