@@ -448,14 +448,14 @@ test('Codex authentication preflight rejects missing or invalid auth before a pa
     assert.equal(keyring.status, 2, keyring.stdout + keyring.stderr)
     assert.match(keyring.stderr, /non-portable login/)
     assert.match(keyring.stderr, /interactive terminal is required/)
-    assert.equal(keyring.calls.length, 0, 'keyring-only login must not trigger an unusable paid session')
+    assert.equal(keyring.calls.length, api.calls.length, 'keyring-only login must not trigger another paid session')
     assert.ok(!existsSync(join(keyringHome, 'auth.json')), 'keyring-only login is not exported')
 
     writeFileSync(join(keyringHome, 'auth.json'), '{"fake":"not-auth"}')
     const unsupported = run(args, { CODEX_HOME: keyringHome })
     assert.equal(unsupported.status, 2)
     assert.match(unsupported.stderr, /no usable login/)
-    assert.equal(unsupported.calls.length, 0)
+    assert.equal(unsupported.calls.length, api.calls.length, 'unsupported login must not launch another agent session')
 })
 
 test('Codex keyring-only login needs approval and leaves original profile untouched', () => {
