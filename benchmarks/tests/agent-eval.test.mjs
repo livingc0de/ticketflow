@@ -189,6 +189,11 @@ import { join } from 'node:path'
 const args = process.argv.slice(2), name = process.argv[1].split('/').pop()
 if (args.includes('--version')) { console.log(name === 'claude' ? '9.9.9 (Claude Code)' : 'codex-cli 9.9.9'); process.exit(0) }
 if (args.includes('--help')) { console.log('--plugin-dir'); process.exit(0) }
+if (name === 'claude' && args[0] === 'auth' && args[1] === 'status') {
+    const logged = process.env.FAKE_CLAUDE_KEYRING === '1' && process.env.CLAUDE_CONFIG_DIR === process.env.FAKE_KEYRING_HOME
+    console.log(logged ? '{"loggedIn":true}' : '{"loggedIn":false}')
+    process.exit(logged ? 0 : 1)
+}
 if (name === 'codex' && args[0] === 'login' && args[1] === 'status') {
     let auth
     try { auth = JSON.parse(readFileSync(join(process.env.CODEX_HOME, 'auth.json'), 'utf8')) } catch {}
@@ -292,6 +297,23 @@ test('Claude authentication preflight fails before any paid session when no port
     const oauth = run(args, { CLAUDE_CONFIG_DIR: absent, CLAUDE_CODE_OAUTH_TOKEN: 'test-token', FAKE_FIX: '1' })
     assert.equal(oauth.status, 0, oauth.stdout + oauth.stderr)
     assert.equal(oauth.calls[0].claude_oauth, true, 'explicit OAuth login works without a credential file')
+})
+
+test('non-portable Claude login offers an interactive fallback, and approval runs in the original profile', () => {
+    const { run } = sandbox(), keyring = tempDir('claude-keyring-')
+    const env = { CLAUDE_CONFIG_DIR: keyring, FAKE_CLAUDE_KEYRING: '1', FAKE_KEYRING_HOME: keyring, FAKE_FIX: '1' }
+    const args = [L1, '--agent', 'claude', '--arm', 'bare']
+    const refused = run(args, env)
+    assert.equal(refused.status, 2, refused.stdout + refused.stderr)
+    assert.match(refused.stderr, /interactive terminal is required/)
+    assert.equal(refused.calls.length, 0, 'noninteractive execution cannot accidentally start paid work')
+
+    const approved = run([...args, '--profile-mode', 'unisolated'], env)
+    assert.equal(approved.status, 0, approved.stdout + approved.stderr)
+    assert.equal(approved.calls.length, 1)
+    assert.equal(approved.calls[0].claude_config, keyring, 'original keyring profile is used')
+    assert.equal(approved.row.profile_isolation, 'unisolated')
+    assert.ok(!existsSync(join(approved.row.workdir, 'home')), 'no agent profile is copied or modified')
 })
 
 test('Claude uses a disposable profile, copies only existing login and deletes generated auth', () => {
@@ -401,6 +423,24 @@ test('Codex authentication preflight rejects missing or invalid auth before a pa
     assert.equal(unsupported.status, 2)
     assert.match(unsupported.stderr, /missing or unsupported portable login/)
     assert.equal(unsupported.calls.length, 0)
+})
+
+test('Codex keyring-only login needs approval and leaves original profile untouched', () => {
+    const { run } = sandbox(), source = tempDir('codex-keyring-')
+    const env = { CODEX_HOME: source, FAKE_CODEX_KEYRING: '1', FAKE_KEYRING_HOME: source, FAKE_FIX: '1' }
+    const args = [L1, '--agent', 'codex', '--arm', 'bare']
+    const blocked = run(args, env)
+    assert.equal(blocked.status, 2, blocked.stderr)
+    assert.match(blocked.stderr, /interactive terminal is required/)
+    assert.equal(blocked.calls.length, 0)
+
+    const approved = run([...args, '--profile-mode', 'unisolated'], env)
+    assert.equal(approved.status, 0, approved.stdout + approved.stderr)
+    assert.equal(approved.row.profile_isolation, 'unisolated')
+    assert.equal(approved.calls[0].codex_home, source)
+    assert.equal(approved.calls[0].home, process.env.HOME)
+    assert.ok(!existsSync(join(approved.row.workdir, 'home')))
+    assert.deepEqual(readdirSync(source), [], 'the harness never installs anything into the original profile')
 })
 
 test('codex: exec --json in the workspace sandbox, tokens summed over turns, answer from -o, scenario by prefix', () => {
