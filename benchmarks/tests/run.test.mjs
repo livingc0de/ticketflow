@@ -146,6 +146,33 @@ appendFileSync(process.env.PAID_LOG, name + '\\n')
     assert.equal(existsSync(codexOut), false)
 })
 
+test('parallel Ponytail preflight refuses missing Codex hook bypass before either paid worker starts', () => {
+    const dir = tempDir('bench-ponytail-hooks-'), bin = join(dir,'bin')
+    const plugin = dualPluginSource(), claudeOut=join(dir,'claude.jsonl'), codexOut=join(dir,'codex.jsonl'), log=join(dir,'paid.log')
+    mkdirSync(bin)
+    const script = `#!${process.execPath}
+import {appendFileSync} from 'node:fs'
+const name=process.argv[1].split('/').pop(),args=process.argv.slice(2)
+if(args.includes('--version')) {console.log('fake-'+name);process.exit(0)}
+if(args.includes('--help')) {console.log(name==='claude'?'--plugin-dir':'codex exec without hooks support');process.exit(0)}
+appendFileSync(process.env.PAID_LOG,name+'\\n')
+`
+    const fake=join(bin,'fake-agent')
+    writeFileSync(fake,script);chmodSync(fake,0o755)
+    for(const name of ['claude','codex'])cpSync(fake,join(bin,name))
+    const result=call(['--parallel','--claude-model','claude-test','--codex-model','codex-test',
+        '--claude-out',claudeOut,'--codex-out',codexOut,'--arms','ponytail','--ponytail-source',plugin,
+        '--scenarios','L1','--repeats','1','--max-sessions','2','--allow-danger-full-access','--execute'],{
+        PATH:bin+':'+process.env.PATH,PAID_LOG:log
+    })
+    assert.equal(result.status,2,result.stdout+result.stderr)
+    assert.match(result.stderr,/--dangerously-bypass-hook-trust/)
+    assert.doesNotMatch(result.stdout,/SESSION /)
+    assert.equal(existsSync(log),false)
+    assert.equal(existsSync(claudeOut),false)
+    assert.equal(existsSync(codexOut),false)
+})
+
 test('paid execution is refused before invoking any agent if the cap is too low', () => {
     const r = call(['--agent','claude','--model','test','--arms','bare','--scenarios','L1,L2',
         '--repeats','2','--out',join(tempDir('bench-out-'), 'rows.jsonl'),'--max-sessions','1','--execute'])
