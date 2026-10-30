@@ -10,7 +10,7 @@ import { scenarios,ids,prompt } from './workflow/scenarios.mjs';
 import { validateOrg,newRepository,seedIssues,seedBrokenPull,cloneRepository,installTicketFlow,
   linkProject,setupEnv,sh,gh,newWork } from './workflow/sandbox.mjs';
 import { makeProfile,destroyProfile } from './workflow/profile.mjs';
-import { scoreDelivery } from './workflow/check.mjs';
+import { scoreDelivery, projectSnapshot } from './workflow/check.mjs';
 import { selectProfileMode,approveDangerFullAccess } from './lib/profile-auth.mjs';
 import { validatePluginSource } from './lib/integrity.mjs';
 
@@ -169,6 +169,11 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   try {sh('gh',['project','view',String(current.project.number),'--owner',v.owner,'--format','json'],{env:agentEnv});}
   catch(e){throw Error('agent token cannot read benchmark Project '+current.project.number+'; no paid agent invoked: '+e.message);}
 
+  // Capture post-bootstrap, pre-agent Project state. Setup itself must never count as agent work.
+  if(!current.baselineProjects) {
+    current.baselineProjects=current.issues.map(n=>({number:n,project:projectSnapshot(repo,n)}));
+    safeOut(statePath,state);
+  }
   // Initial branch and issue state is prepared before the paid agent run.
   const dir=cloneRepository(repo,join(work,'attempt-'+Date.now()));
   const initial=prompt(x.id,repo,current.issues,current.initialPR??null,
@@ -191,7 +196,8 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     }
   } else parts.push(await runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,message:initial}));
   const result=scoreDelivery({repo,id:x.id,issues:current.issues,interrupted,
-    initialPR:current.initialPR??null,initialHead:current.initialHead??null});
+    initialPR:current.initialPR??null,initialHead:current.initialHead??null,
+    baselineProjects:current.baselineProjects??[]});
   const metrics=mergeUsage(parts);
   const row={
     suite:'workflow',scenario:x.id,agent:v.agent,agent_version:version,requested_model:v.model,
