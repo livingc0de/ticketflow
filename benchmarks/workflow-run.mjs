@@ -148,7 +148,7 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
           }
         }catch(e){stderr+='\ncheckpoint probe: '+e.message}
         finally{probing=false}
-      },1000);
+      },2000);
     } catch(e) {
       try{profile.cleanup()}catch{}
       reject(e);
@@ -219,7 +219,7 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     'https://github.com/orgs/'+v.owner+'/projects/'+current.project.number);
   // All arms receive the same early remote-checkpoint instruction in W5.
   const stagedPrompt=x.id==='W5'?initial+
-    '\n\nFor interruption recovery, push meaningful src/ or test/ changes to a remote feature branch early, before opening or merging a PR. Continue normally after that checkpoint.':initial;
+    '\n\nFor the deliberate interruption test, push meaningful src/ or test/ changes to a remote feature branch early. Keep working on verification but do not merge during this first session; recovery and merging belong to the fresh resumed session.':initial;
   const source=sources[x.arm]??null,parts=[];
   let interrupted=false;
   if(x.id==='W5') {
