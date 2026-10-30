@@ -73,6 +73,11 @@ function requireClaudePluginDir() {
   const r=spawnSync('claude',['--help'],{encoding:'utf8',timeout:12000});
   if(r.status!==0||!r.stdout?.includes('--plugin-dir')) throw Error('Claude CLI does not advertise --plugin-dir; cannot load competitor natively');
 }
+function requireCodexPonytailHooks() {
+  const r=spawnSync('codex',['exec','--help'],{encoding:'utf8',timeout:12000});
+  if(r.status!==0||!(r.stdout+'\n'+r.stderr).includes('--dangerously-bypass-hook-trust'))
+    throw Error('Codex exec does not advertise --dangerously-bypass-hook-trust; Ponytail lifecycle hooks cannot be enabled noninteractively');
+}
 function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs=35*60_000,interrupt=null,archiveRoot=null,archiveMeta={}}) {
   return new Promise((done,reject)=>{
     let profile;
@@ -83,7 +88,7 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
       '--setting-sources','project,local',
       '--allowedTools','Read,Edit,Write,Glob,Grep,Task,Agent,Bash(git *),Bash(gh *),Bash(node *),Bash(npm *),Bash(npx *),Bash(ls *),Bash(cat *),Bash(rg *),Bash(find *),Bash(pwd),Bash(mkdir *),Bash(sed *),Bash(jq *),Bash(cp *),Bash(mv *),Bash(printf *),Bash(chmod *)',
       '--model',model,...(effort?['--effort',effort]:[]),...profile.pluginArgs]:
-      ['exec','--json',...(arm==='bare'||arm==='ticketflow'?['--ignore-user-config']:[]),'--sandbox','danger-full-access',
+      ['exec','--json',...(arm==='ponytail'?['--dangerously-bypass-hook-trust']:[]),...(arm==='bare'||arm==='ticketflow'?['--ignore-user-config']:[]),'--sandbox','danger-full-access',
         '-C',dir,'-o',outfile,'-m',model,...(effort?['--config','model_reasoning_effort='+effort]:[]),'-'];
     const env={...profile.env,GH_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN,
       GITHUB_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN,GIT_TERMINAL_PROMPT:'0'};
@@ -113,7 +118,7 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
       if(agent==='claude')writeFileSync(outfile,answer,{mode:0o600});
       const external=['superpowers','ponytail'].includes(arm);
       const evidence=profile.nativePluginEvidence??(agent==='claude'&&external?'claude-plugin-dir':null);
-      const plugin_bootstrap=external?{status:code===0&&evidence?(agent==='claude'?'loaded':'verified'):'failed',evidence:evidence??'native-plugin-loading-failed'}:null;
+      const plugin_bootstrap=external?{status:code===0&&evidence?(agent==='claude'||arm==='ponytail'?'loaded':'verified'):'failed',evidence:evidence??'native-plugin-loading-failed'}:null;
       let archive=null,archive_error=null;
       if(archiveRoot){
         try{archive=archiveSession({root:archiveRoot,sessionId:transcriptSessionId('workflow',archiveMeta),agentOut:path,answerFile:outfile,
@@ -257,7 +262,7 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     delivery:result,invocations:parts,interrupted,agent_exit:parts.at(-1).exit,result_row_id:rowId,
     source_provenance:opts.sourceMeta[x.arm]??null,transcript_archives:parts.map(p=>p.archive).filter(Boolean),
     plugin_bootstrap:parts.some(p=>p.plugin_bootstrap?.status==='failed')?{status:'failed',evidence:'one-or-more-invocations-failed'}:
-      parts.length>0&&parts.every(p=>p.plugin_bootstrap?.status==='loaded')?{status:'loaded',evidence:'all-claude-plugin-dir-loads'}:
+      parts.length>0&&parts.every(p=>p.plugin_bootstrap?.status==='loaded')?{status:'loaded',evidence:v.agent==='claude'?'all-claude-plugin-dir-loads':'all-codex-plugin-hook-bypass-loads'}:
       parts.length>0&&parts.every(p=>p.plugin_bootstrap?.status==='verified')?{status:'verified',evidence:'all-codex-plugin-list-loads'}:
       parts.some(p=>p.plugin_bootstrap)?{status:'unknown',evidence:'native-plugin-loading-unobserved'}:null,
     ...metrics,workdir:work,repo,date:new Date().toISOString(),descendants:'unknown'
@@ -293,6 +298,7 @@ async function main() {
   if(!process.env.WORKFLOW_BENCH_SETUP_TOKEN||!process.env.WORKFLOW_BENCH_AGENT_TOKEN)throw Error('Use dedicated WORKFLOW_BENCH_SETUP_TOKEN and WORKFLOW_BENCH_AGENT_TOKEN in a disposable GitHub organization');
   const version=cliVersion(v.agent);
   if(v.agent==='claude'&&arms.some(arm=>arm==='superpowers'||arm==='ponytail'))requireClaudePluginDir();
+  if(v.agent==='codex'&&arms.includes('ponytail'))requireCodexPonytailHooks();
   validateOrg(v.owner);
   if(rows.some(r=>r.agent_version!==version||r.eval_fingerprint!==evalFingerprint))throw Error('CLI or evaluator version changed; cannot resume');
   if(v.agent==='codex')approveDangerFullAccess({alreadyApproved:v['allow-danger-full-access'],count:pending.reduce((n,p)=>n+(p.id==='W5'?2:1),0)});
