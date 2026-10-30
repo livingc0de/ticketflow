@@ -13,7 +13,7 @@ const row=(arm,pass,pipeline)=>({
   wall_s:60,cost_usd:0.1,descendants:'unknown',profile_cleanup:'ok',transcript_archives:['record'],
 });
 test('workflow report excludes execution failures from headline pipeline success',()=>{
-  const result=render([row('bare',true,true),row('bare',false,true)]);
+  const result=render([row('bare',true,true),{...row('bare',false,true),repeat:2}]);
   assert.match(result,/Full pipeline \| Delivery evidence \| Agent completed/);
   assert.match(result,/\| bare \| 2 \| 0 \| 100% \| 50% \| 100% \| 50%/);
   assert.match(result,/Scored cells: \*\*2\*\*/);
