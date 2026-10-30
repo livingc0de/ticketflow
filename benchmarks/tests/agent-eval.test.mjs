@@ -211,11 +211,12 @@ const CLAUDE_OUT = (result = 'done') => JSON.stringify({ type: 'result', subtype
 const CODEX_OUT = ['{"type":"thread.started","thread_id":"t"}', 'not json', '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":7}}', '{"type":"turn.completed","usage":{"input_tokens":50,"cached_input_tokens":40,"output_tokens":3}}'].join('\n')
 
 function sandbox() {
-    const bin = tempDir('bin-'), tmp = tempDir('tmp-')
+    const bin = tempDir('bin-'), tmp = tempDir('tmp-'), auth = tempDir('claude-test-auth-')
+    writeFileSync(join(auth, '.credentials.json'), '{"fake":"login"}')
     for (const n of ['claude', 'codex']) { writeFileSync(join(bin, n), FAKE.replace('#!/usr/bin/env node', `#!${process.execPath}`)); chmodSync(join(bin, n), 0o755) }
     const log = join(bin, 'fake.log')
     const run = (args, env = {}, path = `${bin}:${process.env.PATH}`) => {
-        const r = spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', env: { ...process.env, PATH: path, TMPDIR: tmp, CLAUDE_CONFIG_DIR: join(tmp, 'no-claude-auth'), ANTHROPIC_API_KEY: '', CLAUDE_CODE_OAUTH_TOKEN: '', FAKE_LOG: log, FAKE_OUT: CLAUDE_OUT(), ...env } })
+        const r = spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', env: { ...process.env, PATH: path, TMPDIR: tmp, CLAUDE_CONFIG_DIR: auth, ANTHROPIC_API_KEY: '', CLAUDE_CODE_OAUTH_TOKEN: '', FAKE_LOG: log, FAKE_OUT: CLAUDE_OUT(), ...env } })
         const row = r.stdout.trim().startsWith('{') ? JSON.parse(r.stdout) : null
         return { ...r, row, calls: existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [] }
     }
@@ -254,6 +255,29 @@ test('claude, ticketflow arm: installs TicketFlow like init does, runs the promp
     assert.equal(JSON.parse(readFileSync(join(repo, '.ticketflow/config.json'), 'utf8')).agents[0], 'claude')
     assert.equal(git(repo, 'rev-list', '--count', 'HEAD'), '1')
     assert.match(readFileSync(join(row.workdir, 'agent.out'), 'utf8'), /"num_turns":4/, 'the raw agent output is kept')
+})
+
+test('Claude authentication preflight fails before any paid session when no portable credentials exist', () => {
+    const { tmp, run, workdirs } = sandbox()
+    const absent = join(tmp, 'no-credentials')
+    const args = [L1, '--agent', 'claude', '--arm', 'bare']
+    const missing = run(args, { CLAUDE_CONFIG_DIR: absent })
+    assert.equal(missing.status, 2, missing.stdout + missing.stderr)
+    assert.match(missing.stderr, /authentication preflight failed/)
+    assert.match(missing.stderr, /CLAUDE_CODE_OAUTH_TOKEN/)
+    assert.match(missing.stderr, /macOS Keychain-only logins/)
+    assert.equal(missing.calls.length, 0, 'never launch a paid Claude agent session')
+    assert.deepEqual(workdirs(), [], 'no benchmark workspace is created')
+
+    mkdirSync(absent)
+    writeFileSync(join(absent, '.credentials.json'), '  ')
+    const empty = run(args, { CLAUDE_CONFIG_DIR: absent })
+    assert.equal(empty.status, 2)
+    assert.equal(empty.calls.length, 0, 'whitespace-only credentials are not accepted')
+
+    const oauth = run(args, { CLAUDE_CONFIG_DIR: absent, CLAUDE_CODE_OAUTH_TOKEN: 'test-token', FAKE_FIX: '1' })
+    assert.equal(oauth.status, 0, oauth.stdout + oauth.stderr)
+    assert.equal(oauth.calls[0].claude_oauth, true, 'explicit OAuth login works without a credential file')
 })
 
 test('Claude uses a disposable profile, copies only existing login and deletes generated auth', () => {
