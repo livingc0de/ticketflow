@@ -89,9 +89,7 @@ export const scenarios = {
   W3: {
     title:'Three dependent changes with tenant boundary',
     issues:[
-      'Scope order lookup to the requesting tenant and return null for cross-tenant requests.',
-      'Add pagination with contiguous pages and null next cursor at the end.',
-      'Connect the tenant-scoped order service to the API so pagination cannot leak another tenant’s orders.'
+      'Build a tenant-safe order API covering tenant-scoped lookup, paginated listings and integrated API behavior. Break the initiative into appropriately scoped and ordered implementation tasks before delivery.'
     ],
     files:{
       'src/store.mjs': source([
@@ -115,7 +113,7 @@ export const scenarios = {
         "test('basic listing', () => assert.equal(listOrders([{tenant:'a',id:1}], 'a',0,10).items.length,1));"
       ])
     },
-    goal:'Deliver all three related requirements, preserving their dependencies. Use appropriate tracking and review, with verified PR delivery.',
+    goal:'Decompose the initiative into suitable independently tracked work, handle dependencies, and deliver tenant-safe lookup, pagination and API integration through reviewed and verified PRs.',
     hidden:{
       module:'src/api.mjs',
       code:source([
