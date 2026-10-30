@@ -1,84 +1,66 @@
 #!/usr/bin/env node
-/** Workflow-specific report. Keeps engineering and lifecycle success separate. */
-import {readFileSync,writeFileSync} from 'node:fs';
+/** Offline comparison of coding and complete workflow delivery, not framework-specific commands. */
+import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
+import {dirname,resolve} from 'node:path';
 import {parseArgs} from 'node:util';
-
-const avg=values=>values.length?values.reduce((a,b)=>a+b,0)/values.length:null;
-const pct=n=>n===null?'unknown':(100*n).toFixed(0)+'%';
-const numeric=x=>typeof x==='number'&&Number.isFinite(x)&&x>=0;
-const fmt=n=>n===null?'unknown':n.toFixed(2);
 const median=v=>{
-  if(!v.length||v.some(x=>!numeric(x)))return null;
-  const a=[...v].sort((x,y)=>x-y),k=Math.floor(a.length/2);
-  return a.length%2?a[k]:(a[k-1]+a[k])/2;
+  if(!v.length||v.some(n=>typeof n!=='number'||!Number.isFinite(n)))return null;
+  const s=[...v].sort((a,b)=>a-b),i=Math.floor(s.length/2);
+  return s.length%2?s[i]:(s[i-1]+s[i])/2;
 };
-const safe=s=>String(s).replace(/[|<>[\]\r\n]/g,' ').slice(0,80);
-export function render(rows) {
+const fmt=(v,d=1)=>typeof v==='number'&&Number.isFinite(v)?v.toFixed(d):'unknown';
+const rate=(rows,fn)=>rows.length?fmt(100*rows.filter(fn).length/rows.length,0)+'%':'n/a';
+const safe=s=>String(s??'unknown').replace(/[\r\n|<>]/g,'').slice(0,80);
+const group=(rows,key)=>rows.reduce((m,r)=>{const k=key(r);(m[k]??=[]).push(r);return m;},{});
+export function render(rows){
   if(!rows.length||rows.some(r=>r.suite!=='workflow'||!r.delivery||typeof r.check?.pass!=='boolean'))
-    throw Error('workflow-report requires recorded workflow JSONL rows');
-  const versions=new Set(rows.map(r=>JSON.stringify([r.agent,r.agent_version,r.requested_model,r.requested_effort,r.eval_fingerprint,r.profile_isolation,r.sandbox_mode])));
-  const warnings=[];
-  if(versions.size!==1) warnings.push('Mixed models, CLIs, evaluator revisions, profile modes or sandbox modes. Do not pool or claim a controlled comparison.');
-  if(rows.some(r=>r.profile_cleanup!=='ok')) warnings.push('Plugin cleanup incomplete. Do not publish.');
-  if(rows.some(r=>!r.model)) warnings.push('Some effective model identities are unknown.');
-  if(rows.some(r=>r.cost_usd==null)) warnings.push('Incomplete costs, particularly interrupted invocations. Cost per success is unknown.');
-  if(rows.some(r=>r.descendants!=='included')) warnings.push('Subagent token/cost attribution is unverified.');
-  const arms=[...new Set(rows.map(r=>r.variant??r.arm))].sort();
-  const lines=['# Workflow delivery comparison','',
-    'Observed test cells: **'+rows.length+'**. Local engineering scores are reported separately.',
-    '', '| Arm | Cells | Functional pass | Pipeline pass | Review evidence | Tracked seeded issues | New issues / cell | Median sec | Total reported USD |',
+    throw Error('workflow report requires valid JSONL workflow records');
+  const lines=['# Full-pipeline workflow comparison','',
+    '> Coding correctness and complete delivery are separate. Review evidence and planning artifacts are observable proxies.',
+    '> Unknown costs, descendant usage and human interventions must not be imputed.','',
+    'Scored cells: **'+rows.length+'**','','## Outcomes by arm','',
+    '| Arm | Cells | Coding | Full pipeline | Review evidence | Ticket tracking | Latest CI | Median minutes | Median USD |',
     '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'];
-  for(const arm of arms) {
-    const group=rows.filter(r=>(r.variant??r.arm)===arm);
-    const ratio=fn=>pct(avg(group.map(r=>fn(r)?1:0)));
-    const tracked=group.map(r=>r.delivery.process?.tracking_coverage).filter(x=>numeric(x));
-    const created=group.map(r=>r.delivery.process?.agent_created_issues).filter(x=>numeric(x));
-    const costs=group.map(r=>r.cost_usd);
-    const total=costs.every(numeric)?costs.reduce((a,b)=>a+b,0):null;
-    lines.push('| '+safe(arm)+' | '+group.length+' | '+ratio(r=>r.delivery.functionality)+' | '+
-      ratio(r=>r.check.pass)+' | '+ratio(r=>r.delivery.process?.review_evidence)+' | '+
-      pct(avg(tracked))+' | '+fmt(avg(created))+' | '+fmt(median(group.map(r=>r.wall_s)))+' | '+fmt(total)+' |');
+  for(const [arm,part] of Object.entries(group(rows,r=>r.arm)).sort()){
+    lines.push('| '+safe(arm)+' | '+part.length+' | '+rate(part,r=>r.delivery.functionality)+
+      ' | '+rate(part,r=>r.delivery.pipeline)+' | '+rate(part,r=>r.delivery.steps.review_evidence)+
+      ' | '+rate(part,r=>r.delivery.steps.issue_tracking)+' | '+rate(part,r=>r.delivery.steps.latest_head_ci)+
+      ' | '+fmt(median(part.map(r=>typeof r.wall_s==='number'?r.wall_s/60:null)))+
+      ' | '+fmt(median(part.map(r=>r.cost_usd)),2)+' |');
   }
-  lines.push('','## Process evidence (descriptive, not required to match TicketFlow)','',
-    '| Arm | Cells with plan artifacts | Issue comments / cell | Recorded Project statuses |',
-    '| --- | ---: | ---: | --- |');
-  for(const arm of arms) {
-    const group=rows.filter(r=>(r.variant??r.arm)===arm);
-    const planned=group.filter(r=>(r.delivery.process?.plan_artifacts??[]).length>0).length;
-    const comments=group.map(r=>(r.delivery.process?.issue_process??[]).reduce((n,x)=>n+(x.comments??0),0));
-    const states=new Map();
-    for(const r of group) for(const issue of r.delivery.process?.issue_process??[]) {
-      for(const item of issue.projectItems??[]) {
-        const status=typeof item.status==='string'?item.status:item.status?.name??'unknown';
-        states.set(status,(states.get(status)??0)+1);
-      }
-    }
-    const stateText=[...states].map(([k,n])=>safe(k)+': '+n).join('; ') || 'unknown';
-    lines.push('| '+safe(arm)+' | '+planned+'/'+group.length+' | '+fmt(avg(comments))+' | '+safe(stateText)+' |');
+  lines.push('','## Workflow evidence by arm','','| Arm | Avg agent-created tickets | Avg closed+linked tickets | Avg plan artifacts |',
+    '| --- | ---: | ---: | ---: |');
+  for(const [arm,part] of Object.entries(group(rows,r=>r.arm)).sort()){
+    const average=key=>{const vals=part.map(r=>r.delivery.process?.[key]);return vals.every(x=>Number.isFinite(x))?vals.reduce((a,b)=>a+b,0)/vals.length:null;};
+    const plans=part.map(r=>r.delivery.process?.plan_artifacts?.length??null);
+    lines.push('| '+safe(arm)+' | '+fmt(average('agent_created_issues'))+
+      ' | '+fmt(average('issues_closed_and_linked'))+' | '+fmt(median(plans),0)+' |');
   }
-  lines.push('','## Per-scenario outcomes','',
-    '| Scenario | Arm | Cells | Functional passes | Pipeline passes |',
-    '| --- | --- | ---: | ---: | ---: |');
-  for(const id of [...new Set(rows.map(r=>r.scenario))].sort()) for(const arm of arms) {
-    const g=rows.filter(r=>r.scenario===id&&(r.variant??r.arm)===arm);
-    if(g.length)lines.push('| '+safe(id)+' | '+safe(arm)+' | '+g.length+' | '+
-      g.filter(r=>r.delivery.functionality).length+' | '+g.filter(r=>r.check.pass).length+' |');
+  lines.push('','## Per scenario','','| Scenario | Arm | N | Code | Pipeline | Seed ticket coverage |',
+    '| --- | --- | ---: | ---: | ---: | ---: |');
+  for(const [key,part] of Object.entries(group(rows,r=>r.scenario+' '+r.arm)).sort()){
+    const [scenario,arm]=key.split(' ');
+    const coverage=part.map(r=>r.delivery.process?.issue_coverage??null);
+    lines.push('| '+safe(scenario)+' | '+safe(arm)+' | '+part.length+
+      ' | '+rate(part,r=>r.delivery.functionality)+' | '+rate(part,r=>r.delivery.pipeline)+
+      ' | '+fmt(median(coverage),2)+' |');
   }
-  lines.push('','## Interpretation','',
-    'Pipeline success requires hidden behavior, repository tests, latest-head GitHub Actions success, an observed review, issue linkage where initial issues exist, a merged PR, no duplicate PRs and, for W5, a confirmed interruption.',
-    'The seed Project and issues are provided before the agent starts, so these artifacts never count as agent accomplishments. Each arm uses its native workflow.',
-    'Documentation, planning depth, review usefulness, human interventions and quality of decisions require transcript/manual audit, not just a binary proxy.',
-    'The benchmark requires an isolated disposable GitHub organization and machine; it is non-adversarial and does not establish a security boundary.',
-    'Three repetitions per cell are exploratory, not statistically conclusive.', '');
-  if(warnings.length)lines.push('## Warnings','',...warnings.map(w=>'- '+w),'');
+  lines.push('','**Scenarios:** W1 plain request to tracked delivery, W2 existing ticket, W3 dependent tickets, W4 failing PR/review, W5 interrupted delivery, W6 brainstorming-to-tickets, W7 parallelizable independent tickets.');
+  const configs=new Set(rows.map(r=>JSON.stringify([r.agent,r.agent_version,r.requested_model,r.requested_effort,r.eval_fingerprint,r.profile_isolation,r.sandbox_mode])));
+  if(configs.size>1)lines.push('','**Comparability warning:** Multiple agents, models, evaluator fingerprints, profiles or sandbox modes are present. Analyze controlled subsets, not pooled averages.');
+  if(rows.some(r=>r.cost_usd==null))lines.push('**Cost warning:** One or more sessions have unknown cost. Median and total costs are not estimated.');
+  if(rows.some(r=>r.descendants!=='included'))lines.push('**Sub-agent warning:** Full descendant usage cannot be independently verified.');
+  if(rows.some(r=>r.profile_cleanup!=='ok'))lines.push('**Cleanup warning:** A profile cleanup was incomplete.');
+  if(rows.some(r=>r.profile_isolation==='unisolated'))lines.push('**Isolation warning:** Unisolated profiles can change outcomes.');
   return lines.join('\n')+'\n';
 }
 if(process.argv[1]?.endsWith('workflow-report.mjs')){
-  try{
+  try {
     const {values:v,positionals}=parseArgs({options:{out:{type:'string'}},allowPositionals:true});
-    if(positionals.length!==1)throw Error('usage: workflow-report RUNS.jsonl [--out SUMMARY.md]');
-    const rows=readFileSync(positionals[0],'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
-    const report=render(rows);
-    if(v.out)writeFileSync(v.out,report);else console.log(report);
+    if(positionals.length!==1)throw Error('usage: node benchmarks/workflow-report.mjs RESULTS.jsonl [--out REPORT.md]');
+    const rows=readFileSync(resolve(positionals[0]),'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    const output=render(rows);
+    if(v.out){const path=resolve(v.out);mkdirSync(dirname(path),{recursive:true});writeFileSync(path,output);console.log(path);}
+    else process.stdout.write(output);
   }catch(e){console.error('workflow-report: '+e.message);process.exitCode=2;}
 }
