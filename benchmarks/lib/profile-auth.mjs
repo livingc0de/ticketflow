@@ -43,11 +43,14 @@ function codexAuthMode() {
 export const approvalIsYes = (answer) => /^y(?:es)?$/i.test(answer.trim())
 
 /** One explicit approval; fail closed when no terminal is attached or the user declines. */
-function confirmUnisolated(agent, count) {
+function confirmUnisolated(agent, count, arms) {
     if (!process.stdin.isTTY) throw new Error(agent + ' uses a non-portable login. ' +
         'An interactive terminal is required to approve running without profile isolation. No paid session started.')
     process.stderr.write('\n' + agent + ': your login works in your original profile, but not an isolated benchmark profile.\n' +
-        'Without profile isolation, personal settings/plugins and agent state can influence results and the CLI may modify your profile.\n' +
+        'Your existing settings, plugins and hooks may affect benchmark outcomes. The agent can modify its real profile.\\n' +
+        (agent === 'codex' && arms.some((arm) => arm === 'superpowers' || arm === 'ponytail')
+            ? 'Codex will install a separate benchmark plugin and marketplace, then remove only those additions; existing plugins are preserved. An interruption or cleanup failure may leave benchmark additions behind.\\n'
+            : '') +
         'The temporary task Git repository remains separate; this is not an OS security sandbox.\n' +
         'Proceed without profile isolation for ' + count + ' paid benchmark session(s)? [y/N] ')
     const input = []
@@ -65,9 +68,6 @@ function confirmUnisolated(agent, count) {
 export function selectProfileMode(agent, arms, { alreadyApproved = false, count = 1 } = {}) {
     const mode = agent === 'claude' ? claudeAuthMode() : codexAuthMode()
     if (mode === 'isolated') return mode
-    if (arms.some((arm) => arm === 'superpowers' || arm === 'ponytail'))
-        throw new Error('Unisolated benchmark execution is not allowed for Superpowers or Ponytail plugin arms. ' +
-            'Those must run with isolated authentication to prevent plugin installation or personal-profile interference. No paid session started.')
-    if (!alreadyApproved) confirmUnisolated(agent, count)
+    if (!alreadyApproved) confirmUnisolated(agent, count, arms)
     return mode
 }
