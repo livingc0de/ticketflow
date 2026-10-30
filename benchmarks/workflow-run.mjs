@@ -82,7 +82,7 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
     let timer,watcher,child;
     const stop=()=>{
       if(!child?.pid)return;
-      try {if(process.platform==='win32')stop();
+      try {if(process.platform==='win32')child.kill('SIGTERM');
         else process.kill(-child.pid,'SIGTERM');}
       catch{try{child.kill('SIGTERM')}catch{}}
     };
