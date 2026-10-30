@@ -91,7 +91,7 @@ OS security boundary. For unportable keyring logins, the shared auth preflight
 requires explicit consent before using the user's profile, potentially loading
 personal plugins/settings. A clean isolated profile is strongly preferred.
 
-The complete **7 × 4 × 3 matrix contains 84 scored cells** but up to **96 paid agent invocations**, because W5 deliberately interrupts and resumes. Explicit
+The complete **7 × 4 × 3 matrix contains 84 planned cells** (all 84 are scored only when their measurements are valid) but up to **96 paid agent invocations**, because W5 deliberately interrupts and resumes. Explicit
 --max-sessions limits possible agent invocations; a cell can also trigger multiple
 GitHub Actions runs. Interrupted invocations may not report tokens or USD, so
 total cost is unknown rather than estimated.
