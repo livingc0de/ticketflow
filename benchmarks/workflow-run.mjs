@@ -110,7 +110,7 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
       const external=['superpowers','ponytail'].includes(arm);
       const marker='TICKETFLOW_BENCH_PLUGIN_BOOTSTRAP='+arm;
       const markerSeen=stderr.split(/\r?\n/).includes(marker);
-      const plugin_bootstrap=external?{status:code===0?'unknown':'failed',evidence:markerSeen?'agent-cli-stderr-marker-untrusted':code===0?'native-plugin-activation-unobserved':'agent-exited-before-native-plugin-evidence'}:null;
+      const plugin_bootstrap=external?{status:code===0&&profile.nativePluginEvidence?'verified':code===0?'unknown':'failed',evidence:profile.nativePluginEvidence??(markerSeen?'agent-cli-stderr-marker-untrusted':'native-plugin-activation-unobserved')}:null;
       let archive=null,archive_error=null;
       if(archiveRoot){
         try{archive=archiveSession({root:archiveRoot,sessionId:transcriptSessionId('workflow',archiveMeta),agentOut:path,answerFile:outfile,
@@ -246,6 +246,7 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     delivery:result,invocations:parts,interrupted,agent_exit:parts.at(-1).exit,result_row_id:rowId,
     source_provenance:opts.sourceMeta[x.arm]??null,transcript_archives:parts.map(p=>p.archive).filter(Boolean),
     plugin_bootstrap:parts.some(p=>p.plugin_bootstrap?.status==='failed')?{status:'failed',evidence:'one-or-more-invocations-failed'}:
+      parts.length>0&&parts.every(p=>p.plugin_bootstrap?.status==='verified')?{status:'verified',evidence:'all-native-plugin-list-enabled'}:
       parts.some(p=>p.plugin_bootstrap)?{status:'unknown',evidence:'native-plugin-activation-unobserved'}:null,
     ...metrics,workdir:work,repo,date:new Date().toISOString(),descendants:'unknown'
   };
@@ -255,7 +256,10 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   return row;
 }
 async function main() {
-  const opts=parse(),{v,arms,selected,repeats,max,out,statePath,sourceShas,sourceMeta}=opts,evalFingerprint=fingerprint();
+  const opts=parse(),{v,arms,selected,repeats,max,out,statePath,sourceShas,sourceMeta}=opts;
+  if(v.execute&&v.agent==='claude'&&arms.some(arm=>arm==='superpowers'||arm==='ponytail'))
+    throw Error('Claude external plugin arms are unsupported until Claude exposes native plugin-owned activation evidence');
+  const evalFingerprint=fingerprint();
   const plan=[];
   for(let rep=1;rep<=repeats;rep++)for(const [i,id] of selected.entries()){
     const rotated=arms.map((_,k)=>arms[(k+i+rep-1)%arms.length]);

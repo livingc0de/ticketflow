@@ -553,21 +553,15 @@ test('--source installs another checkout (an older tag) and records its revision
     assert.equal(bad.status, 2); assert.match(bad.stderr, /not a Git checkout|is not a ticketflow checkout/)
 })
 
-test('external frameworks load from clean native Claude plugin checkouts, not copied skill imitations', () => {
+test('Claude external plugin arms fail closed without native plugin-owned activation evidence', () => {
     const { run } = sandbox(), src = tempDir('plugin-')
     mkdirSync(join(src, '.claude-plugin'), { recursive: true })
     writeFileSync(join(src, '.claude-plugin/plugin.json'), '{"name":"ponytail"}')
     git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned'); git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git'); git(src, 'checkout', '--detach', '-q')
     const r = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src, '--model', 'pinned-model', '--rep', '2', '--label', 'ponytail'], { FAKE_FIX: '1' })
-    assert.equal(r.status, 0, r.stdout+r.stderr)
-    assert.equal(r.row.plugin_sha, git(src, 'rev-parse', 'HEAD'))
-    assert.equal(r.row.ticketflow_sha, null)
-    assert.equal(r.row.repeat, 2)
-    assert.equal(r.row.requested_model, 'pinned-model')
-    assert.equal(r.row.variant, 'ponytail')
-    assert.equal(r.row.plugin_native, 'unknown')
-    assert.equal(r.row.plugin_bootstrap.status, 'unknown')
-    assert.deepEqual(r.calls[0].args.slice(-2), ['--plugin-dir', src])
+    assert.equal(r.status, 2, r.stdout+r.stderr)
+    assert.match(r.stderr, /unsupported until Claude exposes native plugin-owned activation evidence/)
+    assert.ok(!r.calls.some((call) => call.args[0] === '-p'), 'no paid Claude session starts')
     assert.equal(run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src]).status, 2)
     writeFileSync(join(src, 'stray.txt'), 'uncommitted')
     const dirty = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src])
@@ -597,8 +591,8 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     assert.ok(!existsSync(join(exec.codex_home, 'credentials.json')), 'generated credential state is never retained')
     assert.ok(!existsSync(join(r.row.workdir, 'home')), 'the entire temporary Codex home is removed')
     assert.equal(readFileSync(join(authDir, 'auth.json'), 'utf8'), CODEX_LOGIN, 'original credentials are untouched')
-    assert.equal(r.row.plugin_native, 'unknown')
-    assert.equal(r.row.plugin_bootstrap.status, 'unknown')
+    assert.equal(r.row.plugin_native, 'verified')
+    assert.equal(r.row.plugin_bootstrap.status, 'verified')
     assert.equal(r.row.plugin_sha, git(src, 'rev-parse', 'HEAD'))
     assert.equal(r.row.ticketflow_sha, null)
 
@@ -690,10 +684,9 @@ test('approved unisolated Claude plugin loads pinned checkout without touching u
     const r = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src, '--profile-mode', 'unisolated'], {
         CLAUDE_CONFIG_DIR: profile, FAKE_CLAUDE_KEYRING: '1', FAKE_KEYRING_HOME: profile, FAKE_FIX: '1',
     })
-    assert.equal(r.status, 0, r.stdout + r.stderr)
-    assert.equal(r.row.profile_isolation, 'unisolated')
-    assert.equal(r.calls[0].claude_config, profile)
-    assert.deepEqual(r.calls[0].args.slice(-2), ['--plugin-dir', src])
+    assert.equal(r.status, 2, r.stdout + r.stderr)
+    assert.match(r.stderr, /unsupported until Claude exposes native plugin-owned activation evidence/)
+    assert.ok(!r.calls.some((call) => call.args[0] === '-p'), 'no paid Claude session starts')
     assert.deepEqual(readdirSync(profile), [], 'the benchmark did not install or remove personal Claude plugins')
 })
 

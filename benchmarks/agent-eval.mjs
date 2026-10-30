@@ -106,7 +106,7 @@ function codexProfile(work, arm, src, isolated = true) {
         if ((isolated && installed.length !== 1) || ours.length !== 1 ||
             ours[0].name !== arm || ours[0].installed !== true || ours[0].enabled !== true)
             throw new Error('Codex native plugin was not correctly installed and enabled; refusing the benchmark')
-        return { env, home, codexHome, installed: true, cleanup }
+        return { env, home, codexHome, installed: true, nativePluginEvidence: 'codex-plugin-list-enabled', cleanup }
     } catch (e) {
         if (!isolated) {
             // marketplace add can mutate the profile before returning an error or invalid JSON.
@@ -175,6 +175,7 @@ main('agent-eval', async () => {
         expectedRemote: v.arm === 'ticketflow' ? 'https://github.com/livingc0de/ticketflow' : null,
     })
     if (external) validatePluginSource(src, v.agent, v.arm)
+    if (external && v.agent === 'claude') throw new Error(`${v.arm} arm is unsupported until Claude exposes native plugin-owned activation evidence`)
     const outFile = v.out && resolve(v.out)   // the harness's own result file is not a change to a source checkout it sits in
     if (v.out) try { appendFileSync(v.out, '') } catch (e) { throw new Error(`--out ${v.out} cannot be written (${e.code})`) }   // before the paid run, not after it
     if (v.arm === 'ticketflow' && !existsSync(join(src, 'core/scripts/runtime.mjs'))) throw new Error(`${src} is not a ticketflow checkout`)
@@ -241,8 +242,8 @@ main('agent-eval', async () => {
     const pluginBootstrap = external ? (() => {
         const marker = `TICKETFLOW_BENCH_PLUGIN_BOOTSTRAP=${v.arm}`
         const markerSeen = rawStderr.split(/\r?\n/).includes(marker)
-        return { status: r.status === 0 ? 'unknown' : 'failed',
-            evidence: markerSeen ? 'agent-cli-stderr-marker-untrusted' : (r.status === 0 ? 'native-plugin-activation-unobserved' : 'agent-exited-before-native-plugin-evidence') }
+        return { status: r.status === 0 && profile.nativePluginEvidence ? 'verified' : (r.status === 0 ? 'unknown' : 'failed'),
+            evidence: profile.nativePluginEvidence ?? (markerSeen ? 'agent-cli-stderr-marker-untrusted' : 'native-plugin-activation-unobserved') }
     })() : null
     const resultRowId = transcriptSessionId('agent-eval', { scenario: id, agent: v.agent, arm: v.arm, repeat: v.rep ?? 0 })
     let transcriptArchive = null, archiveError = null
