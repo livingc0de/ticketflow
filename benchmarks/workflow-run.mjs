@@ -15,6 +15,7 @@ import { selectProfileMode,approveDangerFullAccess } from './lib/profile-auth.mj
 import { validatePluginSource,validateSourceCheckout } from './lib/integrity.mjs';
 import { archiveSession,transcriptSessionId } from './lib/transcripts.mjs';
 import { terminateProcess } from './lib/process.mjs';
+import { classifyOutcome, outcomeOf } from './workflow/outcome.mjs';
 
 const HERE=dirname(fileURLToPath(import.meta.url)),ROOT=resolve(HERE,'..');
 const ARMS=new Set(['bare','ticketflow','superpowers','ponytail']);
@@ -25,7 +26,7 @@ const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
 const idFor=(p,agent,model,effort,sourceShas,sourceMeta,fingerprint)=>JSON.stringify({p,agent,model,effort,sourceShas,sourceMeta,fingerprint});
 function fingerprint() {
   const hash=createHash('sha256');
-  for(const path of ['workflow-run.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs','workflow/profile.mjs','workflow/check.mjs','lib/integrity.mjs','lib/profile-auth.mjs','lib/process.mjs','lib/transcripts.mjs']) {
+  for(const path of ['workflow-run.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs','workflow/profile.mjs','workflow/check.mjs','workflow/outcome.mjs','lib/integrity.mjs','lib/profile-auth.mjs','lib/process.mjs','lib/transcripts.mjs']) {
     hash.update(path);hash.update('\0');hash.update(readFileSync(join(HERE,path)));
   }
   return hash.digest('hex');
@@ -37,7 +38,7 @@ function parse() {
     repeats:{type:'string'},effort:{type:'string'},'max-sessions':{type:'string'},'ticketflow-source':{type:'string'},
     'superpowers-source':{type:'string'},'ponytail-source':{type:'string'},'ticketflow-sha':{type:'string'},
     'superpowers-sha':{type:'string'},'ponytail-sha':{type:'string'},'allow-github-writes':{type:'boolean'},
-    'allow-danger-full-access':{type:'boolean'},execute:{type:'boolean'},resume:{type:'boolean'},
+    'allow-danger-full-access':{type:'boolean'},'acknowledge-plugin-cleanup':{type:'boolean'},execute:{type:'boolean'},resume:{type:'boolean'},
   }});
   if(!['claude','codex'].includes(v.agent)||!v.model?.trim()||!v.owner?.trim()||!v.out?.trim()) throw Error(help);
   const arms=(v.arms??'bare,ticketflow,superpowers,ponytail').split(',');
@@ -118,7 +119,7 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
       if(agent==='claude')writeFileSync(outfile,answer,{mode:0o600});
       const external=['superpowers','ponytail'].includes(arm);
       const evidence=profile.nativePluginEvidence??(agent==='claude'&&external?'claude-plugin-dir':null);
-      const plugin_bootstrap=external?{status:(code===0||(interrupted&&reason==='remote checkpoint reached'))&&evidence?(agent==='claude'||arm==='ponytail'?'loaded':'verified'):'failed',evidence:evidence??'native-plugin-loading-failed'}:null;
+      const plugin_bootstrap=external?{status:evidence?(agent==='claude'||arm==='ponytail'?'loaded':'verified'):'failed',evidence:evidence??'native-plugin-loading-failed'}:null;
       let archive=null,archive_error=null;
       if(archiveRoot){
         try{archive=archiveSession({root:archiveRoot,sessionId:transcriptSessionId('workflow',archiveMeta),agentOut:path,answerFile:outfile,
@@ -162,13 +163,23 @@ const mergeUsage=parts=>{
     model:parts.map(p=>p.observed_model).filter(Boolean).join(',')||null};
 };
 async function runCell(x,opts,state,mode,version,evalFingerprint) {
-  const {v,sources,out,statePath}=opts,cell=state.cells[x.key]??{};
-  const rowId=cell.result_row_id??`workflow:${x.key}:${Date.now().toString(36)}`;
+  const {v,sources,out,statePath}=opts;
+  const previous=opts.latestRows?.get(x.key);
+  // Retry a discarded measurement in a fresh repo. Never contaminate a retry
+  // with a failed attempt's remote state or overwrite its original transcript.
+  if(previous&&outcomeOf(previous)==='invalid'&&
+      state.cells[x.key]?.result_row_id===previous.result_row_id){
+    (state.retired_cells??=[]).push({key:x.key,...state.cells[x.key]});
+    state.cells[x.key]={attempt:(previous.attempt??1)+1,retry_of:previous.result_row_id};
+    safeOut(statePath,state);
+  }
+  const cell=state.cells[x.key]??{};
+  const rowId=cell.result_row_id??`workflow:${x.key}:attempt-${cell.attempt??1}:${Date.now().toString(36)}`;
   if(!cell.result_row_id){cell.result_row_id=rowId;safeOut(statePath,state);}
   const archiveRoot=resolve(process.env.BENCHMARK_TRANSCRIPTS_DIR??join(ROOT,'benchmarks/results/transcripts'));
-  const work=cell.work??newWork(),repo=cell.repo??v.owner+'/tfwf-'+state.runId+'-'+x.id.toLowerCase()+'-'+x.arm+'-'+x.repeat;
+  const work=cell.work??newWork(),repo=cell.repo??v.owner+'/tfwf-'+state.runId+'-'+x.id.toLowerCase()+'-'+x.arm+'-'+x.repeat+(cell.attempt>1?'-retry'+cell.attempt:'');
   if(!cell.repo) {
-    state.cells[x.key]={repo,work,phase:'creating',result_row_id:rowId,projectTitle:'Workflow '+state.runId+' '+x.id+' '+x.arm+' '+x.repeat};
+    state.cells[x.key]={...cell,repo,work,phase:'creating',result_row_id:rowId,projectTitle:'Workflow '+state.runId+' '+x.id+' '+x.arm+' '+x.repeat+(cell.attempt>1?' retry '+cell.attempt:'')};
     safeOut(statePath,state);
     newRepository({repo,id:x.id,work});
     state.cells[x.key].phase='repository-created';safeOut(statePath,state);
@@ -253,6 +264,12 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     initialPR:current.initialPR??null,initialHead:current.initialHead??null,
     baselineProjects:current.baselineProjects??[]});
   const metrics=mergeUsage(parts);
+  const plugin_bootstrap=parts.some(p=>p.plugin_bootstrap?.status==='failed')?{status:'failed',evidence:'one-or-more-invocations-failed'}:
+    parts.length>0&&parts.every(p=>p.plugin_bootstrap?.status==='loaded')?{status:'loaded',evidence:v.agent==='claude'?'all-claude-plugin-dir-loads':'all-codex-plugin-hook-bypass-loads'}:
+    parts.length>0&&parts.every(p=>p.plugin_bootstrap?.status==='verified')?{status:'verified',evidence:'all-codex-plugin-list-loads'}:
+    parts.some(p=>p.plugin_bootstrap)?{status:'unknown',evidence:'native-plugin-loading-unobserved'}:null;
+  const profile_cleanup=parts.some(p=>p.cleanup_error)?'failed':'ok';
+  const outcome=classifyOutcome({delivery:result,invocations:parts,plugin_bootstrap,profile_cleanup});
   const row={
     suite:'workflow',scenario:x.id,agent:v.agent,agent_version:version,requested_model:v.model,
     model:metrics.model,requested_effort:v.effort??null,arm:x.arm,variant:x.arm,repeat:x.repeat,
@@ -260,14 +277,14 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     ticketflow_sha:x.arm==='ticketflow'?opts.sourceShas.ticketflow:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null,
     evaluation_mode:'non-adversarial',profile_isolation:mode,
     sandbox_mode:v.agent==='codex'?'danger-full-access':'not-applicable',
-    profile_cleanup:parts.some(p=>p.cleanup_error)?'failed':'ok',
-    check:{pass:result.pass&&parts.at(-1).exit===0&&parts.every(p=>!p.cleanup_error&&!p.archive_error),why:parts.some(p=>p.archive_error)?'transcript archive failed: '+parts.find(p=>p.archive_error).archive_error:result.error??result.hidden_why??''},
+    profile_cleanup,outcome:outcome.status,invalid_reasons:outcome.invalid_reasons,
+    attempt:cell.attempt??1,retry_of:cell.retry_of??null,
+    check:{pass:outcome.status==='success',why:outcome.status==='invalid'?
+      'invalid benchmark attempt: '+outcome.invalid_reasons.join(', '):
+      result.error??result.hidden_why??''},
     delivery:result,invocations:parts,interrupted,agent_exit:parts.at(-1).exit,result_row_id:rowId,
     source_provenance:opts.sourceMeta[x.arm]??null,transcript_archives:parts.map(p=>p.archive).filter(Boolean),
-    plugin_bootstrap:parts.some(p=>p.plugin_bootstrap?.status==='failed')?{status:'failed',evidence:'one-or-more-invocations-failed'}:
-      parts.length>0&&parts.every(p=>p.plugin_bootstrap?.status==='loaded')?{status:'loaded',evidence:v.agent==='claude'?'all-claude-plugin-dir-loads':'all-codex-plugin-hook-bypass-loads'}:
-      parts.length>0&&parts.every(p=>p.plugin_bootstrap?.status==='verified')?{status:'verified',evidence:'all-codex-plugin-list-loads'}:
-      parts.some(p=>p.plugin_bootstrap)?{status:'unknown',evidence:'native-plugin-loading-unobserved'}:null,
+    plugin_bootstrap,
     ...metrics,workdir:work,repo,date:new Date().toISOString(),descendants:'unknown'
   };
   appendFileSync(out,JSON.stringify(row)+'\n',{mode:0o600});
@@ -288,14 +305,21 @@ async function main() {
   if(state && state.signature!==stamp)throw Error('resume options, evaluator or source revisions changed');
   if(!v.resume && (existsSync(out)||existsSync(statePath)))throw Error('output already exists: use --resume or new output');
   const rows=v.resume&&existsSync(out)?readFileSync(out,'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse):[];
-  const completed=new Set(rows.map(r=>r.scenario+'|'+r.arm+'|'+r.repeat));
+  const latestRows=new Map();
+  for(const r of rows)latestRows.set(r.scenario+'|'+r.arm+'|'+r.repeat,r);
+  const completed=new Set([...latestRows].filter(([,r])=>outcomeOf(r)!=='invalid').map(([key])=>key));
   const pending=plan.filter(x=>!completed.has(x.key));
+  opts.latestRows=latestRows;
   console.log(JSON.stringify({mode:v.execute?'PAID REMOTE GITHUB':'DRY RUN',agent:v.agent,model:v.model,effort:v.effort??null,
     owner:v.owner,scenarios:selected,arms,repeats,total_cells:plan.length,completed:completed.size,pending:pending.length,
+    invalid_to_retry:pending.filter(x=>outcomeOf(latestRows.get(x.key)??{})==='invalid').length,
     maximum_paid_invocations:pending.reduce((n,p)=>n+(p.id==='W5'?2:1),0),
     sourceShas,projects:'independent disposable Project per session',output:out},null,2));
   if(!v.execute){for(const p of pending)console.log('PLAN '+p.key);return}
   if(!v['allow-github-writes'])throw Error('--allow-github-writes required: creates private repos, real issues, Projects v2, PRs and Actions runs');
+  if(pending.some(x=>(latestRows.get(x.key)?.invalid_reasons??[]).includes('plugin_cleanup_failed'))&&
+      !v['acknowledge-plugin-cleanup'])
+    throw Error('Previous plugin cleanup failed. Inspect and remove benchmark-owned leftovers first, then explicitly pass --acknowledge-plugin-cleanup to retry invalid cells.');
   const invocationCeiling=pending.reduce((n,p)=>n+(p.id==='W5'?2:1),0);
   if(invocationCeiling>max)throw Error(invocationCeiling+' possible paid invocations exceeds --max-sessions '+max+' (W5 can require two invocations)');
   if(!process.env.WORKFLOW_BENCH_SETUP_TOKEN||!process.env.WORKFLOW_BENCH_AGENT_TOKEN)throw Error('Use dedicated WORKFLOW_BENCH_SETUP_TOKEN and WORKFLOW_BENCH_AGENT_TOKEN in a disposable GitHub organization');
@@ -312,7 +336,7 @@ async function main() {
   for(const [i,cell] of pending.entries()){
     console.log('SESSION '+(i+1)+'/'+pending.length+' '+cell.key);
     const row=await runCell(cell,opts,runState,mode,version,evalFingerprint);
-    console.log('RESULT '+cell.key+' '+(row.check.pass?'PASS':'FAIL')+' '+JSON.stringify(row.delivery.steps));
+    console.log('RESULT '+cell.key+' '+row.outcome.toUpperCase()+' '+JSON.stringify(row.outcome==='invalid'?row.invalid_reasons:row.delivery.steps));
   }
 }
 main().catch(e=>{console.error('workflow-run: '+e.message);process.exitCode=2});
