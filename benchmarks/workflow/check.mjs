@@ -40,12 +40,20 @@ function checkRun(repo,sha) {
   return {pass:x.some(c=>c.status==='completed' && c.conclusion==='success'),
     reason:x.length ? x.map(c=>c.conclusion ?? c.status).join(',') : 'missing GitHub Actions tests check'};
 }
-function hasReview(repo,number,body) {
-  const reviews=api('repos/'+repo+'/pulls/'+number+'/reviews?per_page=100');
-  const comments=api('repos/'+repo+'/issues/'+number+'/comments?per_page=100');
-  const reviewText=[body??'',...reviews.map(x=>x.body??''),...comments.map(x=>x.body??'')].join('\n');
-  return reviews.some(x=>x.state==='APPROVED'||x.state==='COMMENTED'||x.state==='CHANGES_REQUESTED') ||
-    /\b(review notes|code review|review findings|reviewed the|review:|no blockers)\b/i.test(reviewText);
+function reviewEvidence(repo,pr) {
+  const reviews=api('repos/'+repo+'/pulls/'+pr.number+'/reviews?per_page=100');
+  const commit=api('repos/'+repo+'/commits/'+pr.headRefOid);
+  const headTime=Date.parse(commit.commit?.committer?.date??'');
+  const current=reviews.filter(r=>r.commit_id===pr.headRefOid &&
+    ['COMMENTED','APPROVED','CHANGES_REQUESTED'].includes(r.state) &&
+    (r.body??'').trim().length>=25);
+  const comments=api('repos/'+repo+'/issues/'+pr.number+'/comments?per_page=100');
+  const recorded=comments.some(c=>Date.parse(c.created_at)>=headTime &&
+    /\b(review|finding|code quality|no blockers)\b/i.test(c.body??'') && (c.body??'').length>=80);
+  const threads=api('repos/'+repo+'/pulls/'+pr.number+'/comments?per_page=100');
+  const unresolved=reviews.some(r=>r.state==='CHANGES_REQUESTED' && r.commit_id===pr.headRefOid);
+  return {observed:current.length>0 || recorded || threads.some(c=>c.commit_id===pr.headRefOid && (c.body??'').length>=25),
+    unresolved,review_count:current.length,notes:recorded};
 }
 function linked(issueNumbers,prs) {
   const text=prs.map(p=>p.body??'').join('\n');
@@ -54,26 +62,31 @@ function linked(issueNumbers,prs) {
 export function scoreDelivery({repo,id,issues,interrupted=false}) {
   const sc=scenarios[id], prs=pulls(repo), done=prs.filter(p=>p.mergedAt);
   const work=mkdtempSync(join(tmpdir(),'workflow-verify-'));
-  let hidden={pass:false,why:'not checked'}, suite=false, ci={pass:false,reason:'no merged PR'}, review=false,err=null;
+  let hidden={pass:false,why:'not checked'}, suite=false, ci={pass:false,reason:'no merged PR'}, review={observed:false,unresolved:false},err=null;
   try {
     command('gh',['repo','clone',repo,join(work,'checkout'),'--','--depth','1'],{timeout:120000});
     const dir=join(work,'checkout');
     hidden=testsPassed(dir,sc.hidden);
     suite=spawnSync('npm',['test'],{cwd:dir,encoding:'utf8',timeout:120000,
       env:{PATH:process.env.PATH,HOME:process.env.HOME}}).status===0;
-    // node --test does not accept --runInBand; use plain npm test below if needed.
   } catch(e) {err=e.message;}
   finally {rmSync(work,{force:true,recursive:true});}
   if(done.length) {
     const x=done.at(-1);
-    try {ci=checkRun(repo,x.headRefOid);review=hasReview(repo,x.number,x.body);}
+    try {ci=checkRun(repo,x.headRefOid);review=reviewEvidence(repo,x);}
     catch(e){err=(err?err+'; ':'')+e.message;}
   }
   const limit=id==='W3'?3:1;
   const duplicate=prs.length>limit || (id==='W4' && prs.length!==1);
-  const tracking=linked(issues,done);
-  const steps={correctness:hidden.pass,repo_tests:suite,ci_green:ci.pass,merged:done.length>0,review_evidence:review,
-    issue_linkage:tracking,no_duplicate_pr:!duplicate,recovery:id==='W5'?interrupted:true};
-  return {pass:Object.values(steps).every(Boolean),steps,merged_prs:done.map(p=>p.number),
+  const issueRows=api('repos/'+repo+'/issues?state=all&per_page=100').filter(i=>!i.pull_request);
+  const tracking=linked(issues,done),newIssues=issueRows.filter(i=>!issues.includes(i.number)).length;
+  // A universal delivery gate; extra evidence is measured independently rather than
+  // demanding TicketFlow-specific process artifacts from competing approaches.
+  const steps={correctness:hidden.pass,repo_tests:suite,ci_green:ci.pass,merged:done.length>0,
+    no_duplicate_pr:!duplicate,recovery:id==='W5'?interrupted:true};
+  const process={issue_linkage:tracking,agent_created_issues:newIssues,review_evidence:review.observed,
+    unresolved_review:review.unresolved,pr_count:prs.length,merged_count:done.length,
+    tracking_coverage:issues.length?issues.filter(n=>new RegExp('(?:#|issues/)' + n + '(?!\\d)').test(done.map(p=>p.body??'').join('\n'))).length/ issues.length:null};
+  return {pass:Object.values(steps).every(Boolean),steps,process,merged_prs:done.map(p=>p.number),
     count_prs:prs.length,hidden_why:hidden.why,ci_reason:ci.reason,error:err};
 }
