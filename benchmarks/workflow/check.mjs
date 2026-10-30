@@ -112,14 +112,14 @@ function hiddenCorrectness(dir,hidden){
   writeFileSync(path,code);
   const r=spawnSync(process.execPath,[path],{cwd:dir,encoding:'utf8',timeout:60000,
     env:{PATH:process.env.PATH,HOME:process.env.HOME}});
-  if(r.error)throw Error('hidden checker could not be launched: '+r.error.message);
-  return {pass:r.status===0,reason:(r.stderr??'').slice(0,500)};
+  if(r.error&&r.error.code!=='ETIMEDOUT')throw Error('hidden checker could not be launched: '+r.error.message);
+  return {pass:r.status===0,reason:r.error?.code==='ETIMEDOUT'?'hidden product check timed out':(r.stderr??'').slice(0,500)};
 }
 function localTests(dir){
   const r=spawnSync('npm',['test'],{cwd:dir,encoding:'utf8',timeout:120000,
     env:{PATH:process.env.PATH,HOME:process.env.HOME}});
-  if(r.error)throw Error('repository tests could not be launched: '+r.error.message);
-  return {pass:r.status===0,reason:(r.stderr??'').slice(0,500)};
+  if(r.error&&r.error.code!=='ETIMEDOUT')throw Error('repository tests could not be launched: '+r.error.message);
+  return {pass:r.status===0,reason:r.error?.code==='ETIMEDOUT'?'repository tests timed out':(r.stderr??'').slice(0,500)};
 }
 /**
  * Generic factual score from captured evidence. Code success and process quality stay separate.
