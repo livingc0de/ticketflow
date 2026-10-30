@@ -26,7 +26,7 @@ export function render(rows){
       '** | Recorded attempts including retries: **'+rows.length+'**','',
     'Success and failure count toward arm rates. Invalid measurements do not. Retried cells use only their latest attempt.','',
     '## Outcomes by arm','',
-    '| Arm | Valid | Invalid | Coding | Full pipeline | Delivery evidence | Agent completed | Review evidence | Ticket tracking | Latest CI | Median minutes | Median USD |',
+    '| Arm | Valid | Invalid | Coding | Full pipeline | Delivery evidence | Agent completed | Review evidence | Issue tracking evidence | Latest CI | Median minutes | Median USD |',
     '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'];
   for(const [arm,part] of Object.entries(group(latest,r=>r.arm)).sort()){
     const scored=part.filter(r=>outcomeOf(r)!=='invalid');
@@ -41,7 +41,7 @@ export function render(rows){
       ' | '+fmt(median(scored.map(r=>typeof r.wall_s==='number'?r.wall_s/60:null)))+
       ' | '+fmt(median(scored.map(r=>r.cost_usd)),2)+' |');
   }
-  lines.push('','## Workflow evidence by arm','','| Arm | Avg agent-created tickets | Avg closed+linked tickets | Avg plan artifacts | Avg agent Project changes |',
+  lines.push('','## Workflow evidence by arm','','| Arm | Avg agent-created issues | Avg closed+linked work items | Avg plan artifacts | Avg agent Project changes |',
     '| --- | ---: | ---: | ---: | ---: |');
   for(const [arm,part] of Object.entries(group(valid,r=>r.arm)).sort()){
     const average=key=>{const vals=part.map(r=>r.delivery.process?.[key]);return vals.every(x=>Number.isFinite(x))?vals.reduce((a,b)=>a+b,0)/vals.length:null;};
@@ -86,7 +86,7 @@ export function render(rows){
     (invalidCosts.length&&invalidCosts.every(n=>typeof n==='number'&&Number.isFinite(n))?
       '$'+fmt(invalidCosts.reduce((a,b)=>a+b,0),2):invalidCosts.length?'unknown':'$0.00')+
     '. These costs are disclosed but not attributed to framework performance.');
-  lines.push('','**Scenarios:** W1 plain request to tracked delivery, W2 existing ticket, W3 dependent tickets, W4 failing PR/review, W5 interrupted delivery, W6 brainstorming-to-tickets, W7 parallelizable independent tickets.');
+  lines.push('','**Scenarios:** W1 plain request to native tracked delivery, W2 existing work item, W3 dependent changes, W4 failing PR/review, W5 interrupted delivery, W6 native work breakdown, W7 parallelizable independent work items.');
   const configs=new Set(latest.map(r=>JSON.stringify([r.agent,r.agent_version,r.requested_model,r.requested_effort,r.eval_fingerprint,r.profile_isolation,r.sandbox_mode])));
   if(configs.size>1)lines.push('','**Comparability warning:** Multiple agents, models, evaluator fingerprints, profiles or sandbox modes are present. Analyze controlled subsets, not pooled averages.');
   if(invalid.length)lines.push('**Invalid-run warning:** Excluded infrastructure attempts require a fresh rerun; no automatic success or failure is imputed. Compare arms only after filling invalid cells or clearly disclosing incomplete scenario coverage.');

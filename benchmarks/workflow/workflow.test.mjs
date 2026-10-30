@@ -18,11 +18,14 @@ test('seven distinct delivery scenarios with intended initial states',()=>{
     assert.ok(Object.keys(f).some(p=>p.startsWith('test/')));
     const p=prompt(id,'bench/repo',[12],null,'https://github.com/orgs/bench/projects/1');
     assert.match(p,/Use your own available development approach/);
+    assert.match(p,/No particular ticketing, status or decomposition format is required/);
     assert.doesNotMatch(p,/use TicketFlow's/);
     assert.ok(scenarios[id].hidden.module);
     assert.doesNotThrow(()=>new Function('return (async()=>{'+scenarios[id].hidden.code+'})'));
   }
-  assert.match(scenarios.W6.goal,/brainstorm/i);
+  assert.doesNotMatch(scenarios.W1.goal,/create an issue|GitHub issue/i);
+  assert.match(scenarios.W6.goal,/explore|break the work/i);
+  assert.doesNotMatch(scenarios.W6.goal,/create .*issue|GitHub issue/i);
   assert.match(scenarios.W7.goal,/parallel/i);
   assert.equal(scenarios.W4.seedBrokenPR.branch,'bench/broken-webhook');
 });
@@ -54,24 +57,27 @@ const evidence=(id,{seeded=[],issues=[],prs=[],good=true,review=true,ci=true,int
     checks:prs.map(p=>({number:p.number,pass:ci})),
     reviews:prs.map(p=>({number:p.number,observed:review,unresolved:false})),
     plans:[],hidden:good,repoTests:true,interrupted,resumed,initialPR,initialHead});
-test('W1 scores newly created and linked ticket, not a supplied empty project',()=>{
+test('W1 records issue tracking without requiring it from every native workflow',()=>{
   const p=pr(20,'Closes #7');const pass=evidence('W1',{issues:[issue(7)],prs:[p]});
   assert.equal(pass.pipeline,true);
   const noIssue=evidence('W1',{prs:[pr(20,'Delivered change')]});
   assert.equal(noIssue.functionality,true);
   assert.equal(noIssue.steps.issue_tracking,false);
-  assert.equal(noIssue.pipeline,false);
+  assert.equal(noIssue.pipeline,true);
 });
 test('W2 preserves existing issue coverage independent of workflow-specific statuses',()=>{
   const pass=evidence('W2',{seeded:[2],issues:[issue(2,{closed:true})],prs:[pr(19,'Closes #2')]});
   assert.equal(pass.pipeline,true);
   const missing=evidence('W2',{seeded:[2],issues:[issue(2,{closed:false})],prs:[pr(19,'Refs #2')]});
   assert.equal(missing.steps.issue_tracking,false);
+  assert.equal(missing.pipeline,true);
 });
-test('W3 requires all dependent tickets to be linked and closed',()=>{
+test('W3 reports dependent issue coverage without prescribing the workflow',()=>{
   const source=[issue(1),issue(2),issue(3)];
   assert.equal(evidence('W3',{seeded:[1,2,3],issues:source,prs:[pr(9,'Closes #1, #2 and #3')]}).pipeline,true);
-  assert.equal(evidence('W3',{seeded:[1,2,3],issues:source,prs:[pr(9,'Closes #1 and #2')]}).pipeline,false);
+  const partial=evidence('W3',{seeded:[1,2,3],issues:source,prs:[pr(9,'Closes #1 and #2')]});
+  assert.equal(partial.steps.issue_tracking,false);
+  assert.equal(partial.pipeline,true);
 });
 test('W4 seeded PR is actually corrected and verified',()=>{
   const source=[issue(1)];
@@ -95,29 +101,35 @@ test('W5 remote checkpoint requires pushed product changes and an unmerged PR st
   assert.equal(meaningfulCheckpoint({branches,prs:[{mergedAt:'2026-10-30T14:00:00Z'}],
     compares:{feature:{ahead_by:1,files:[{filename:'src/orders.mjs'}]}}}),false);
 });
-test('W6 requires multiple useful tickets linked to delivered work, not count alone',()=>{
+test('W6 reports issue-based decomposition without requiring GitHub issues',()=>{
   const tasks=[issue(2),issue(3)];
   const pass=evidence('W6',{issues:tasks,prs:[pr(8,'Closes #2 and #3')]});
   assert.equal(pass.pipeline,true);
   assert.equal(pass.process.agent_created_issues,2);
-  assert.equal(evidence('W6',{issues:tasks,prs:[pr(8,'Closes #2')]}).pipeline,false);
-  assert.equal(evidence('W6',{issues:[issue(2)],prs:[pr(8,'Closes #2')]}).pipeline,false);
-  assert.equal(evidence('W6',{issues:[issue(2,{title:'Task #2',body:''}),issue(3)],prs:[pr(8,'Closes #2 and #3')]}).pipeline,false);
-  assert.equal(evidence('W6',{issues:[issue(2),issue(3,{title:issue(2).title,body:issue(2).body})],prs:[pr(8,'Closes #2 and #3')]}).pipeline,false);
-  assert.equal(evidence('W6',{issues:[issue(2,{body:'Implement the task without a dependency.'}),issue(3,{body:'Implement another task without a dependency.'})],prs:[pr(8,'Closes #2 and #3')]}).pipeline,false);
-  assert.equal(evidence('W6',{issues:[issue(2),issue(3,{body:'Implement task 3. Depends on #99.'})],prs:[pr(8,'Closes #2 and #3')]}).pipeline,false);
+  assert.equal(pass.process.issue_breakdown,true);
+  const native=evidence('W6',{prs:[pr(8,'Delivered the complete feature')]});
+  assert.equal(native.pipeline,true);
+  assert.equal(native.steps.issue_tracking,false);
+  assert.equal(native.process.issue_breakdown,false);
+  assert.equal(evidence('W6',{issues:tasks,prs:[pr(8,'Closes #2')]}).steps.issue_tracking,false);
+  assert.equal(evidence('W6',{issues:[issue(2)],prs:[pr(8,'Closes #2')]}).steps.issue_tracking,false);
+  assert.equal(evidence('W6',{issues:[issue(2,{title:'Task #2',body:''}),issue(3)],prs:[pr(8,'Closes #2 and #3')]}).steps.issue_tracking,false);
+  assert.equal(evidence('W6',{issues:[issue(2),issue(3,{title:issue(2).title,body:issue(2).body})],prs:[pr(8,'Closes #2 and #3')]}).steps.issue_tracking,false);
+  assert.equal(evidence('W6',{issues:[issue(2,{body:'Implement the task without a dependency.'}),issue(3,{body:'Implement another task without a dependency.'})],prs:[pr(8,'Closes #2 and #3')]}).steps.issue_tracking,false);
+  assert.equal(evidence('W6',{issues:[issue(2),issue(3,{body:'Implement task 3. Depends on #99.'})],prs:[pr(8,'Closes #2 and #3')]}).steps.issue_tracking,false);
   const cyclic=evidence('W6',{issues:[issue(2,{body:'Implement task 2. Depends on #3.'}),issue(3,{body:'Implement task 3. Depends on #2.'})],prs:[pr(8,'Closes #2 and #3')]});
-  assert.equal(cyclic.pipeline,false);
+  assert.equal(cyclic.steps.issue_tracking,false);
   assert.equal(cyclic.process.dependency_cycle,true);
 });
-test('W7 checks four tickets and allows multiple safely merged PRs',()=>{
+test('W7 checks four seeded work items and allows multiple safely merged PRs',()=>{
   const seed=[1,2,3,4],issues=seed.map(n=>issue(n));
   const prs=seed.map(n=>pr(n+10,'Closes #'+n));
   const pass=evidence('W7',{seeded:seed,issues,prs});
   assert.equal(pass.pipeline,true);
   assert.equal(pass.process.merged_pr_count,4);
   const missing=evidence('W7',{seeded:seed,issues,prs:prs.slice(0,3)});
-  assert.equal(missing.pipeline,false);
+  assert.equal(missing.steps.issue_tracking,false);
+  assert.equal(missing.pipeline,true);
 });
 test('an empty PR set cannot count as observed review',()=>{
   const result=evidence('W2',{seeded:[1],issues:[issue(1)],prs:[]});

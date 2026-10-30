@@ -176,17 +176,21 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
     visiting.delete(node);visited.add(node);return false;
   };
   const dependencyCycle=[...dependencyGraph.keys()].some(hasCycle);
-  const w6Evidence=id!=='W6'||(
+  // GitHub issues are one possible workflow representation, not a requirement
+  // for the competing arms. Keep this evidence for comparison without making
+  // a native workflow fail merely because it used plans, PRs or commits instead.
+  const issueBreakdown=id!=='W6'||(
     created.length>=2&&created.length<=12&&meaningfulNew.length>=2&&
     actionableIssues.length===created.length&&!duplicateCreatedContent&&
     !invalidDependencies.length&&!dependencyCycle&&dependencyEdges.length>=1&&
     created.every(i=>linked.some(l=>l.number===i.number))
   );
-  const newTracking=(id==='W1'?meaningfulNew.length>=1:
-    id==='W6'?w6Evidence:true);
-  // W6 should have at least two thoughtfully created tasks; W1 one tracked request.
-  // Others may use their own process, but transparent linkage is measured everywhere.
-  const tracking=required&&newTracking &&
+  const issueTracking=seededIssues.length?required:
+    id==='W1'?meaningfulNew.length>=1:
+    id==='W6'?issueBreakdown:false;
+  // Issue/project evidence is reported as a workflow comparison metric. It is
+  // deliberately not a delivery gate: each arm may use its own process.
+  const tracking=issueTracking &&
     (id!=='W7'||seededIssues.length===4) && (id!=='W3'||seededIssues.length===3);
   const safeCI=merged.length>0&&merged.every(p=>checks.find(c=>c.number===p.number)?.pass===true);
   // Coordination is observed independently from code correctness and pipeline gates.
@@ -215,13 +219,15 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
     interruption_recovery:id!=='W5'||(interrupted&&resumed)};
   const functional=steps.correctness&&steps.repository_tests;
   const delivery=steps.merged&&steps.latest_head_ci&&steps.pr_deduplication&&steps.failed_pr_corrected;
-  const pipeline=functional&&delivery&&steps.review_evidence&&steps.issue_tracking&&steps.interruption_recovery;
+  const pipeline=functional&&delivery&&steps.review_evidence&&steps.interruption_recovery;
   const process={seeded_issues:seeded.length,agent_created_issues:created.length,
     created_linked:optionalNewIssuesLinked.length,issue_total:issues.length,
     issues_linked:linked.length,issues_closed:closed.length,issues_closed_and_linked:closedTracked.length,
     issue_coverage:seededIssues.length?seededIssues.filter(n=>linked.some(i=>i.number===n&&i.state==='closed')).length/seededIssues.length:null,
     planning,review:reviewRelevant,pr_count:prs.length,merged_pr_count:merged.length,
-    plan_artifacts:plans,tracking,review_observed:reviewObserved,coordination,
+    plan_artifacts:plans,tracking,issue_tracking:issueTracking,
+    issue_breakdown:id==='W6'?issueBreakdown:null,
+    review_observed:reviewObserved,coordination,
     actionable_created_issues:actionableIssues.length,duplicate_created_issue_content:duplicateCreatedContent,
     dependency_edges:dependencyEdges,invalid_dependency_references:invalidDependencies,dependency_cycle:dependencyCycle};
   return {pass:pipeline,functionality:functional,delivery,pipeline,steps,process};

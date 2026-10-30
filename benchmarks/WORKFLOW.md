@@ -5,7 +5,7 @@ It compares four native approaches: bare agent, Superpowers, Ponytail and Ticket
 It does **not** ask competitors to follow TicketFlow's workflow.
 All arms receive the same product objective, code fixture, available GitHub Project and
 scenario-specific starting conditions. The framework decides its own steps.
-The runner measures product correctness, review evidence, planning, ticket creation and lifecycle, coordination, CI, merge and recovery. It scores code functionality separately from end-to-end pipeline success.
+The runner measures product correctness, review evidence, planning, issue/project evidence, coordination, CI, merge and recovery. It scores code functionality separately from end-to-end pipeline success. Workflow evidence is comparative: no arm is required to use TicketFlow's issue or Project lifecycle.
 
 **Do not merge changes to this directory into the branch running an existing local L1–L15
 benchmark.** The local evaluator hashes all files under benchmarks/, so even changes
@@ -15,20 +15,20 @@ in this new module change its fingerprint. Finish existing runs on their pinned 
 
 | ID | Starting state | Task |
 | --- | --- | --- |
-| W1 | Plain request, no issue | Small CSV feature from request through delivery |
+| W1 | Plain request, no issue | Small CSV feature from request through native planning and delivery |
 | W2 | One Ready issue (TicketFlow arm); one ordinary issue (others) | Shared rounding defect, cross-module regression tests and delivery |
-| W3 | Three related issues | Agent-led coordination, dependencies, traceability and integration |
+| W3 | Three related work items | Agent-led coordination, dependencies, traceability and integration |
 | W4 | Existing failing PR and review comment | Repair, reverify current head, respond to review and merge |
 | W5 | One issue, deliberate session interruption | Reopen with a fresh session and recover GitHub state without duplicates |
-| W6 | Broad request, no issues | Brainstorm, create useful tickets, sequence work, and deliver complete solution |
-| W7 | Four independent existing issues | Coordinate parallelizable work without duplication, integration conflicts or unnecessary overhead |
+| W6 | Broad request, no issues | Explore, break down, sequence and deliver a complete solution using the setup's native workflow |
+| W7 | Four independent existing work items | Coordinate parallelizable work without duplication, integration conflicts or unnecessary overhead |
 
 **GitHub Projects:** Each scenario/arm/repeat gets a new neutral Projects v2 board and
-a private repository. The harness creates *only* initial fixtures, not completed work. For W1 and W6 it creates **no issues**. New issues and delivery evidence must be produced by the agent itself.
+a private repository. The harness creates *only* initial fixtures, not completed work. For W1 and W6 it creates **no issues**. Agents may use issues, plans, pull requests, Projects or another native mechanism to organize and trace the work; the evaluator records those choices rather than requiring a particular one.
 All arms can read/write their own board. Only the TicketFlow arm installs/configures
 TicketFlow's native Project workflow and moves its seeded issues to Ready.
 Other arms are **not** forced to adopt TicketFlow labels, statuses or commands. They may accomplish the same outcomes using their native planning and review processes. TicketFlow does not receive credit simply for extra tickets, skill invocations, or generated artifacts.
-For W1 the Project is empty; agents may choose to create tracking issues.
+For W1 and W6 the Project is empty. TicketFlow may naturally create and manage tracking issues; other arms may use their own planning and coordination mechanisms. Issue creation is evidence of a workflow choice, not a universal acceptance condition.
 
 **Review:** The objective requires a reviewed, verified delivery but does not prescribe a
 reviewer or review command. The scoring requires observable review evidence on the final
@@ -140,9 +140,10 @@ or that hooks actually fired; inspect a live pilot before claiming full activati
 
 The report uses three mutually exclusive outcomes:
 
-- **Success:** The agent completes the required product and workflow delivery.
+- **Success:** The agent completes the required product and universal reviewed,
+  verified delivery gates. Native workflow evidence is reported separately.
 - **Failure:** The agent exits unsuccessfully, times out, fails the hidden/product tests,
-  or does not complete the required tracked/reviewed/merged workflow. Such runs count
+  or does not complete the required reviewed/verified/merged delivery. Such runs count
   against the arm in its success rate. The deliberate first W5 interruption is not
   a failure if its fresh session successfully resumes.
 - **Invalid:** Infrastructure prevents trustworthy measurement, e.g. GitHub evidence
@@ -163,8 +164,10 @@ paid retries until the operator inspects/removes benchmark-owned leftovers and
 explicitly passes `--acknowledge-plugin-cleanup` with the usual execute/write
 approvals. Pre-agent setup or authentication failures stop without a scored row;
 they are not interpreted as competitor failures.
-Per-arm comparisons also include review evidence, tracking coverage, created
-issues, elapsed time and known cost. Raw transcripts remain local. Do not
+Per-arm comparisons also include review evidence, issue/project tracking coverage,
+created issues, plan artifacts, elapsed time and known cost. These are reported as
+workflow evidence and are not silently converted into a requirement that every arm
+follow the TicketFlow lifecycle. Raw transcripts remain local. Do not
 interpret three repeats as statistically conclusive evidence.
 
 The old local runner remains:
@@ -195,12 +198,12 @@ Each child runner retains its own explicit paid-work and remote-write guards.
   fail, do not treat the resulting cell as proof of framework inferiority.
 - Native plugin *registration* is not proof that hooks/skills activated. Review
   saved transcript archives and perform a small live pilot on both CLIs before
-  publishing comparisons. W6 additionally requires actionable, distinct created
-  issues, valid dependency evidence and links from every created issue to delivery;
-  issue count alone is insufficient.
+  publishing comparisons. W6 records issue-based decomposition, dependency and
+  linkage evidence when an arm chooses that workflow; issue creation is optional
+  and issue count alone is insufficient.
 - The runner has not been validated by a paid, live four-arm GitHub matrix.
   Deterministic fixture tests are not a substitute for that pilot.
 
 ## Reporting
 
-Run `node benchmarks/workflow-report.mjs benchmarks/results/workflow-claude.jsonl --out benchmarks/results/workflow-summary.md` for separate functionality and full-pipeline comparisons by arm and scenario. W1 checks agent-created tracked work; W6 requires at least two useful agent-created issues linked to delivery; W3 and W7 check that all seeded tickets were completed. Their coordination section records PR-to-ticket coverage and observed dependency closure order without awarding points merely for parallelism or extra PRs. Review evidence and plan counts are proxies, not definitive proof of review quality. Parallel execution is evaluated on correctness, reliability, elapsed time and cost, not rewarded merely for spawning agents.
+Run `node benchmarks/workflow-report.mjs benchmarks/results/workflow-claude.jsonl --out benchmarks/results/workflow-summary.md` for separate functionality and full-pipeline comparisons by arm and scenario. W1 and W6 leave planning and tracking choices open; issue creation, issue linkage, Project changes and plan artifacts are reported as workflow evidence rather than required steps. W3 and W7 report seeded work-item coverage. Their coordination section records PR-to-work-item coverage and observed dependency closure order without awarding points merely for parallelism or extra PRs. Review evidence and plan counts are proxies, not definitive proof of review quality. Parallel execution is evaluated on correctness, reliability, elapsed time and cost, not rewarded merely for spawning agents.

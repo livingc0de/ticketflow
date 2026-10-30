@@ -22,6 +22,12 @@ test('workflow report still shows delivery evidence for failed agent runs',()=>{
   const result=render([row('ticketflow',false,true)]);
   assert.match(result,/\| ticketflow \| 1 \| 0 \| 100% \| 0% \| 100% \| 0%/);
 });
+test('workflow report keeps optional native-process evidence unknown when absent',()=>{
+  const native=row('bare',true,true);
+  native.delivery={...native.delivery,process:{}};
+  const result=render([native]);
+  assert.match(result,/\| bare \| unknown \| unknown \| unknown \| unknown \|/);
+});
 
 test('invalid archive/cleanup and evaluator errors are excluded from the denominator',()=>{
   const ok=row('bare',true,true);

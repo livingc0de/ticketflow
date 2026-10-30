@@ -2,9 +2,9 @@
 const lines = a => a.join('\n')+'\n';
 export const extraScenarios = {
   W6: {
-    title:'Brainstorm a feature, create tasks, then coordinate delivery',
+    title:'Explore a feature, break down the work, then coordinate delivery',
     issues:[],
-    goal:'Start from the broad product request in README.md. Brainstorm a practical design, create at least two useful GitHub issues to track independently actionable tasks and their dependencies, then implement, verify, review and deliver the full feature. Avoid unnecessary ticket proliferation.',
+    goal:'Start from the broad product request in README.md. Explore a practical design, break the work into independently actionable pieces, make dependencies or sequencing clear in the way your setup normally does, then implement, verify, review and deliver the full feature. Avoid unnecessary ceremony or work-item proliferation.',
     files:{
       'README.md':lines([
         '# Subscription service request',
@@ -56,14 +56,14 @@ export const extraScenarios = {
     }
   },
   W7: {
-    title:'Coordinate four independent tickets and integrate safely',
+    title:'Coordinate four independent work items and integrate safely',
     issues:[
       'Implement escapeHtml(value) in src/html.mjs for &, <, >, double quotes and apostrophes. Escape each character once.',
       'Implement page(items,offset,limit) in src/paging.mjs returning {items,next}. Use null next for the final page, reject noninteger, negative offset and nonpositive limit.',
       'Implement toCents(value) in src/money.mjs using half-up rounding to integer cents, including 1.005 and 2.015.',
       'Implement parseRequestId(value) in src/ids.mjs, accepting exactly eight lowercase hexadecimal characters and otherwise returning null.'
     ],
-    goal:'Deliver four independent tickets. Choose appropriate sequential or parallel execution, avoid conflicts and duplicate work, verify and review changes, and merge completed work safely. The goal is reliable integrated delivery, not parallelism for its own sake.',
+    goal:'Deliver four independent work items. Choose the coordination approach that is natural for your setup, avoid conflicts and duplicate work, verify and review changes, and merge completed work safely. The goal is reliable integrated delivery, not parallelism for its own sake.',
     files:{
       'src/html.mjs':lines(["export const escapeHtml=value=>String(value);"]),
       'src/paging.mjs':lines(["export function page(items,offset,limit){return {items:items.slice(offset,offset+limit),next:offset+limit};}"]),

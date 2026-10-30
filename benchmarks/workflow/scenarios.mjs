@@ -39,7 +39,7 @@ export const scenarios = {
         "test('TSV format remains stable', () => assert.equal(tsv([{name:'A',total:2}]), 'name\\ttotal\\nA\\t2'));"
       ])
     },
-    goal: 'Starting from this request (there is no existing ticket), create an issue that tracks the request, implement CSV export while keeping existing TSV behavior, and deliver a reviewed, verified change without unnecessary dependencies.',
+    goal: 'Starting from this request, use the planning and tracking approach that is natural for your setup, implement CSV export while keeping existing TSV behavior, and deliver a reviewed, verified change without unnecessary dependencies.',
     hidden: {
       exports: ['csv', 'tsv'],
       code: source([
@@ -116,7 +116,7 @@ export const scenarios = {
         "test('basic listing', () => assert.equal(listOrders([{tenant:'a',id:1}], 'a',0,10).items.length,1));"
       ])
     },
-    goal:'Deliver all three existing related issues, respecting their dependency order. Use your available coordination approach and deliver tenant-safe lookup, pagination and API integration through verifiable changes.',
+    goal:'Deliver the three related changes, respecting their dependency relationship. Use your normal coordination approach and deliver tenant-safe lookup, pagination and API integration through verifiable changes.',
     hidden:{
       module:'src/api.mjs',
       code:source([
@@ -218,6 +218,7 @@ export function prompt(id, repo, issueNumbers, prNumber=null, projectUrl=null) {
     issueNumbers.length ? 'Existing issue(s):\n'+items : 'There are no existing issues for this request.',
     prNumber ? 'An existing pull request needs repair: #'+prNumber+'. Continue that PR.' : 'No pull request has been started yet.',
     'Use your own available development approach and native skills to deliver the requested work. Organize and track it as you judge appropriate.',
+    'Choose the planning, tracking, coordination and review process native to your setup. No particular ticketing, status or decomposition format is required.',
     projectUrl ? 'The available GitHub Project is '+projectUrl+'. You may use it as appropriate.' : 'A GitHub Project is available for tracking if useful.',
     'Implement, verify, review and deliver the change(s) through pull requests.',
     'Only merge after verifying the latest head and resolving actionable findings. Never bypass required protections or claim tests ran when they did not.',
