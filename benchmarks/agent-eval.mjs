@@ -40,11 +40,41 @@ function claudeHasPortableAuth() {
     return orNull(() => readFileSync(from, 'utf8').trim().length > 0) === true
 }
 
-/** The Codex benchmark uses a copied login file, not the caller's API keys or profile settings. */
-function codexHasPortableAuth() {
-    const from = join(resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex')), 'auth.json')
-    const data = orNull(() => JSON.parse(readFileSync(from, 'utf8')))
-    return data !== null && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).length > 0
+/** Use Codex's offline login checker in a disposable profile: its auth formats can evolve. */
+function codexAuthPreflight() {
+    const originalHome = resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex'))
+    const from = join(originalHome, 'auth.json')
+    const tmp = mkdtempSync(join(tmpdir(), 'codex-auth-check-'))
+    const home = join(tmp, 'home'), codexHome = join(home, '.codex')
+    let portable = false
+    try {
+        mkdirSync(codexHome, { recursive: true, mode: 0o700 })
+        if (existsSync(from)) {
+            const dest = join(codexHome, 'auth.json')
+            copyFileSync(from, dest)
+            chmodSync(dest, 0o600)
+            const env = { ...cleanEnv(process.env), HOME: home, CODEX_HOME: codexHome }
+            portable = run('codex', ['login', 'status'], { env, timeout: 15_000 }).status === 0
+        }
+    } finally {
+        rmSync(tmp, { recursive: true, force: true })
+    }
+    if (portable) return
+
+    // Keyring entries are tied to the original CODEX_HOME path. Recognize them without
+    // pretending they can be used inside a different, isolated benchmark profile.
+    const original = run('codex', ['login', 'status'], {
+        env: { ...cleanEnv(process.env), CODEX_HOME: originalHome }, timeout: 15_000,
+    })
+    if (original.status === 0)
+        throw new Error('Codex benchmark authentication preflight: the original Codex profile is logged in, ' +
+            'but its credentials are not usable in an isolated benchmark profile (for example, keyring-only storage). ' +
+            'Use a dedicated CODEX_HOME with file-based login (cli_auth_credentials_store = "file") and codex login. ' +
+            'No paid session started; personal keyring credentials were not exported.')
+    throw new Error('Codex benchmark authentication preflight failed: missing or unsupported portable login. ' +
+        'Run codex login with file-based credential storage in CODEX_HOME (default ~/.codex). ' +
+        'API-key environment variables are intentionally not forwarded. No paid session started. ' +
+        'This offline check cannot confirm token freshness or account entitlement.')
 }
 
 /** A fresh Codex profile per run. Local native plugin packages are installed by Codex itself, not simulated as copied instructions. */
@@ -138,11 +168,7 @@ main('agent-eval', () => {
     const version = run(v.agent, ['--version'])
     if (version.error || version.status !== 0) throw new Error(`${v.agent} is not installed or not on PATH`)
     if (external && v.agent === 'claude' && !run('claude', ['--help']).stdout?.includes('--plugin-dir')) throw new Error('Claude CLI does not advertise --plugin-dir; cannot load competitor natively')
-    if (v.agent === 'codex' && !codexHasPortableAuth())
-        throw new Error('Codex benchmark authentication preflight failed: no nonempty, valid auth.json available for the isolated profile. ' +
-            'Sign in with codex login (ChatGPT subscription) and make sure CODEX_HOME/auth.json (default ~/.codex/auth.json) exists. ' +
-            'API-key environment variables are intentionally not forwarded to Codex benchmarks. No paid session started. ' +
-            'This checks credential presence, not whether the login is valid.')
+    if (v.agent === 'codex') codexAuthPreflight()
     if (v.agent === 'claude' && !claudeHasPortableAuth())
         throw new Error('Claude benchmark authentication preflight failed: no credentials available for the isolated profile. ' +
             'Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN, or provide a nonempty .credentials.json in ' +
