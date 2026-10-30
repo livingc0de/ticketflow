@@ -4,7 +4,7 @@ export const extraScenarios = {
   W6: {
     title:'Brainstorm a feature, create tasks, then coordinate delivery',
     issues:[],
-    goal:'Start from the broad product request in README.md. Brainstorm a practical design, organize useful tracked tasks and their dependencies, then implement, verify, review and deliver the full feature. Avoid unnecessary ticket proliferation.',
+    goal:'Start from the broad product request in README.md. Brainstorm a practical design, create at least two useful GitHub issues to track independently actionable tasks and their dependencies, then implement, verify, review and deliver the full feature. Avoid unnecessary ticket proliferation.',
     files:{
       'README.md':lines([
         '# Subscription service request',
