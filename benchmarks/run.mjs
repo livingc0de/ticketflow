@@ -29,6 +29,12 @@ const requireClaudePluginDir = () => {
     const text = `${help.stdout ?? ''}\n${help.stderr ?? ''}`
     if (help.error || help.status !== 0 || !text.includes('--plugin-dir')) throw Error('Claude CLI does not advertise --plugin-dir; cannot load external plugins natively')
 }
+const requireCodexPonytailHooks = () => {
+    const help = spawnSync('codex', ['exec', '--help'], { encoding: 'utf8', timeout: 10_000 })
+    const text = `${help.stdout ?? ''}\n${help.stderr ?? ''}`
+    if (help.error || help.status !== 0 || !text.includes('--dangerously-bypass-hook-trust'))
+        throw Error('Codex exec lacks --dangerously-bypass-hook-trust; cannot enable Ponytail lifecycle hooks noninteractively')
+}
 const readRows = (out) => readFileSync(out, 'utf8').split(/\r?\n/).filter(Boolean).map((x) => JSON.parse(x))
 const identity = (i, agent, model, effort, evalFingerprint) => [i.scenario, i.arm, i.rep, agent, model, effort ?? 'default', i.source_sha ?? 'bare', evalFingerprint].join('|')
 
@@ -150,6 +156,7 @@ async function main() {
         for (const agent of agents) if (!cliVersions.has(agent)) cliVersions.set(agent, cliVersion(agent))
 
         if (agents.includes('claude') && pending.get('claude').length && arms.some((arm) => arm === 'superpowers' || arm === 'ponytail')) requireClaudePluginDir()
+        if (agents.includes('codex') && pending.get('codex').length && arms.includes('ponytail')) requireCodexPonytailHooks()
         if (agents.includes('codex') && pending.get('codex').length) approveDangerFullAccess({ alreadyApproved: v['allow-danger-full-access'], count: pending.get('codex').length })
         const profileModes = new Map()
         for (const agent of agents) {
