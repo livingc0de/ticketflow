@@ -34,9 +34,15 @@ function codexMarketplace(env,work,src,arm,isolated) {
   let registered=false;
   const cleanup=()=>{
     if(!registered || isolated) return;
-    // Remove ONLY the unique benchmark-owned entry. Leave existing marketplaces untouched.
-    jsonCall('codex',['plugin','remove',arm+'@'+market,'--json'],env);
-    jsonCall('codex',['plugin','marketplace','remove',market,'--json'],env);
+    // A failed plugin add may have installed only the marketplace. Remove only our own items.
+    const installed=jsonCall('codex',['plugin','list','--json'],env).installed??[];
+    const ours=installed.filter(p=>p.marketplaceName===market);
+    if(ours.length>1||ours.some(p=>p.name!==arm))throw Error('unexpected benchmark marketplace entries: cleanup stopped');
+    if(ours.length===1)jsonCall('codex',['plugin','remove',arm+'@'+market,'--json'],env);
+    const markets=jsonCall('codex',['plugin','marketplace','list','--json'],env).marketplaces??[];
+    const entry=markets.filter(p=>p.name===market);
+    if(entry.length>1)throw Error('ambiguous marketplace identity: cleanup stopped');
+    if(entry.length===1)jsonCall('codex',['plugin','marketplace','remove',market,'--json'],env);
     registered=false;
   };
   try {
