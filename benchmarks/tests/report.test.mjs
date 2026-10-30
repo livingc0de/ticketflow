@@ -129,3 +129,13 @@ test('unisolated runs are labeled and never silently pooled with isolated result
     assert.equal(rejected.status, 2)
     assert.match(rejected.stderr, /publication refuses mixed profile isolation modes/)
 })
+
+test('incomplete benchmark-only plugin cleanup is flagged and blocks publication', () => {
+    const single = row({ profile_isolation:'unisolated', profile_cleanup:'failed' })
+    const preview = run([single])
+    assert.equal(preview.status, 0, preview.stderr)
+    assert.match(preview.markdown, /plugin cleanup incomplete/)
+    const rejected = publish([single])
+    assert.equal(rejected.status, 2)
+    assert.match(rejected.stderr, /publication refuses incomplete plugin cleanup/)
+})
