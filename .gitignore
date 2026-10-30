@@ -12,3 +12,4 @@ benchmarks/results/*.csv
 
 # Workflow benchmark sidecars contain remote repo names and local paths
 benchmarks/results/*.state.json
+benchmarks/results/transcripts/
