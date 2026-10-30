@@ -56,7 +56,7 @@ function codexMarketplace(env,work,src,arm,isolated) {
     const list=jsonCall('codex',['plugin','list','--json'],env).installed??[];
     const ours=list.filter(p=>p.marketplaceName===market && p.name===arm && p.installed===true && p.enabled===true);
     if(ours.length!==1 || (isolated && list.length!==1)) throw Error('competitor plugin not enabled exclusively');
-    return {cleanup,nativePluginEvidence:'codex-plugin-list-enabled'};
+    return {cleanup,nativePluginEvidence:arm==='ponytail'? 'codex-plugin-list-enabled-hook-bypass-requested':'codex-plugin-list-enabled'};
   } catch(e) {
     try {cleanup()} catch(cleanupErr) {throw Error(e.message+'; plugin cleanup failed: '+cleanupErr.message)}
     throw e;
