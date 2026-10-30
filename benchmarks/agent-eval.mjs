@@ -106,7 +106,7 @@ function codexProfile(work, arm, src, isolated = true) {
         if ((isolated && installed.length !== 1) || ours.length !== 1 ||
             ours[0].name !== arm || ours[0].installed !== true || ours[0].enabled !== true)
             throw new Error('Codex native plugin was not correctly installed and enabled; refusing the benchmark')
-        return { env, home, codexHome, installed: true, nativePluginEvidence: 'codex-plugin-list-enabled', cleanup }
+        return { env, home, codexHome, installed: true, nativePluginEvidence: arm === 'ponytail' ? 'codex-plugin-list-enabled-hook-bypass-requested' : 'codex-plugin-list-enabled', cleanup }
     } catch (e) {
         if (!isolated) {
             // marketplace add can mutate the profile before returning an error or invalid JSON.
