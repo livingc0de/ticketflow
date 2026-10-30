@@ -24,6 +24,11 @@ const cliVersion = (agent) => {
     if (version.error || version.status !== 0 || !version.stdout?.trim()) throw Error('cannot verify current ' + agent + ' CLI version')
     return version.stdout.trim()
 }
+const requireClaudePluginDir = () => {
+    const help = spawnSync('claude', ['--help'], { encoding: 'utf8', timeout: 10_000 })
+    const text = `${help.stdout ?? ''}\n${help.stderr ?? ''}`
+    if (help.error || help.status !== 0 || !text.includes('--plugin-dir')) throw Error('Claude CLI does not advertise --plugin-dir; cannot load external plugins natively')
+}
 const readRows = (out) => readFileSync(out, 'utf8').split(/\r?\n/).filter(Boolean).map((x) => JSON.parse(x))
 const identity = (i, agent, model, effort, evalFingerprint) => [i.scenario, i.arm, i.rep, agent, model, effort ?? 'default', i.source_sha ?? 'bare', evalFingerprint].join('|')
 
@@ -144,6 +149,7 @@ async function main() {
         if (!remaining) return
         for (const agent of agents) if (!cliVersions.has(agent)) cliVersions.set(agent, cliVersion(agent))
 
+        if (agents.includes('claude') && pending.get('claude').length && arms.some((arm) => arm === 'superpowers' || arm === 'ponytail')) requireClaudePluginDir()
         if (agents.includes('codex') && pending.get('codex').length) approveDangerFullAccess({ alreadyApproved: v['allow-danger-full-access'], count: pending.get('codex').length })
         const profileModes = new Map()
         for (const agent of agents) {

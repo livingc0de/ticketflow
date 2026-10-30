@@ -82,8 +82,8 @@ Failed or legacy unknown rows are not publishable. Each session is archived unde
 `benchmarks/results/transcripts/<session-id>/` with only `agent.out`, `answer.txt`
 and allowlisted `metadata.json`; profiles, auth files, environment variables and
 temporary workspaces are never copied. Rows link to the archive with
-`result_row_id` and `transcript_archive`. Inspect the archive and confirm the marker
-is meaningful for that CLI version before publishing. Keep the exact model, model
+`result_row_id` and `transcript_archive`. Inspect the archive and confirm the recorded
+plugin-loading evidence matches the selected arm before publishing. Keep the exact model, model
 effort settings, permissions, CLI version, prompt, evaluator SHA and scenarios fixed.
 Check that no user-level instruction files or other plugins leak into the bare arm.
 Native Superpowers may require interactive design approval; a non-interactive harness

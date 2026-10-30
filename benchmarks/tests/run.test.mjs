@@ -21,6 +21,16 @@ const source = (external = false, agent = 'claude', plugin = 'ponytail') => {
     git(dir, 'remote', 'add', 'origin', external ? `https://github.com/${plugin === 'superpowers' ? 'obra' : 'DietrichGebert'}/${plugin}.git` : 'https://github.com/livingc0de/ticketflow.git')
     return dir
 }
+const dualPluginSource = (plugin = 'ponytail') => {
+    const dir = tempDir('bench-dual-plugin-')
+    for (const marker of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json']) {
+        mkdirSync(join(dir, marker, '..'), { recursive: true })
+        writeFileSync(join(dir, marker), JSON.stringify({ name: plugin }) + '\n')
+    }
+    git(dir, 'init', '-q', '-b', 'main'); git(dir, 'add', '-A'); git(dir, 'commit', '-qm', 'pinned-' + dir.slice(-6))
+    git(dir, 'remote', 'add', 'origin', `https://github.com/${plugin === 'superpowers' ? 'obra' : 'DietrichGebert'}/${plugin}.git`)
+    return dir
+}
 
 test('dry-run shows every repeat and arm, requires no agent executable or output file', () => {
     const before = source(), after = source(), out = join(tempDir('bench-out-'), 'rows.jsonl')
@@ -105,6 +115,35 @@ appendFileSync(process.env.PAID_LOG, 'paid\\n')
     assert.match(r.stderr, /cannot verify current claude CLI version/)
     assert.doesNotMatch(r.stdout, /SESSION /)
     assert.equal(existsSync(log), false)
+})
+
+test('parallel external arms preflight Claude plugin support before any paid child starts', () => {
+    const dir = tempDir('bench-plugin-preflight-'), bin = join(dir, 'bin'), claudeAuth = join(dir, 'claude-auth'), codexHome = join(dir, 'codex-home')
+    const plugin = dualPluginSource(), claudeOut = join(dir, 'claude.jsonl'), codexOut = join(dir, 'codex.jsonl'), log = join(dir, 'paid.log')
+    mkdirSync(bin); mkdirSync(claudeAuth); mkdirSync(codexHome)
+    writeFileSync(join(claudeAuth, '.credentials.json'), '{"portable":true}\n')
+    writeFileSync(join(codexHome, 'auth.json'), '{"auth_mode":"chatgpt","tokens":{"access_token":"test"}}\n')
+    const fake = join(bin, 'fake-agent')
+    writeFileSync(fake, `#!${process.execPath}
+import { appendFileSync } from 'node:fs'
+const name = process.argv[1].split('/').pop(), args = process.argv.slice(2)
+if (args.includes('--version')) { console.log(name === 'claude' ? 'fake-claude 1.0' : 'fake-codex 1.0'); process.exit(0) }
+if (args.includes('--help')) { console.log('fake help without plugin support'); process.exit(0) }
+appendFileSync(process.env.PAID_LOG, name + '\\n')
+`)
+    chmodSync(fake, 0o755)
+    for (const name of ['claude', 'codex']) cpSync(fake, join(bin, name))
+    const r = call(['--parallel','--claude-model','claude-test','--codex-model','codex-test','--claude-out',claudeOut,'--codex-out',codexOut,
+        '--arms','ponytail','--ponytail-source',plugin,'--scenarios','L1','--repeats','1','--max-sessions','2','--allow-danger-full-access','--execute'], {
+        PATH: `${bin}:${process.env.PATH}`, CLAUDE_CONFIG_DIR: claudeAuth, CODEX_HOME: codexHome, PAID_LOG: log,
+        ANTHROPIC_API_KEY:'', CLAUDE_CODE_OAUTH_TOKEN:'', OPENAI_API_KEY:'',
+    })
+    assert.equal(r.status, 2, r.stdout + r.stderr)
+    assert.match(r.stderr, /does not advertise --plugin-dir/)
+    assert.doesNotMatch(r.stdout, /SESSION /)
+    assert.equal(existsSync(log), false)
+    assert.equal(existsSync(claudeOut), false)
+    assert.equal(existsSync(codexOut), false)
 })
 
 test('paid execution is refused before invoking any agent if the cap is too low', () => {
