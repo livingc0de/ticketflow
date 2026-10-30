@@ -39,7 +39,7 @@ export const scenarios = {
         "test('TSV format remains stable', () => assert.equal(tsv([{name:'A',total:2}]), 'name\\ttotal\\nA\\t2'));"
       ])
     },
-    goal: 'Starting from this request (there is no existing ticket), implement CSV export while keeping existing TSV behavior. Deliver a reviewed, verified change without unnecessary dependencies.',
+    goal: 'Starting from this request (there is no existing ticket), create an issue that tracks the request, implement CSV export while keeping existing TSV behavior, and deliver a reviewed, verified change without unnecessary dependencies.',
     hidden: {
       exports: ['csv', 'tsv'],
       code: source([
