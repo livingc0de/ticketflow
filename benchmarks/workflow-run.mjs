@@ -23,7 +23,61 @@ const EFFORTS=new Set(['low','medium','high','xhigh','max']);
 const help='workflow-run --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5,W6,W7] [--repeats 3] [--effort high] [--superpowers-source DIR --superpowers-sha SHA] [--ponytail-source DIR --ponytail-sha SHA] [--ticketflow-source DIR --ticketflow-sha SHA] [--resume] [--acknowledge-plugin-cleanup] [--execute --allow-github-writes] [--allow-danger-full-access]';
 const readJson=(file)=>JSON.parse(readFileSync(file,'utf8'));
 const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
-const idFor=(p,agent,model,effort,sourceShas,sourceMeta,fingerprint)=>JSON.stringify({p,agent,model,effort,sourceShas,sourceMeta,fingerprint});
+const cellKey=(cell)=>cell.id+'|'+cell.arm+'|'+cell.repeat;
+const identityFor=({owner,agent,model,effort,sourceShas,sourceMeta,fingerprint})=>({owner,agent,model,effort,sourceShas,sourceMeta,fingerprint});
+const idFor=(schedule,identity)=>JSON.stringify({p:schedule,...identity});
+const sameJson=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+const sourceSubset=(previous,current)=>Object.entries(previous??{}).every(([name,value])=>sameJson(current?.[name],value));
+const armSet=(schedule)=>new Set(schedule.map(cell=>cell.arm));
+const mergeSchedule=(previous,requested)=>{
+  const merged=[],seen=new Map();
+  for(const cell of [...previous,...requested]){
+    const key=cellKey(cell);
+    if(seen.has(key)){
+      if(!sameJson(seen.get(key),cell))throw Error('resume schedule contains conflicting cell definitions; use a new output/state pair');
+      continue;
+    }
+    seen.set(key,cell);merged.push({...cell,key});
+  }
+  return merged;
+};
+const validSchedule=(schedule)=>Array.isArray(schedule)&&schedule.every(cell=>cell&&ids.includes(cell.id)&&ARMS.has(cell.arm)&&
+  Number.isSafeInteger(cell.repeat)&&cell.repeat>0&&cell.key===cellKey(cell));
+const ownerFromState=(state)=>{
+  const owners=new Set(Object.values(state.cells??{}).map(cell=>typeof cell.repo==='string'?cell.repo.split('/')[0]:null).filter(Boolean));
+  return owners.size===1?[...owners][0]:null;
+};
+const previousRun=(state)=>{
+  if(Array.isArray(state.schedule)&&state.identity){
+    if(!validSchedule(state.schedule))throw Error('resume state has an invalid schedule; use a new output/state pair');
+    return {schedule:state.schedule,identity:state.identity};
+  }
+  let parsed;
+  try{parsed=JSON.parse(state.signature)}catch{throw Error('resume state has an invalid signature; use a new output/state pair');}
+  if(!validSchedule(parsed?.p))throw Error('resume state has no valid schedule; use a new output/state pair');
+  const owner=parsed.owner??ownerFromState(state);
+  if(!owner)throw Error('resume state owner cannot be verified; reconcile it or use a new output/state pair');
+  return {schedule:parsed.p,identity:identityFor({...parsed,owner})};
+};
+const compatibleIdentity=(previous,current)=>{
+  if(previous.owner!==current.owner||previous.agent!==current.agent||previous.model!==current.model||
+      (previous.effort??null)!==(current.effort??null)||previous.fingerprint!==current.fingerprint)
+    throw Error('resume immutable options, evaluator or owner changed');
+  if(!sourceSubset(previous.sourceShas,current.sourceShas)||!sourceSubset(previous.sourceMeta,current.sourceMeta))
+    throw Error('resume source revisions or provenance changed');
+};
+const compatibleArms=(previousSchedule,currentSchedule)=>{
+  const previousArms=armSet(previousSchedule),currentArms=armSet(currentSchedule);
+  for(const arm of previousArms)if(!currentArms.has(arm))throw Error('resume cannot remove an existing arm; use a new output/state pair');
+};
+const planFor=(selected,arms,repeats)=>{
+  const plan=[];
+  for(let rep=1;rep<=repeats;rep++)for(const [i,id] of selected.entries()){
+    const rotated=arms.map((_,k)=>arms[(k+i+rep-1)%arms.length]);
+    for(const arm of rotated)plan.push({id,arm,repeat:rep,key:id+'|'+arm+'|'+rep});
+  }
+  return plan;
+};
 function fingerprint() {
   const hash=createHash('sha256');
   for(const path of ['workflow-run.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs','workflow/profile.mjs','workflow/check.mjs','workflow/outcome.mjs','lib/integrity.mjs','lib/profile-auth.mjs','lib/process.mjs','lib/transcripts.mjs']) {
@@ -295,23 +349,34 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
 async function main() {
   const opts=parse(),{v,arms,selected,repeats,max,out,statePath,sourceShas,sourceMeta}=opts;
   const evalFingerprint=fingerprint();
-  const plan=[];
-  for(let rep=1;rep<=repeats;rep++)for(const [i,id] of selected.entries()){
-    const rotated=arms.map((_,k)=>arms[(k+i+rep-1)%arms.length]);
-    for(const arm of rotated) plan.push({id,arm,repeat:rep,key:id+'|'+arm+'|'+rep});
-  }
-  const stamp=idFor(plan,v.agent,v.model,v.effort??null,sourceShas,sourceMeta,evalFingerprint);
+  const plan=planFor(selected,arms,repeats),identity=identityFor({owner:v.owner,agent:v.agent,model:v.model,
+    effort:v.effort??null,sourceShas,sourceMeta,fingerprint:evalFingerprint});
   const state=v.resume?readJson(statePath):null;
-  if(state && state.signature!==stamp)throw Error('resume options, evaluator or source revisions changed');
+  const prior=state?previousRun(state):null;
+  if(prior){
+    compatibleIdentity(prior.identity,identity);
+    compatibleArms(prior.schedule,plan);
+  }
+  const schedule=prior?mergeSchedule(prior.schedule,plan):plan;
   if(!v.resume && (existsSync(out)||existsSync(statePath)))throw Error('output already exists: use --resume or new output');
   const rows=v.resume&&existsSync(out)?readFileSync(out,'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse):[];
+  const rowMatches=(row)=>row.agent===v.agent&&row.requested_model===v.model&&
+    (row.requested_effort??null)===(v.effort??null)&&row.eval_fingerprint===evalFingerprint&&
+    (row.source_sha??null)===(sourceShas[row.arm]??null);
+  if(rows.some(row=>!rowMatches(row)))throw Error('resume output contains rows from a different agent, model, evaluator or source revision');
   const latestRows=new Map();
   for(const r of rows)latestRows.set(r.scenario+'|'+r.arm+'|'+r.repeat,r);
-  const completed=new Set([...latestRows].filter(([,r])=>outcomeOf(r)!=='invalid').map(([key])=>key));
+  const requestedKeys=new Set(plan.map(cell=>cell.key));
+  const completed=new Set([...latestRows].filter(([key,r])=>requestedKeys.has(key)&&outcomeOf(r)!=='invalid').map(([key])=>key));
+  const validKeys=new Set([...latestRows].filter(([,r])=>outcomeOf(r)!=='invalid').map(([key])=>key));
   const pending=plan.filter(x=>!completed.has(x.key));
+  const scheduledKeys=new Set(schedule.map(cell=>cell.key));
+  const newCells=plan.filter(cell=>!prior||!prior.schedule.some(old=>old.key===cell.key)).length;
+  const deferred=schedule.filter(cell=>!requestedKeys.has(cell.key)&&!validKeys.has(cell.key)).length;
   opts.latestRows=latestRows;
   console.log(JSON.stringify({mode:v.execute?'PAID REMOTE GITHUB':'DRY RUN',agent:v.agent,model:v.model,effort:v.effort??null,
-    owner:v.owner,scenarios:selected,arms,repeats,total_cells:plan.length,completed:completed.size,pending:pending.length,
+    owner:v.owner,scenarios:selected,arms,repeats,total_cells:plan.length,scheduled_cells:scheduledKeys.size,new_cells:newCells,
+    completed:completed.size,pending:pending.length,deferred,
     invalid_to_retry:pending.filter(x=>outcomeOf(latestRows.get(x.key)??{})==='invalid').length,
     maximum_paid_invocations:pending.reduce((n,p)=>n+(p.id==='W5'?2:1),0),
     sourceShas,projects:'independent disposable Project per session',output:out},null,2));
@@ -331,7 +396,8 @@ async function main() {
   if(v.agent==='codex')approveDangerFullAccess({alreadyApproved:v['allow-danger-full-access'],count:pending.reduce((n,p)=>n+(p.id==='W5'?2:1),0)});
   const mode=selectProfileMode(v.agent,arms,{count:invocationCeiling});
   if(rows.some(r=>r.profile_isolation!==mode))throw Error('resume cannot mix isolated and unisolated profiles');
-  const runState=state??{signature:stamp,runId:Date.now().toString(36),projectTitle:null,projectNumber:null,cells:{}};
+  const runState=state??{runId:Date.now().toString(36),projectTitle:null,projectNumber:null,cells:{}};
+  runState.version=2;runState.identity=identity;runState.schedule=schedule;runState.signature=idFor(schedule,identity);
   safeOut(statePath,runState);
   for(const [i,cell] of pending.entries()){
     console.log('SESSION '+(i+1)+'/'+pending.length+' '+cell.key);

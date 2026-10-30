@@ -39,8 +39,8 @@ const pluginSource=(dir,arm='ponytail')=>{
   git(source,'checkout','--detach','-q');
   return {source,sha:git(source,'rev-parse','HEAD').stdout.trim()};
 };
-const args=(file)=>[runner,'--agent','claude','--model','benchmark-test-model',
-  '--owner','example-benchmark-org','--arms','bare','--scenarios','W1','--repeats','1','--out',file];
+const args=(file,selected='W1',repeats='1',arms='bare')=>[runner,'--agent','claude','--model','benchmark-test-model',
+  '--owner','example-benchmark-org','--arms',arms,'--scenarios',selected,'--repeats',repeats,'--out',file];
 test('workflow dry-run makes no remote resources, result files or paid CLI calls',()=>withTemp(dir=>{
   const file=join(dir,'runs.jsonl');
   const result=spawnSync(process.execPath,args(file),{cwd:root,encoding:'utf8',env,timeout:30000});
@@ -113,12 +113,46 @@ const resumeFixture=(dir,outcome,invalid_reasons=[])=>{
     sourceShas:{},sourceMeta:{},fingerprint});
   writeFileSync(file,JSON.stringify({scenario:'W1',arm:'bare',repeat:1,outcome,invalid_reasons,
     agent:'claude',agent_version:'fake',eval_fingerprint:fingerprint,result_row_id:'previous-row',
-    requested_model:'benchmark-test-model'})+'\n');
+    requested_model:'benchmark-test-model',requested_effort:null,source_sha:null})+'\n');
   writeFileSync(file+'.state.json',JSON.stringify({signature,runId:'testrun',cells:{
     [cell.key]:{repo:'example-benchmark-org/tfwf-testrun-w1-bare-1',phase:'completed',
       result_row_id:'previous-row'}}}));
   return file;
 };
+test('resume can run a later scenario in the same cumulative workflow state',()=>withTemp(dir=>{
+  const file=resumeFixture(dir,'failure');
+  const result=spawnSync(process.execPath,[...args(file,'W2'),'--resume'],{cwd:root,encoding:'utf8',env,timeout:30000});
+  assert.equal(result.status,0,result.stderr);
+  assert.match(result.stdout,/"scheduled_cells": 2/);
+  assert.match(result.stdout,/"new_cells": 1/);
+  assert.match(result.stdout,/"completed": 0/);
+  assert.match(result.stdout,/"pending": 1/);
+  assert.match(result.stdout,/PLAN W2\|bare\|1/);
+  assert.doesNotMatch(result.stdout,/PLAN W1\|bare\|1/);
+}));
+test('resume can extend repeats without rerunning the existing repeat',()=>withTemp(dir=>{
+  const file=resumeFixture(dir,'failure');
+  const result=spawnSync(process.execPath,[...args(file,'W1','2'),'--resume'],{cwd:root,encoding:'utf8',env,timeout:30000});
+  assert.equal(result.status,0,result.stderr);
+  assert.match(result.stdout,/"scheduled_cells": 2/);
+  assert.match(result.stdout,/"new_cells": 1/);
+  assert.match(result.stdout,/"completed": 1/);
+  assert.match(result.stdout,/"pending": 1/);
+  assert.match(result.stdout,/PLAN W1\|bare\|2/);
+  assert.doesNotMatch(result.stdout,/PLAN W1\|bare\|1/);
+}));
+test('resume can add an arm with its pinned source without rerunning existing cells',()=>withTemp(dir=>{
+  const file=resumeFixture(dir,'failure'),plugin=ticketflowSource(dir);
+  const result=spawnSync(process.execPath,[...args(file,'W2','1','bare,ticketflow'),
+    '--ticketflow-source',plugin.source,'--ticketflow-sha',plugin.sha,'--resume'],{cwd:root,encoding:'utf8',env,timeout:30000});
+  assert.equal(result.status,0,result.stderr);
+  assert.match(result.stdout,/"scheduled_cells": 3/);
+  assert.match(result.stdout,/"new_cells": 2/);
+  assert.match(result.stdout,/"pending": 2/);
+  assert.match(result.stdout,/PLAN W2\|bare\|1/);
+  assert.match(result.stdout,/PLAN W2\|ticketflow\|1/);
+  assert.doesNotMatch(result.stdout,/PLAN W1\|bare\|1/);
+}));
 test('resume retries invalid measurements but never reruns an ordinary framework failure',()=>withTemp(dir=>{
   const file=resumeFixture(dir,'invalid',['transcript_archive_failed']);
   const pending=spawnSync(process.execPath,[...args(file),'--resume'],{cwd:root,encoding:'utf8',env,timeout:30000});

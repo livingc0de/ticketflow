@@ -97,10 +97,24 @@ GitHub Actions runs. Interrupted invocations may not report tokens or USD, so
 total cost is unknown rather than estimated.
 
 The runner stores per-cell remote repository and Project identities in a private
-'.state.json' sidecar next to the JSONL. --resume refuses changed scenario code,
-source checkouts, model, effort, or CLI versions. A crash during remote creation
-may require manual reconciliation: the runner will never silently reuse an
-uncertain partially created repository. Keep the JSONL and sidecar together.
+'.state.json' sidecar next to the JSONL. `--resume` keeps that schedule
+append-only: you may run scenarios separately, add later scenarios, increase
+repeats, or add a new arm with its pinned source. Existing cells, arms and
+remote resources are preserved; a later invocation runs only the requested
+cells that are still pending. Reordering arguments does not reorder or repeat
+existing cells. Removing an arm, changing the owner, source checkout, model,
+effort or evaluator code requires a new output/state pair.
+
+For example, these invocations can share one output and sidecar:
+
+    --scenarios W5 --repeats 1
+    --resume --scenarios W7 --repeats 1
+    --resume --scenarios W5 --repeats 2
+
+The second invocation adds W7; the third adds only W5 repeat 2. A crash during
+remote creation may require manual reconciliation: the runner will never
+silently reuse an uncertain partially created repository. Keep the JSONL and
+sidecar together.
 
 Every agent invocation writes a local transcript archive beneath
 `benchmarks/results/transcripts/<session-id>/`: `agent.out`, `answer.txt` and
