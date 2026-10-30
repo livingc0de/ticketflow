@@ -439,6 +439,7 @@ test('Codex keyring-only login needs approval and leaves original profile untouc
     assert.equal(approved.row.profile_isolation, 'unisolated')
     assert.equal(approved.calls[0].codex_home, source)
     assert.equal(approved.calls[0].home, process.env.HOME)
+    assert.ok(!approved.calls[0].args.includes('--ignore-user-config'), 'approved unisolated sessions load original auth-storage configuration')
     assert.ok(!existsSync(join(approved.row.workdir, 'home')))
     assert.deepEqual(readdirSync(source), [], 'the harness never installs anything into the original profile')
 })
