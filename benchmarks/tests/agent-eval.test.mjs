@@ -623,6 +623,16 @@ test('unisolated Codex plugin cleanup runs on agent failure and on setup verific
     state = JSON.parse(readFileSync(join(home, 'fake-plugin-state.json'), 'utf8'))
     assert.deepEqual(state.installed.map((p) => p.name), ['superpowers'])
     assert.deepEqual(state.marketplaces.map((m) => m.name), ['personal-market'])
+
+    const { run: runCleanupFailure } = sandbox()
+    const cleanupFailed = runCleanupFailure(args, { ...env, FAKE_FIX: '1', FAKE_PLUGIN_REMOVE_FAIL: '1' })
+    assert.equal(cleanupFailed.status, 2, cleanupFailed.stdout + cleanupFailed.stderr)
+    assert.equal(cleanupFailed.row.profile_cleanup, 'failed', 'the paid benchmark result is still retained')
+    assert.match(cleanupFailed.stderr, /Benchmark result recorded, but plugin cleanup failed/)
+    const afterFailure = JSON.parse(readFileSync(join(home, 'fake-plugin-state.json'), 'utf8'))
+    assert.ok(afterFailure.installed.some((p) => p.marketplaceName === 'personal-market' && p.name === 'superpowers'),
+        'pre-existing user plugin is never targeted even when benchmark cleanup fails')
+    assert.equal(afterFailure.installed.length, 2, 'benchmark-owned plugin is reported as still installed')
 })
 
 test('approved unisolated Claude plugin loads pinned checkout without touching user plugins', () => {
