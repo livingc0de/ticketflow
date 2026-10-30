@@ -92,7 +92,7 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
         '-C',dir,'-o',outfile,'-m',model,...(effort?['--config','model_reasoning_effort='+effort]:[]),'-'];
     const env={...profile.env,GH_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN,
       GITHUB_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN,GIT_TERMINAL_PROMPT:'0'};
-    const start=Date.now();let stdout='',stderr='',interrupted=false,reason=null,closed=false;
+    const start=Date.now();let stdout='',stderr='',interrupted=false,reason=null,closed=false,probing=false;
     let timer,watcher,child,clearEscalation;
     const stop=()=>{
       if(!child?.pid||closed||clearEscalation)return;
@@ -118,12 +118,12 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
       if(agent==='claude')writeFileSync(outfile,answer,{mode:0o600});
       const external=['superpowers','ponytail'].includes(arm);
       const evidence=profile.nativePluginEvidence??(agent==='claude'&&external?'claude-plugin-dir':null);
-      const plugin_bootstrap=external?{status:code===0&&evidence?(agent==='claude'||arm==='ponytail'?'loaded':'verified'):'failed',evidence:evidence??'native-plugin-loading-failed'}:null;
+      const plugin_bootstrap=external?{status:(code===0||(interrupted&&reason==='remote checkpoint reached'))&&evidence?(agent==='claude'||arm==='ponytail'?'loaded':'verified'):'failed',evidence:evidence??'native-plugin-loading-failed'}:null;
       let archive=null,archive_error=null;
       if(archiveRoot){
         try{archive=archiveSession({root:archiveRoot,sessionId:transcriptSessionId('workflow',archiveMeta),agentOut:path,answerFile:outfile,
           metadata:{...archiveMeta,agent,model:reportedModel,requested_model:model,arm,agent_exit:code,signal,interrupted,reason,
-            status:code===0?'completed':'failed',plugin_bootstrap,timestamp:new Date().toISOString()}})}
+            status:interrupted?'interrupted':code===0?'completed':'failed',plugin_bootstrap,timestamp:new Date().toISOString()}})}
         catch(e){archive_error=e.message;}
       }
       done({exit:code,signal,interrupted,reason,seconds:(Date.now()-start)/1000,
@@ -139,12 +139,15 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
       child.on('close',(code,signal)=>finish(code,signal));
       timer=setTimeout(()=>{reason='timeout';stop()},timeoutMs);
       if(interrupt) watcher=setInterval(async()=>{
-        if(closed||interrupted)return;
+        if(closed||interrupted||probing)return;
+        probing=true;
         try{
-          if(await interrupt()) {
+          const ready=await interrupt();
+          if(!closed&&ready) {
             interrupted=true;reason='remote checkpoint reached';stop();
           }
         }catch(e){stderr+='\ncheckpoint probe: '+e.message}
+        finally{probing=false}
       },1000);
     } catch(e) {
       try{profile.cleanup()}catch{}
