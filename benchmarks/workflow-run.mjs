@@ -146,14 +146,15 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     current.issues=seedIssues({repo,id:x.id,projectId:current.project.id});
     safeOut(statePath,state);
   }
+  if(x.arm==='after'&&!current.installed) {
+    const tmp=join(work,'base');const dir=cloneRepository(repo,tmp);
+    installTicketFlow({repo,dir,source:sources.after,agent:v.agent,owner:v.owner,
+      projectNumber:current.project.number,title:current.projectTitle,issues:current.issues});
+    current.installed=true;safeOut(statePath,state);
+  }
   if(x.id==='W4'&&!current.initialPR) {
     current.initialPR=seedBrokenPull({repo,id:x.id,work,issue:current.issues[0]});
     safeOut(statePath,state);
-  }
-  if(x.arm==='after'&&!current.installed) {
-    const tmp=join(work,'base');const dir=cloneRepository(repo,tmp);
-    installTicketFlow({repo,dir,source:sources.after,agent:v.agent,owner:v.owner,projectNumber:state.projectNumber,title:state.projectTitle});
-    current.installed=true;safeOut(statePath,state);
   }
   // Initial branch and issue state is prepared before the paid agent run.
   const dir=cloneRepository(repo,join(work,'attempt-'+Date.now()));
