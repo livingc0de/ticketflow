@@ -70,10 +70,10 @@ function codexProfile(work, arm, src, isolated = true) {
         if (!Array.isArray(entries)) throw new Error('Codex marketplace list omitted marketplaces')
         return entries
     }
+    let registeredByHarness = false
     const cleanup = () => {
-        if (isolated) return
-        // This marketplace did not exist before the run. Remove only its one plugin and
-        // registration; an existing Superpowers/Ponytail in another marketplace is never touched.
+        if (isolated || !registeredByHarness) return
+        // Delete only a marketplace the benchmark actually registered, never the user's own.
         const owned = installedPlugins().filter((p) => p.marketplaceName === market)
         if (owned.length > 1 || owned.some((p) => p.name !== arm))
             throw new Error('Codex benchmark cleanup refused: unexpected entries in ' + market)
@@ -89,6 +89,7 @@ function codexProfile(work, arm, src, isolated = true) {
         const addedMarket = invoke(['plugin', 'marketplace', 'add', root, '--json'])
         if (addedMarket.marketplaceName !== market || (!isolated && addedMarket.alreadyAdded))
             throw new Error('Codex benchmark marketplace could not be uniquely registered')
+        registeredByHarness = !isolated
         const added = invoke(['plugin', 'add', arm + '@' + market, '--json'])
         if (added.name !== arm || added.marketplaceName !== market)
             throw new Error('Codex native plugin installation could not be verified')
