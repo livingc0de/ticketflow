@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { main } from '../core/lib/cli.mjs'
 import { evaluatorFingerprint, resolveScenario, validatePluginSource } from './lib/integrity.mjs'
+import { selectProfileMode } from './lib/profile-auth.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SCENARIOS = join(ROOT, 'benchmarks/scenarios')
@@ -32,50 +33,6 @@ const orNull = (f) => { try { return f() } catch { return null } }
 const parse = (s) => orNull(() => JSON.parse(s))
 const depNames = (text) => new Set(['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'].flatMap((k) => Object.keys(parse(text)?.[k] ?? {})))
 const cleanEnv = (env) => Object.fromEntries(Object.entries(env).filter(([key]) => !/(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|TOKEN|SECRET|PASSWORD|PRIVATE_KEY|CREDENTIAL)/i.test(key)))
-
-/** A presence-only check: a fresh Claude profile cannot read a login stored only in macOS Keychain. */
-function claudeHasPortableAuth() {
-    if (process.env.ANTHROPIC_API_KEY?.trim() || process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim()) return true
-    const from = join(resolve(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')), '.credentials.json')
-    return orNull(() => readFileSync(from, 'utf8').trim().length > 0) === true
-}
-
-/** Use Codex's offline login checker in a disposable profile: its auth formats can evolve. */
-function codexAuthPreflight() {
-    const originalHome = resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex'))
-    const from = join(originalHome, 'auth.json')
-    const tmp = mkdtempSync(join(tmpdir(), 'codex-auth-check-'))
-    const home = join(tmp, 'home'), codexHome = join(home, '.codex')
-    let portable = false
-    try {
-        mkdirSync(codexHome, { recursive: true, mode: 0o700 })
-        if (existsSync(from)) {
-            const dest = join(codexHome, 'auth.json')
-            copyFileSync(from, dest)
-            chmodSync(dest, 0o600)
-            const env = { ...cleanEnv(process.env), HOME: home, CODEX_HOME: codexHome }
-            portable = run('codex', ['login', 'status'], { env, timeout: 15_000 }).status === 0
-        }
-    } finally {
-        rmSync(tmp, { recursive: true, force: true })
-    }
-    if (portable) return
-
-    // Keyring entries are tied to the original CODEX_HOME path. Recognize them without
-    // pretending they can be used inside a different, isolated benchmark profile.
-    const original = run('codex', ['login', 'status'], {
-        env: { ...cleanEnv(process.env), CODEX_HOME: originalHome }, timeout: 15_000,
-    })
-    if (original.status === 0)
-        throw new Error('Codex benchmark authentication preflight: the original Codex profile is logged in, ' +
-            'but its credentials are not usable in an isolated benchmark profile (for example, keyring-only storage). ' +
-            'Use a dedicated CODEX_HOME with file-based login (cli_auth_credentials_store = "file") and codex login. ' +
-            'No paid session started; personal keyring credentials were not exported.')
-    throw new Error('Codex benchmark authentication preflight failed: missing or unsupported portable login. ' +
-        'Run codex login with file-based credential storage in CODEX_HOME (default ~/.codex). ' +
-        'API-key environment variables are intentionally not forwarded. No paid session started. ' +
-        'This offline check cannot confirm token freshness or account entitlement.')
-}
 
 /** A fresh Codex profile per run. Local native plugin packages are installed by Codex itself, not simulated as copied instructions. */
 function codexProfile(work, arm, src) {
@@ -154,8 +111,8 @@ function report(agent, out, answerFile, model) {
 }
 
 main('agent-eval', () => {
-    const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, source: { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' } }, allowPositionals: true })
-    if (positionals.length !== 1 || !['claude', 'codex'].includes(v.agent) || !['ticketflow', 'bare', 'superpowers', 'ponytail'].includes(v.arm) || (v.rep !== undefined && (!/^[1-9]\d*$/.test(v.rep) || !Number.isSafeInteger(+v.rep))) || (v.label !== undefined && !/^[a-z][a-z0-9-]{0,30}$/.test(v.label))) throw new Error(usage)
+    const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, source: { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' }, 'profile-mode': { type: 'string' } }, allowPositionals: true })
+    if (positionals.length !== 1 || !['claude', 'codex'].includes(v.agent) || !['ticketflow', 'bare', 'superpowers', 'ponytail'].includes(v.arm) || (v.rep !== undefined && (!/^[1-9]\d*$/.test(v.rep) || !Number.isSafeInteger(+v.rep))) || (v.label !== undefined && !/^[a-z][a-z0-9-]{0,30}$/.test(v.label)) || (v['profile-mode'] !== undefined && v['profile-mode'] !== 'unisolated')) throw new Error(usage)
     const id = resolveScenario(SCENARIOS, positionals[0])
     const external = v.arm === 'superpowers' || v.arm === 'ponytail'
     if (external && !v.source) throw new Error(`--source requires a pinned checkout of ${v.arm}`)
@@ -168,37 +125,36 @@ main('agent-eval', () => {
     const version = run(v.agent, ['--version'])
     if (version.error || version.status !== 0) throw new Error(`${v.agent} is not installed or not on PATH`)
     if (external && v.agent === 'claude' && !run('claude', ['--help']).stdout?.includes('--plugin-dir')) throw new Error('Claude CLI does not advertise --plugin-dir; cannot load competitor natively')
-    if (v.agent === 'codex') codexAuthPreflight()
-    if (v.agent === 'claude' && !claudeHasPortableAuth())
-        throw new Error('Claude benchmark authentication preflight failed: no credentials available for the isolated profile. ' +
-            'Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN, or provide a nonempty .credentials.json in ' +
-            'CLAUDE_CONFIG_DIR (default ~/.claude). macOS Keychain-only logins are not inherited. No paid session started. ' +
-            'This checks credential presence, not whether the login is valid.')
+    const profileMode = selectProfileMode(v.agent, [v.arm], { alreadyApproved: v['profile-mode'] === 'unisolated' })
+    if (v['profile-mode'] === 'unisolated' && profileMode !== 'unisolated')
+        throw new Error('Requested unisolated mode no longer matches the available authentication; restart the benchmark runner.')
 
     const sdir = join(SCENARIOS, id), work = mkdtempSync(join(tmpdir(), 'agent-eval-')), evalFingerprint = evaluatorFingerprint(ROOT, outFile ? [outFile] : [])
     const { dir, base } = workspace(sdir, v.agent, v.arm, work, src)
     const claude = v.agent === 'claude'
-    const profile = claude ? claudeProfile(work) : codexProfile(work, v.arm, src)
+    const isolated = profileMode === 'isolated'
+    const profile = isolated ? (claude ? claudeProfile(work) : codexProfile(work, v.arm, src))
+        : { env: claude ? { ...process.env } : { ...cleanEnv(process.env), CODEX_HOME: resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex')) } }
     const answerFile = join(work, 'answer.txt')
     const prompt = readFileSync(join(sdir, 'prompt.md'), 'utf8')
     const args = claude
         ? ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--setting-sources', 'project,local', '--allowedTools', TOOLS, ...(v.model ? ['--model', v.model] : []), ...(external ? ['--plugin-dir', src] : [])]
         : ['exec', '--json', ...(!external ? ['--ignore-user-config'] : []), '--sandbox', 'workspace-write', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), '-']   // codex reads the prompt from stdin
     const t0 = Date.now()
-    // Only authentication enters an isolated profile; never copy settings, plugins or personal history.
-    // Neither agent's credentials may remain in the retained benchmark artifacts.
+    // Isolated profiles copy only authentication and erase it afterwards. Opted-in unisolated runs
+    // deliberately retain the original profile so OS-keyring credentials remain usable.
     const originalAuth = join(resolve(process.env.CODEX_HOME ?? join(homedir(), '.codex')), 'auth.json')
     const originalClaudeAuth = join(resolve(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')), '.credentials.json')
     let r
     try {
         if (claude) {
             // Explicit API/OAuth environment auth takes precedence; do not copy unrelated saved credentials.
-            if (!profile.env.ANTHROPIC_API_KEY && !profile.env.CLAUDE_CODE_OAUTH_TOKEN && existsSync(originalClaudeAuth)) {
+            if (isolated && !profile.env.ANTHROPIC_API_KEY && !profile.env.CLAUDE_CODE_OAUTH_TOKEN && existsSync(originalClaudeAuth)) {
                 const dest = join(profile.configDir, '.credentials.json')
                 copyFileSync(originalClaudeAuth, dest)
                 chmodSync(dest, 0o600)
             }
-        } else if (existsSync(originalAuth)) {
+        } else if (!claude && isolated && existsSync(originalAuth)) {
             const dest = join(profile.codexHome, 'auth.json')
             copyFileSync(originalAuth, dest)
             chmodSync(dest, 0o600)
@@ -207,8 +163,8 @@ main('agent-eval', () => {
             ...(claude ? { stdio: ['ignore', 'pipe', 'pipe'] } : { input: prompt }) })
     } finally {
         // Clean the complete temporary home for Claude, and the credential-bearing Codex profile.
-        if (claude) rmSync(profile.home, { recursive: true, force: true })
-        else rmSync(profile.codexHome, { recursive: true, force: true })
+        if (isolated && claude) rmSync(profile.home, { recursive: true, force: true })
+        else if (isolated) rmSync(profile.codexHome, { recursive: true, force: true })
     }
     const wall_s = Math.round((Date.now() - t0) / 100) / 10
     const out = r.stdout ?? ''
@@ -228,7 +184,7 @@ main('agent-eval', () => {
         scenario: id, agent: v.agent, agent_version: version.stdout.trim(), model: got.model, requested_model: v.model ?? null, arm: v.arm, variant: v.label ?? v.arm, repeat: v.rep ? +v.rep : null,
         eval_sha: orNull(() => git(ROOT, 'rev-parse', 'HEAD')),   // the revision of this tool and its scenarios
         eval_fingerprint: evalFingerprint,
-        evaluation_mode: 'non-adversarial',
+        evaluation_mode: 'non-adversarial', profile_isolation: profileMode,
         ticketflow_sha: tf(() => git(src, 'rev-parse', 'HEAD')), ticketflow_dirty: tf(() => git(src, 'status', '--porcelain', '--untracked-files=all').split('\n').some((l) => l && resolve(src, l.slice(3)) !== outFile)),
         ticketflow_version: tf(() => readFileSync(join(src, 'VERSION'), 'utf8').trim()),
         plugin_sha: external ? git(src, 'rev-parse', 'HEAD') : null,
