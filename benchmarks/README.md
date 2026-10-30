@@ -1,6 +1,6 @@
 # Benchmarks (maintainers only)
 
-**Full GitHub pipeline comparisons (W1–W5):** see [WORKFLOW.md](WORKFLOW.md). They use a separate opt-in runner and do not modify the L1–L15 local runner.
+**Full GitHub pipeline comparisons (W1–W7):** see [WORKFLOW.md](WORKFLOW.md). They use a separate opt-in runner and do not modify the L1–L15 local runner.
 
 
 This directory is deliberately **outside `core/` and `practices/`**. TicketFlow's installer copies only those two roots; it never installs benchmark scripts, scenarios, data or documentation into a customer's repository. No paid agent runs occur in CI. See [historical eval and GitHub sandbox procedures](SCENARIOS.md) for E3–E9.
