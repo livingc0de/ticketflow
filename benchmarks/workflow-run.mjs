@@ -15,9 +15,9 @@ import { selectProfileMode,approveDangerFullAccess } from './lib/profile-auth.mj
 import { validatePluginSource } from './lib/integrity.mjs';
 
 const HERE=dirname(fileURLToPath(import.meta.url)),ROOT=resolve(HERE,'..');
-const ARMS=new Set(['bare','after','superpowers','ponytail']);
+const ARMS=new Set(['bare','ticketflow','superpowers','ponytail']);
 const EFFORTS=new Set(['low','medium','high','xhigh','max']);
-const help='workflow-run --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,after,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5] [--repeats 3] [--effort high] [--superpowers-source DIR] [--ponytail-source DIR] [--after-source DIR] [--resume] [--max-sessions 60] [--execute --allow-github-writes] [--allow-danger-full-access]';
+const help='workflow-run --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5] [--repeats 3] [--effort high] [--superpowers-source DIR] [--ponytail-source DIR] [--after-source DIR] [--resume] [--max-sessions 60] [--execute --allow-github-writes] [--allow-danger-full-access]';
 const readJson=(file)=>JSON.parse(readFileSync(file,'utf8'));
 const gitSha=(dir)=>sh('git',['rev-parse','HEAD'],{cwd:dir,env:process.env});
 const cleanRepo=(dir)=>!sh('git',['status','--porcelain'],{cwd:dir,env:process.env});
@@ -34,26 +34,26 @@ const safeOut=(file,data)=>{mkdirSync(dirname(file),{recursive:true});writeFileS
 function parse() {
   const {values:v}=parseArgs({options:{
     agent:{type:'string'},model:{type:'string'},owner:{type:'string'},out:{type:'string'},arms:{type:'string'},scenarios:{type:'string'},
-    repeats:{type:'string'},effort:{type:'string'},'max-sessions':{type:'string'},'after-source':{type:'string'},
+    repeats:{type:'string'},effort:{type:'string'},'max-sessions':{type:'string'},'ticketflow-source':{type:'string'},
     'superpowers-source':{type:'string'},'ponytail-source':{type:'string'},'allow-github-writes':{type:'boolean'},
     'allow-danger-full-access':{type:'boolean'},execute:{type:'boolean'},resume:{type:'boolean'},
   }});
   if(!['claude','codex'].includes(v.agent)||!v.model?.trim()||!v.owner?.trim()||!v.out?.trim()) throw Error(help);
-  const arms=(v.arms??'bare,after,superpowers,ponytail').split(',');
+  const arms=(v.arms??'bare,ticketflow,superpowers,ponytail').split(',');
   const selected=(v.scenarios??ids.join(',')).split(',');
   const repeats=Number(v.repeats??3),max=Number(v['max-sessions']??72);
   if(new Set(arms).size!==arms.length || arms.some(x=>!ARMS.has(x)) || !arms.length ||
     new Set(selected).size!==selected.length || selected.some(x=>!ids.includes(x)) || !selected.length ||
     !Number.isSafeInteger(repeats)||repeats<1 || !Number.isSafeInteger(max)||max<1 ||
     (v.effort&&!EFFORTS.has(v.effort))) throw Error(help);
-  const sources={after:resolve(v['after-source']??ROOT)};
+  const sources={ticketflow:resolve(v['ticketflow-source']??ROOT)};
   for(const arm of ['superpowers','ponytail']) if(arms.includes(arm)) {
     if(!v[arm+'-source']) throw Error('--'+arm+'-source must point to a pinned native plugin checkout');
     sources[arm]=resolve(v[arm+'-source']);
   }
   for(const [arm,dir] of Object.entries(sources)) {
     if(!existsSync(dir)||!cleanRepo(dir)) throw Error(arm+' source must be an existing clean checkout');
-    if(arm!=='after') validatePluginSource(dir,v.agent,arm);
+    if(arm!=='ticketflow') validatePluginSource(dir,v.agent,arm);
     else if(!existsSync(join(dir,'core/scripts/runtime.mjs'))) throw Error('TicketFlow runtime not found at '+dir);
   }
   return {v,arms,selected,repeats,max,sources,sourceShas:Object.fromEntries(Object.entries(sources).map(([a,d])=>[a,gitSha(d)])),
@@ -74,7 +74,7 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
       '--setting-sources','project,local',
       '--allowedTools','Read,Edit,Write,Glob,Grep,Task,Agent,Bash(git *),Bash(gh *),Bash(node *),Bash(npm *),Bash(ls *),Bash(cat *)',
       '--model',model,...(effort?['--effort',effort]:[]),...profile.pluginArgs]:
-      ['exec','--json',...(arm==='bare'||arm==='after'?['--ignore-user-config']:[]),'--sandbox','danger-full-access',
+      ['exec','--json',...(arm==='bare'||arm==='ticketflow'?['--ignore-user-config']:[]),'--sandbox','danger-full-access',
         '-C',dir,'-o',outfile,'-m',model,...(effort?['--config','model_reasoning_effort='+effort]:[]),'-'];
     const env={...profile.env,GH_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN||process.env.WORKFLOW_BENCH_SETUP_TOKEN,
       GITHUB_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN||process.env.WORKFLOW_BENCH_SETUP_TOKEN,GIT_TERMINAL_PROMPT:'0'};
@@ -146,9 +146,9 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     current.issues=seedIssues({repo,id:x.id,projectId:current.project.id});
     safeOut(statePath,state);
   }
-  if(x.arm==='after'&&!current.installed) {
+  if(x.arm==='ticketflow'&&!current.installed) {
     const tmp=join(work,'base');const dir=cloneRepository(repo,tmp);
-    installTicketFlow({repo,dir,source:sources.after,agent:v.agent,owner:v.owner,
+    installTicketFlow({repo,dir,source:sources.ticketflow,agent:v.agent,owner:v.owner,
       projectNumber:current.project.number,title:current.projectTitle,issues:current.issues});
     current.installed=true;safeOut(statePath,state);
   }
@@ -189,7 +189,7 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     suite:'workflow',scenario:x.id,agent:v.agent,agent_version:version,requested_model:v.model,
     model:metrics.model,requested_effort:v.effort??null,arm:x.arm,variant:x.arm,repeat:x.repeat,
     eval_fingerprint:evalFingerprint,source_sha:opts.sourceShas[x.arm]??null,
-    ticketflow_sha:x.arm==='after'?opts.sourceShas.after:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null,
+    ticketflow_sha:x.arm==='ticketflow'?opts.sourceShas.ticketflow:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null,
     evaluation_mode:'non-adversarial',profile_isolation:mode,
     sandbox_mode:v.agent==='codex'?'danger-full-access':'not-applicable',
     profile_cleanup:parts.some(p=>p.cleanup_error)?'failed':'ok',
