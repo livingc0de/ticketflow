@@ -40,6 +40,13 @@ function claudeHasPortableAuth() {
     return orNull(() => readFileSync(from, 'utf8').trim().length > 0) === true
 }
 
+/** The Codex benchmark uses a copied login file, not the caller's API keys or profile settings. */
+function codexHasPortableAuth() {
+    const from = join(resolve(process.env.CODEX_HOME || join(homedir(), '.codex')), 'auth.json')
+    const data = orNull(() => JSON.parse(readFileSync(from, 'utf8')))
+    return data !== null && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).length > 0
+}
+
 /** A fresh Codex profile per run. Local native plugin packages are installed by Codex itself, not simulated as copied instructions. */
 function codexProfile(work, arm, src) {
     const home = join(work, 'home'), codexHome = join(home, '.codex')
@@ -131,6 +138,11 @@ main('agent-eval', () => {
     const version = run(v.agent, ['--version'])
     if (version.error || version.status !== 0) throw new Error(`${v.agent} is not installed or not on PATH`)
     if (external && v.agent === 'claude' && !run('claude', ['--help']).stdout?.includes('--plugin-dir')) throw new Error('Claude CLI does not advertise --plugin-dir; cannot load competitor natively')
+    if (v.agent === 'codex' && !codexHasPortableAuth())
+        throw new Error('Codex benchmark authentication preflight failed: no nonempty, valid auth.json available for the isolated profile. ' +
+            'Sign in with codex login (ChatGPT subscription) and make sure CODEX_HOME/auth.json (default ~/.codex/auth.json) exists. ' +
+            'API-key environment variables are intentionally not forwarded to Codex benchmarks. No paid session started. ' +
+            'This checks credential presence, not whether the login is valid.')
     if (v.agent === 'claude' && !claudeHasPortableAuth())
         throw new Error('Claude benchmark authentication preflight failed: no credentials available for the isolated profile. ' +
             'Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN, or provide a nonempty .credentials.json in ' +
