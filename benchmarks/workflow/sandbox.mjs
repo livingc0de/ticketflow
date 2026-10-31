@@ -72,8 +72,9 @@ const graphql=(query,variables={},env=setupEnv())=>{
 export function projectUrl({owner,number,ownerType='organization'}) {
   return 'https://github.com/'+(ownerType==='user'?'users':'orgs')+'/'+owner+'/projects/'+number;
 }
-export function findProject({owner,title,ownerType='organization',env=setupEnv()}) {
-  const data=graphql('query($owner:String!){ organization(login:$owner){id projectsV2(first:100){nodes{id number title} pageInfo{hasNextPage}}} user(login:$owner){id projectsV2(first:100){nodes{id number title} pageInfo{hasNextPage}}} }',
+export function findProject({owner,title,repo,ownerType='organization',env=setupEnv()}) {
+  if(typeof repo!=='string'||!repo.includes('/'))throw Error('cleanup Project recovery requires a repository identity');
+  const data=graphql('query($owner:String!){ organization(login:$owner){id projectsV2(first:100){nodes{id number title repositories(first:100){nodes{nameWithOwner} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}} user(login:$owner){id projectsV2(first:100){nodes{id number title repositories(first:100){nodes{nameWithOwner} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}} }',
     {owner},env);
   const account=ownerType==='user'?data.user:data.organization;
   if(!account)throw Error('Project owner is not accessible');
@@ -81,7 +82,11 @@ export function findProject({owner,title,ownerType='organization',env=setupEnv()
   const matches=projects.nodes.filter(p=>p.title===title);
   if(matches.length>1 || (projects.pageInfo.hasNextPage && matches.length===0))
     throw Error('Project lookup is ambiguous; owner has too many projects');
-  return matches.length?{...matches[0],owner,owner_type:ownerType}:null;
+  if(!matches.length)return null;
+  const project=matches[0],repositories=project.repositories;
+  if(!repositories||repositories.pageInfo?.hasNextPage||!repositories.nodes.some(r=>r.nameWithOwner===repo))
+    throw Error('Project identity is not associated with recorded repository '+repo);
+  return {...project,owner,owner_type:ownerType};
 }
 export function linkProject({repo,owner,title,ownerType='organization',env=setupEnv()}) {
   const data=graphql('query($owner:String!,$repo:String!){ organization(login:$owner){id projectsV2(first:100){nodes{id number title} pageInfo{hasNextPage}}} user(login:$owner){id projectsV2(first:100){nodes{id number title} pageInfo{hasNextPage}}} repository(owner:$owner,name:$repo){id}}',

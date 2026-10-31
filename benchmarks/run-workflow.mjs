@@ -203,7 +203,7 @@ function recoverProjects(targets,state,statePath,auth) {
     if(target.unstarted||target.project)continue;
     const title=target.record.projectTitle;
     if(typeof title!=='string'||!title.trim())throw Error('cleanup state cannot recover Project identity for '+target.key);
-    const project=findProject({owner:state.identity.owner,title,ownerType:state.identity.mode==='personal'?'user':'organization',env:auth.setupEnv});
+    const project=findProject({owner:state.identity.owner,title,repo:target.repo,ownerType:state.identity.mode==='personal'?'user':'organization',env:auth.setupEnv});
     if(project) {
       state.cells[target.key].project=project;
       state.cells[target.key].cleanup={...(state.cells[target.key].cleanup??{}),project:'pending',repo:'pending'};

@@ -50,7 +50,7 @@ if [ "$1" = "api" ] && [ "$2" = "orgs/${org}" ]; then printf '{"login":"${org}"}
 if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
   case "$*" in
     *deleteProjectV2*) if [ "$FIND_PROJECT" = "1" ]; then printf '{"data":{"deleteProjectV2":{"deletedProjectId":"PVT_777"}}}\\n'; else printf '{"data":{"deleteProjectV2":{"deletedProjectId":"PVT_123"}}}\\n'; fi ;;
-    *) if [ "$FIND_PROJECT" = "1" ]; then printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[{"id":"PVT_777","number":9,"title":"Workflow cleanup-run W1 bare 1"}],"pageInfo":{"hasNextPage":false}}},"user":null}}\\n'; else printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[],"pageInfo":{"hasNextPage":false}}},"user":null}}\\n'; fi ;;
+    *) if [ "$FIND_PROJECT" = "1" ]; then if [ "$FIND_PROJECT_WRONG_REPO" = "1" ]; then printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[{"id":"PVT_777","number":9,"title":"Workflow cleanup-run W1 bare 1","repositories":{"nodes":[{"nameWithOwner":"example-benchmark-org/other-repo"}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":false}}},"user":null}}\\n'; else printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[{"id":"PVT_777","number":9,"title":"Workflow cleanup-run W1 bare 1","repositories":{"nodes":[{"nameWithOwner":"example-benchmark-org/tfwf-cleanup-w1-bare-1"}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":false}}},"user":null}}\\n'; fi; else printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[],"pageInfo":{"hasNextPage":false}}},"user":null}}\\n'; fi ;;
   esac
   exit 0
 fi
@@ -168,6 +168,12 @@ test('cleanup-only recovers a Project created before its identity was persisted'
   assert.equal(result.status,0,result.stderr);const state=JSON.parse(readFileSync(file+'.state.json','utf8'));
   assert.equal(state.cells['W1|bare|1'].project.id,'PVT_777');assert.equal(state.cells['W1|bare|1'].cleanup.project,'deleted');
   assert.match(readFileSync(ghLog,'utf8'),/repo delete example-benchmark-org\/tfwf-cleanup-w1-bare-1/);
+}));
+test('cleanup-only fails closed when a recovered Project is linked to another repository',()=>withTemp(dir=>{
+  const file=cleanupFixture(dir,{phase:'repository-created',project:false}),bin=fakeGh(dir),ghLog=join(dir,'gh.log');
+  const result=spawnSync(process.execPath,[runner,'--lifecycle','cleanup-only','--out',file,'--allow-github-writes'],
+    {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog,FIND_PROJECT:'1',FIND_PROJECT_WRONG_REPO:'1',WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token'},timeout:30000});
+  assert.equal(result.status,2);assert.match(result.stderr,/not associated with recorded repository/);assert.doesNotMatch(readFileSync(ghLog,'utf8'),/repo delete|deleteProjectV2/);
 }));
 test('unisolated Claude workflow profiles preserve the approved config directory',()=>withTemp(dir=>{
   const previousConfig=process.env.CLAUDE_CONFIG_DIR,previousToken=process.env.WORKFLOW_BENCH_AGENT_TOKEN;
