@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkRuns } from './check.mjs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { checkRuns, findCandidateCheckout } from './check.mjs';
 
 const pr={headRefOid:'abc123',mergedAt:'2026-10-31T12:00:00Z'};
 const before='2026-10-31T11:00:00Z',after='2026-10-31T13:00:00Z';
@@ -67,4 +71,23 @@ test('incomplete or malformed Actions listings fail closed',()=>{
     return {total_count:1,jobs:[{name:'tests',status:'completed',conclusion:'success',completed_at:before}]};
   });
   assert.throws(malformed,/job response is malformed/);
+});
+
+test('candidate scoring selects the agent worktree instead of the untouched base clone',()=>{
+  const dir=mkdtempSync(join(tmpdir(),'workflow-candidate-')),worktree=join(dir,'agent-worktree');
+  try{
+    execFileSync('git',['init','-q','-b','main'],{cwd:dir});
+    execFileSync('git',['config','user.name','test'],{cwd:dir});
+    execFileSync('git',['config','user.email','test@example.invalid'],{cwd:dir});
+    writeFileSync(join(dir,'base.txt'),'base\n');
+    execFileSync('git',['add','base.txt'],{cwd:dir});
+    execFileSync('git',['commit','-qm','base'],{cwd:dir});
+    execFileSync('git',['worktree','add','-q','-b','feature',worktree],{cwd:dir});
+    writeFileSync(join(worktree,'candidate.txt'),'candidate\n');
+    execFileSync('git',['add','candidate.txt'],{cwd:worktree});
+    execFileSync('git',['commit','-qm','candidate'],{cwd:worktree});
+    const head=execFileSync('git',['rev-parse','HEAD'],{cwd:worktree,encoding:'utf8'}).trim();
+    assert.equal(findCandidateCheckout(dir,[{headRefOid:head,createdAt:'2026-10-31T00:00:00Z'}]),worktree);
+    assert.equal(findCandidateCheckout(dir,[]),dir);
+  }finally{rmSync(dir,{recursive:true,force:true});}
 });

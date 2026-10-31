@@ -147,6 +147,31 @@ function localTests(dir){
   if(r.error&&r.error.code!=='ETIMEDOUT')throw Error('repository tests could not be launched: '+r.error.message);
   return {pass:r.status===0,reason:r.error?.code==='ETIMEDOUT'?'repository tests timed out':(r.stderr??'').slice(0,500)};
 }
+function worktrees(dir){
+  try{
+    const text=command('git',['-C',dir,'worktree','list','--porcelain']);
+    const rows=[];let row=null;
+    for(const line of text.split(/\r?\n/)){
+      if(line.startsWith('worktree ')){if(row)rows.push(row);row={path:line.slice('worktree '.length),head:null};}
+      else if(row&&line.startsWith('HEAD '))row.head=line.slice('HEAD '.length).trim();
+    }
+    if(row)rows.push(row);
+    return rows;
+  }catch{return []}
+}
+/** TicketFlow may leave the primary clone on its base branch and do the work in a Git worktree. */
+export function findCandidateCheckout(dir,prs=[]){
+  if(!dir||!existsSync(dir))return null;
+  const order=new Map();
+  for(const [index,pr] of prs.entries()){
+    if(typeof pr?.headRefOid!=='string')continue;
+    const time=Date.parse(pr.createdAt??pr.mergedAt??'');
+    order.set(pr.headRefOid,Math.max(order.get(pr.headRefOid)??-Infinity,Number.isFinite(time)?time:index));
+  }
+  const matches=worktrees(dir).filter(row=>row.head&&order.has(row.head));
+  matches.sort((a,b)=>(order.get(b.head)??-Infinity)-(order.get(a.head)??-Infinity));
+  return (matches[0]??{path:dir}).path;
+}
 /**
  * Generic factual score from captured evidence. Code success and process quality stay separate.
  * No framework-specific status, label, artifact path, agent count or command is required.
@@ -277,10 +302,11 @@ export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,res
   // A broken evaluator, failed API call or unavailable clone invalidates the
   // measurement. It must never be converted into an apparent agent failure.
   try{prs=pulls(repo,env)}catch(e){recordError(e)}
+  const candidateCheckout=findCandidateCheckout(candidateDir,prs);
   try {
-    if(!candidateDir||!existsSync(candidateDir))throw Error('agent candidate checkout is unavailable');
-    hidden=hiddenCorrectness(candidateDir,sc.hidden);
-    suite=localTests(candidateDir);
+    if(!candidateCheckout)throw Error('agent candidate checkout is unavailable');
+    hidden=hiddenCorrectness(candidateCheckout,sc.hidden);
+    suite=localTests(candidateCheckout);
   }catch(e){recordError(e)}
   try{issueRows=issueSnapshot(repo,seededIssues,env)}catch(e){recordError(e)}
   const merged=prs.filter(isMerged),checks=[],reviews=[],plans=[];
@@ -292,10 +318,10 @@ export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,res
       plans.push(...files.map(f=>f.filename).filter(relevant));
     }catch(e){recordError(e)}
   }
-  const candidateAvailable=Boolean(candidateDir&&existsSync(candidateDir));
+  const candidateAvailable=Boolean(candidateCheckout&&existsSync(candidateCheckout));
   const result=evaluateEvidence({id,seededIssues,issues:issueRows,prs,checks,reviews,plans,
     interrupted,resumed,initialPR,initialHead,baselineProjects,
-    candidate:{available:candidateAvailable,source:'agent-checkout',correctness:hidden.pass,repository_tests:suite.pass,
+    candidate:{available:candidateAvailable,source:candidateCheckout===candidateDir?'agent-checkout':'agent-worktree',correctness:hidden.pass,repository_tests:suite.pass,
       hidden_reason:hidden.reason,repository_tests_reason:suite.reason}});
   return {...result,merged_prs:merged.map(p=>p.number),ci:checks,hidden_reason:hidden.reason,
     repo_test_reason:suite.reason,error};
