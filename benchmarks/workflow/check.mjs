@@ -236,7 +236,7 @@ export function checkoutPrHead(dir,prs=[],env){
  * No framework-specific status, label, artifact path, agent count or command is required.
  */
 export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],reviews=[],plans=[],interrupted=false,
-  initialPR=null,initialHead=null,baselineProjects=[],candidate=null,hidden=false,repoTests=false,resumed=false}){
+  initialPR=null,initialHead=null,baselineProjects=[],candidate=null,hidden=false,repoTests=false,resumed=false,fallback=[]}){
   if(!scenarios[id])throw Error('unknown workflow scenario '+id);
   const merged=prs.filter(isMerged);
   const linked=issues.filter(i=>merged.some(p=>textLinks(i.number,p.body??'')));
@@ -303,6 +303,8 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
   const tracking=issueTracking &&
     (id!=='W7'||seededIssues.length===4) && (id!=='W3'||seededIssues.length===3);
   const safeCI=merged.length>0&&merged.every(p=>checks.find(c=>c.number===p.number)?.pass===true);
+  const safeFallback=merged.length>0&&merged.every(p=>fallback.some(f=>f.number===p.number&&
+    f.allowed===true&&f.attempted===true&&f.posted===true&&f.success===true));
   // Coordination is observed independently from code correctness and pipeline gates.
   // A single well-integrated PR is valid; PR count alone never earns orchestration points.
   const seededClosed=seeded.filter(i=>i.closed_at&&Number.isFinite(Date.parse(i.closed_at)));
@@ -334,13 +336,17 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
     merged:merged.length>0,latest_head_ci:safeCI,review_evidence:reviewObserved,
     issue_tracking:tracking,pr_deduplication:!duplicate,failed_pr_corrected:w4Fixed,
     interruption_recovery:id!=='W5'||(interrupted&&resumed)};
-  const delivery=steps.merged&&steps.latest_head_ci&&steps.pr_deduplication&&steps.failed_pr_corrected;
+  // A refused Actions run is an expected path for TicketFlow: local verification
+  // posts the same gate status and the PR may merge without runner execution.
+  // Keep native CI evidence separate, but treat a verified local fallback as
+  // equivalent gate evidence for merged delivery.
+  const delivery=steps.merged&&(steps.latest_head_ci||safeFallback)&&steps.pr_deduplication&&steps.failed_pr_corrected;
   const pipeline=functional===true&&delivery&&steps.review_evidence&&steps.interruption_recovery;
   const candidateResult={available:candidateAvailable,source:candidateEvidence.source??null,
     correctness:candidateAvailable?candidateCorrectness:null,repository_tests:candidateAvailable?candidateRepositoryTests:null,
     functional,hidden_reason:candidateEvidence.hidden_reason??null,repository_tests_reason:candidateEvidence.repository_tests_reason??null};
-  const mergedDelivery={pass:delivery,merged:steps.merged,latest_head_ci:safeCI,pr_deduplication:steps.pr_deduplication,
-    failed_pr_corrected:steps.failed_pr_corrected};
+  const mergedDelivery={pass:delivery,merged:steps.merged,latest_head_ci:safeCI,local_fallback:safeFallback,
+    pr_deduplication:steps.pr_deduplication,failed_pr_corrected:steps.failed_pr_corrected};
   const process={seeded_issues:seeded.length,agent_created_issues:created.length,
     created_linked:optionalNewIssuesLinked.length,issue_total:issues.length,
     issues_linked:linked.length,issues_closed:closed.length,issues_closed_and_linked:closedTracked.length,
@@ -387,7 +393,7 @@ export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,res
       plans.push(...files.map(f=>f.filename).filter(relevant));
     }catch(e){recordError(e)}
   }
-  const result=evaluateEvidence({id,seededIssues,issues:issueRows,prs,checks,reviews,plans,
+  const result=evaluateEvidence({id,seededIssues,issues:issueRows,prs,checks,reviews,plans,fallback,
     interrupted,resumed,initialPR,initialHead,baselineProjects,
     candidate:{available:candidateAvailable,source,correctness:hidden.pass,repository_tests:suite.pass,
       hidden_reason:hidden.reason,repository_tests_reason:suite.reason}});

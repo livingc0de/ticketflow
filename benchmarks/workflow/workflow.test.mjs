@@ -52,11 +52,11 @@ const issue=(n,{seeded=false,closed=true,comments=1,title=null,body=null}={})=>(
 });
 const pr=(n,body,sha='aaaa')=>({number:n,body,headRefOid:sha,mergedAt:'2026-10-31T00:00:00Z'});
 const evidence=(id,{seeded=[],issues=[],prs=[],good=true,review=true,ci=true,interrupted=true,
-  initialPR=null,initialHead=null,resumed=true,candidate=null}={})=>
+  initialPR=null,initialHead=null,resumed=true,candidate=null,fallback=[]}={})=>
   evaluateEvidence({id,seededIssues:seeded,issues,prs,
     checks:prs.map(p=>({number:p.number,pass:ci})),
     reviews:prs.map(p=>({number:p.number,observed:review,unresolved:false})),
-    plans:[],candidate,hidden:good,repoTests:true,interrupted,resumed,initialPR,initialHead});
+    plans:[],candidate,hidden:good,repoTests:true,interrupted,resumed,initialPR,initialHead,fallback});
 test('W1 records issue tracking without requiring it from every native workflow',()=>{
   const p=pr(20,'Closes #7');const pass=evidence('W1',{issues:[issue(7)],prs:[p]});
   assert.equal(pass.pipeline,true);
@@ -98,6 +98,15 @@ test('candidate correctness is independent from merged delivery',()=>{
   assert.equal(broken.candidate.functional,false);
   assert.equal(broken.merged_delivery.pass,true);
   assert.equal(broken.pipeline,false);
+});
+test('a successful local fallback satisfies merged delivery when Actions never ran',()=>{
+  const result=evidence('W1',{ci:false,prs:[pr(20,'Delivered change')],fallback:[{
+    number:20,allowed:true,attempted:true,posted:true,success:true,
+  }]});
+  assert.equal(result.steps.latest_head_ci,false);
+  assert.equal(result.merged_delivery.local_fallback,true);
+  assert.equal(result.merged_delivery.pass,true);
+  assert.equal(result.pipeline,true);
 });
 test('an unavailable candidate is reported as unknown, not as evaluator failure',()=>{
   const result=evidence('W2',{candidate:{available:false,source:'agent-checkout'}});
