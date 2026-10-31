@@ -52,11 +52,11 @@ const issue=(n,{seeded=false,closed=true,comments=1,title=null,body=null}={})=>(
 });
 const pr=(n,body,sha='aaaa')=>({number:n,body,headRefOid:sha,mergedAt:'2026-10-31T00:00:00Z'});
 const evidence=(id,{seeded=[],issues=[],prs=[],good=true,review=true,ci=true,interrupted=true,
-  initialPR=null,initialHead=null,resumed=true}={})=>
+  initialPR=null,initialHead=null,resumed=true,candidate=null}={})=>
   evaluateEvidence({id,seededIssues:seeded,issues,prs,
     checks:prs.map(p=>({number:p.number,pass:ci})),
     reviews:prs.map(p=>({number:p.number,observed:review,unresolved:false})),
-    plans:[],hidden:good,repoTests:true,interrupted,resumed,initialPR,initialHead});
+    plans:[],candidate,hidden:good,repoTests:true,interrupted,resumed,initialPR,initialHead});
 test('W1 records issue tracking without requiring it from every native workflow',()=>{
   const p=pr(20,'Closes #7');const pass=evidence('W1',{issues:[issue(7)],prs:[p]});
   assert.equal(pass.pipeline,true);
@@ -86,6 +86,25 @@ test('W4 seeded PR is actually corrected and verified',()=>{
   const stale=evidence('W4',{seeded:[1],issues:source,prs:[pr(4,'Closes #1','old')],initialPR:4,initialHead:'old'});
   assert.equal(stale.steps.failed_pr_corrected,false);
   assert.equal(stale.pipeline,false);
+});
+test('candidate correctness is independent from merged delivery',()=>{
+  const source=[issue(1)];
+  const open=evidence('W2',{seeded:[1],issues:source,prs:[{...pr(4,'Closes #1'),mergedAt:null}],candidate:{available:true,source:'agent-checkout',correctness:true,repository_tests:true}});
+  assert.equal(open.candidate.correctness,true);
+  assert.equal(open.candidate.functional,true);
+  assert.equal(open.merged_delivery.pass,false);
+  assert.equal(open.pipeline,false);
+  const broken=evidence('W2',{seeded:[1],issues:source,prs:[pr(4,'Closes #1')],candidate:{available:true,source:'agent-checkout',correctness:false,repository_tests:false}});
+  assert.equal(broken.candidate.functional,false);
+  assert.equal(broken.merged_delivery.pass,true);
+  assert.equal(broken.pipeline,false);
+});
+test('an unavailable candidate is reported as unknown, not as evaluator failure',()=>{
+  const result=evidence('W2',{candidate:{available:false,source:'agent-checkout'}});
+  assert.equal(result.candidate.available,false);
+  assert.equal(result.candidate.correctness,null);
+  assert.equal(result.functionality,null);
+  assert.equal(result.error,undefined);
 });
 test('W5 requires an actual recorded interruption and recovery',()=>{
   const source={seeded:[1],issues:[issue(1)],prs:[pr(2,'Closes #1')]};

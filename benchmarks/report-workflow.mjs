@@ -15,6 +15,9 @@ const median=v=>{
 const fmt=(v,d=1)=>typeof v==='number'&&Number.isFinite(v)?v.toFixed(d):'unknown';
 const averageValues=values=>values.length&&values.every(Number.isFinite)?values.reduce((a,b)=>a+b,0)/values.length:null;
 const rate=(rows,fn)=>rows.length?fmt(100*rows.filter(fn).length/rows.length,0)+'%':'n/a';
+const candidateValue=(row)=>row.delivery?.candidate?.functional??row.delivery?.functionality??null;
+const mergedDeliveryValue=(row)=>row.delivery?.merged_delivery?.pass??row.delivery?.delivery??row.delivery?.pipeline??null;
+const knownRate=(rows,fn)=>{const known=rows.filter(r=>fn(r)!==null&&fn(r)!==undefined);return known.length?fmt(100*known.filter(r=>fn(r)===true).length/known.length,0)+'%':'n/a';};
 const safe=s=>String(s??'unknown').replace(/[\r\n|<>]/g,'').slice(0,80);
 const group=(rows,key)=>rows.reduce((m,r)=>{const k=key(r);(m[k]??=[]).push(r);return m;},{});
 export function render(rows){
@@ -30,14 +33,14 @@ export function render(rows){
       '** | Recorded attempts including retries: **'+rows.length+'**','',
     'Success and failure count toward arm rates. Invalid measurements do not. Retried cells use only their latest attempt.','',
     '## Outcomes by arm','',
-    '| Arm | Valid | Invalid | Coding | Full pipeline | Delivery evidence | Agent completed | Review evidence | Issue tracking evidence | Latest CI | Median minutes | Median USD |',
+    '| Arm | Valid | Invalid | Candidate correctness | Full pipeline | Merged delivery | Agent completed | Review evidence | Issue tracking evidence | Latest CI | Median minutes | Median USD |',
     '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'];
   for(const [arm,part] of Object.entries(group(latest,r=>r.arm)).sort()){
     const scored=part.filter(r=>outcomeOf(r)!=='invalid');
     lines.push('| '+safe(arm)+' | '+scored.length+' | '+(part.length-scored.length)+
-      ' | '+rate(scored,r=>r.delivery.functionality)+
+      ' | '+knownRate(scored,candidateValue)+
       ' | '+rate(scored,r=>outcomeOf(r)==='success')+
-      ' | '+rate(scored,r=>r.delivery.pipeline)+
+      ' | '+knownRate(scored,mergedDeliveryValue)+
       ' | '+rate(scored,r=>r.agent_exit===0)+
       ' | '+rate(scored,r=>r.delivery.steps.review_evidence)+
       ' | '+rate(scored,r=>r.delivery.steps.issue_tracking)+
@@ -55,13 +58,13 @@ export function render(rows){
       ' | '+fmt(average('issues_closed_and_linked'))+' | '+fmt(averageValues(plans),0)+
       ' | '+fmt(averageValues(projectChanges),0)+' |');
   }
-  lines.push('','## Per scenario','','| Scenario | Arm | Valid | Invalid | Code | Pipeline | Seed ticket coverage |',
+  lines.push('','## Per scenario','','| Scenario | Arm | Valid | Invalid | Candidate code | Pipeline | Seed ticket coverage |',
     '| --- | --- | ---: | ---: | ---: | ---: | ---: |');
   for(const [key,part] of Object.entries(group(latest,r=>r.scenario+' '+r.arm)).sort()){
     const [scenario,arm]=key.split(' '),scored=part.filter(r=>outcomeOf(r)!=='invalid');
     const coverage=scored.map(r=>r.delivery.process?.issue_coverage??null);
     lines.push('| '+safe(scenario)+' | '+safe(arm)+' | '+scored.length+' | '+(part.length-scored.length)+
-      ' | '+rate(scored,r=>r.delivery.functionality)+' | '+rate(scored,r=>outcomeOf(r)==='success')+
+      ' | '+knownRate(scored,candidateValue)+' | '+rate(scored,r=>outcomeOf(r)==='success')+
       ' | '+fmt(median(coverage),2)+' |');
   }
   lines.push('','## Coordination observations (W3 and W7)','',
@@ -96,6 +99,7 @@ export function render(rows){
   if(configs.size>1)lines.push('','**Comparability warning:** Multiple agents, models, evaluator fingerprints, profiles or sandbox modes are present. Analyze controlled subsets, not pooled averages.');
   if(invalid.length)lines.push('**Invalid-run warning:** Excluded infrastructure attempts require a fresh rerun; no automatic success or failure is imputed. Compare arms only after filling invalid cells or clearly disclosing incomplete scenario coverage.');
   if(latest.some(r=>!r.outcome))lines.push('**Legacy-record warning:** Older rows lack explicit outcome provenance; failures cannot be reliably distinguished from invalid measurements.');
+  if(valid.some(r=>candidateValue(r)===null))lines.push('**Candidate warning:** One or more valid cells lack a frozen agent checkout, so candidate correctness is reported over known candidates only.');
   if(rows.some(r=>r.cost_usd==null))lines.push('**Cost warning:** One or more sessions have unknown cost. Median and total costs are not estimated.');
   if(rows.some(r=>r.descendants!=='included'))lines.push('**Sub-agent warning:** Full descendant usage cannot be independently verified.');
   if(rows.some(r=>r.profile_cleanup!=='ok'))lines.push('**Cleanup warning:** A profile cleanup was incomplete.');

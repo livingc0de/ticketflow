@@ -3,8 +3,7 @@
  * Treat review/plan evidence as observable proxies, never a guarantee of review quality.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scenarios } from './scenarios.mjs';
 
@@ -153,7 +152,7 @@ function localTests(dir){
  * No framework-specific status, label, artifact path, agent count or command is required.
  */
 export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],reviews=[],plans=[],interrupted=false,
-  initialPR=null,initialHead=null,baselineProjects=[],hidden=false,repoTests=false,resumed=false}){
+  initialPR=null,initialHead=null,baselineProjects=[],candidate=null,hidden=false,repoTests=false,resumed=false}){
   if(!scenarios[id])throw Error('unknown workflow scenario '+id);
   const merged=prs.filter(isMerged);
   const linked=issues.filter(i=>merged.some(p=>textLinks(i.number,p.body??'')));
@@ -240,13 +239,24 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
       pr:p.number,count:seededIssues.filter(n=>textLinks(n,p.body??'')).length
     })),
     merged_pr_count:merged.length};
-  const steps={correctness:!!hidden,repository_tests:!!repoTests,
+  const candidateEvidence=candidate??{available:true,source:'legacy-default',correctness:Boolean(hidden),repository_tests:Boolean(repoTests)};
+  const candidateAvailable=candidate===null?true:candidateEvidence.available===true;
+  const candidateCorrectness=candidateAvailable&&candidateEvidence.correctness===true;
+  const candidateRepositoryTests=candidateAvailable&&candidateEvidence.repository_tests===true;
+  const functional=candidateAvailable?candidateCorrectness&&candidateRepositoryTests:null;
+  const steps={candidate_available:candidateAvailable,candidate_correctness:candidateAvailable?candidateCorrectness:null,
+    candidate_repository_tests:candidateAvailable?candidateRepositoryTests:null,
+    correctness:candidateAvailable?candidateCorrectness:null,repository_tests:candidateAvailable?candidateRepositoryTests:null,
     merged:merged.length>0,latest_head_ci:safeCI,review_evidence:reviewObserved,
     issue_tracking:tracking,pr_deduplication:!duplicate,failed_pr_corrected:w4Fixed,
     interruption_recovery:id!=='W5'||(interrupted&&resumed)};
-  const functional=steps.correctness&&steps.repository_tests;
   const delivery=steps.merged&&steps.latest_head_ci&&steps.pr_deduplication&&steps.failed_pr_corrected;
-  const pipeline=functional&&delivery&&steps.review_evidence&&steps.interruption_recovery;
+  const pipeline=functional===true&&delivery&&steps.review_evidence&&steps.interruption_recovery;
+  const candidateResult={available:candidateAvailable,source:candidateEvidence.source??null,
+    correctness:candidateAvailable?candidateCorrectness:null,repository_tests:candidateAvailable?candidateRepositoryTests:null,
+    functional,hidden_reason:candidateEvidence.hidden_reason??null,repository_tests_reason:candidateEvidence.repository_tests_reason??null};
+  const mergedDelivery={pass:delivery,merged:steps.merged,latest_head_ci:safeCI,pr_deduplication:steps.pr_deduplication,
+    failed_pr_corrected:steps.failed_pr_corrected};
   const process={seeded_issues:seeded.length,agent_created_issues:created.length,
     created_linked:optionalNewIssuesLinked.length,issue_total:issues.length,
     issues_linked:linked.length,issues_closed:closed.length,issues_closed_and_linked:closedTracked.length,
@@ -257,10 +267,10 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
     review_observed:reviewObserved,coordination,
     actionable_created_issues:actionableIssues.length,duplicate_created_issue_content:duplicateCreatedContent,
     dependency_edges:dependencyEdges,invalid_dependency_references:invalidDependencies,dependency_cycle:dependencyCycle};
-  return {pass:pipeline,functionality:functional,delivery,pipeline,steps,process};
+  return {pass:pipeline,functionality:functional,candidate:candidateResult,merged_delivery:mergedDelivery,delivery,pipeline,steps,process};
 }
-export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,resumed=false,initialPR=null,initialHead=null,baselineProjects=[],env}){
-  const sc=scenarios[id],work=mkdtempSync(join(tmpdir(),'workflow-verify-'));
+export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,resumed=false,initialPR=null,initialHead=null,baselineProjects=[],candidateDir=null,env}){
+  const sc=scenarios[id];
   let prs=[],issueRows=[],hidden={pass:false,reason:'unverified'},
     suite={pass:false,reason:'unverified'},error=null;
   const recordError=e=>{error=(error?error+'; ':'')+e.message};
@@ -268,11 +278,10 @@ export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,res
   // measurement. It must never be converted into an apparent agent failure.
   try{prs=pulls(repo,env)}catch(e){recordError(e)}
   try {
-    command('gh',['repo','clone',repo,join(work,'checkout'),'--','--depth','1'],{timeout:120000,env});
-    hidden=hiddenCorrectness(join(work,'checkout'),sc.hidden);
-    suite=localTests(join(work,'checkout'));
+    if(!candidateDir||!existsSync(candidateDir))throw Error('agent candidate checkout is unavailable');
+    hidden=hiddenCorrectness(candidateDir,sc.hidden);
+    suite=localTests(candidateDir);
   }catch(e){recordError(e)}
-  finally{rmSync(work,{recursive:true,force:true})}
   try{issueRows=issueSnapshot(repo,seededIssues,env)}catch(e){recordError(e)}
   const merged=prs.filter(isMerged),checks=[],reviews=[],plans=[];
   for(const p of merged){
@@ -283,8 +292,11 @@ export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,res
       plans.push(...files.map(f=>f.filename).filter(relevant));
     }catch(e){recordError(e)}
   }
+  const candidateAvailable=Boolean(candidateDir&&existsSync(candidateDir));
   const result=evaluateEvidence({id,seededIssues,issues:issueRows,prs,checks,reviews,plans,
-    interrupted,resumed,initialPR,initialHead,baselineProjects,hidden:hidden.pass,repoTests:suite.pass});
+    interrupted,resumed,initialPR,initialHead,baselineProjects,
+    candidate:{available:candidateAvailable,source:'agent-checkout',correctness:hidden.pass,repository_tests:suite.pass,
+      hidden_reason:hidden.reason,repository_tests_reason:suite.reason}});
   return {...result,merged_prs:merged.map(p=>p.number),ci:checks,hidden_reason:hidden.reason,
     repo_test_reason:suite.reason,error};
 }

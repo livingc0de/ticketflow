@@ -21,7 +21,7 @@ const row=(arm,pass,pipeline)=>({
 });
 test('workflow report excludes execution failures from headline pipeline success',()=>{
   const result=render([row('bare',true,true),{...row('bare',false,true),repeat:2}]);
-  assert.match(result,/Full pipeline \| Delivery evidence \| Agent completed/);
+  assert.match(result,/Candidate correctness \| Full pipeline \| Merged delivery \| Agent completed/);
   assert.match(result,/\| bare \| 2 \| 0 \| 100% \| 50% \| 100% \| 50%/);
   assert.match(result,/Scored cells: \*\*2\*\*/);
 });

@@ -10,14 +10,14 @@
  *   --more         this reviewer said more is coming, or posted only a status note: only what it posts or edits after this run
  *                  started counts as its result
  *
- * The verdict is the commit status `gate.context`. Check runs of the Actions app are read only to tell a run that Actions refused
- * (billing: no runner, no steps, the billing annotation; or queued 20 minutes without a runner) from a real red one.
- * A failed read is a pending poll, never a verdict.
+ * The verdict is the commit status `gate.context`. Actions workflow runs and jobs are read only to tell a run that Actions refused
+ * before any runner or step (or stayed queued 20 minutes without a runner) from a real red one. A failed read is a pending poll,
+ * never a verdict. This uses the Actions API rather than the Checks API so a fine-grained personal token can read the gate.
  *
  * External reviewers are observed, never configured or invoked. One counts when it is an app (a `[bot]` login, or type Bot) that
  * commented, reviewed or reacted on the PR (including standalone inline comments on the head; the agent judges whether it is a review), or an OWNER, MEMBER or
  * COLLABORATOR that reviewed it or left an inline comment on the head, other than the PR author and the account running this,
- * and it has a sign on this head: a review of it, a PR-level or inline comment, or a reaction made, or a comment edited, after the head was pushed (the first check suite of the head, else its committer
+ * and it has a sign on this head: a review of it, a PR-level or inline comment, or a reaction made, or a comment edited, after the head was pushed (the first Actions run of the head, else its committer
  * date). Its start is its first sign; it is waited for at most 15 minutes from that start, and only its own result ends its wait: a
  * review of the head (whatever its time: it can only exist after the push), else its latest comment with visible text, its first one
  * included, counted at its last edit, that names the head or no commit at all; its first comment on this head (a new one, or an old one
@@ -48,9 +48,7 @@ import { parseArgs } from 'node:util'
 import { configPath, loadConfig } from '../lib/config.mjs'
 import { gql } from '../lib/gh.mjs'
 
-const ACTIONS_APP_ID = 15368
 const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
-const BILLING = /recent account payments have failed|spending limit/i
 const STUCK_MS = 20 * 60_000
 const POLL_SEC = '60'
 
@@ -90,6 +88,14 @@ function api(path, paginate = false) {
 const flat = (v) => String(v ?? '').replace(/[\p{Cc}\u2028\u2029]+/gu, ' ')
 const ms = (iso) => Date.parse(iso)
 const fresh = () => ({ head: '', draft: false, gate: null, verify: null, fallback: null, why: 'Actions has not refused the run', notes: [], reviewers: null, threads: null, author: null })
+const workflowRuns = (head) => {
+    const data = api(`${R}/actions/runs?head_sha=${encodeURIComponent(head)}&per_page=100`)
+    if (!Array.isArray(data.workflow_runs)) throw new Error('Actions workflow run response was malformed')
+    return data.workflow_runs
+}
+const isTicketFlowWorkflow = (run) => run?.name === 'CI' || /(?:^|\/)ci\.ya?ml(?:@|$)/i.test(run?.path ?? '')
+const ranOnRunner = (job) => Boolean(job?.runner_id || job?.started_at || job?.steps?.length)
+const refusedBeforeRun = new Set(['failure', 'startup_failure', 'timed_out', 'action_required'])
 
 /** Decides CI for the head and fills `S`. Returns green | red | pending | fallback | conflict | behind | draft | superseded. */
 function pollCi(S) {
@@ -117,28 +123,41 @@ function pollCi(S) {
     if ((g?.state === 'failure' || g?.state === 'error') && !g.description?.startsWith('Local ')) { S.why = 'the gate failed'; return 'red' }
 
     S.why = 'Actions has not refused the run'
-    const runs = api(`${R}/commits/${S.head}/check-runs?check_name=${encodeURIComponent(cfg.gate.check)}&app_id=${ACTIONS_APP_ID}`).check_runs
-    const run = runs.reduce((a, b) => (!a || b.id > a.id ? b : a), null)
-    if (!run) return 'pending'
-    S.verify = `${run.id} ${run.status} ${run.conclusion ?? '-'}`
-    const job = api(`${R}/actions/jobs/${run.id}`)
-    const runner = job.runner_id || 0
-    if (run.status !== 'completed') {
-        if (!runner && Date.now() - ms(job.created_at) >= STUCK_MS) {
-            S.fallback = `queued 20 min without a runner; cancel the stuck run only after the fallback has posted: gh run cancel ${job.run_id}`
+    const candidates = []
+    for (const run of workflowRuns(S.head)) {
+        if (run?.head_sha !== S.head || !Number.isSafeInteger(run.id) || run.id < 1) throw new Error('Actions workflow run response was malformed')
+        const data = api(`${R}/actions/runs/${run.id}/jobs?filter=all&per_page=100`)
+        if (!Array.isArray(data.jobs)) throw new Error(`Actions job response for run ${run.id} was malformed`)
+        const jobs = data.jobs.filter((job) => job?.head_sha === S.head && job.name === cfg.gate.check)
+        for (const job of jobs) candidates.push({ run, job })
+        // The generated TicketFlow workflow is named CI. It can fail during startup
+        // before GitHub creates a job, so retain that run-level evidence as a candidate.
+        if (!jobs.length && isTicketFlowWorkflow(run)) candidates.push({ run, job: null })
+    }
+    const candidate = candidates.sort((a, b) => (b.job?.id ?? b.run.id) - (a.job?.id ?? a.run.id))[0]
+    if (!candidate) return 'pending'
+    const { run, job } = candidate
+    const status = job?.status ?? run.status
+    const conclusion = job?.conclusion ?? run.conclusion
+    const createdAt = job?.created_at ?? run.created_at
+    const ran = ranOnRunner(job)
+    S.verify = `${job?.id ?? run.id} ${status} ${conclusion ?? '-'}`
+    if (status !== 'completed') {
+        if (!ran && Number.isFinite(ms(createdAt)) && Date.now() - ms(createdAt) >= STUCK_MS) {
+            S.fallback = `queued 20 min without a runner; cancel the stuck run only after the fallback has posted: gh run cancel ${run.id}`
             return 'fallback'
         }
         return 'pending'
     }
-    if (run.conclusion === 'cancelled') {
+    if (conclusion === 'cancelled') {
         if (!sha) return 'pending'
         S.notes.push(`superseded: check the newest ${base} commit`)
         return 'superseded'
     }
-    if (runner) { S.why = 'Verify ran on a runner'; return run.conclusion === 'failure' || run.conclusion === 'timed_out' ? 'red' : 'pending' }
-    if (run.conclusion === 'failure' && !(job.steps?.length > 0)) {
-        const note = api(`${R}/check-runs/${run.id}/annotations`).map((a) => a.message).find((m) => BILLING.test(m ?? ''))
-        if (note) { S.fallback = `refused for billing: ${note}`; return 'fallback' }
+    if (ran) { S.why = 'Verify ran on a runner'; return conclusion === 'failure' || conclusion === 'timed_out' ? 'red' : 'pending' }
+    if (refusedBeforeRun.has(conclusion)) {
+        S.fallback = 'Actions ended before a runner or step; run local verification before replacing the gate'
+        return 'fallback'
     }
     return 'pending'
 }
@@ -203,11 +222,12 @@ function saveSeen() {
 const pushed = new Map()
 let me
 
-/** When this head was pushed: the first check suite created for it (a later run does not move it), else the committer date. */
+/** When this head was pushed: the first Actions run created for it (a later run does not move it), else the committer date. */
 function pushedAt(head) {
     if (!pushed.has(head)) {
-        const t = Math.min(...(api(`${R}/commits/${head}/check-suites?per_page=100`).check_suites ?? []).map((x) => ms(x.created_at)).filter((x) => x > 0))
-        if (t === Infinity) return ms(api(`${R}/commits/${head}`).commit.committer.date)   // shortcut: no suite (no CI yet) falls back to the committer date, which can predate the push; read the push event if a repo runs PRs without checks
+        const runs = workflowRuns(head)
+        const t = Math.min(...runs.map((x) => ms(x.created_at)).filter((x) => x > 0))
+        if (t === Infinity) return ms(api(`${R}/commits/${head}`).commit.committer.date)   // shortcut: no Actions run (no CI yet) falls back to the committer date, which can predate the push; read the push event if a repo runs without Actions
         pushed.set(head, t)
     }
     return pushed.get(head)

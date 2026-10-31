@@ -36,6 +36,14 @@ PR head, not merely an agent's assertion. Functional correctness is reported sep
 from pipeline success. Planning usefulness and human interventions require transcript
 audit and are not presented as deterministic facts.
 
+**Candidate versus delivery:** Candidate correctness is measured from the frozen checkout
+used by the final agent session (the fresh resumed checkout for W5). The hidden product
+check and repository test suite run there, before considering whether GitHub merged the
+work. Merged delivery is a separate remote-evidence score covering the merged PR, latest
+head CI, correction of the seeded W4 PR and PR deduplication. Full pipeline success is
+the conjunction of candidate functionality, merged delivery, review evidence and W5
+recovery. Candidate correctness is never inferred from the default branch.
+
 ## Setup
 
 Run only on a disposable Linux VM with no personal, cloud or production credentials.
@@ -125,15 +133,16 @@ expiration, choose the disposable organization as **Resource owner**, and choose
 repository names at runtime, so selected-repository access cannot be configured in
 advance. The [PAT creation guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
 and GitHub's [fine-grained permission reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens)
-describe the current token UI. The evaluator now reads Actions workflow runs and jobs
-instead of the Checks API, so no `Checks` permission is needed or expected.
+describe the current token UI. The evaluator and TicketFlow's core gate reader use
+Actions workflow runs and jobs to classify workflow outcomes. TicketFlow uses the
+configured commit status as the authoritative merge gate.
 
 Create a token named, for example, `ticketflow-benchmarks-setup` for the setup role
 with these permissions:
 
 - **Repository permissions:** `Administration: Read and write`, `Contents: Read and
-  write`, `Issues: Read and write`, `Pull requests: Read and write`, `Actions: Read`,
-  `Workflows: Read and write`, and `Metadata: Read`.
+  write`, `Issues: Read and write`, `Pull requests: Read and write`, `Commit statuses:
+  Read`, `Actions: Read`, `Workflows: Read and write`, and `Metadata: Read`.
   Administration write is needed both to create private repositories and to delete
   exactly those repositories during cleanup. It also covers the runner's read-only
   Actions-policy check. `Actions: Read` lets the evaluator inspect workflow runs and
@@ -151,7 +160,8 @@ agent role. It may belong to the same GitHub account as the setup token; the
 distinction is the token's permissions and which environment variable receives it:
 
 - **Repository permissions:** `Contents: Read and write`, `Issues: Read and write`,
-  `Pull requests: Read and write`, `Actions: Read`, and `Metadata: Read`.
+  `Pull requests: Read and write`, `Commit statuses: Read`, `Actions: Read`, and
+  `Metadata: Read`.
   Add `Workflows: Read and write` only if the agent must edit files under
   `.github/workflows`.
 - **Organization permissions:** `Projects: Read and write`.
@@ -162,8 +172,7 @@ requests, and edit the assigned Projects board. With the same account, the token
 fine-grained repository and Projects permissions provide that access directly.
 Do **not** grant Administration, organization administration, repository deletion,
 member management, secrets, billing or access to any other organization. The agent
-token is deliberately unable to create or delete benchmark repositories. Neither
-token needs a `Checks` permission.
+token is deliberately unable to create or delete benchmark repositories.
 
 ### Supplying and checking the tokens
 
@@ -227,6 +236,15 @@ from a recorded pending-creation marker and an exact owner/title/repository
 association from a complete, non-paginated owner listing; no match or incomplete
 listing is an error and the repository is not deleted. Personal cleanup-only also
 requires `--acknowledge-personal-account`.
+
+The runner writes the state sidecar atomically after each resource and cleanup step.
+SIGINT and SIGTERM stop the active agent process, record the current cell as
+`interrupted`, and leave the sidecar resumable. Auto-cleanup then finishes without
+starting another agent. With `run-without-cleanup`, rerun with `--resume` for the
+remaining cells or invoke `cleanup-only` after auditing the preserved resources. If
+cleanup-only itself is interrupted, it records `cleanup.status: interrupted`; run the
+same cleanup-only command again to continue only unfinished deletions. SIGKILL cannot
+be caught, so inspect an `agent-running` cell before resuming.
 
 Pin competitor checkouts and the TicketFlow source to reviewed commits. The runner
 validates native plugin manifests and source provenance. TicketFlow must have the
@@ -402,4 +420,4 @@ and a corresponding `workflow` array. Use `report-local.mjs` or
 
 ## Reporting
 
-Run `node benchmarks/report-workflow.mjs <date>-workflow-claude.jsonl --publish --label pilot` for separate functionality and full-pipeline comparisons by arm and scenario. W1 and W6 leave planning and tracking choices open; issue creation, issue linkage, Project changes and plan artifacts are reported as workflow evidence rather than required steps. W3 and W7 report seeded work-item coverage. Their coordination section records PR-to-work-item coverage and observed dependency closure order without awarding points merely for parallelism or extra PRs. Review evidence and plan counts are proxies, not definitive proof of review quality. Parallel execution is evaluated on correctness, reliability, elapsed time and cost, not rewarded merely for spawning agents.
+Run `node benchmarks/report-workflow.mjs <date>-workflow-claude.jsonl --publish --label pilot` for separate candidate-correctness, merged-delivery and full-pipeline comparisons by arm and scenario. W1 and W6 leave planning and tracking choices open; issue creation, issue linkage, Project changes and plan artifacts are reported as workflow evidence rather than required steps. W3 and W7 report seeded work-item coverage. Their coordination section records PR-to-work-item coverage and observed dependency closure order without awarding points merely for parallelism or extra PRs. Review evidence and plan counts are proxies, not definitive proof of review quality. Parallel execution is evaluated on correctness, reliability, elapsed time and cost, not rewarded merely for spawning agents.

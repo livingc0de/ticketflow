@@ -294,7 +294,7 @@ test('Codex Ponytail workflow preflight rejects missing hook trust bypass before
 const evaluatorFingerprint=()=>{
   const hash=createHash('sha256');
   for(const path of ['run-workflow.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs',
-    'workflow/profile.mjs','workflow/check.mjs','workflow/outcome.mjs','lib/integrity.mjs',
+    'workflow/profile.mjs','workflow/check.mjs','workflow/outcome.mjs','workflow/interrupt.mjs','lib/integrity.mjs',
     'lib/profile-auth.mjs','lib/process.mjs','lib/transcripts.mjs']){
     hash.update(path);hash.update('\0');hash.update(readFileSync(join(root,'benchmarks',path)));
   }

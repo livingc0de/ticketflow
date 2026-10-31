@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 // The source repos' names, built from char codes so that they do not appear in this file. ticketflow is public.
@@ -10,15 +11,12 @@ const OWN = `${NAMES[2]}/ticketflow`
 // The config's schema requires project.owner, which for this repo is the owner's login: the one other allowed mention, in the config only.
 const OWN_PROJECT = `"owner": "${NAMES[2]}"`
 const root = new URL('..', import.meta.url).pathname
-const SKIP = new Set(['.git', 'node_modules', 'LICENSE'])   // LICENSE names the copyright holder, the owner's choice
-const SKIP_DIRS = new Set(['.worktrees', '.claude/worktrees'])   // ignored worktrees are other checkouts, not source files
-
-function files(dir, prefix = '') {
-    return readdirSync(dir).flatMap((name) => {
-        const path = join(dir, name)
-        const rel = prefix ? `${prefix}/${name}` : name
-        return SKIP.has(name) || SKIP_DIRS.has(rel) ? [] : statSync(path).isDirectory() ? files(path, rel) : [path]
-    })
+// Scan the public source set, not ignored local benchmark output. Tracked files
+// remain included even if a later ignore rule accidentally mentions them.
+function files(dir) {
+    return execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: dir })
+        .toString('utf8').split('\0').filter(Boolean).filter((rel) => rel !== 'LICENSE')
+        .map((rel) => join(dir, rel))
 }
 
 test('no source repo or owner name appears anywhere in the repository', () => {

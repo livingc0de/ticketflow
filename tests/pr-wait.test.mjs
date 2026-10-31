@@ -7,26 +7,25 @@ import { FAIL, fakeGh, seq, tempDir, writeConfig } from './helpers.mjs'
 
 const script = new URL('../core/scripts/pr-wait.mjs', import.meta.url).pathname
 const HEAD = 'a'.repeat(40)
-const BILLING = 'The job was not started because recent account payments have failed or your spending limit needs to be increased.'
 const ago = (minutes) => new Date(Date.now() - minutes * 60_000).toISOString()
 const RB = 'rb[bot]'
 
 const status = (state, description, target_url = 'u') => ({ [`commits/${HEAD}/status`]: { statuses: [{ context: 'other', state: 'failure', description: 'x' }, { context: 'CI / Gate', state, description, target_url }] } })
-const runs = (...rs) => ({ [`commits/${HEAD}/check-runs`]: { check_runs: rs } })
-const run = (id, st, conclusion = null) => ({ id, status: st, conclusion })
-const job = (id, extra) => ({ [`actions/jobs/${id}`]: extra })
-const notes = (id, ...messages) => ({ [`check-runs/${id}/annotations`]: messages.map((message) => ({ message })) })
+const runs = (...rs) => ({ [`actions/runs`]: { total_count: rs.length, workflow_runs: rs } })
+const run = (id, st, conclusion = null) => ({ id, head_sha: HEAD, name: 'CI', path: '.github/workflows/ci.yml', status: st, conclusion, created_at: ago(1), updated_at: ago(1) })
+const job = (id, extra = {}) => ({ [`actions/runs/${id}/jobs`]: { total_count: 1, jobs: [{ id, name: 'Verify', head_sha: HEAD, ...extra }] } })
+const notes = () => ({})
+const pushedRuns = (...minutes) => ({ 'actions/runs': { total_count: minutes.length, workflow_runs: minutes.map((min, i) => ({ ...run(i + 1, 'completed', 'success'), created_at: ago(min), updated_at: ago(min) })) } })
 const pull = (extra) => ({ pulls: { 7: { head: { sha: HEAD }, draft: false, mergeable: true, mergeable_state: 'blocked', user: { login: 'author' }, ...extra } } })
-const refused = (id = 5) => ({ ...runs(run(id, 'completed', 'failure')), ...job(id, { runner_id: 0, steps: [], created_at: ago(1), run_id: 9 }), ...notes(id, BILLING) })
+const refused = (id = 5) => ({ ...runs(run(id, 'completed', 'failure')), ...job(id, { runner_id: 0, steps: [], created_at: ago(1), run_id: 9 }) })
 
 function baseFixtures() {
     return {
         'pulls/7': pull().pulls[7],
         [`commits/${HEAD}/status`]: { statuses: [] },
-        [`commits/${HEAD}/check-runs`]: { check_runs: [] },
+        [`actions/runs`]: { total_count: 0, workflow_runs: [] },
         'issues/7/comments': [], 'pulls/7/reviews': [], 'pulls/7/comments': [], 'issues/7/reactions': [],
         [`commits/${HEAD}`]: { commit: { committer: { date: ago(40) } } },
-        [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(30) }, { created_at: ago(29) }] },   // pushed 30 minutes ago
         user: { login: 'me' },
         ...threads([]),
     }
@@ -81,8 +80,9 @@ test('review and inline comment by the same bot produce one reviewer; submitted 
     assert.match(r.stdout, /^Review rb\[bot\]: result review COMMENTED /m)
 })
 test('inline activity on an older commit, before the push, or from the author does not start a review', () => {
-    for (const c of [inline(4, 'old', { commit_id: 'b'.repeat(40) }), inline(35), inline(4, 'author', { user: { login: 'author', type: 'User' } })]) {
-        const r = wait({ ...green, 'pulls/7/comments': [c] })
+    const beforePush = inline(35)
+    for (const c of [inline(4, 'old', { commit_id: 'b'.repeat(40) }), beforePush, inline(4, 'author', { user: { login: 'author', type: 'User' } })]) {
+        const r = wait({ ...green, ...(c === beforePush ? pushedRuns(30) : {}), 'pulls/7/comments': [c] })
         assert.match(r.stdout, /^Review: none$/m)
     }
 })
@@ -103,27 +103,29 @@ test('wait observations are reported separately from the single Review summary l
     assert.match(wait(green, ['7', '--ci-only', '--once']).stdout, /^Observed reviewer wait_ms: unknown$/m)
 })
 
-test('a job refused for billing (no runner, no steps, the billing annotation) allows the fallback, exit 3', () => {
+test('a job that ends before a runner or step allows the local fallback, exit 3', () => {
     const r = wait(refused())
     assert.equal(r.status, 3)
-    assert.match(r.stdout, /^Fallback: allowed \(refused for billing: .*spending limit/m)
+    assert.match(r.stdout, /^Fallback: allowed \(Actions ended before a runner or step/m)
     assert.match(r.stdout, /^Verify: 5 completed failure$/m)
     assert.match(r.stdout, /^CI \/ Gate: none$/m)
     assert.match(r.stdout, /^PR #7 head aaaaaaa draft=false$/m)
+    assert.equal(code({ ...runs(run(6, 'completed', 'action_required')), ...job(6, { runner_id: null, steps: [] }) }), 3)
+    assert.equal(code({ ...runs(run(7, 'completed', 'timed_out')), ...job(7, { runner_id: null, steps: [] }) }), 3)
 })
 
 test('a red job that got a runner or ran steps never allows the fallback', () => {
-    const redRunner = wait({ ...runs(run(5, 'completed', 'failure')), ...job(5, { runner_id: 9, steps: [] }), ...notes(5, BILLING) })
+    const redRunner = wait({ ...runs(run(5, 'completed', 'failure')), ...job(5, { runner_id: 9, steps: [] }) })
     assert.equal(redRunner.status, 1); notAllowed(redRunner)
-    const withSteps = wait({ ...runs(run(5, 'completed', 'failure')), ...job(5, { runner_id: 0, steps: [{ name: 'x' }] }), ...notes(5, BILLING) })
-    assert.equal(withSteps.status, 2); notAllowed(withSteps)
+    const withSteps = wait({ ...runs(run(5, 'completed', 'failure')), ...job(5, { runner_id: 0, steps: [{ name: 'x' }] }) })
+    assert.equal(withSteps.status, 1); notAllowed(withSteps)
     const timedOut = wait({ ...runs(run(5, 'completed', 'timed_out')), ...job(5, { runner_id: 7, steps: [{}] }) })
     assert.equal(timedOut.status, 1)
 })
 
-test('a refusal with another annotation, a green run and no Verify never allow the fallback', () => {
-    const other = wait({ ...runs(run(5, 'completed', 'failure')), ...job(5, { runner_id: 0, steps: [] }), ...notes(5, 'The workflow is not valid.') })
-    assert.equal(other.status, 2); notAllowed(other)
+test('a refusal without a runner allows fallback regardless of the refusal reason, while green or missing Verify does not', () => {
+    const other = wait({ ...runs({ ...run(5, 'completed', 'failure'), name: 'Other workflow', path: '.github/workflows/other.yml' }), ...job(5, { runner_id: 0, steps: [] }) })
+    assert.equal(other.status, 3)
     const green = wait({ ...runs(run(5, 'completed', 'success')), ...job(5, { runner_id: 3, steps: [{}] }) })
     assert.equal(green.status, 2); notAllowed(green)
     const none = wait()
@@ -135,7 +137,7 @@ test('a job queued 21 minutes allows the fallback with the run to cancel, 19 min
     const queued = (created_at) => wait({ ...runs(run(6, 'queued')), ...job(6, { runner_id: null, steps: [], created_at, run_id: 9 }) })
     const old = queued(ago(21))
     assert.equal(old.status, 3)
-    assert.match(old.stdout, /^Fallback: allowed \(queued 20 min without a runner; cancel the stuck run only after the fallback has posted: gh run cancel 9\)$/m)
+    assert.match(old.stdout, /^Fallback: allowed \(queued 20 min without a runner; cancel the stuck run only after the fallback has posted: gh run cancel 6\)$/m)
     assert.equal(queued(ago(19)).status, 2)
     const none = queued(null)
     assert.equal(none.status, 2); notAllowed(none)
@@ -164,7 +166,7 @@ test('a verdict beats a refused run; a red that got a runner is never replaceabl
 })
 
 test('runner_id null counts as no runner; the newest run wins over an older refusal', () => {
-    assert.equal(code({ ...runs(run(5, 'completed', 'failure')), ...job(5, { runner_id: null, steps: [] }), ...notes(5, BILLING) }), 3)
+    assert.equal(code({ ...runs(run(5, 'completed', 'failure')), ...job(5, { runner_id: null, steps: [] }) }), 3)
     const older = refused(1)
     assert.equal(code({ ...older, ...runs(run(1, 'completed', 'failure'), run(2, 'completed', 'failure')), ...job(2, { runner_id: 5, steps: [{}, {}] }) }), 1)
     assert.equal(code({ ...older, ...runs(run(2, 'completed', 'failure'), run(1, 'completed', 'failure')), ...job(2, { runner_id: 5, steps: [{}] }) }), 1)   // not the last in the list: the highest id
@@ -186,8 +188,8 @@ test('an API error is pending; a status-read error with a refused run is 2, neve
     const once = wait(noStatus, ['7', '--once'])
     assert.equal(once.status, 2); notAllowed(once)
     assert.equal(code({ ...refused(), ...status('failure', 'Actions run #8') }), 1)
-    assert.equal(code({ ...runs(run(1, 'completed', 'failure')), 'actions/jobs/1': FAIL }), 2)
-    assert.equal(code({ ...runs(run(1, 'completed', 'failure')), ...job(1, { runner_id: 0, steps: [] }), 'check-runs/1/annotations': FAIL }), 2)
+    assert.equal(code({ ...runs(run(1, 'completed', 'failure')), 'actions/runs/1/jobs': FAIL }), 2)
+    assert.equal(code({ ...runs(run(1, 'completed', 'failure')), ...job(1, { runner_id: 0, steps: [] }) }), 3)
 })
 
 test('PR checks: a draft in local-first is exit 2 with the hint; a draft in ci mode is not short-circuited; conflict; behind; unknown; clean', () => {
@@ -233,11 +235,14 @@ test('a custom gate.context and gate.check reach the API paths and the output', 
     assert.equal(r.status, 0)
     assert.match(r.stdout, /^my\/gate: success Actions run #1$/m)
     const q = wait(runs(), undefined, over)
-    assert.ok(q.calls.some((c) => c.includes('check-runs?check_name=Build%20job&app_id=15368')), q.calls.join('\n'))
+    assert.ok(q.calls.some((c) => c.includes('actions/runs?head_sha='+HEAD)), q.calls.join('\n'))
 })
 
-test('the check-run path carries the Actions app id', () => {
-    assert.ok(wait().calls.some((c) => c.endsWith('check-runs?check_name=Verify&app_id=15368')))
+test('the gate reader uses Actions runs and jobs, not Checks endpoints', () => {
+    const r = wait()
+    assert.ok(r.calls.some((c) => c.includes('actions/runs?head_sha='+HEAD)), r.calls.join('\n'))
+    assert.ok(!r.calls.some((c) => /check-runs|check-suites/.test(c)), r.calls.join('\n'))
+    assert.ok(!r.calls.some((c) => c.includes('app_id=15368')), r.calls.join('\n'))
 })
 
 test('unresolved threads: the count, then up to 20 lines [id] path:line @login first line (160 characters); resolved ones are not listed', () => {
@@ -386,7 +391,7 @@ test('the wait remembers a reviewer\'s first answer in the git dir, so a fresh r
     const dir = tempDir('pr-wait-git-')
     spawnSync('git', ['init', '-q', dir])
     const CX = 'cx[bot]'
-    const pushed = { [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(30) }] } }   // one push time, as on GitHub
+    const pushed = pushedRuns(30)   // one push time, as on GitHub
     const summary = (edit) => ({ ...green, ...pushed, 'issues/7/comments': [note(60, '## Review Summary\n| Code Review | x |', { user: app(CX), updated_at: ago(edit) })] })   // reused across heads: created before the push
     assert.match(wait(summary(5), undefined, {}, { dir }).stdout, /^Review cx\[bot\]: result first comment /m)
     // the next run, a fresh process: the summary was edited again since the remembered first answer
@@ -465,16 +470,16 @@ test('an edited result is still the result: a comment edited after the push coun
     assert.match(wait({ ...base, 'issues/7/comments': [note(40, 'old findings')] }).stdout, /^Review: pending/m)
 })
 
-test('activity before the push, and reviews of another commit, decide nothing; the push time is the first check suite, else the committer date', () => {
+test('activity before the push, and reviews of another commit, decide nothing; the push time is the first Actions run, else the committer date', () => {
     const old = { 'issues/7/reactions': [react(20)], 'issues/7/comments': [note(20), note(19, 'old result', { id: 10 })], 'pulls/7/reviews': [rev('APPROVED', { commit_id: 'b'.repeat(40), submitted_at: ago(35) })] }
-    const pushed = wait({ ...green, ...old, [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(10) }] } })
+    const pushed = wait({ ...green, ...old, ...pushedRuns(10) })
     assert.equal(pushed.status, 0)
     assert.deepEqual(reviewLines(pushed), ['Review: none'])
-    // no check suite: the committer date (40 minutes ago) is the push time, so the same activity counts
-    const unknown = wait({ ...green, ...old, [`commits/${HEAD}/check-suites`]: { check_suites: [] } })
+    // no Actions run: the committer date (40 minutes ago) is the push time, so the same activity counts
+    const unknown = wait({ ...green, ...old, ...pushedRuns() })
     assert.match(unknown.stdout, /^Review rb\[bot\]: result comment/m)
-    // the earliest suite is the push, a later suite (a re-run) does not move it
-    const rerun = wait({ ...green, ...old, [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(3) }, { created_at: ago(10) }] } })
+    // the earliest run is the push, a later run (a re-run) does not move it
+    const rerun = wait({ ...green, ...old, ...pushedRuns(3, 10) })
     assert.deepEqual(reviewLines(rerun), ['Review: none'])
 })
 
@@ -488,7 +493,7 @@ test('two reviewers: pending beats changes requested beats results; one result i
     assert.match(pending.stdout, /^Review: pending \(b-bot\[bot\]\)$/m)
     const cr = wait({ ...both, 'pulls/7/reviews': [rev('CHANGES_REQUESTED', { user: app(A) })] })
     assert.match(cr.stdout, /^Review: pending \(b-bot\[bot\]\)$/m)   // a started reviewer's answer is still awaited
-    const late = wait({ ...both, [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(40) }] }, 'issues/7/reactions': [react(16, 'eyes', B)] })
+    const late = wait({ ...both, ...pushedRuns(40), 'issues/7/reactions': [react(16, 'eyes', B)] })
     assert.equal(late.status, 0)
     assert.match(late.stdout, /^Review b-bot\[bot\]: no result 15 min after its start \d{4}-/m)
     assert.match(late.stdout, /^Review: results \(a-bot\[bot\]\) \(no result in time: b-bot\[bot\]\)$/m)
@@ -527,19 +532,17 @@ test('the PR author, this account, a commenter who never reviewed and an outside
 })
 
 test('a comment about another commit is a sign, never the result; a review of the head counts whatever its time', () => {
-    const suites = { [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(10) }] } }
-    const receipt = (sha) => ({ ...green, ...suites, 'issues/7/reactions': [react(8)], 'issues/7/comments': [note(60, '<!-- summary -->', { updated_at: ago(8) }), note(3, `<!-- receipt -->\nNo major issues.\n**Reviewed commit:** \`${sha}\``, { id: 10 })] })
+    const receipt = (sha) => ({ ...green, ...pushedRuns(10), 'issues/7/reactions': [react(8)], 'issues/7/comments': [note(60, '<!-- summary -->', { updated_at: ago(8) }), note(3, `<!-- receipt -->\nNo major issues.\n**Reviewed commit:** \`${sha}\``, { id: 10 })] })
     assert.match(wait(receipt('b'.repeat(10))).stdout, /^Review: pending \(rb\[bot\]\)$/m)   // a late receipt for the old head
     assert.match(wait(receipt('a'.repeat(10))).stdout, /^Review: results \(rb\[bot\]\)$/m)   // names this head
     assert.match(wait({ ...receipt('b'.repeat(10)), 'issues/7/comments': [note(60, 'summary'), note(3, 'no commit named', { id: 10 })] }).stdout, /^Review: results/m)
-    // a changes-requested review of the exact head, submitted before the head's first check suite, still decides
-    const early = wait({ ...green, ...suites, 'pulls/7/reviews': [rev('CHANGES_REQUESTED', { submitted_at: ago(12) })] })
+    // a changes-requested review of the exact head, submitted before the head's first Actions run, still decides
+    const early = wait({ ...green, ...pushedRuns(10), 'pulls/7/reviews': [rev('CHANGES_REQUESTED', { submitted_at: ago(12) })] })
     assert.match(early.stdout, /^Review: changes requested \(rb\[bot\]\)$/m)
 })
 
 test('the window is 15 minutes from the first sign, not the latest; --more ignores a result before this run', () => {
-    const suites = { [`commits/${HEAD}/check-suites`]: { check_suites: [{ created_at: ago(40) }] } }
-    const sign = (min, edit) => ({ ...green, ...suites, 'issues/7/reactions': [react(min)], 'issues/7/comments': [note(min, '<!-- status -->', { updated_at: ago(edit) })] })   // an edit that shows no text is a sign, no result
+    const sign = (min, edit) => ({ ...green, ...pushedRuns(40), 'issues/7/reactions': [react(min)], 'issues/7/comments': [note(min, '<!-- status -->', { updated_at: ago(edit) })] })   // an edit that shows no text is a sign, no result
     assert.match(wait(sign(16, 1)).stdout, /^Review: none \(no result in time: rb\[bot\]\)$/m)
     assert.equal(wait(sign(16, 1)).status, 0)
     const inside = wait(sign(14, 1))
@@ -576,13 +579,13 @@ test('a failed read of the review activity keeps a green PR pending, never none'
     assert.match(app.stderr, /cannot read the account running this/)
     assert.equal(app.stdout, '')
     assert.equal(wait({ ...green, user: FAIL }, ['7', '--ci-only', '--timeout-min', '0']).status, 0)
-    for (const key of ['pulls/7/reviews', 'issues/7/comments', 'issues/7/reactions', `commits/${HEAD}/check-suites`]) {
-        const r = wait({ ...green, [key]: FAIL })
+    for (const key of ['pulls/7/reviews', 'issues/7/comments', 'issues/7/reactions', 'actions/runs']) {
+        const r = wait({ ...green, [key]: FAIL, ...(key === 'actions/runs' ? { 'issues/7/reactions': [react(2)] } : {}) })
         assert.equal(r.status, 2, key)
         assert.match(r.stdout, /^Review: pending \(the review activity could not be read\)$/m, key)
     }
-    // the committer date is read only when no check suite names the push
-    const r = wait({ ...green, [`commits/${HEAD}/check-suites`]: { check_suites: [] }, [`commits/${HEAD}`]: FAIL })
+    // the committer date is read only when no Actions run names the push
+    const r = wait({ ...green, ...pushedRuns(), [`commits/${HEAD}`]: FAIL })
     assert.match(r.stdout, /could not be read/)
     assert.equal(r.status, 2)
 })
@@ -595,15 +598,15 @@ test('text of a review or comment cannot forge summary lines', () => {
     assert.doesNotMatch(r.stdout, /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/)
 })
 
-test('--ci-only and a sha make no review, user or check-suite call; --once still prints the reviewer lines', () => {
+test('--ci-only and a sha make no review, user or Actions-run call; --once still prints the reviewer lines', () => {
     const r = wait({ ...green, 'issues/7/reactions': [react(2)] }, ['7', '--ci-only', '--timeout-min', '0'])
     assert.equal(r.status, 0)
     assert.doesNotMatch(r.stdout, /Review/)
-    assert.ok(!r.calls.some((c) => /issues\/7|reviews|reactions|pulls\/7\/comments|check-suites|api user|commits\/a+$/.test(c)), r.calls.join('\n'))
+    assert.ok(!r.calls.some((c) => /issues\/7|reviews|reactions|pulls\/7\/comments|actions\/runs|api user|commits\/a+$/.test(c)), r.calls.join('\n'))
     const s = wait(green, [HEAD, '--timeout-min', '0'])
     assert.equal(s.status, 0)
     assert.match(s.stdout, /^main commit aaaaaaa$/m)
-    assert.ok(!s.calls.some((c) => /pulls|reactions|reviews|issues|api user|check-suites/.test(c)), s.calls.join('\n'))
+    assert.ok(!s.calls.some((c) => /pulls|reactions|reviews|issues|api user|actions\/runs/.test(c)), s.calls.join('\n'))
     const once = wait({ ...pull({ mergeable: false, mergeable_state: 'dirty' }), 'issues/7/reactions': [react(2)] }, ['7', '--once'])
     assert.equal(once.status, 1)
     assert.match(once.stdout, /^Review rb\[bot\]: pending since/m)
