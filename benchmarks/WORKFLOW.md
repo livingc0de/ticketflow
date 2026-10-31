@@ -41,14 +41,18 @@ audit and are not presented as deterministic facts.
 Run only on a disposable Linux VM with no personal, cloud or production credentials.
 GitHub's [organization creation guide](https://docs.github.com/en/organizations/collaborating-with-groups-in-organizations/creating-a-new-organization-from-scratch)
 is useful background. Organization mode uses a **dedicated GitHub organization**
-for benchmark fixtures and two credentials belonging to two identities with
-clearly limited scope. The runner does not create or delete the organization.
+for benchmark fixtures and two separately scoped credentials. The runner does not
+create or delete the organization.
 
 ### Organization-mode preparation
 
-Complete these steps once before the first organization-mode run. The safest
-arrangement is two disposable GitHub user accounts: a setup account that owns the
-organization and an agent account that is only a normal organization member.
+Complete these steps once before the first organization-mode run. The runner needs
+two separately scoped tokens, but it does **not** require two different GitHub users.
+The strongest isolation is two disposable accounts: a setup account that owns the
+organization and an agent account that is only a normal organization member. For a
+simpler setup, the same account can create both fine-grained tokens below with
+different permissions. In that case, the agent process still receives only the
+limited agent token; it does not receive the setup token.
 
 1. **Create the organization.** Sign in to GitHub as the setup account, open
    **Settings → Access → Organizations → New organization**, and create a new
@@ -57,10 +61,11 @@ organization and an agent account that is only a normal organization member.
    that permit the private repositories and Actions minutes required by the run.
    Record the lowercase organization login; this is the value passed to `--org`.
 
-2. **Add the agent identity.** From the organization, open **Settings → People →
-   Members → Invite member** and invite the agent account. Keep the setup account as
-   an owner, but do not make the agent account an owner. Accept the invitation while
-   signed in as the agent account.
+2. **Add the agent identity, if using two accounts.** From the organization, open
+   **Settings → People → Members → Invite member** and invite the agent account.
+   Keep the setup account as an owner, but do not make the agent account an owner.
+   Accept the invitation while signed in as the agent account. If both tokens belong
+   to the same account, skip this invitation step; the owner already has access.
 
 3. **Set repository access for newly created fixtures.** In **Settings → Access →
    Member privileges**, set **Base permissions** to **Write**. This is deliberate:
@@ -137,20 +142,23 @@ This token creates and seeds repositories, creates and links Projects, creates t
 fixture issues/PR, checks Actions, and performs cleanup. It is never passed to the
 paid agent.
 
-Create a separate token named, for example, `ticketflow-benchmark-agent` for the
-agent account with these permissions:
+Create a second token named, for example, `ticketflow-benchmark-agent` for the
+agent role with these permissions. It may belong to the same GitHub account as the
+setup token; the distinction is the token's permissions and which environment
+variable receives it:
 
 - **Repository permissions:** `Contents: Read and write`, `Issues: Read and write`,
   `Pull requests: Read and write`, `Actions: Read`, `Checks: Read`, and
   `Metadata: Read`.
 - **Organization permissions:** `Projects: Read and write`.
 
-The organization membership's Write base permission plus this token lets the agent
-clone, push branches, create/update issues and pull requests, and edit the assigned
-Projects board. Do **not** grant Administration, organization administration,
-repository deletion, member management, secrets, billing or access to any other
-organization. The agent token is deliberately unable to create or delete benchmark
-repositories.
+For a separate member account, the organization membership's Write base permission
+plus this token lets the agent clone, push branches, create/update issues and pull
+requests, and edit the assigned Projects board. With the same account, the token's
+fine-grained repository and Projects permissions provide that access directly.
+Do **not** grant Administration, organization administration, repository deletion,
+member management, secrets, billing or access to any other organization. The agent
+token is deliberately unable to create or delete benchmark repositories.
 
 If GitHub shows an additional required permission for a specific endpoint, use the
 [fine-grained permission reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens)
@@ -182,6 +190,9 @@ value into `gh auth login`. Confirm the identities without printing token values
 
 The setup account must be the organization owner (or otherwise be allowed to create
 private repositories), and the second command must print the exact `--org` login.
+The setup and agent identity commands may print the same login when using the
+same-account/two-token arrangement; that is valid as long as the tokens have the
+different permissions documented above.
 The runner performs the remaining repository push, Actions and Project access checks
 before invoking a paid agent. For `cleanup-only`, keep both organization variables
 available because organization-mode authentication still validates both identities.
