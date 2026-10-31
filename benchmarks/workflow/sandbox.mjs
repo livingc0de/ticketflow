@@ -78,6 +78,8 @@ const projectOwnerSelection=(ownerType)=>{
   if(ownerType==='user')return 'user(login:$owner){'+projectOwnerFields+'}';
   throw Error('unsupported Project owner type '+ownerType);
 };
+// owners are lowercased here, but GitHub reports the login in its own case
+const sameRepo=(a,b)=>String(a).toLowerCase()===String(b).toLowerCase();
 export function findProject({owner,title,repo,ownerType='organization',env=setupEnv()}) {
   if(typeof repo!=='string'||!repo.includes('/'))throw Error('cleanup Project recovery requires a repository identity');
   const data=graphql('query($owner:String!){'+projectOwnerSelection(ownerType)+'}',
@@ -90,7 +92,7 @@ export function findProject({owner,title,repo,ownerType='organization',env=setup
     throw Error('Project lookup is ambiguous; owner has too many projects');
   if(!matches.length)return null;
   const project=matches[0],repositories=project.repositories;
-  if(!repositories||repositories.pageInfo?.hasNextPage||!repositories.nodes.some(r=>r.nameWithOwner===repo))
+  if(!repositories||repositories.pageInfo?.hasNextPage||!repositories.nodes.some(r=>sameRepo(r.nameWithOwner,repo)))
     throw Error('Project identity is not associated with recorded repository '+repo);
   return {...project,owner,owner_type:ownerType};
 }
@@ -105,7 +107,7 @@ export function linkProject({repo,owner,title,ownerType='organization',env=setup
     throw Error('Project lookup is ambiguous; owner has too many projects');
   if(matches.length) {
     const project=matches[0],repositories=project.repositories;
-    if(!repositories||repositories.pageInfo?.hasNextPage||!repositories.nodes.some(r=>r.nameWithOwner===repo))
+    if(!repositories||repositories.pageInfo?.hasNextPage||!repositories.nodes.some(r=>sameRepo(r.nameWithOwner,repo)))
       throw Error('Project title collision is not associated with recorded repository '+repo);
     return {...project,owner,owner_type:ownerType};
   }

@@ -16,12 +16,14 @@ const run = (id, st, conclusion = null) => ({ id, head_sha: HEAD, name: 'CI', pa
 const job = (id, extra = {}) => ({ [`actions/runs/${id}/jobs`]: { total_count: 1, jobs: [{ id, name: 'Verify', head_sha: HEAD, ...extra }] } })
 const notes = () => ({})
 const pushedRuns = (...minutes) => ({ 'actions/runs': { total_count: minutes.length, workflow_runs: minutes.map((min, i) => ({ ...run(i + 1, 'completed', 'success'), created_at: ago(min), updated_at: ago(min) })) } })
-const pull = (extra) => ({ pulls: { 7: { head: { sha: HEAD, ref: 'feature' }, draft: false, mergeable: true, mergeable_state: 'blocked', user: { login: 'author' }, ...extra } } })
-const refused = (id = 5) => ({ ...runs(run(id, 'completed', 'failure')), ...job(id, { runner_id: 0, steps: [], created_at: ago(1), run_id: 9 }) })
+const pull = (extra) => ({ pulls: { 7: { head: { sha: HEAD, ref: 'feature' }, draft: false, mergeable: true, mergeable_state: 'blocked', user: { login: 'author' }, changed_files: 0, ...extra } } })
+// the real shape of a billing-refused job: GitHub sets started_at (= created_at) but no runner and no steps
+const refused = (id = 5) => { const t = ago(1); return { ...runs(run(id, 'completed', 'failure')), ...job(id, { created_at: t, started_at: t, runner_id: 0, runner_name: '', steps: [], run_id: 9 }) } }
 
 function baseFixtures() {
     return {
         'pulls/7': pull().pulls[7],
+        'pulls/7/files': [],
         [`commits/${HEAD}/status`]: { statuses: [] },
         [`actions/runs`]: { total_count: 0, workflow_runs: [] },
         'issues/7/comments': [], 'pulls/7/reviews': [], 'pulls/7/comments': [], 'issues/7/reactions': [],
@@ -106,11 +108,10 @@ test('wait observations are reported separately from the single Review summary l
 test('a job that ends before a runner or step allows the local fallback, exit 3', () => {
     const r = wait(refused())
     assert.equal(r.status, 3)
-    assert.match(r.stdout, /^Fallback: allowed \(Actions ended before a runner or step/m)
+    assert.match(r.stdout, /^Fallback: allowed \(Actions ended before a runner or step;/m)
     assert.match(r.stdout, /^Verify: 5 completed failure$/m)
     assert.match(r.stdout, /^CI \/ Gate: none$/m)
     assert.match(r.stdout, /^PR #7 head aaaaaaa draft=false$/m)
-    assert.equal(code({ ...runs(run(6, 'completed', 'action_required')), ...job(6, { runner_id: null, steps: [] }) }), 3)
     assert.equal(code({ ...runs(run(7, 'completed', 'timed_out')), ...job(7, { runner_id: null, steps: [] }) }), 3)
 })
 
@@ -122,7 +123,7 @@ test('pull-request Actions runs on a temporary merge SHA are matched through the
         'actions/runs/8/jobs': { total_count: 1, jobs: [{ id: 8, name: 'Verify', head_sha: merge, runner_id: 0, steps: [] }] },
     })
     assert.equal(r.status, 3, r.stderr)
-    assert.match(r.stdout, /^Fallback: allowed \(Actions ended before a runner or step/m)
+    assert.match(r.stdout, /^Fallback: allowed \(Actions ended before a runner or step;/m)
     assert.ok(r.calls.some(c => c.includes('actions/runs?event=pull_request&branch=feature&per_page=100')), r.calls.join('\n'))
 })
 
@@ -135,16 +136,19 @@ test('pull-request run lookup retries without the branch filter when GitHub igno
         'actions/runs/9/jobs': { total_count: 1, jobs: [{ id: 9, name: 'Verify', head_sha: merge, runner_id: 0, steps: [] }] },
     })
     assert.equal(r.status, 3, r.stderr)
-    assert.match(r.stdout, /^Fallback: allowed \(Actions ended before a runner or step/m)
+    assert.match(r.stdout, /^Fallback: allowed \(Actions ended before a runner or step;/m)
 })
 
-test('a red job that got a runner or ran steps never allows the fallback', () => {
-    const redRunner = wait({ ...runs(run(5, 'completed', 'failure')), ...job(5, { runner_id: 9, steps: [] }) })
-    assert.equal(redRunner.status, 1); notAllowed(redRunner)
-    const withSteps = wait({ ...runs(run(5, 'completed', 'failure')), ...job(5, { runner_id: 0, steps: [{ name: 'x' }] }) })
-    assert.equal(withSteps.status, 1); notAllowed(withSteps)
-    const timedOut = wait({ ...runs(run(5, 'completed', 'timed_out')), ...job(5, { runner_id: 7, steps: [{}] }) })
-    assert.equal(timedOut.status, 1)
+test('a runner or a step is execution evidence; started_at alone is not', () => {
+    assert.equal(wait(refused()).status, 3)
+    const red = (extra, conclusion = 'failure') => wait({ ...runs(run(5, 'completed', conclusion)), ...job(5, { started_at: ago(1), ...extra }) })
+    for (const r of [red({ runner_id: 9, steps: [] }), red({ runner_id: 0, runner_name: 'GitHub Actions 1000003001', steps: [] }),
+        red({ runner_id: 0, steps: [{ name: 'x' }] }), red({ runner_id: 7, steps: [{}] }, 'timed_out')]) {
+        assert.equal(r.status, 1); notAllowed(r)
+    }
+    const waiting = wait({ ...runs(run(6, 'completed', 'action_required')), ...job(6, { runner_id: 0, runner_name: '', steps: [] }) })
+    assert.equal(waiting.status, 2)
+    assert.match(waiting.stdout, /^Fallback: not allowed \(the run waits for approval in Actions\)$/m)
 })
 
 test('a refusal without a runner allows fallback regardless of the refusal reason, while green or missing Verify does not', () => {
@@ -157,11 +161,67 @@ test('a refusal without a runner allows fallback regardless of the refusal reaso
     assert.match(none.stdout, /^Verify: none\nFallback: not allowed/m)
 })
 
+test('a pull request that changes the CI workflow never gets the fallback', () => {
+    const files = (...names) => ({ ...pull({ changed_files: names.length }), 'pulls/7/files': names.map((filename) => (typeof filename === 'string' ? { filename } : filename)) })
+    const workflow = files('src/a.js', '.github/workflows/ci.yml')
+    const red = wait({ ...refused(), ...workflow })
+    assert.equal(red.status, 1); notAllowed(red)
+    assert.match(red.stdout, /^Fallback: not allowed \(this pull request changes \.github\/workflows\/: it needs a real Actions run\)$/m)
+    assert.equal(code({ ...refused(), ...files({ filename: 'ci-old.yml', previous_filename: '.github/workflows/ci.yml' }) }), 1)   // renamed away
+    const startup = { ...runs(run(5, 'completed', 'startup_failure')), 'actions/runs/5/jobs': { total_count: 0, jobs: [] } }
+    assert.equal(code({ ...startup, ...workflow }), 1)
+    assert.equal(code(startup), 3)   // the same job-less startup failure of ci.yml, without a workflow change, is a refusal
+    const stuck = { ...runs(run(6, 'queued')), ...job(6, { runner_id: 0, steps: [], created_at: ago(21) }) }
+    const waiting = wait({ ...stuck, ...workflow })
+    assert.equal(waiting.status, 2); notAllowed(waiting)
+    assert.equal(code(stuck), 3)
+    assert.equal(code({ ...refused(), ...files('.github/dependabot.yml') }), 3)
+    assert.equal(code({ ...refused(), ...files('src/a.js') }), 3)
+    // an incomplete or unreadable file list allows nothing
+    for (const bad of [{ ...pull({ changed_files: 1 }), 'pulls/7/files': [] }, { ...pull({ changed_files: 1 }), 'pulls/7/files': { __status: 502, __stderr: 'unavailable' } }]) {
+        const r = wait({ ...refused(), ...bad })
+        assert.equal(r.status, 2); notAllowed(r)
+    }
+    const bySha = wait(refused(), [HEAD, '--once'])
+    assert.equal(bySha.status, 3)
+    assert.ok(!bySha.calls.some((c) => c.includes('/files')), bySha.calls.join('\n'))
+})
+
+test('the newest run decides, whatever its job ids; another workflow named CI never stands in for a missing Verify job', () => {
+    const noJobs = { 'actions/runs/5/jobs': { total_count: 0, jobs: [] } }
+    const newest = wait({ ...runs(run(5, 'completed', 'startup_failure'), run(6, 'completed', 'failure')), ...noJobs, ...job(6, { id: 3, runner_id: 9, steps: [{}] }) })
+    assert.equal(newest.status, 1); notAllowed(newest)
+    // lint.yml is also named CI, its job ran and failed, while ci.yml's Verify is still running
+    const lint = { ...run(100, 'completed', 'failure'), path: '.github/workflows/lint.yml' }
+    const other = wait({ ...runs(lint, run(50, 'in_progress')),
+        'actions/runs/100/jobs': { total_count: 1, jobs: [{ id: 10, name: 'lint', head_sha: HEAD, status: 'completed', conclusion: 'failure', runner_id: 3, steps: [{}] }] },
+        ...job(50, { status: 'in_progress', conclusion: null, runner_id: 4, steps: [{}] }) })
+    assert.equal(other.status, 2); notAllowed(other)
+    assert.match(other.stdout, /^Verify: 50 in_progress -$/m)
+    // a job-less run of another workflow is not the generated one either
+    const bare = wait({ ...runs({ ...lint, conclusion: 'startup_failure' }), 'actions/runs/100/jobs': { total_count: 0, jobs: [] } })
+    assert.equal(bare.status, 2); notAllowed(bare)
+})
+
+test('a run on the head does not hide the pull_request run on the merge SHA', () => {
+    const merge = 'b'.repeat(40)
+    const lint = { ...run(1, 'completed', 'success'), path: '.github/workflows/lint.yml' }
+    const r = wait({
+        'actions/runs': { total_count: 1, workflow_runs: [lint] },
+        'actions/runs?event=pull_request&branch=feature&per_page=100': { total_count: 1, workflow_runs: [{ ...run(8, 'completed', 'failure'), head_sha: merge, event: 'pull_request', pull_requests: [{ number: 7, head: { sha: HEAD } }] }] },
+        'actions/runs/1/jobs': { total_count: 1, jobs: [{ id: 1, name: 'lint', head_sha: HEAD, runner_id: 2, steps: [{}] }] },
+        'actions/runs/8/jobs': { total_count: 1, jobs: [{ id: 8, name: 'Verify', head_sha: merge, runner_id: 0, runner_name: '', steps: [] }] },
+    })
+    assert.equal(r.status, 3, r.stdout + r.stderr)
+    assert.ok(r.calls.some((c) => c.includes('actions/runs/1/jobs')) && r.calls.some((c) => c.includes('actions/runs/8/jobs')), r.calls.join('\n'))
+})
+
 test('a job queued 21 minutes allows the fallback with the run to cancel, 19 minutes does not, a missing created_at does not and nothing errors', () => {
     const queued = (created_at) => wait({ ...runs(run(6, 'queued')), ...job(6, { runner_id: null, steps: [], created_at, run_id: 9 }) })
     const old = queued(ago(21))
     assert.equal(old.status, 3)
-    assert.match(old.stdout, /^Fallback: allowed \(queued 20 min without a runner; cancel the stuck run only after the fallback has posted: gh run cancel 6\)$/m)
+    assert.equal(wait({ ...runs(run(6, 'queued')), ...job(6, { runner_id: 0, steps: [], created_at: ago(21), started_at: ago(21) }) }).status, 3)   // started_at alone is not a start
+    assert.match(old.stdout, /^Fallback: allowed \(queued 20 min without a runner or step; cancel the stuck run only after the fallback has posted: gh run cancel 6\)$/m)
     assert.equal(queued(ago(19)).status, 2)
     const none = queued(null)
     assert.equal(none.status, 2); notAllowed(none)

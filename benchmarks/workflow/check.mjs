@@ -3,7 +3,8 @@
  * Treat review/plan evidence as observable proxies, never a guarantee of review quality.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { scenarios } from './scenarios.mjs';
 
@@ -65,22 +66,23 @@ const actionable=(issue)=>{
     /\b(?:add|build|create|design|document|fix|handle|implement|improve|migrate|remove|refactor|support|test|update|verify)\w*\b/i.test(title+' '+body);
 };
 const actionsFailures=new Set(['failure','timed_out','cancelled','action_required']);
-const ranOnRunner=(job)=>Boolean(job?.runner_id||job?.started_at||job?.steps?.length);
+// GitHub sets started_at even on a job it refused (= created_at, runner_id 0, no runner_name, no steps): only a runner or a step proves it ran.
+const ranOnRunner=(job)=>Boolean(job?.runner_id>0||job?.runner_name||job?.steps?.length);
 const workflowRunMatches=(run,pr)=>run?.head_sha===pr.headRefOid||
   (run?.event==='pull_request'&&Array.isArray(run.pull_requests)&&run.pull_requests.some(x=>Number(x.number)===Number(pr.number)&&x.head?.sha===pr.headRefOid));
 const workflowRuns=(repo,pr,env,request)=>{
   const read=(path)=>page(request(path,env),'workflow_runs','workflow run');
   const direct=read('repos/'+repo+'/actions/runs?head_sha='+encodeURIComponent(pr.headRefOid)+'&per_page=100');
-  if(direct.length||!pr.headRefName)return direct;
-  // pull_request workflows execute on GitHub's temporary merge commit, not necessarily the PR head.
-  // Resolve those runs through the source branch, then require the exact PR and head association.
-  const byBranch=read('repos/'+repo+'/actions/runs?event=pull_request&branch='+encodeURIComponent(pr.headRefName)+'&per_page=100')
-    .filter(run=>workflowRunMatches(run,pr));
-  if(byBranch.length)return byBranch;
+  if(!pr.headRefName)return direct;
+  // pull_request workflows execute on GitHub's temporary merge commit, not necessarily the PR head, and an unrelated
+  // run on the head must not hide them. Resolve those runs through the source branch, then require the exact PR and head association.
+  const seen=new Set(direct.map(run=>run?.id));
+  const merged=runs=>[...direct,...runs.filter(run=>workflowRunMatches(run,pr)&&!seen.has(run.id))];
+  const byBranch=read('repos/'+repo+'/actions/runs?event=pull_request&branch='+encodeURIComponent(pr.headRefName)+'&per_page=100');
+  if(byBranch.some(run=>workflowRunMatches(run,pr)))return merged(byBranch);
   // Some GitHub responses do not honor the branch filter for pull_request runs; the
   // association filter keeps this bounded to the exact PR/head before inspecting jobs.
-  return read('repos/'+repo+'/actions/runs?event=pull_request&per_page=100')
-    .filter(run=>workflowRunMatches(run,pr));
+  return merged(read('repos/'+repo+'/actions/runs?event=pull_request&per_page=100'));
 };
 const completeBefore=(timestamp,mergedAt)=>timestamp&&Number.isFinite(Date.parse(timestamp))&&Date.parse(timestamp)<=mergedAt;
 const page=(response,key,label)=>{
@@ -99,7 +101,8 @@ export function checkRuns(repo,pr,env,request=api){
   for(const run of runs){
     if(!workflowRunMatches(run,pr)||!Number.isSafeInteger(run.id)||run.id<1)
       throw Error('GitHub Actions workflow run response is malformed');
-    const jobs=page(request('repos/'+repo+'/actions/runs/'+run.id+'/jobs?filter=all&per_page=100',env),
+    // filter=latest: an earlier attempt that failed and was re-run green must not count as a failure
+    const jobs=page(request('repos/'+repo+'/actions/runs/'+run.id+'/jobs?filter=latest&per_page=100',env),
       'jobs','jobs for workflow run '+run.id);
     for(const job of jobs){
       if(typeof job?.head_sha!=='string'||(job.head_sha!==pr.headRefOid&&job.head_sha!==run.head_sha)||typeof job.name!=='string')
@@ -134,8 +137,10 @@ export function fallbackEvidence(repo,pr,env,request=api){
   const runs=workflowRuns(repo,pr,env,request);
   let allowed=false;
   for(const run of runs){
-    if(run?.head_sha!==pr.headRefOid||!Number.isSafeInteger(run.id)||run.id<1)throw Error('GitHub Actions workflow run response is malformed');
+    if(!workflowRunMatches(run,pr)||!Number.isSafeInteger(run.id)||run.id<1)throw Error('GitHub Actions workflow run response is malformed');
     const jobs=page(request('repos/'+repo+'/actions/runs/'+run.id+'/jobs?filter=all&per_page=100',env),'jobs','jobs for workflow run '+run.id);
+    for(const job of jobs)if(typeof job?.head_sha!=='string'||(job.head_sha!==pr.headRefOid&&job.head_sha!==run.head_sha))
+      throw Error('GitHub Actions job response is malformed');
     if(actionsFailures.has(run.conclusion)&&!jobs.some(job=>ranOnRunner(job)))allowed=true;
   }
   const localStatus=/^Local (?:run|check) on /i.test(String(gate?.description??''));
@@ -196,18 +201,35 @@ function worktrees(dir){
     return rows;
   }catch{return []}
 }
-/** TicketFlow may leave the primary clone on its base branch and do the work in a Git worktree. */
+const prTime=(pr,index)=>{const time=Date.parse(pr.createdAt??pr.mergedAt??'');return Number.isFinite(time)?time:index;};
+/** TicketFlow may leave the primary clone on its base branch and do the work in a Git worktree. Null when none holds a PR head. */
 export function findCandidateCheckout(dir,prs=[]){
   if(!dir||!existsSync(dir))return null;
   const order=new Map();
   for(const [index,pr] of prs.entries()){
     if(typeof pr?.headRefOid!=='string')continue;
-    const time=Date.parse(pr.createdAt??pr.mergedAt??'');
-    order.set(pr.headRefOid,Math.max(order.get(pr.headRefOid)??-Infinity,Number.isFinite(time)?time:index));
+    order.set(pr.headRefOid,Math.max(order.get(pr.headRefOid)??-Infinity,prTime(pr,index)));
   }
   const matches=worktrees(dir).filter(row=>row.head&&order.has(row.head));
   matches.sort((a,b)=>(order.get(b.head)??-Infinity)-(order.get(a.head)??-Infinity));
-  return (matches[0]??{path:dir}).path;
+  return matches[0]?.path??null;
+}
+/**
+ * The exact newest PR head in a temporary detached worktree, for a delivery whose agent worktree is gone (merged with
+ * --delete-branch). Throws when the head cannot be fetched or does not match: that is infrastructure, not an agent failure.
+ * `remove()` never throws. Null when there is no PR.
+ */
+export function checkoutPrHead(dir,prs=[],env){
+  const pr=prs.map((p,i)=>({p,time:prTime(p,i)})).filter(x=>typeof x.p?.headRefOid==='string')
+    .sort((a,b)=>b.time-a.time)[0]?.p;
+  if(!pr)return null;
+  const sha=pr.headRefOid,git=(...args)=>command('git',['-C',dir,...args],{env});
+  try{git('fetch','--quiet','origin',sha);}catch{git('fetch','--quiet','origin','refs/pull/'+pr.number+'/head');}
+  if(git('rev-parse','--verify',sha+'^{commit}')!==sha)throw Error('fetched pull request head does not match '+sha);
+  const parent=mkdtempSync(join(tmpdir(),'workflow-pr-head-')),path=join(parent,'head');
+  const remove=()=>{try{git('worktree','remove','--force',path);}catch{}rmSync(parent,{recursive:true,force:true});};
+  try{git('worktree','add','--detach',path,sha);}catch(e){remove();throw e;}
+  return {path,remove};
 }
 /**
  * Generic factual score from captured evidence. Code success and process quality stay separate.
@@ -339,12 +361,19 @@ export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,res
   // A broken evaluator, failed API call or unavailable clone invalidates the
   // measurement. It must never be converted into an apparent agent failure.
   try{prs=pulls(repo,env)}catch(e){recordError(e)}
-  const candidateCheckout=findCandidateCheckout(candidateDir,prs);
+  // The agent's worktree when one holds a PR head; else the exact newest PR head (the agent may have merged and deleted its
+  // worktree); else, with no PR, the agent's own checkout, whose untouched product fails correctness as a real agent failure.
+  let candidateCheckout=null,candidateAvailable=false,source='agent-worktree',prHead=null;
   try {
-    if(!candidateCheckout)throw Error('agent candidate checkout is unavailable');
+    if(!candidateDir||!existsSync(candidateDir))throw Error('agent candidate checkout is unavailable');
+    candidateCheckout=findCandidateCheckout(candidateDir,prs);
+    if(!candidateCheckout&&(prHead=checkoutPrHead(candidateDir,prs,env))){candidateCheckout=prHead.path;source='pr-head';}
+    if(!candidateCheckout){candidateCheckout=candidateDir;source='agent-checkout';}
+    candidateAvailable=existsSync(candidateCheckout);
     hidden=hiddenCorrectness(candidateCheckout,sc.hidden);
     suite=localTests(candidateCheckout);
   }catch(e){recordError(e)}
+  finally{prHead?.remove();}
   try{issueRows=issueSnapshot(repo,seededIssues,env)}catch(e){recordError(e)}
   const merged=prs.filter(isMerged),checks=[],reviews=[],plans=[];
   for(const p of prs){
@@ -358,10 +387,9 @@ export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,res
       plans.push(...files.map(f=>f.filename).filter(relevant));
     }catch(e){recordError(e)}
   }
-  const candidateAvailable=Boolean(candidateCheckout&&existsSync(candidateCheckout));
   const result=evaluateEvidence({id,seededIssues,issues:issueRows,prs,checks,reviews,plans,
     interrupted,resumed,initialPR,initialHead,baselineProjects,
-    candidate:{available:candidateAvailable,source:candidateCheckout===candidateDir?'agent-checkout':'agent-worktree',correctness:hidden.pass,repository_tests:suite.pass,
+    candidate:{available:candidateAvailable,source,correctness:hidden.pass,repository_tests:suite.pass,
       hidden_reason:hidden.reason,repository_tests_reason:suite.reason}});
   return {...result,merged_prs:merged.map(p=>p.number),ci:checks,fallback,hidden_reason:hidden.reason,
     repo_test_reason:suite.reason,error};

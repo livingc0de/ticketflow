@@ -37,7 +37,7 @@ update does to a real repo. Bytes are a rough proxy for tokens.
 |---|---|---|---|---|
 | Claude Code skill and role stubs (their descriptions load each session) | 2,226 B | 2,704 B | 3,337 B | 0.3.5 adds the `engineering-method` stub and two longer role descriptions |
 | All generated stubs (`.claude`, `.agents`, `.codex`) | 9,668 B | 10,728 B | 12,044 B | two more skill stubs and one more allow line (`debt.mjs`) |
-| AGENTS block, with its two marker lines | 13 lines | 14 lines | 17 lines | one new line: the method applies with or without a ticket, and one fallback-recovery rule |
+| AGENTS block, with its two marker lines | 13 lines | 14 lines | 15 lines | one new line: the method applies with or without a ticket |
 | `implement-ticket` (read when a ticket is worked) | 95 lines, 11,076 B | 104 lines, 12,848 B | 80 lines, 12,132 B | the method moved out, into the next row |
 | `engineering-method` (read when code is written or reviewed) | none | none | 68 lines, 6,684 B | one home for the method (and the plan-or-skip tests), also used without a ticket |
 | `orchestrate-tickets` (read only when asked) | none | 4,938 B | 5,318 B | host limits and the resume line |

@@ -58,7 +58,7 @@ pull request is installed or run for it.
 
 ## Local fallback
 
-When Actions refuses the job (a workflow ends before a runner or step, or a job is queued 20 minutes without a runner), `pr-wait`
+When Actions refuses the job (a workflow ends before a runner or step, or a job is queued 20 minutes without a runner or step), `pr-wait`
 exits 3 and prints `Fallback: allowed`. Then, by hand and never by a timer, `local-verify <pr | sha>` runs `verify.command` in a
 clean worktree of the exact, up-to-date head and posts the result as the status (and one comment on a pull request).
 
@@ -71,6 +71,11 @@ node .ticketflow/scripts/pr-wait.mjs <PR>                    # confirm the gate 
 node .ticketflow/scripts/merge.mjs <PR>
 ```
 
+A pull request that changes `.github/workflows/` never gets the fallback. GitHub runs a pull request's workflow from its merge
+commit, so a broken workflow fails at startup exactly like a refusal; `pr-wait` exits 1 and the pull request needs a real Actions
+run. A failed or incomplete read of its file list allows nothing. A run waiting for approval (`action_required`) is not a
+refusal: approve it.
+
 The local command is intentionally separate from `pr-wait` and `merge`: it runs tests and posts a gate only after two fail-closed
 refusal checks. A billing or spending-limit refusal is therefore not a reason to stop, but neither is it an automatic permission to
 merge without local verification.
@@ -80,7 +85,7 @@ merge without local verification.
 - Exit 3 (refused): the fallback is not allowed, a fork, another base, or the runtime in the checkout differs from
   `origin/<default_branch>` (scripts, lib and `.ticketflow/config.json`, untracked files included), so a pull request cannot widen
   or neuter its own fallback. Run the default branch's copy of the script.
-- A failure is posted too, so the gate is red at once. A red that got a runner on Actions is never replaced.
+- A failure is posted too, so the gate is red at once. A red that got a runner or ran a step on Actions is never replaced.
 - For a pull request it first tries to inherit (with `gate.inherit`), then a docs-only `Local check`, otherwise it runs the verify. A bare sha always gets a full run.
 - A passing default-branch commit moves `deploy_branch` (when set) with a plain push, never forced. A push rejected as
   non-fast-forward leaves the branch where it is; any other push error exits 1. The workflow's `Advance Deploy Branch` job does the

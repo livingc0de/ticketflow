@@ -170,13 +170,21 @@ function cleanupTargets(state) {
   if(!MODES.has(mode)||!owner||!validSchedule(state?.schedule)||!state.schedule.length||!state.runId||
       !state.cells||typeof state.cells!=='object'||!Object.keys(state.cells).length)
     throw Error('cleanup state is missing a complete mode, owner, schedule, or cells');
+  if(state.retired_cells!==undefined&&!Array.isArray(state.retired_cells))
+    throw Error('cleanup state has invalid retired cells');
   const prefix=mode==='personal'?'ticketflow-benchmark-':'tfwf-';
   const scheduled=new Set(state.schedule.map(cell=>cell.key));
   const recorded=new Set(Object.keys(state.cells));
   for(const key of scheduled)if(!recorded.has(key))throw Error('cleanup state is missing scheduled cell '+key);
   for(const key of recorded)if(!scheduled.has(key))throw Error('cleanup state has unscheduled cell '+key);
+  const records=Object.entries(state.cells).map(([key,record])=>({key,record}));
+  for(const [index,record] of (state.retired_cells??[]).entries()) {
+    if(!record||typeof record!=='object'||typeof record.key!=='string'||!scheduled.has(record.key))
+      throw Error('cleanup state has an invalid retired cell '+index);
+    records.push({key:`retired[${index}] ${record.key}`,record});
+  }
   const seenRepos=new Set(),seenProjects=new Set(),targets=[];
-  for(const [key,record] of Object.entries(state.cells)) {
+  for(const {key,record} of records) {
     if(!record||typeof record!=='object')throw Error('cleanup state has an invalid recorded cell '+key);
     if(record.phase==='unstarted') {
       if(record.repo||record.project)throw Error('cleanup state marks an unstarted cell with remote resources '+key);
@@ -196,6 +204,11 @@ function cleanupTargets(state) {
         throw Error('cleanup Project ownership or identity mismatch for '+key);
       if(seenProjects.has(project.id))throw Error('cleanup state repeats Project '+project.id);
       seenProjects.add(project.id);
+    } else if(record.phase==='creating'&&!record.project_creation) {
+      // The durable phase is written before repository creation. If the process stops after
+      // the repository exists but before that phase advances, no Project call was possible.
+      targets.push({key,repo:record.repo,project:null,record,repositoryOnly:true});
+      continue;
     } else if(record.phase!=='creating'&&record.phase!=='repository-created') {
       throw Error('cleanup state is missing Project identity for '+key);
     } else if(record.project_creation?.status!=='pending'||record.project_creation.title!==record.projectTitle||
@@ -209,7 +222,7 @@ function cleanupTargets(state) {
 function recoverProjects(targets,state,statePath,auth) {
   let changed=false;
   for(const target of targets) {
-    if(target.unstarted||target.project)continue;
+    if(target.unstarted||target.repositoryOnly||target.project)continue;
     const title=target.record.projectTitle;
     if(typeof title!=='string'||!title.trim())throw Error('cleanup state cannot recover Project identity for '+target.key);
     const creation=target.record.project_creation;
@@ -217,8 +230,8 @@ function recoverProjects(targets,state,statePath,auth) {
       throw Error('cleanup state cannot prove Project creation for '+target.key+'; refusing repository deletion');
     const project=findProject({owner:state.identity.owner,title,repo:target.repo,ownerType:state.identity.mode==='personal'?'user':'organization',env:auth.setupEnv});
     if(!project)throw Error('cleanup cannot prove Project identity for '+target.key+'; refusing repository deletion');
-    state.cells[target.key].project=project;
-    state.cells[target.key].cleanup={...(state.cells[target.key].cleanup??{}),project:'pending',repo:'pending'};
+    target.record.project=project;
+    target.record.cleanup={...(target.record.cleanup??{}),project:'pending',repo:'pending'};
     changed=true;
   }
   if(changed)safeOut(statePath,state);
@@ -234,15 +247,17 @@ async function cleanupState({state,statePath,auth,signalState=null}) {
     let cleaned=0;
     for(const target of targets) {
       abort();
-      const cell=state.cells[target.key];
+      const cell=target.record;
       if(target.unstarted) {
         cell.cleanup={project:'not-created',repo:'not-created'};
         safeOut(statePath,state);
         continue;
       }
-      cleaned++;
       cell.cleanup=cell.cleanup??{project:target.project?'pending':'not-created',repo:'pending'};
-      if(target.project&&cell.cleanup.project!=='deleted'&&cell.cleanup.project!=='absent') {
+      const done=s=>s==='deleted'||s==='absent';
+      if(done(cell.cleanup.repo)&&(!target.project||done(cell.cleanup.project)))continue;
+      cleaned++;
+      if(target.project&&!done(cell.cleanup.project)) {
         try {
           cell.cleanup.project=deleteProject({projectId:target.project.id,env:auth.setupEnv});
           safeOut(statePath,state);
@@ -252,7 +267,7 @@ async function cleanupState({state,statePath,auth,signalState=null}) {
         }
       }
       abort();
-      if(cell.cleanup.repo!=='deleted'&&cell.cleanup.repo!=='absent') {
+      if(!done(cell.cleanup.repo)) {
         try {
           cell.cleanup.repo=deleteRepository({repo:target.repo,env:auth.setupEnv});
           safeOut(statePath,state);

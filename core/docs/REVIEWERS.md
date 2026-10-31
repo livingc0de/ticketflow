@@ -30,7 +30,7 @@ No list, no login, no re-request comment: `pr-wait` reads what GitHub shows on t
 - **Who counts.** Any app (a `[bot]` login, or an account of type Bot) that comments, reviews, leaves an inline review comment, or reacts on the pull request
   (reactions on the pull request itself, not on its comments), whatever it writes; or an owner, member or collaborator that reviewed it or left an inline comment on the exact head. No keyword decides: a deploy or coverage bot is listed too, and the agent, which reads every result, ignores what is not a
   review. Inline comments on older commits cannot start a new review round. The author of the pull request and the account running the script never count, nor a human who only left a PR-level comment.
-- **Push time.** Only activity after the head was pushed counts. That is the time of its first check suite, else its committer date
+- **Push time.** Only activity after the head was pushed counts. That is the time of its first Actions run, else its committer date
   (a commit made long before it was pushed can then admit older activity: a documented ceiling). Activity before the push, and reviews of
   another commit, decide nothing. A review of the head itself always counts, whatever its time: it can only exist after the push.
 - **Start.** A reviewer has started when it has a sign on the head: a review of it, a PR-level or inline comment or a reaction made after the push, or a
