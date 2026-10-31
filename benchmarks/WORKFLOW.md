@@ -71,8 +71,10 @@ recorded in the sidecar after the run, or use
 `--lifecycle cleanup-only --out <file> --allow-github-writes` later to resume that
 cleanup. Cleanup never deletes an organization or user account, retains the JSONL,
 state sidecar and transcript archives, and fails closed on missing or ambiguous
-resource records. Personal cleanup-only also requires
-`--acknowledge-personal-account`.
+resource records. If a Project identity is missing, cleanup may recover it only
+from a recorded pending-creation marker and an exact owner/title/repository
+association; no match is an error and the repository is not deleted. Personal
+cleanup-only also requires `--acknowledge-personal-account`.
 
 Pin competitor checkouts and the TicketFlow source to reviewed commits. The runner
 validates native plugin manifests and source provenance. TicketFlow must have the
@@ -117,7 +119,9 @@ GitHub Actions runs. Interrupted invocations may not report tokens or USD, so
 total cost is unknown rather than estimated.
 
 The runner stores per-cell remote repository and Project identities in a private
-'.state.json' sidecar next to the JSONL. `--resume` keeps that schedule
+'.state.json' sidecar next to the JSONL. It records a pending Project-creation
+marker before the remote create call, so cleanup can distinguish a recoverable
+crash window from an unverified resource. `--resume` keeps that schedule
 append-only: you may run scenarios separately, add later scenarios, increase
 repeats, or add a new arm with its pinned source. Existing cells, arms and
 remote resources are preserved; a later invocation runs only the requested
