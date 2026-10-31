@@ -52,7 +52,7 @@ export function newRepository({repo,id,work,env=setupEnv()}) {
   git(dir,['init','-q','-b','main'],env);
   git(dir,['-c','user.name=workflow-bench','-c','user.email=workflow-bench@example.invalid','add','-A'],env);
   git(dir,['-c','user.name=workflow-bench','-c','user.email=workflow-bench@example.invalid','commit','-qm','seed fixture'],env);
-  gh(['repo','create',repo,'--private','--disable-wiki'],{env});
+  gh(['repo','create',repo,'--public','--disable-wiki'],{env});
   git(dir,['remote','add','origin','https://github.com/'+repo+'.git'],env);
   gitPush(dir,env,'HEAD:main');
   return dir;

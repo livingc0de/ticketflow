@@ -24,7 +24,7 @@ in this new module change its fingerprint. Finish existing runs on their pinned 
 | W7 | Four independent existing work items | Coordinate parallelizable work without duplication, integration conflicts or unnecessary overhead |
 
 **GitHub Projects:** Each scenario/arm/repeat gets a new neutral Projects v2 board and
-a private repository. The harness creates *only* initial fixtures, not completed work. For W1 and W6 it creates **no issues**. Agents may use issues, plans, pull requests, Projects or another native mechanism to organize and trace the work; the evaluator records those choices rather than requiring a particular one.
+a public repository. The harness creates *only* initial fixtures, not completed work. For W1 and W6 it creates **no issues**. Agents may use issues, plans, pull requests, Projects or another native mechanism to organize and trace the work; the evaluator records those choices rather than requiring a particular one.
 All arms can read/write their own board. Only the TicketFlow arm installs/configures
 TicketFlow's native Project workflow and moves its seeded issues to Ready.
 Other arms are **not** forced to adopt TicketFlow labels, statuses or commands. They may accomplish the same outcomes using their native planning and review processes. TicketFlow does not receive credit simply for extra tickets, skill invocations, or generated artifacts.
@@ -66,7 +66,7 @@ limited agent token; it does not receive the setup token.
    **Settings → Access → Organizations → New organization**, and create a new
    organization with no production repositories, secrets, teams or integrations.
    A new organization starts with no repositories. Use a plan and enterprise policy
-   that permit the private repositories and Actions minutes required by the run.
+   that permit the public repositories and Actions minutes required by the run.
    Record the lowercase organization login; this is the value passed to `--org`.
 
 2. **Add the agent identity, if using two accounts.** From the organization, open
@@ -77,7 +77,7 @@ limited agent token; it does not receive the setup token.
 
 3. **Set repository access for newly created fixtures.** In **Settings → Access →
    Member privileges**, set **Base permissions** to **Write**. This is deliberate:
-   the default is not a reliable push permission for new private repositories, and
+   the default is not a reliable push permission for new public repositories, and
    the runner does not add the agent as a collaborator after each repository is
    created. Write is enough for the agent to push branches and create/update issues
    and pull requests; it does not grant repository administration. Because this
@@ -88,7 +88,7 @@ limited agent token; it does not receive the setup token.
    Also check **Repository creation** in the same area. An organization owner can
    create repositories regardless of the member setting, so the recommended setup
    identity can create the fixtures. If the setup identity is not an owner, allow
-   private repository creation explicitly; otherwise the first `gh repo create`
+   public repository creation explicitly; otherwise the first `gh repo create`
    will fail.
 
 4. **Enable Projects v2.** In **Settings → Code planning, and automation →
@@ -118,7 +118,7 @@ limited agent token; it does not receive the setup token.
    organization owner normally does not need that approval. See GitHub's [PAT
    organization policy](https://docs.github.com/en/organizations/managing-programmatic-access-to-your-organization/setting-a-personal-access-token-policy-for-your-organization).
 
-No other organization setting is required. The runner creates private repositories,
+No other organization setting is required. The runner creates public repositories,
 the neutral Projects v2 boards, issues, the W4 pull-request fixture and the Actions
 workflows itself. It does not need wikis, discussions, organization secrets,
 webhooks, packages, releases, custom rulesets or a pre-created team.
@@ -143,7 +143,7 @@ with these permissions:
 - **Repository permissions:** `Administration: Read and write`, `Contents: Read and
   write`, `Issues: Read and write`, `Pull requests: Read and write`, `Commit statuses:
   Read`, `Actions: Read`, `Workflows: Read and write`, and `Metadata: Read`.
-  Administration write is needed both to create private repositories and to delete
+  Administration write is needed both to create public repositories and to delete
   exactly those repositories during cleanup. It also covers the runner's read-only
   Actions-policy check. `Actions: Read` lets the evaluator inspect workflow runs and
   jobs. `Workflows: Read and write` is needed to push the seeded
@@ -197,7 +197,7 @@ value into `gh auth login`. Confirm the identities without printing token values
     GH_TOKEN="$WORKFLOW_BENCH_AGENT_TOKEN" gh api user --jq .login
 
 The setup account must be the organization owner (or otherwise be allowed to create
-private repositories), and the second command must print the exact `--org` login.
+public repositories), and the second command must print the exact `--org` login.
 The setup and agent identity commands may print the same login when using the
 same-account/two-token arrangement; that is valid as long as the tokens have the
 different permissions documented above.
@@ -404,7 +404,7 @@ and a corresponding `workflow` array. Use `report-local.mjs` or
 
 - Real remote resources are created **only** with --execute and --allow-github-writes.
   CI tests and dry-run do not create repositories, Projects or paid sessions.
-- The runner creates one private repository and one Project for each cell by
+- The runner creates one public repository and one Project for each cell by
   default to avoid cross-cell contamination. The 84-cell matrix can thus create
   84 repositories and 84 Projects. No production repository is touched.
 - Remote resources are **preserved after runs** by default for auditable evidence.
