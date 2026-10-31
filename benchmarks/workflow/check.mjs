@@ -97,7 +97,7 @@ export function checkRuns(repo,pr,env,request=api){
   const mergedAt=Date.parse(pr.mergedAt);
   if(!Number.isFinite(mergedAt))throw Error('merged PR has an invalid merge timestamp');
   const runs=workflowRuns(repo,pr,env,request);
-  const checks=[],failures=[];
+  const checks=[],failures=[],unfinished=[];
   for(const run of runs){
     if(!workflowRunMatches(run,pr)||!Number.isSafeInteger(run.id)||run.id<1)
       throw Error('GitHub Actions workflow run response is malformed');
@@ -111,6 +111,9 @@ export function checkRuns(repo,pr,env,request=api){
         workflow:run.name??null,run_id:run.id};
       if(job.name==='tests')checks.push(evidence);
       if(actionsFailures.has(job.conclusion)&&completeBefore(job.completed_at,mergedAt))failures.push(evidence);
+      // A framework gate already running at merge time must have finished green before it; later-starting runs are ignored.
+      else if(job.name!=='tests'&&job.started_at&&Date.parse(job.started_at)<=mergedAt&&
+        !(job.status==='completed'&&completeBefore(job.completed_at,mergedAt)))unfinished.push(evidence);
     }
     // A run can fail before producing a job record (for example, during workflow
     // setup), so retain the run-level failure signal as well.
@@ -120,9 +123,10 @@ export function checkRuns(repo,pr,env,request=api){
   }
   const pass=checks.some(c=>c.status==='completed'&&c.conclusion==='success'&&completeBefore(c.completed_at,mergedAt));
   // A green neutral fixture check cannot excuse merging while a framework's own gate is red.
-  return {pass:pass&&failures.length===0,
+  return {pass:pass&&failures.length===0&&unfinished.length===0,
     reason:checks.length?checks.map(c=>c.status+'/'+c.conclusion).join(',')+
-      (failures.length?' (other failing checks: '+failures.map(c=>c.name).join(',')+')':''):
+      (failures.length?' (other failing checks: '+failures.map(c=>c.name).join(',')+')':'')+
+      (unfinished.length?' (checks unfinished at merge: '+unfinished.map(c=>c.name).join(',')+')':''):
       'required neutral GitHub Actions test missing'};
 }
 /** Observable local-fallback evidence for an open or merged PR. This never turns an unmerged PR into delivery success. */

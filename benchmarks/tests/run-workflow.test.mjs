@@ -219,6 +219,18 @@ test('cleanup-only removes a repository recorded before the phase advanced witho
   assert.match(log,/repo delete example-benchmark-org\/tfwf-cleanup-w1-bare-1/);
   assert.doesNotMatch(log,/deleteProjectV2/);
 }));
+test('cleanup-only removes a repository recorded at repository-created without a Project marker',()=>withTemp(dir=>{
+  const file=cleanupFixture(dir,{phase:'repository-created',project:false}),bin=fakeGh(dir),ghLog=join(dir,'gh.log');
+  const state=JSON.parse(readFileSync(file+'.state.json','utf8'));
+  delete state.cells['W1|bare|1'].project_creation;
+  writeFileSync(file+'.state.json',JSON.stringify(state,null,2));
+  const result=spawnSync(process.execPath,[runner,'--lifecycle','cleanup-only','--out',file,'--allow-github-writes'],
+    {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog,WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token'},timeout:30000});
+  assert.equal(result.status,0,result.stderr);
+  const log=readFileSync(ghLog,'utf8');
+  assert.match(log,/repo delete example-benchmark-org\/tfwf-cleanup-w1-bare-1/);
+  assert.doesNotMatch(log,/deleteProjectV2/);
+}));
 test('cleanup-only also deletes exact resources from retired invalid attempts',()=>withTemp(dir=>{
   const file=cleanupFixture(dir),bin=fakeGh(dir),ghLog=join(dir,'gh.log');
   const state=JSON.parse(readFileSync(file+'.state.json','utf8')),key='W1|bare|1';

@@ -204,7 +204,7 @@ function cleanupTargets(state) {
         throw Error('cleanup Project ownership or identity mismatch for '+key);
       if(seenProjects.has(project.id))throw Error('cleanup state repeats Project '+project.id);
       seenProjects.add(project.id);
-    } else if(record.phase==='creating'&&!record.project_creation) {
+    } else if((record.phase==='creating'||record.phase==='repository-created')&&!record.project_creation) {
       // The durable phase is written before repository creation. If the process stops after
       // the repository exists but before that phase advances, no Project call was possible.
       targets.push({key,repo:record.repo,project:null,record,repositoryOnly:true});
@@ -503,7 +503,7 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
       // A clean, separately cloned context proves recovery from remote GitHub state.
       abort();
       let fresh;
-      try { fresh=cloneRepository(repo,join(work,'resumed'),auth.setupEnv);abort(); }
+      try { fresh=cloneRepository(repo,join(work,'resumed-'+Date.now()),auth.setupEnv);abort(); }
       catch(e) { if(e?.code==='WORKFLOW_INTERRUPTED')markInterrupted(); throw e; }
       candidateDir=fresh;
       parts.push(await runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir:fresh,work,source,mode,githubToken:auth.agentToken,archiveRoot,

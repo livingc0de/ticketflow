@@ -82,6 +82,14 @@ test('a rerun with an earlier failed job remains invalid',()=>{
   assert.match(result.reason,/other failing checks: tests/);
 });
 
+test('a framework gate still running at merge blocks delivery',()=>{
+  const started=new Date(Date.parse(pr.mergedAt)-60_000).toISOString();
+  const f=fixture([run(1)],{1:[job('tests'),job('Verify',{status:'in_progress',conclusion:null,completed_at:null,started_at:started})]});
+  const result=checkRuns('org/repo',pr,null,f.request);
+  assert.equal(result.pass,false);
+  assert.match(result.reason,/unfinished at merge: Verify/);
+});
+
 test('incomplete or malformed Actions listings fail closed',()=>{
   const incomplete=checkRuns.bind(null,'org/repo',pr,null,(path)=>{
     if(path.includes('/actions/runs?'))return {total_count:2,workflow_runs:[run(1)]};
