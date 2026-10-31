@@ -41,6 +41,7 @@
 - A new script or branch of logic comes with a test; `npm test` passes.
 - A skill description is a "Use when..." trigger, never a workflow summary.
 - Security, validation and data-loss protection are never cut.
+- A `pr-reviewer` review body starts with `Reviewed head: <sha>`, then the line `**Verdict:** ready to merge` exactly (anything appended counts as not ready), as `core/scripts/merge.mjs` requires.
 
 ## Maintainer tasks
 - Reviewing new Superpowers and Ponytail releases: `skills/upstream/SKILL.md` (a maintainer-only skill and tool, not part of the customer runtime).
