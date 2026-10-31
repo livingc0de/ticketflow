@@ -39,21 +39,156 @@ audit and are not presented as deterministic facts.
 ## Setup
 
 Run only on a disposable Linux VM with no personal, cloud or production credentials.
-Organization mode uses a **dedicated GitHub organization** for benchmark fixtures
-and two credentials belonging to identities with clearly limited scope:
+GitHub's [organization creation guide](https://docs.github.com/en/organizations/collaborating-with-groups-in-organizations/creating-a-new-organization-from-scratch)
+is useful background. Organization mode uses a **dedicated GitHub organization**
+for benchmark fixtures and two credentials belonging to two identities with
+clearly limited scope. The runner does not create or delete the organization.
 
-- WORKFLOW_BENCH_SETUP_TOKEN: may create private repos, Projects v2, seed Issues/PRs;
-  it is never given to the coding agent.
-- WORKFLOW_BENCH_AGENT_TOKEN: can work only on benchmark repositories, including
-  issue/PR writes, branch push and Project access. **Must not have organization admin**
-  permissions or access to production repositories.
+### Organization-mode preparation
 
-The organization must allow Actions, Projects v2 and private repository creation.
-The agent identity must already have access to new benchmark repositories. The
-harness does not grant or expand permissions. Inspect the two token scopes and
-verify repository and Project access before paid runs. GitHub Actions can consume
-runner minutes independently of model charges. Personal mode does not require an
-organization or either workflow token variable.
+Complete these steps once before the first organization-mode run. The safest
+arrangement is two disposable GitHub user accounts: a setup account that owns the
+organization and an agent account that is only a normal organization member.
+
+1. **Create the organization.** Sign in to GitHub as the setup account, open
+   **Settings → Access → Organizations → New organization**, and create a new
+   organization with no production repositories, secrets, teams or integrations.
+   A new organization starts with no repositories. Use a plan and enterprise policy
+   that permit the private repositories and Actions minutes required by the run.
+   Record the lowercase organization login; this is the value passed to `--org`.
+
+2. **Add the agent identity.** From the organization, open **Settings → People →
+   Members → Invite member** and invite the agent account. Keep the setup account as
+   an owner, but do not make the agent account an owner. Accept the invitation while
+   signed in as the agent account.
+
+3. **Set repository access for newly created fixtures.** In **Settings → Access →
+   Member privileges**, set **Base permissions** to **Write**. This is deliberate:
+   the default is not a reliable push permission for new private repositories, and
+   the runner does not add the agent as a collaborator after each repository is
+   created. Write is enough for the agent to push branches and create/update issues
+   and pull requests; it does not grant repository administration. Because this
+   applies to every repository in the organization, keep this organization empty
+   except for disposable benchmark material. See GitHub's [base-permission
+   documentation](https://docs.github.com/en/organizations/managing-user-access-to-your-organizations-repositories/managing-repository-roles/setting-base-permissions-for-an-organization).
+
+   Also check **Repository creation** in the same area. An organization owner can
+   create repositories regardless of the member setting, so the recommended setup
+   identity can create the fixtures. If the setup identity is not an owner, allow
+   private repository creation explicitly; otherwise the first `gh repo create`
+   will fail.
+
+4. **Enable Projects v2.** In **Settings → Code planning, and automation →
+   Projects**, make sure **Enable Projects for the organization** is selected.
+   In **Settings → Access → Member privileges**, set **Projects base permissions**
+   to **Write** so the agent can edit its own organization-level board. The runner
+   creates one new Projects v2 board per cell; you do not need to create boards
+   manually. Projects are normally enabled, but verify this because an organization
+   or enterprise policy can disable them. See GitHub's [Projects organization
+   settings](https://docs.github.com/en/organizations/managing-organization-settings/disabling-project-boards-in-your-organization)
+   and [Projects base permissions](https://docs.github.com/en/organizations/managing-organization-settings/managing-base-permissions-for-projects).
+
+5. **Enable Actions.** Open **Settings → Actions → General**, enable Actions for
+   all repositories, and allow the public actions used by the fixture, including
+   `actions/checkout` and `actions/setup-node`. The benchmark does not need org
+   secrets, self-hosted runners, packages, deployments or custom Actions settings.
+   Leave workflow `GITHUB_TOKEN` permissions at the repository/organization default;
+   the benchmark's setup and agent PATs are separate from that token. Actions are
+   enabled by default on new organizations, but check the page because an
+   enterprise policy may override it. See [GitHub Actions organization
+   settings](https://docs.github.com/en/organizations/managing-organization-settings/disabling-or-limiting-github-actions-for-your-organization).
+
+6. **Allow programmatic access.** In **Settings → Personal access tokens**, make
+   sure the organization allows fine-grained personal access tokens. If the policy
+   requires administrator approval, the setup account must approve the agent token
+   before it can access private repositories or Projects. A token created by an
+   organization owner normally does not need that approval. See GitHub's [PAT
+   organization policy](https://docs.github.com/en/organizations/managing-programmatic-access-to-your-organization/setting-a-personal-access-token-policy-for-your-organization).
+
+No other organization setting is required. The runner creates private repositories,
+the neutral Projects v2 boards, issues, the W4 pull-request fixture and the Actions
+workflows itself. It does not need wikis, discussions, organization secrets,
+webhooks, packages, releases, custom rulesets or a pre-created team.
+
+### Creating the two organization-mode tokens
+
+Create each token while signed in as the identity that will own it. Go to **avatar →
+Settings → Developer settings → Personal access tokens → Fine-grained tokens →
+Generate new token**, set a short expiration, choose the disposable organization as
+**Resource owner**, and choose **All repositories**. All repositories is intentional:
+the runner generates unique repository names at runtime, so selected-repository access
+cannot be configured in advance. The [PAT creation guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
+and GitHub's [fine-grained permission reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens)
+describe the current token UI.
+
+Create a token named, for example, `ticketflow-benchmark-setup` for the setup account
+with these permissions:
+
+- **Repository permissions:** `Administration: Read and write`, `Contents: Read and
+  write`, `Issues: Read and write`, `Pull requests: Read and write`, and `Metadata: Read`.
+  Administration write is needed both to create the private repositories and to
+  delete exactly those repositories during cleanup. It also covers the runner's
+  read-only Actions-policy check. Do not grant organization administration, member,
+  secrets, runners, packages or billing permissions.
+- **Organization permissions:** `Projects: Read and write`.
+
+This token creates and seeds repositories, creates and links Projects, creates the
+fixture issues/PR, checks Actions, and performs cleanup. It is never passed to the
+paid agent.
+
+Create a separate token named, for example, `ticketflow-benchmark-agent` for the
+agent account with these permissions:
+
+- **Repository permissions:** `Contents: Read and write`, `Issues: Read and write`,
+  `Pull requests: Read and write`, and `Metadata: Read`.
+- **Organization permissions:** `Projects: Read and write`.
+
+The organization membership's Write base permission plus this token lets the agent
+clone, push branches, create/update issues and pull requests, and edit the assigned
+Projects board. Do **not** grant Administration, organization administration,
+repository deletion, member management, secrets, billing or access to any other
+organization. The agent token is deliberately unable to create or delete benchmark
+repositories.
+
+If GitHub shows an additional required permission for a specific endpoint, use the
+[fine-grained permission reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens)
+to confirm it. Do not solve a failed request by giving the agent a broad classic
+`repo` or `admin:org` token. A classic PAT with `repo` is only a broad fallback for
+an account where the fine-grained GraphQL/Projects flow is unavailable; use it only
+in the disposable organization, never for the agent if a fine-grained token works,
+and revoke it immediately after the run.
+
+### Supplying and checking the tokens
+
+The generated token value is shown once. Keep it in a password manager or another
+secret store; do not commit it, put it in `.env`, paste it into a results file, or
+reuse it for production. Export the two variables in the shell that launches the
+runner. A hidden prompt avoids putting the values in shell history:
+
+    read -rsp "Setup token: " WORKFLOW_BENCH_SETUP_TOKEN; echo
+    export WORKFLOW_BENCH_SETUP_TOKEN
+    read -rsp "Agent token: " WORKFLOW_BENCH_AGENT_TOKEN; echo
+    export WORKFLOW_BENCH_AGENT_TOKEN
+
+The variable names are exact. The runner injects them as `GH_TOKEN` and
+`GITHUB_TOKEN` for the appropriate subprocesses, so you do not need to copy either
+value into `gh auth login`. Confirm the identities without printing token values:
+
+    GH_TOKEN="$WORKFLOW_BENCH_SETUP_TOKEN" gh api user --jq .login
+    GH_TOKEN="$WORKFLOW_BENCH_SETUP_TOKEN" gh api "orgs/$YOUR_ORG" --jq .login
+    GH_TOKEN="$WORKFLOW_BENCH_AGENT_TOKEN" gh api user --jq .login
+
+The setup account must be the organization owner (or otherwise be allowed to create
+private repositories), and the second command must print the exact `--org` login.
+The runner performs the remaining repository push, Actions and Project access checks
+before invoking a paid agent. For `cleanup-only`, keep both organization variables
+available because organization-mode authentication still validates both identities.
+After the run or cleanup, remove them from the shell with:
+
+    unset WORKFLOW_BENCH_SETUP_TOKEN WORKFLOW_BENCH_AGENT_TOKEN
+
+GitHub Actions can consume runner minutes independently of model charges. Personal
+mode does not require an organization or either workflow token variable.
 
 The runner has two target modes:
 
@@ -62,12 +197,13 @@ The runner has two target modes:
   repeatable benchmark runs.
 - **Direct/personal mode** (`--mode personal`): omit `--org`; it uses the existing
   `gh auth login` account for setup, scoring and the agent,
-creates user-owned repositories with a `ticketflow-benchmark-<run-id>-...` prefix,
-and creates user-owned Projects. It does not require the two workflow token
-variables, but it gives the agent the full permissions of that `gh` identity. Run
-personal mode only from a disposable account and pass
-`--acknowledge-personal-account` before paid work. `--org` is accepted only in
-organization mode.
+  creates user-owned repositories with a `ticketflow-benchmark-<run-id>-...` prefix,
+  and creates user-owned Projects. It does not require the two workflow token
+  variables, but it gives the agent the full permissions of that `gh` identity. Run
+  personal mode only from a disposable account and pass
+  `--acknowledge-personal-account` before paid work. `--org` is accepted only in
+  organization mode. There is no `--owner` alias: use `--org` for organization mode
+  and omit both flags for personal mode.
 
 Each target mode supports three lifecycles. The default
 `run-without-cleanup` preserves remote evidence. Use
