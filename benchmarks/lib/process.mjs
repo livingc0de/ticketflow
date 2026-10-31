@@ -38,12 +38,33 @@ export function terminateProcess(child, { platform = process.platform, graceMs =
     return () => clearTimeout(timer)
 }
 
+// Children of runProcess still running; a harness signal must not orphan a paid agent in its own process group.
+// After a signal every runProcess rejects (never resolves a killed session as a result) and the harness exits once they close.
+const live = new Set()
+let signalsInstalled = false, interruptedCode = 0
+const interrupted = () => Object.assign(Error('interrupted by signal'), { code: 'HARNESS_INTERRUPTED' })
+function forwardSignals() {
+    if (signalsInstalled) return
+    signalsInstalled = true
+    for (const [name, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+        process.on(name, () => {
+            interruptedCode ||= code
+            for (const stop of [...live]) stop()
+            if (!live.size) process.exit(interruptedCode)
+            // ponytail: hard stop if a child ignores SIGKILL escalation, which graceMs bounds
+            setTimeout(() => process.exit(interruptedCode), 5000)
+        })
+    }
+}
+
 /** Run a process with bounded process-group termination and captured output. */
 export function runProcess(command, args, {
     cwd, env, input = null, timeoutMs = 0, graceMs = 1000, maxBuffer = 1 << 28,
     onStdout = () => {}, onStderr = () => {},
 } = {}) {
     return new Promise((resolve, reject) => {
+        forwardSignals()
+        if (interruptedCode) return reject(interrupted())
         let child
         try {
             child = spawn(command, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32' })
@@ -71,10 +92,18 @@ export function runProcess(command, args, {
             clearEscalation = terminateProcess(child, { graceMs, onEscalate: onStderr.bind(null, '\nprocess group escalated to SIGKILL\n') })
         }
         const finish = (status, signal, error = null) => {
+            live.delete(stop)
             clearTimeout(timeout)
             clearEscalation()
+            if (interruptedCode) {
+                reject(interrupted())
+                // let the caller's cleanup (finally blocks) run before the harness exits
+                if (!live.size) setTimeout(() => process.exit(interruptedCode), 100)
+                return
+            }
             resolve({ status, signal, error: error ?? stdinError, stdout, stderr, timedOut, outputLimit })
         }
+        live.add(stop)
         child.stdout.on('data', (value) => append('stdout', value))
         child.stderr.on('data', (value) => append('stderr', value))
         child.stdin.on('error', (error) => { stdinError ??= error })

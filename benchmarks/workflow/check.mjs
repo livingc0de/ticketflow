@@ -140,17 +140,21 @@ export function fallbackEvidence(repo,pr,env,request=api){
   if(!Array.isArray(comments))throw Error('pull request comment response is malformed');
   const localComments=comments.filter(x=>/^### CI \/ Gate:\s+(?:Passed|Failed)\b/m.test(String(x?.body??'')));
   const runs=workflowRuns(repo,pr,env,request);
-  let allowed=false;
+  let allowed=false,executedFailure=false;
   for(const run of runs){
     if(!workflowRunMatches(run,pr)||!Number.isSafeInteger(run.id)||run.id<1)throw Error('GitHub Actions workflow run response is malformed');
     const jobs=page(request('repos/'+repo+'/actions/runs/'+run.id+'/jobs?filter=all&per_page=100',env),'jobs','jobs for workflow run '+run.id);
     for(const job of jobs)if(typeof job?.head_sha!=='string'||(job.head_sha!==pr.headRefOid&&job.head_sha!==run.head_sha))
       throw Error('GitHub Actions job response is malformed');
-    if(actionsFailures.has(run.conclusion)&&!jobs.some(job=>ranOnRunner(job)))allowed=true;
+    if(actionsFailures.has(run.conclusion)){if(jobs.some(job=>ranOnRunner(job))){if(!pr.mergedAt||completeBefore(run.updated_at,Date.parse(pr.mergedAt)))executedFailure=true;}else allowed=true;}
   }
+  // A failure that executed on a runner before the merge is a real CI failure; a separate runnerless refusal cannot excuse it.
+  allowed=allowed&&!executedFailure;
   const localStatus=/^Local (?:run|check) on /i.test(String(gate?.description??''));
   const attempted=localStatus||localComments.length>0;
-  return {allowed,attempted,posted:localStatus,success:localStatus&&gate.state==='success',state:gate?.state??null,
+  // For a merged PR the local gate only counts when it was posted before the merge.
+  const inTime=!pr.mergedAt||completeBefore(gate?.updated_at??gate?.created_at,Date.parse(pr.mergedAt));
+  return {allowed,attempted,posted:localStatus,success:Boolean(localStatus&&gate.state==='success'&&inTime),state:gate?.state??null,
     description:gate?.description??null,local_comments:localComments.length};
 }
 function reviewEvidence(repo,pr,{seededPR=null}={},env){

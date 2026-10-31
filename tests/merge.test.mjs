@@ -11,13 +11,15 @@ const R = 'repos/o/r'
 const HEAD = 'abcdef1234567890abcdef1234567890abcdef12'
 const OLD = '1'.repeat(40)
 const ago = (m) => new Date(Date.now() - m * 60_000).toISOString()
+// one clock read: an unedited comment has created_at === updated_at (two ago() calls can differ by a millisecond)
+const stamp = (m) => { const t = ago(m); return { created_at: t, updated_at: t } }
 const pull = (over = {}) => ({ state: 'open', draft: false, base: { ref: 'main' }, head: { sha: HEAD }, merged: false, mergeable: true, mergeable_state: 'blocked', user: { login: 'author' }, ...over })
 const status = (state, sha = HEAD) => ({ sha, statuses: [{ context: 'other', state: 'failure' }, ...(state ? [{ context: 'CI / Gate', state }] : [])] })
 const MERGED = pull({ merged: true, merge_commit_sha: 'f'.repeat(40) })
 const SHA7 = HEAD.slice(0, 7)
 const ANCESTOR = '2'.repeat(40)
 /** The head was pushed 30 minutes ago (its first Actions run). */
-const suites = (sha = HEAD, min = 30) => ({ [`${R}/actions/runs`]: { total_count: 1, workflow_runs: [{ id: 1, head_sha: sha, name: 'CI', path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'success', created_at: ago(min), updated_at: ago(min) }] } })
+const suites = (sha = HEAD, min = 30) => ({ [`${R}/actions/runs`]: { total_count: 1, workflow_runs: [{ id: 1, head_sha: sha, name: 'CI', path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'success', ...stamp(min) }] } })
 
 const READY = `Reviewed head: ${SHA7}\n**Verdict:** ready to merge\n**Blockers:** none`
 const NEEDED = `Reviewed head: ${SHA7}\n**Verdict:** changes needed\n**Blockers:** \`a.js:1\`: bug -> fix`
@@ -287,7 +289,7 @@ test('M3: a reviewer that started and has not answered blocks the merge until it
 })
 
 test('M3b: a bot\'s unedited first comment is no basis for --reviewed-by while its 15 minutes run; on the own review the agent has judged it', () => {
-    const first = (min, over = {}) => ({ id: 31, user: APP, author_association: 'NONE', created_at: ago(min), updated_at: ago(min), html_url: 'https://x/c31', body: '<!-- rb-review-summary -->\n## Review\n| Code | Running |', ...over })
+    const first = (min, over = {}) => ({ id: 31, user: APP, author_association: 'NONE', ...stamp(min), html_url: 'https://x/c31', body: '<!-- rb-review-summary -->\n## Review\n| Code | Running |', ...over })
     // the own pr-reviewer review: a bot's comment does not block (the agent read it: not a review, or a status note it waited out)
     assert.equal(run({ comments: [first(4)] }).status, 0)
     refused(run({ args: by('rb[bot]'), comments: [first(4)], reviews: [] }), /first comment on abcdef1 could still be a status note.*at most 15 minutes from its start/)
@@ -296,7 +298,7 @@ test('M3b: a bot\'s unedited first comment is no basis for --reviewed-by while i
     assert.equal(early.status, 0, early.stderr)
     assert.match(early.stdout, /explicit result: https:\/\/x\/c31/)
     refused(run({ args: [...by('rb[bot]'), '--review-result-url', 'https://x/wrong'], comments: [first(4)], reviews: [] }), /review-result-url is not the observed result/)
-    refused(run({ args: [...by('rb[bot]'), '--review-result-url', 'https://x/c31'], comments: [first(4, { created_at: ago(35), updated_at: ago(35) })], reviews: [] }), /no result/)
+    refused(run({ args: [...by('rb[bot]'), '--review-result-url', 'https://x/c31'], comments: [first(4, { ...stamp(35) })], reviews: [] }), /no result/)
     // No implicit early completion merely because the first comment says "completed"; content still requires an agent to inspect it.
     refused(run({ args: by('rb[bot]'), comments: [first(4, { body: 'Review complete' })], reviews: [] }), /first comment .* could still be a status note/)
     // its edit, or a review, is its answer; 15 minutes with nothing more and the first comment stands as its whole answer
@@ -307,8 +309,7 @@ test('M3b: a bot\'s unedited first comment is no basis for --reviewed-by while i
 })
 
 test('inline-only review requires an inspected current-head result and cannot bypass open threads', () => {
-    const c = { id: 41, user: APP, author_association: 'NONE', commit_id: HEAD, created_at: ago(4),
-        updated_at: ago(4), body: 'P1: Handle bad input', path: 'src/a.js', line: 4, html_url: 'https://x/inline41' }
+    const c = { id: 41, user: APP, author_association: 'NONE', commit_id: HEAD, ...stamp(4), body: 'P1: Handle bad input', path: 'src/a.js', line: 4, html_url: 'https://x/inline41' }
     const extra = { [`${R}/pulls/5/comments`]: [c] }
     refused(run({ args: by('rb[bot]'), reviews: [], extra }), /first comment on abcdef1/)
     const early = run({ args: [...by('rb[bot]'), '--review-result-url', c.html_url], reviews: [], extra })
