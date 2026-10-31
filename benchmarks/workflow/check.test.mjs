@@ -90,6 +90,17 @@ test('a framework gate still running at merge blocks delivery',()=>{
   assert.match(result.reason,/unfinished at merge: Verify/);
 });
 
+test('a framework gate that started after merge is ignored; one that finished green after merge is flagged',()=>{
+  const late=new Date(Date.parse(pr.mergedAt)+60_000).toISOString();
+  const early=new Date(Date.parse(pr.mergedAt)-60_000).toISOString();
+  const post=fixture([run(1)],{1:[job('tests'),job('Verify',{status:'in_progress',conclusion:null,completed_at:null,started_at:late})]});
+  assert.equal(checkRuns('org/repo',pr,null,post.request).pass,true);
+  const slow=fixture([run(1)],{1:[job('tests'),job('Verify',{started_at:early,completed_at:after})]});
+  const result=checkRuns('org/repo',pr,null,slow.request);
+  assert.equal(result.pass,false);
+  assert.match(result.reason,/unfinished at merge: Verify/);
+});
+
 test('incomplete or malformed Actions listings fail closed',()=>{
   const incomplete=checkRuns.bind(null,'org/repo',pr,null,(path)=>{
     if(path.includes('/actions/runs?'))return {total_count:2,workflow_runs:[run(1)]};

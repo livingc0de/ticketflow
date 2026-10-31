@@ -349,7 +349,7 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,githubTok
     };
     try {
       child=spawn(agent,args,{cwd:dir,env,stdio:['pipe','pipe','pipe'],detached:process.platform!=='win32'});
-      child.stdin.once('error',e=>{stdinError??=e;stderr+='\nstdin: '+e.message});
+      child.stdin.on('error',e=>{stdinError??=e;stderr+='\nstdin: '+e.message});
       child.stdout.on('data',v=>{stdout+=v.toString();if(stdout.length>40_000_000)stop()});
       child.stderr.on('data',v=>{stderr+=v.toString();if(stderr.length>10_000_000)stop()});
       child.once('error',e=>{childError??=e;stderr+='\n'+e.message});

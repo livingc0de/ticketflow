@@ -111,6 +111,7 @@ export function checkRuns(repo,pr,env,request=api){
         workflow:run.name??null,run_id:run.id};
       if(job.name==='tests')checks.push(evidence);
       if(actionsFailures.has(job.conclusion)&&completeBefore(job.completed_at,mergedAt))failures.push(evidence);
+      // `tests` is exempt: the neutral fixture's own push/PR runs test the same head, and a green one already satisfies it.
       // A framework gate already running at merge time must have finished green before it; later-starting runs are ignored.
       else if(job.name!=='tests'&&job.started_at&&Date.parse(job.started_at)<=mergedAt&&
         !(job.status==='completed'&&completeBefore(job.completed_at,mergedAt)))unfinished.push(evidence);

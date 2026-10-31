@@ -53,7 +53,7 @@ test('workflow report computes arithmetic means for average evidence columns',()
     withCounts({...row('bare',true,true),repeat:2},0,0),
     withCounts({...row('bare',true,true),repeat:3},6,6),
   ]);
-  assert.match(result,/\| bare \| 0\.0 \| 1\.0 \| 2 \| 2 \|/);
+  assert.match(result,/\| bare \| 0\.0 \| 1\.0 \| 2\.0 \| 2\.0 \|/);
 });
 
 test('invalid archive/cleanup and evaluator errors are excluded from the denominator',()=>{

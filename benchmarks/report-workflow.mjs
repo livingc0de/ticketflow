@@ -63,8 +63,8 @@ export function render(rows){
     const plans=part.map(r=>r.delivery.process?.plan_artifacts?.length??null);
     const projectChanges=part.map(r=>r.delivery.process?.planning?.project_changed_from_pre_agent_baseline??null);
     lines.push('| '+safe(arm)+' | '+fmt(average('agent_created_issues'))+
-      ' | '+fmt(average('issues_closed_and_linked'))+' | '+fmt(averageValues(plans),0)+
-      ' | '+fmt(averageValues(projectChanges),0)+' |');
+      ' | '+fmt(average('issues_closed_and_linked'))+' | '+fmt(averageValues(plans))+
+      ' | '+fmt(averageValues(projectChanges))+' |');
   }
   lines.push('','## Per scenario','','| Scenario | Arm | Valid | Invalid | Candidate code | Pipeline | Seed ticket coverage |',
     '| --- | --- | ---: | ---: | ---: | ---: | ---: |');

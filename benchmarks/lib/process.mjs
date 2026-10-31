@@ -77,7 +77,7 @@ export function runProcess(command, args, {
         }
         child.stdout.on('data', (value) => append('stdout', value))
         child.stderr.on('data', (value) => append('stderr', value))
-        child.stdin.once('error', (error) => { stdinError ??= error })
+        child.stdin.on('error', (error) => { stdinError ??= error })
         child.once('error', (error) => { childError ??= error })
         child.once('close', (status, signal) => finish(status, signal, childError))
         try {
