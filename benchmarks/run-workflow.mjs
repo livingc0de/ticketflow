@@ -192,6 +192,9 @@ function cleanupTargets(state) {
       seenProjects.add(project.id);
     } else if(record.phase!=='creating'&&record.phase!=='repository-created') {
       throw Error('cleanup state is missing Project identity for '+key);
+    } else if(record.project_creation?.status!=='pending'||record.project_creation.title!==record.projectTitle||
+      record.project_creation.repo!==record.repo) {
+      throw Error('cleanup state is missing a recoverable Project creation marker for '+key);
     }
     targets.push({key,repo:record.repo,project,record});
   }
@@ -203,12 +206,14 @@ function recoverProjects(targets,state,statePath,auth) {
     if(target.unstarted||target.project)continue;
     const title=target.record.projectTitle;
     if(typeof title!=='string'||!title.trim())throw Error('cleanup state cannot recover Project identity for '+target.key);
+    const creation=target.record.project_creation;
+    if(creation?.status!=='pending'||creation.title!==title||creation.repo!==target.repo)
+      throw Error('cleanup state cannot prove Project creation for '+target.key+'; refusing repository deletion');
     const project=findProject({owner:state.identity.owner,title,repo:target.repo,ownerType:state.identity.mode==='personal'?'user':'organization',env:auth.setupEnv});
-    if(project) {
-      state.cells[target.key].project=project;
-      state.cells[target.key].cleanup={...(state.cells[target.key].cleanup??{}),project:'pending',repo:'pending'};
-      changed=true;
-    }
+    if(!project)throw Error('cleanup cannot prove Project identity for '+target.key+'; refusing repository deletion');
+    state.cells[target.key].project=project;
+    state.cells[target.key].cleanup={...(state.cells[target.key].cleanup??{}),project:'pending',repo:'pending'};
+    changed=true;
   }
   if(changed)safeOut(statePath,state);
   return changed?cleanupTargets(state):targets;
@@ -365,7 +370,12 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   current.cleanup=current.cleanup??{project:current.project?'pending':'not-created',repo:'pending'};
   if(current.phase==='creating') throw Error('Repository creation interrupted: inspect '+repo+' before resuming');
   if(!current.project) {
+    if(current.project_creation?.status==='recorded')
+      throw Error('Project identity is missing after recorded creation; reconcile '+repo+' before resuming');
+    current.project_creation={status:'pending',title:current.projectTitle,repo};
+    safeOut(statePath,state);
     current.project=linkProject({repo,owner:auth.owner,ownerType:auth.ownerType,title:current.projectTitle,env:auth.setupEnv});
+    current.project_creation.status='recorded';
     current.cleanup.project='pending';
     safeOut(statePath,state);
   }

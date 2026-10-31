@@ -82,6 +82,7 @@ const cleanupFixture=(dir,{mode='organization',owner='example-benchmark-org',mis
   const second={id:'W2',arm:'bare',repeat:1,key:'W2|bare|1'};
   const record={repo:owner+'/'+(mode==='personal'?'ticketflow-benchmark-':'tfwf-')+'cleanup-w1-bare-1',phase,
     projectTitle:'Workflow cleanup-run W1 bare 1',cleanup:{project:project?'pending':'not-created',repo:'pending'}};
+  if(!project)record.project_creation={status:'pending',title:record.projectTitle,repo:record.repo};
   if(project)record.project={id:'PVT_123',number:1,owner,owner_type:mode==='personal'?'user':'organization'};
   writeFileSync(file+'.state.json',JSON.stringify({version:3,runId:'cleanup-run',identity:{mode,owner},schedule:missingCell?[cell,second]:[cell],cells:{[cell.key]:record}},null,2));
   return file;
@@ -174,6 +175,12 @@ test('cleanup-only fails closed when a recovered Project is linked to another re
   const result=spawnSync(process.execPath,[runner,'--lifecycle','cleanup-only','--out',file,'--allow-github-writes'],
     {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog,FIND_PROJECT:'1',FIND_PROJECT_WRONG_REPO:'1',WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token'},timeout:30000});
   assert.equal(result.status,2);assert.match(result.stderr,/not associated with recorded repository/);assert.doesNotMatch(readFileSync(ghLog,'utf8'),/repo delete|deleteProjectV2/);
+}));
+test('cleanup-only fails closed when Project recovery finds no matching Project',()=>withTemp(dir=>{
+  const file=cleanupFixture(dir,{phase:'repository-created',project:false}),bin=fakeGh(dir),ghLog=join(dir,'gh.log');
+  const result=spawnSync(process.execPath,[runner,'--lifecycle','cleanup-only','--out',file,'--allow-github-writes'],
+    {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog,WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token'},timeout:30000});
+  assert.equal(result.status,2);assert.match(result.stderr,/cannot prove Project identity/);assert.doesNotMatch(readFileSync(ghLog,'utf8'),/repo delete|deleteProjectV2/);
 }));
 test('unisolated Claude workflow profiles preserve the approved config directory',()=>withTemp(dir=>{
   const previousConfig=process.env.CLAUDE_CONFIG_DIR,previousToken=process.env.WORKFLOW_BENCH_AGENT_TOKEN;
