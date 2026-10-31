@@ -72,9 +72,15 @@ const graphql=(query,variables={},env=setupEnv())=>{
 export function projectUrl({owner,number,ownerType='organization'}) {
   return 'https://github.com/'+(ownerType==='user'?'users':'orgs')+'/'+owner+'/projects/'+number;
 }
+const projectOwnerFields='id projectsV2(first:100){nodes{id number title repositories(first:100){nodes{nameWithOwner} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}';
+const projectOwnerSelection=(ownerType)=>{
+  if(ownerType==='organization')return 'organization(login:$owner){'+projectOwnerFields+'}';
+  if(ownerType==='user')return 'user(login:$owner){'+projectOwnerFields+'}';
+  throw Error('unsupported Project owner type '+ownerType);
+};
 export function findProject({owner,title,repo,ownerType='organization',env=setupEnv()}) {
   if(typeof repo!=='string'||!repo.includes('/'))throw Error('cleanup Project recovery requires a repository identity');
-  const data=graphql('query($owner:String!){ organization(login:$owner){id projectsV2(first:100){nodes{id number title repositories(first:100){nodes{nameWithOwner} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}} user(login:$owner){id projectsV2(first:100){nodes{id number title repositories(first:100){nodes{nameWithOwner} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}} }',
+  const data=graphql('query($owner:String!){'+projectOwnerSelection(ownerType)+'}',
     {owner},env);
   const account=ownerType==='user'?data.user:data.organization;
   if(!account)throw Error('Project owner is not accessible');
@@ -89,7 +95,7 @@ export function findProject({owner,title,repo,ownerType='organization',env=setup
   return {...project,owner,owner_type:ownerType};
 }
 export function linkProject({repo,owner,title,ownerType='organization',env=setupEnv()}) {
-  const data=graphql('query($owner:String!,$repo:String!){ organization(login:$owner){id projectsV2(first:100){nodes{id number title repositories(first:100){nodes{nameWithOwner} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}} user(login:$owner){id projectsV2(first:100){nodes{id number title repositories(first:100){nodes{nameWithOwner} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}} repository(owner:$owner,name:$repo){id}}',
+  const data=graphql('query($owner:String!,$repo:String!){'+projectOwnerSelection(ownerType)+' repository(owner:$owner,name:$repo){id}}',
     {owner,repo:repo.split('/')[1]},env);
   const account=ownerType==='user'?data.user:data.organization;
   if(!account||!data.repository)throw Error('Project owner or repository not accessible');

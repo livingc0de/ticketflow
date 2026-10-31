@@ -49,9 +49,13 @@ if [ "$1" = "auth" ] && [ "$2" = "token" ]; then echo single-gh-token; exit 0; f
 if [ "$1" = "api" ] && [ "$2" = "user" ]; then printf '{"login":"${user}","type":"User"}\\n'; exit 0; fi
 if [ "$1" = "api" ] && [ "$2" = "orgs/${org}" ]; then printf '{"login":"${org}"}\\n'; exit 0; fi
 if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
+  if [ "$REJECT_USER_OWNER_QUERY" = "1" ]; then
+    case "$*" in *"user(login:"*) echo organization owner query must not resolve as user >&2; exit 1;; esac
+  fi
   case "$*" in
     *deleteProjectV2*) if [ "$FIND_PROJECT" = "1" ]; then printf '{"data":{"deleteProjectV2":{"deletedProjectId":"PVT_777"}}}\\n'; else printf '{"data":{"deleteProjectV2":{"deletedProjectId":"PVT_123"}}}\\n'; fi ;;
-    *) if [ "$FIND_PROJECT" = "1" ]; then if [ "$FIND_PROJECT_WRONG_REPO" = "1" ]; then printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[{"id":"PVT_777","number":9,"title":"Workflow cleanup-run W1 bare 1","repositories":{"nodes":[{"nameWithOwner":"example-benchmark-org/other-repo"}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":${projectPage}}}},"user":null}}\\n'; else printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[{"id":"PVT_777","number":9,"title":"Workflow cleanup-run W1 bare 1","repositories":{"nodes":[{"nameWithOwner":"example-benchmark-org/tfwf-cleanup-w1-bare-1"}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":${projectPage}}}},"user":null}}\\n'; fi; else printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[],"pageInfo":{"hasNextPage":false}}},"user":null}}\\n'; fi ;;
+    *createProjectV2*) printf '{"data":{"createProjectV2":{"projectV2":{"id":"PVT_456","number":7}}}}\\n' ;;
+    *) if [ "$FIND_PROJECT" = "1" ]; then if [ "$FIND_PROJECT_WRONG_REPO" = "1" ]; then printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[{"id":"PVT_777","number":9,"title":"Workflow cleanup-run W1 bare 1","repositories":{"nodes":[{"nameWithOwner":"example-benchmark-org/other-repo"}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":${projectPage}}}},"user":null}}\\n'; else printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[{"id":"PVT_777","number":9,"title":"Workflow cleanup-run W1 bare 1","repositories":{"nodes":[{"nameWithOwner":"example-benchmark-org/tfwf-cleanup-w1-bare-1"}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":${projectPage}}}},"user":null}}\\n'; fi; else printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[],"pageInfo":{"hasNextPage":false}}},"user":null,"repository":{"id":"R_123"}}}\\n'; fi ;;
   esac
   exit 0
 fi
@@ -110,6 +114,13 @@ test('personal Projects resolve through the user GraphQL owner and URL',()=>with
   assert.deepEqual(project,{id:'PVT_456',number:7,owner:'bench-user',owner_type:'user'});
   assert.equal(projectUrl({owner:'bench-user',ownerType:'user',number:7}),'https://github.com/users/bench-user/projects/7');
   const log=readFileSync(ghLog,'utf8');assert.match(log,/user\(login:\$owner\)/);assert.match(log,/createProjectV2/);
+}));
+test('organization Projects resolve only through the organization GraphQL owner',()=>withTemp(dir=>{
+  const bin=fakeGh(dir),ghLog=join(dir,'gh.log');
+  const project=linkProject({repo:'example-benchmark-org/ticketflow-benchmark-demo',owner:'example-benchmark-org',title:'Workflow demo',
+    env:{...env,PATH:bin+':'+process.env.PATH,GH_TOKEN:'setup-token',GITHUB_TOKEN:'setup-token',GH_LOG:ghLog,REJECT_USER_OWNER_QUERY:'1'}});
+  assert.deepEqual(project,{id:'PVT_456',number:7,owner:'example-benchmark-org',owner_type:'organization'});
+  assert.doesNotMatch(readFileSync(ghLog,'utf8'),/user\(login:/);
 }));
 test('Project linking fails closed when the owner Project list is paginated',()=>withTemp(dir=>{
   const bin=fakeProjectGh(dir,{paginated:true}),ghLog=join(dir,'gh.log');
