@@ -99,6 +99,9 @@ test('local fallback success must predate the merge and cannot excuse a failure 
   const ran=job('tests',{conclusion:'failure',steps:[{name:'npm test'}]});
   const mixed=fallbackEvidence('org/repo',merged,null,make(status(before),[run(1,{conclusion:'failure'}),run(2,{conclusion:'failure'})],{1:[ran],2:[]}));
   assert.equal(mixed.allowed,false);
+  // a runner-backed failure that only finished after the merge cannot undo the delivery
+  const late=fallbackEvidence('org/repo',merged,null,make(status(before),[run(1,{conclusion:'failure'}),run(2,{conclusion:'failure',updated_at:after})],{1:[],2:[ran]}));
+  assert.equal(late.allowed,true);
 });
 
 test('a framework gate still running at merge blocks delivery',()=>{

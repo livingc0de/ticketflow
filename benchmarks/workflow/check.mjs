@@ -146,9 +146,9 @@ export function fallbackEvidence(repo,pr,env,request=api){
     const jobs=page(request('repos/'+repo+'/actions/runs/'+run.id+'/jobs?filter=all&per_page=100',env),'jobs','jobs for workflow run '+run.id);
     for(const job of jobs)if(typeof job?.head_sha!=='string'||(job.head_sha!==pr.headRefOid&&job.head_sha!==run.head_sha))
       throw Error('GitHub Actions job response is malformed');
-    if(actionsFailures.has(run.conclusion)){if(jobs.some(job=>ranOnRunner(job)))executedFailure=true;else allowed=true;}
+    if(actionsFailures.has(run.conclusion)){if(jobs.some(job=>ranOnRunner(job))){if(!pr.mergedAt||completeBefore(run.updated_at,Date.parse(pr.mergedAt)))executedFailure=true;}else allowed=true;}
   }
-  // A failure that executed on a runner is a real CI failure; a separate runnerless refusal cannot excuse it.
+  // A failure that executed on a runner before the merge is a real CI failure; a separate runnerless refusal cannot excuse it.
   allowed=allowed&&!executedFailure;
   const localStatus=/^Local (?:run|check) on /i.test(String(gate?.description??''));
   const attempted=localStatus||localComments.length>0;
