@@ -126,7 +126,7 @@ cannot be configured in advance. The [PAT creation guide](https://docs.github.co
 and GitHub's [fine-grained permission reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens)
 describe the current token UI.
 
-Create a token named, for example, `ticketflow-benchmark-setup` for the setup account
+Create a token named, for example, `ticketflow-benchmarks-setup` for the setup account
 with these permissions:
 
 - **Repository permissions:** `Administration: Read and write`, `Contents: Read and
@@ -142,7 +142,7 @@ This token creates and seeds repositories, creates and links Projects, creates t
 fixture issues/PR, checks Actions, and performs cleanup. It is never passed to the
 paid agent.
 
-Create a second token named, for example, `ticketflow-benchmark-agent` for the
+Create a second token named, for example, `ticketflow-benchmarks-agent` for the
 agent role with these permissions. It may belong to the same GitHub account as the
 setup token; the distinction is the token's permissions and which environment
 variable receives it:
