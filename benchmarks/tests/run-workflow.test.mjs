@@ -63,14 +63,15 @@ exit 1
   writeFileSync(join(bin,'claude'),'#!/bin/sh\nif [ "$1" = "--version" ]; then echo fake-claude; exit 0; fi\nexit 1\n');
   chmodSync(join(bin,'claude'),0o755);return bin;
 };
-const fakeProjectGh=(dir)=>{
+const fakeProjectGh=(dir,{paginated=false}={})=>{
   const bin=join(dir,'project-bin');mkdirSync(bin);
+  const projects=paginated?'{"nodes":[{"id":"PVT_999","number":8,"title":"Workflow demo"}],"pageInfo":{"hasNextPage":true}}':'{"nodes":[],"pageInfo":{"hasNextPage":false}}';
   const script=`#!/bin/sh
 echo "$*" >> "$GH_LOG"
 if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
   case "$*" in
     *createProjectV2*) printf '{"data":{"createProjectV2":{"projectV2":{"id":"PVT_456","number":7}}}}\\n' ;;
-    *) printf '{"data":{"organization":null,"user":{"id":"U_123","projectsV2":{"nodes":[],"pageInfo":{"hasNextPage":false}}},"repository":{"id":"R_123"}}}\\n' ;;
+    *) printf '{"data":{"organization":null,"user":{"id":"U_123","projectsV2":${projects}},"repository":{"id":"R_123"}}}\\n' ;;
   esac
   exit 0
 fi
@@ -109,6 +110,12 @@ test('personal Projects resolve through the user GraphQL owner and URL',()=>with
   assert.deepEqual(project,{id:'PVT_456',number:7,owner:'bench-user',owner_type:'user'});
   assert.equal(projectUrl({owner:'bench-user',ownerType:'user',number:7}),'https://github.com/users/bench-user/projects/7');
   const log=readFileSync(ghLog,'utf8');assert.match(log,/user\(login:\$owner\)/);assert.match(log,/createProjectV2/);
+}));
+test('Project linking fails closed when the owner Project list is paginated',()=>withTemp(dir=>{
+  const bin=fakeProjectGh(dir,{paginated:true}),ghLog=join(dir,'gh.log');
+  assert.throws(()=>linkProject({repo:'bench-user/ticketflow-benchmark-demo',owner:'bench-user',ownerType:'user',title:'Workflow demo',
+    env:{...env,PATH:bin+':'+process.env.PATH,GH_TOKEN:'single-gh-token',GITHUB_TOKEN:'single-gh-token',GH_LOG:ghLog}}),/ambiguous/);
+  assert.doesNotMatch(readFileSync(ghLog,'utf8'),/createProjectV2/);
 }));
 test('cleanup-only deletes exact recorded resources without starting an agent',()=>withTemp(dir=>{
   const file=cleanupFixture(dir),bin=fakeGh(dir),ghLog=join(dir,'gh.log');
