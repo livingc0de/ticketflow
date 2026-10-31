@@ -180,6 +180,13 @@ export function cloneRepository(repo,root,env=setupEnv()) {
   git(dir,['config','user.email','workflow-benchmark@example.invalid'],env);
   return dir;
 }
+/** Probe the permission TicketFlow's local fallback needs before starting a paid agent. */
+export function probeCommitStatusWrite({repo,sha,env=setupEnv(),context='ticketflow-benchmark/preflight'}) {
+  if(!/^[0-9a-f]{40}$/i.test(sha))throw Error('commit status preflight requires a full commit SHA');
+  gh(['api','repos/'+repo+'/statuses/'+sha,'-f','state=pending','-f','context='+context,
+    '-f','description=TicketFlow benchmark status-write preflight'],{env});
+  return context;
+}
 export function installTicketFlow({repo,dir,source,agent,owner,projectNumber,title,issues=[],env=setupEnv()}) {
   write(dir,'.ticketflow/config.json',JSON.stringify(cfg(repo,owner,projectNumber,agent,title)));
   sh('node',[join(source,'core/scripts/runtime.mjs'),source,dir],{cwd:dir,env});

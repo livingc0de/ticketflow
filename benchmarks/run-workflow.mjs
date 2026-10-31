@@ -8,7 +8,7 @@ import { parseArgs } from 'node:util';
 import { createHash } from 'node:crypto';
 import { scenarios,ids,prompt } from './workflow/scenarios.mjs';
 import { validateOrg,authenticatedUser,authenticatedToken,newRepository,seedIssues,seedBrokenPull,
-  cloneRepository,installTicketFlow,linkProject,findProject,projectUrl,deleteProject,deleteRepository,setupEnv,sh,gh,newWork } from './workflow/sandbox.mjs';
+  cloneRepository,installTicketFlow,linkProject,findProject,projectUrl,deleteProject,deleteRepository,setupEnv,sh,gh,newWork,probeCommitStatusWrite } from './workflow/sandbox.mjs';
 import { makeProfile,destroyProfile } from './workflow/profile.mjs';
 import { scoreDelivery, projectSnapshot, meaningfulCheckpoint } from './workflow/check.mjs';
 import { selectProfileMode,approveDangerFullAccess } from './lib/profile-auth.mjs';
@@ -449,6 +449,11 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   }
   // Initial branch and issue state is prepared before the paid agent run.
   if(current.phase==='agent-running')throw Error('previous paid session may still be active; inspect remote state before resume for '+repo);
+  if(x.arm==='ticketflow'){
+    const base=JSON.parse(sh('gh',['api','repos/'+repo+'/commits/main'],{env:auth.setupEnv})).sha;
+    try { probeCommitStatusWrite({repo,sha:base,env:agentEnv}); }
+    catch(e){ throw Error('agent token cannot write commit statuses; TicketFlow local fallback requires Commit statuses: Read and write: '+e.message); }
+  }
   abort();
   current.phase='agent-running';safeOut(statePath,state);
   let dir;

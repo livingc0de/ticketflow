@@ -29,6 +29,15 @@ test('workflow report still shows delivery evidence for failed agent runs',()=>{
   const result=render([row('ticketflow',false,true)]);
   assert.match(result,/\| ticketflow \| 1 \| 0 \| 100% \| 0% \| 100% \| 0%/);
 });
+test('workflow report exposes local fallback recovery separately from delivery',()=>{
+  const failed=row('ticketflow',false,false);
+  failed.delivery.fallback=[{number:2,allowed:true,attempted:false,posted:false,success:false}];
+  const recovered={...row('ticketflow',true,true),repeat:2};
+  recovered.delivery.fallback=[{number:3,allowed:true,attempted:true,posted:true,success:true}];
+  const result=render([failed,recovered]);
+  assert.match(result,/Local fallback observations/);
+  assert.match(result,/\| ticketflow \| 100% \| 50% \| 50% \| 50% \|/);
+});
 test('workflow report keeps optional native-process evidence unknown when absent',()=>{
   const native=row('bare',true,true);
   native.delivery={...native.delivery,process:{}};

@@ -65,6 +65,7 @@ const actionable=(issue)=>{
     /\b(?:add|build|create|design|document|fix|handle|implement|improve|migrate|remove|refactor|support|test|update|verify)\w*\b/i.test(title+' '+body);
 };
 const actionsFailures=new Set(['failure','timed_out','cancelled','action_required']);
+const ranOnRunner=(job)=>Boolean(job?.runner_id||job?.started_at||job?.steps?.length);
 const completeBefore=(timestamp,mergedAt)=>timestamp&&Number.isFinite(Date.parse(timestamp))&&Date.parse(timestamp)<=mergedAt;
 const page=(response,key,label)=>{
   if(!response||!Array.isArray(response[key])||!Number.isSafeInteger(response.total_count)||response.total_count<0)
@@ -105,6 +106,27 @@ export function checkRuns(repo,pr,env,request=api){
     reason:checks.length?checks.map(c=>c.status+'/'+c.conclusion).join(',')+
       (failures.length?' (other failing checks: '+failures.map(c=>c.name).join(',')+')':''):
       'required neutral GitHub Actions test missing'};
+}
+/** Observable local-fallback evidence for an open or merged PR. This never turns an unmerged PR into delivery success. */
+export function fallbackEvidence(repo,pr,env,request=api){
+  if(!pr?.number||typeof pr.headRefOid!=='string')return {allowed:false,attempted:false,posted:false,success:false,state:null,reason:'no PR head'};
+  const status=request('repos/'+repo+'/commits/'+pr.headRefOid+'/status?per_page=100',env);
+  if(!status||status.sha!==pr.headRefOid||!Array.isArray(status.statuses))throw Error('commit status response is malformed');
+  const gate=status.statuses.find(x=>x?.context==='CI / Gate');
+  const comments=request===api?all(repo,'issues/'+pr.number+'/comments',env):request('repos/'+repo+'/issues/'+pr.number+'/comments?per_page=100',env);
+  if(!Array.isArray(comments))throw Error('pull request comment response is malformed');
+  const localComments=comments.filter(x=>/^### CI \/ Gate:\s+(?:Passed|Failed)\b/m.test(String(x?.body??'')));
+  const runs=page(request('repos/'+repo+'/actions/runs?head_sha='+encodeURIComponent(pr.headRefOid)+'&per_page=100',env),'workflow_runs','workflow run');
+  let allowed=false;
+  for(const run of runs){
+    if(run?.head_sha!==pr.headRefOid||!Number.isSafeInteger(run.id)||run.id<1)throw Error('GitHub Actions workflow run response is malformed');
+    const jobs=page(request('repos/'+repo+'/actions/runs/'+run.id+'/jobs?filter=all&per_page=100',env),'jobs','jobs for workflow run '+run.id);
+    if(actionsFailures.has(run.conclusion)&&!jobs.some(job=>job?.head_sha===pr.headRefOid&&ranOnRunner(job)))allowed=true;
+  }
+  const localStatus=/^Local (?:run|check) on /i.test(String(gate?.description??''));
+  const attempted=localStatus||localComments.length>0;
+  return {allowed,attempted,posted:localStatus,success:localStatus&&gate.state==='success',state:gate?.state??null,
+    description:gate?.description??null,local_comments:localComments.length};
 }
 function reviewEvidence(repo,pr,{seededPR=null}={},env){
   const reviews=all(repo,'pulls/'+pr.number+'/reviews',env);
@@ -297,7 +319,7 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
 export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,resumed=false,initialPR=null,initialHead=null,baselineProjects=[],candidateDir=null,env}){
   const sc=scenarios[id];
   let prs=[],issueRows=[],hidden={pass:false,reason:'unverified'},
-    suite={pass:false,reason:'unverified'},error=null;
+    suite={pass:false,reason:'unverified'},fallback=[],error=null;
   const recordError=e=>{error=(error?error+'; ':'')+e.message};
   // A broken evaluator, failed API call or unavailable clone invalidates the
   // measurement. It must never be converted into an apparent agent failure.
@@ -310,6 +332,9 @@ export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,res
   }catch(e){recordError(e)}
   try{issueRows=issueSnapshot(repo,seededIssues,env)}catch(e){recordError(e)}
   const merged=prs.filter(isMerged),checks=[],reviews=[],plans=[];
+  for(const p of prs){
+    try{fallback.push({number:p.number,...fallbackEvidence(repo,p,env)})}catch(e){recordError(e)}
+  }
   for(const p of merged){
     try{
       checks.push({number:p.number,...checkRuns(repo,p,env)});
@@ -323,6 +348,6 @@ export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,res
     interrupted,resumed,initialPR,initialHead,baselineProjects,
     candidate:{available:candidateAvailable,source:candidateCheckout===candidateDir?'agent-checkout':'agent-worktree',correctness:hidden.pass,repository_tests:suite.pass,
       hidden_reason:hidden.reason,repository_tests_reason:suite.reason}});
-  return {...result,merged_prs:merged.map(p=>p.number),ci:checks,hidden_reason:hidden.reason,
+  return {...result,merged_prs:merged.map(p=>p.number),ci:checks,fallback,hidden_reason:hidden.reason,
     repo_test_reason:suite.reason,error};
 }

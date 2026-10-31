@@ -48,6 +48,14 @@ export function render(rows){
       ' | '+fmt(median(scored.map(r=>typeof r.wall_s==='number'?r.wall_s/60:null)))+
       ' | '+fmt(median(scored.map(r=>r.cost_usd)),2)+' |');
   }
+  const fallbackRows=latest.flatMap(r=>(r.delivery.fallback??[]).map(f=>({...f,arm:r.arm,scenario:r.scenario})));
+  if(fallbackRows.length){
+    lines.push('','## Local fallback observations','','| Arm | Actions refused | Fallback attempted | Local gate posted | Local gate passed |',
+      '| --- | ---: | ---: | ---: | ---: |');
+    for(const [arm,part] of Object.entries(group(fallbackRows,r=>r.arm)).sort())
+      lines.push('| '+safe(arm)+' | '+rate(part,r=>r.allowed===true)+' | '+rate(part,r=>r.attempted===true)+
+        ' | '+rate(part,r=>r.posted===true)+' | '+rate(part,r=>r.success===true)+' |');
+  }
   lines.push('','## Workflow evidence by arm','','| Arm | Avg agent-created issues | Avg closed+linked work items | Avg plan artifacts | Avg agent Project changes |',
     '| --- | ---: | ---: | ---: | ---: |');
   for(const [arm,part] of Object.entries(group(valid,r=>r.arm)).sort()){

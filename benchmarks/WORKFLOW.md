@@ -160,8 +160,10 @@ agent role. It may belong to the same GitHub account as the setup token; the
 distinction is the token's permissions and which environment variable receives it:
 
 - **Repository permissions:** `Contents: Read and write`, `Issues: Read and write`,
-  `Pull requests: Read and write`, `Commit statuses: Read`, `Actions: Read`, and
+  `Pull requests: Read and write`, `Commit statuses: Read and write`, `Actions: Read`, and
   `Metadata: Read`.
+  `Commit statuses: Read and write` is required because TicketFlow's local Actions
+  fallback posts the authoritative merge-gate status after a runnerless refusal.
   Add `Workflows: Read and write` only if the agent must edit files under
   `.github/workflows`.
 - **Organization permissions:** `Projects: Read and write`.
@@ -200,7 +202,9 @@ The setup and agent identity commands may print the same login when using the
 same-account/two-token arrangement; that is valid as long as the tokens have the
 different permissions documented above.
 The runner performs the remaining repository push, Actions and Project access checks
-before invoking a paid agent. For `cleanup-only`, keep both organization variables
+before invoking a paid agent. For TicketFlow cells it also posts a disposable status
+with the agent token as a preflight, so missing status-write permission stops before
+paid work. For `cleanup-only`, keep both organization variables
 available because organization-mode authentication still validates both identities.
 After the run or cleanup, remove them from the shell with:
 

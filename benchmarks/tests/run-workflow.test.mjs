@@ -9,7 +9,7 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {runProcess,signalProcess,terminateProcess} from '../lib/process.mjs';
 import {makeProfile} from '../workflow/profile.mjs';
-import {findProject,linkProject,projectUrl} from '../workflow/sandbox.mjs';
+import {findProject,linkProject,projectUrl,probeCommitStatusWrite} from '../workflow/sandbox.mjs';
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const runner=fileURLToPath(new URL('../run-workflow.mjs',import.meta.url));
@@ -216,6 +216,13 @@ test('cleanup-only fails closed when a recovered Project is linked to another re
 test('Project recovery fails closed when the owner Project list is paginated',()=>withTemp(dir=>{
   const bin=fakeGh(dir,{paginated:true}),envWithGh={...env,PATH:bin+':'+process.env.PATH,FIND_PROJECT:'1',GH_LOG:join(dir,'gh.log')};
   assert.throws(()=>findProject({owner:'example-benchmark-org',title:'Workflow cleanup-run W1 bare 1',repo:'example-benchmark-org/tfwf-cleanup-w1-bare-1',env:envWithGh}),/ambiguous/);
+}));
+test('TicketFlow status preflight uses the agent credential to post a disposable status',()=>withTemp(dir=>{
+  const bin=join(dir,'status-bin'),log=join(dir,'status.log');mkdirSync(bin);
+  writeFileSync(join(bin,'gh'),'#!/bin/sh\nprintf "%s\\n" "$*" >> "$STATUS_LOG"\nprintf \'{}\\n\'\n');chmodSync(join(bin,'gh'),0o755);
+  const result=probeCommitStatusWrite({repo:'bench/ticketflow-benchmark-demo',sha:'a'.repeat(40),env:{...env,PATH:bin+':'+process.env.PATH,STATUS_LOG:log}});
+  assert.equal(result,'ticketflow-benchmark/preflight');
+  assert.match(readFileSync(log,'utf8'),/api repos\/bench\/ticketflow-benchmark-demo\/statuses\/[a]{40} -f state=pending -f context=ticketflow-benchmark\/preflight/);
 }));
 test('cleanup-only fails closed when Project recovery finds no matching Project',()=>withTemp(dir=>{
   const file=cleanupFixture(dir,{phase:'repository-created',project:false}),bin=fakeGh(dir),ghLog=join(dir,'gh.log');

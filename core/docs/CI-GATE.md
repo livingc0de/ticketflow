@@ -61,6 +61,19 @@ When Actions refuses the job (a workflow ends before a runner or step, or a job 
 exits 3 and prints `Fallback: allowed`. Then, by hand and never by a timer, `local-verify <pr | sha>` runs `verify.command` in a
 clean worktree of the exact, up-to-date head and posts the result as the status (and one comment on a pull request).
 
+The recovery sequence is:
+
+```sh
+node .ticketflow/scripts/pr-wait.mjs <PR> --once --ci-only   # exit 3: Fallback: allowed
+node .ticketflow/scripts/local-verify.mjs <PR>                # posts CI / Gate
+node .ticketflow/scripts/pr-wait.mjs <PR>                    # confirm the gate and reviews
+node .ticketflow/scripts/merge.mjs <PR>
+```
+
+The local command is intentionally separate from `pr-wait` and `merge`: it runs tests and posts a gate only after two fail-closed
+refusal checks. A billing or spending-limit refusal is therefore not a reason to stop, but neither is it an automatic permission to
+merge without local verification.
+
 - Fail-closed: nothing is posted unless `pr-wait <target> --once --ci-only` exits 3 both before and right after the run, on the same
   head. A timeout, a moved head, a head behind the default branch (it runs `gh pr update-branch` and stops) or any doubt posts nothing.
 - Exit 3 (refused): the fallback is not allowed, a fork, another base, or the runtime in the checkout differs from

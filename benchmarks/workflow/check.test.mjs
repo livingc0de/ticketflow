@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { checkRuns, findCandidateCheckout } from './check.mjs';
+import { checkRuns, fallbackEvidence, findCandidateCheckout } from './check.mjs';
 
 const pr={headRefOid:'abc123',mergedAt:'2026-10-31T12:00:00Z'};
 const before='2026-10-31T11:00:00Z',after='2026-10-31T13:00:00Z';
@@ -71,6 +71,28 @@ test('incomplete or malformed Actions listings fail closed',()=>{
     return {total_count:1,jobs:[{name:'tests',status:'completed',conclusion:'success',completed_at:before}]};
   });
   assert.throws(malformed,/job response is malformed/);
+});
+
+test('fallback evidence distinguishes an available refusal from a local gate',()=>{
+  const refusal=(status,jobs=[])=>path=>{
+    if(path.includes('/commits/abc123/status'))return {sha:'abc123',statuses:status};
+    if(path.includes('/issues/7/comments'))return [];
+    if(path.includes('/actions/runs?'))return {total_count:1,workflow_runs:[run(1,{conclusion:'failure'})]};
+    return {total_count:jobs.length,jobs};
+  };
+  const available=fallbackEvidence('org/repo',{number:7,headRefOid:'abc123'},null,refusal([]));
+  assert.deepEqual(available,{allowed:true,attempted:false,posted:false,success:false,state:null,description:null,local_comments:0});
+
+  const passed=fallbackEvidence('org/repo',{number:7,headRefOid:'abc123'},null,refusal([
+    {context:'CI / Gate',state:'success',description:'Local run on runner (Linux), npm test'}
+  ]));
+  assert.equal(passed.allowed,true);
+  assert.equal(passed.attempted,true);
+  assert.equal(passed.posted,true);
+  assert.equal(passed.success,true);
+
+  const runner=fallbackEvidence('org/repo',{number:7,headRefOid:'abc123'},null,refusal([], [job('Verify',{runner_id:42})]));
+  assert.equal(runner.allowed,false);
 });
 
 test('candidate scoring selects the agent worktree instead of the untouched base clone',()=>{
