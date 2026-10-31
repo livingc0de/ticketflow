@@ -55,9 +55,13 @@ verify repository and Project access before paid runs. GitHub Actions can consum
 runner minutes independently of model charges. Personal mode does not require an
 organization or either workflow token variable.
 
-The runner has two target modes. Organization mode is the default and uses the
-split setup/agent identities above. Personal mode is an explicit convenience mode:
-it uses the existing `gh auth login` account for setup, scoring and the agent,
+The runner has two target modes:
+
+- **Organization mode** (`--mode organization`, the default): pass `--org <slug>`
+  and use the split setup/agent identities above. This is the recommended mode for
+  repeatable benchmark runs.
+- **Direct/personal mode** (`--mode personal`): omit `--org`; it uses the existing
+  `gh auth login` account for setup, scoring and the agent,
 creates user-owned repositories with a `ticketflow-benchmark-<run-id>-...` prefix,
 and creates user-owned Projects. It does not require the two workflow token
 variables, but it gives the agent the full permissions of that `gh` identity. Run
@@ -65,7 +69,8 @@ personal mode only from a disposable account and pass
 `--acknowledge-personal-account` before paid work. `--org` is accepted only in
 organization mode.
 
-The lifecycle defaults to `run-without-cleanup`, preserving remote evidence. Use
+Each target mode supports three lifecycles. The default
+`run-without-cleanup` preserves remote evidence. Use
 `--lifecycle run-with-auto-cleanup` to delete the exact repositories and Projects
 recorded in the sidecar after the run, or use
 `--lifecycle cleanup-only --out <file> --allow-github-writes` later to resume that

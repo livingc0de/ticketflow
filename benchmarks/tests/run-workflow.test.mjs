@@ -139,7 +139,7 @@ test('personal paid mode requires acknowledgment and emits its account warning',
   assert.equal(rejected.status,2);assert.match(rejected.stderr,/acknowledge-personal-account/);assert.doesNotMatch(readFileSync(ghLog,'utf8'),/repo create/);
   const accepted=spawnSync(process.execPath,[runner,'--agent','claude','--model','benchmark-test-model','--mode','personal',
     '--arms','bare','--scenarios','W1','--repeats','1','--out',file,'--execute','--allow-github-writes','--acknowledge-personal-account'],
-    {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog},timeout:30000});
+    {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog,ANTHROPIC_API_KEY:'synthetic-test-key'},timeout:30000});
   assert.equal(accepted.status,2);assert.match(accepted.stderr,/full permissions of the logged-in gh account/);assert.match(readFileSync(ghLog,'utf8'),/repo create/);
 }));
 test('auto-cleanup lifecycle is selectable without executing remote work',()=>withTemp(dir=>{
