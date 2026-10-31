@@ -65,7 +65,7 @@ exit 1
 };
 const fakeProjectGh=(dir,{paginated=false}={})=>{
   const bin=join(dir,'project-bin');mkdirSync(bin);
-  const projects=paginated?'{"nodes":[{"id":"PVT_999","number":8,"title":"Workflow demo"}],"pageInfo":{"hasNextPage":true}}':'{"nodes":[],"pageInfo":{"hasNextPage":false}}';
+  const projects=paginated?'{"nodes":[{"id":"PVT_999","number":8,"title":"Workflow demo","repositories":{"nodes":[{"nameWithOwner":"bench-user/ticketflow-benchmark-other"}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":true}}':'{"nodes":[],"pageInfo":{"hasNextPage":false}}';
   const script=`#!/bin/sh
 echo "$*" >> "$GH_LOG"
 if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
@@ -115,6 +115,24 @@ test('Project linking fails closed when the owner Project list is paginated',()=
   const bin=fakeProjectGh(dir,{paginated:true}),ghLog=join(dir,'gh.log');
   assert.throws(()=>linkProject({repo:'bench-user/ticketflow-benchmark-demo',owner:'bench-user',ownerType:'user',title:'Workflow demo',
     env:{...env,PATH:bin+':'+process.env.PATH,GH_TOKEN:'single-gh-token',GITHUB_TOKEN:'single-gh-token',GH_LOG:ghLog}}),/ambiguous/);
+  assert.doesNotMatch(readFileSync(ghLog,'utf8'),/createProjectV2/);
+}));
+test('Project linking rejects a same-title Project for another repository',()=>withTemp(dir=>{
+  const dirBin=join(dir,'collision-bin');mkdirSync(dirBin);
+  writeFileSync(join(dirBin,'gh'),`#!/bin/sh
+echo "$*" >> "$GH_LOG"
+if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
+  case "$*" in
+    *createProjectV2*) printf '{"data":{"createProjectV2":{"projectV2":{"id":"PVT_456","number":7}}}}\\n' ;;
+    *) printf '{"data":{"organization":null,"user":{"id":"U_123","projectsV2":{"nodes":[{"id":"PVT_999","number":8,"title":"Workflow demo","repositories":{"nodes":[{"nameWithOwner":"bench-user/ticketflow-benchmark-other"}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":false}}},"repository":{"id":"R_123"}}}\\n' ;;
+  esac
+  exit 0
+fi
+exit 1
+`);chmodSync(join(dirBin,'gh'),0o755);
+  const ghLog=join(dir,'gh.log');
+  assert.throws(()=>linkProject({repo:'bench-user/ticketflow-benchmark-demo',owner:'bench-user',ownerType:'user',title:'Workflow demo',
+    env:{...env,PATH:dirBin+':'+process.env.PATH,GH_TOKEN:'single-gh-token',GITHUB_TOKEN:'single-gh-token',GH_LOG:ghLog}}),/not associated with recorded repository/);
   assert.doesNotMatch(readFileSync(ghLog,'utf8'),/createProjectV2/);
 }));
 test('cleanup-only deletes exact recorded resources without starting an agent',()=>withTemp(dir=>{

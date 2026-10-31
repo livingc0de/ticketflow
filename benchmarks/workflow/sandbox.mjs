@@ -89,7 +89,7 @@ export function findProject({owner,title,repo,ownerType='organization',env=setup
   return {...project,owner,owner_type:ownerType};
 }
 export function linkProject({repo,owner,title,ownerType='organization',env=setupEnv()}) {
-  const data=graphql('query($owner:String!,$repo:String!){ organization(login:$owner){id projectsV2(first:100){nodes{id number title} pageInfo{hasNextPage}}} user(login:$owner){id projectsV2(first:100){nodes{id number title} pageInfo{hasNextPage}}} repository(owner:$owner,name:$repo){id}}',
+  const data=graphql('query($owner:String!,$repo:String!){ organization(login:$owner){id projectsV2(first:100){nodes{id number title repositories(first:100){nodes{nameWithOwner} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}} user(login:$owner){id projectsV2(first:100){nodes{id number title repositories(first:100){nodes{nameWithOwner} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}} repository(owner:$owner,name:$repo){id}}',
     {owner,repo:repo.split('/')[1]},env);
   const account=ownerType==='user'?data.user:data.organization;
   if(!account||!data.repository)throw Error('Project owner or repository not accessible');
@@ -97,7 +97,12 @@ export function linkProject({repo,owner,title,ownerType='organization',env=setup
   const matches=projects.nodes.filter(p=>p.title===title);
   if(matches.length>1 || projects.pageInfo.hasNextPage)
     throw Error('Project lookup is ambiguous; owner has too many projects');
-  if(matches.length) return {...matches[0],owner,owner_type:ownerType};
+  if(matches.length) {
+    const project=matches[0],repositories=project.repositories;
+    if(!repositories||repositories.pageInfo?.hasNextPage||!repositories.nodes.some(r=>r.nameWithOwner===repo))
+      throw Error('Project title collision is not associated with recorded repository '+repo);
+    return {...project,owner,owner_type:ownerType};
+  }
   const created=graphql('mutation($o:ID!,$r:ID!,$t:String!){createProjectV2(input:{ownerId:$o,repositoryId:$r,title:$t}){projectV2{id number}}}',
     {o:account.id,r:data.repository.id,t:title},env).createProjectV2.projectV2;
   if(!created?.id||!created?.number)throw Error('GitHub Project not created');
