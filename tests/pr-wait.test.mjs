@@ -126,6 +126,18 @@ test('pull-request Actions runs on a temporary merge SHA are matched through the
     assert.ok(r.calls.some(c => c.includes('actions/runs?event=pull_request&branch=feature&per_page=100')), r.calls.join('\n'))
 })
 
+test('pull-request run lookup retries without the branch filter when GitHub ignores it', () => {
+    const merge = 'c'.repeat(40)
+    const r = wait({
+        ...runs(),
+        'actions/runs?event=pull_request&branch=feature&per_page=100': { total_count: 0, workflow_runs: [] },
+        'actions/runs?event=pull_request&per_page=100': { total_count: 1, workflow_runs: [{ ...run(9, 'completed', 'failure'), head_sha: merge, event: 'pull_request', pull_requests: [{ number: 7, head: { sha: HEAD } }] }] },
+        'actions/runs/9/jobs': { total_count: 1, jobs: [{ id: 9, name: 'Verify', head_sha: merge, runner_id: 0, steps: [] }] },
+    })
+    assert.equal(r.status, 3, r.stderr)
+    assert.match(r.stdout, /^Fallback: allowed \(Actions ended before a runner or step/m)
+})
+
 test('a red job that got a runner or ran steps never allows the fallback', () => {
     const redRunner = wait({ ...runs(run(5, 'completed', 'failure')), ...job(5, { runner_id: 9, steps: [] }) })
     assert.equal(redRunner.status, 1); notAllowed(redRunner)

@@ -74,7 +74,12 @@ const workflowRuns=(repo,pr,env,request)=>{
   if(direct.length||!pr.headRefName)return direct;
   // pull_request workflows execute on GitHub's temporary merge commit, not necessarily the PR head.
   // Resolve those runs through the source branch, then require the exact PR and head association.
-  return read('repos/'+repo+'/actions/runs?event=pull_request&branch='+encodeURIComponent(pr.headRefName)+'&per_page=100')
+  const byBranch=read('repos/'+repo+'/actions/runs?event=pull_request&branch='+encodeURIComponent(pr.headRefName)+'&per_page=100')
+    .filter(run=>workflowRunMatches(run,pr));
+  if(byBranch.length)return byBranch;
+  // Some GitHub responses do not honor the branch filter for pull_request runs; the
+  // association filter keeps this bounded to the exact PR/head before inspecting jobs.
+  return read('repos/'+repo+'/actions/runs?event=pull_request&per_page=100')
     .filter(run=>workflowRunMatches(run,pr));
 };
 const completeBefore=(timestamp,mergedAt)=>timestamp&&Number.isFinite(Date.parse(timestamp))&&Date.parse(timestamp)<=mergedAt;

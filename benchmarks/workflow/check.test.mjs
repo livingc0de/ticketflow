@@ -10,12 +10,13 @@ const pr={number:7,headRefOid:'abc123',headRefName:'feature',mergedAt:'2026-10-3
 const before='2026-10-31T11:00:00Z',after='2026-10-31T13:00:00Z';
 const run=(id,overrides={})=>({id,head_sha:pr.headRefOid,name:'bench',status:'completed',conclusion:'success',updated_at:before,...overrides});
 const job=(name,overrides={})=>({head_sha:pr.headRefOid,name,status:'completed',conclusion:'success',completed_at:before,...overrides});
-const fixture=(runs,jobsByRun,branchRuns=null)=>{
+const fixture=(runs,jobsByRun,branchRuns=null,allPullRuns=null)=>{
   const calls=[];
   const request=(path)=>{
     calls.push(path);
     if(path.includes('/actions/runs?head_sha='))return {total_count:runs.length,workflow_runs:runs};
-    if(path.includes('/actions/runs?event=pull_request'))return {total_count:(branchRuns??[]).length,workflow_runs:branchRuns??[]};
+    if(path.includes('/actions/runs?event=pull_request&branch='))return {total_count:(branchRuns??[]).length,workflow_runs:branchRuns??[]};
+    if(path.includes('/actions/runs?event=pull_request&per_page='))return {total_count:(allPullRuns??[]).length,workflow_runs:allPullRuns??[]};
     const id=Number(path.match(/\/actions\/runs\/(\d+)\/jobs/)?.[1]);
     const jobs=jobsByRun[id]??[];
     return {total_count:jobs.length,jobs};
@@ -41,6 +42,16 @@ test('pull-request Actions runs on a temporary merge SHA are matched through the
   const result=checkRuns('org/repo',pr,null,f.request);
   assert.equal(result.pass,true);
   assert.ok(f.calls.some(path=>path.includes('/actions/runs?event=pull_request&branch=feature&per_page=100')));
+});
+
+test('workflow-run lookup retries without the branch filter when GitHub ignores it',()=>{
+  const mergeSha='c'.repeat(40);
+  const f=fixture([],{
+    10:[job('tests',{head_sha:mergeSha})],
+  },[],[run(10,{head_sha:mergeSha,event:'pull_request',pull_requests:[{number:7,head:{sha:pr.headRefOid}}]})]);
+  const result=checkRuns('org/repo',pr,null,f.request);
+  assert.equal(result.pass,true);
+  assert.ok(f.calls.some(path=>path.includes('/actions/runs?event=pull_request&per_page=100')));
 });
 
 test('a missing tests job does not count as CI success',()=>{

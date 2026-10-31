@@ -101,7 +101,12 @@ const workflowRuns = (head, pull = null) => {
     if (direct.length || !pull?.head?.ref) return direct
     // pull_request workflows execute on GitHub's temporary merge commit, not necessarily the PR head.
     // The branch listing carries the associated PR and its real head SHA, so use it only with an exact match.
-    return read(`${R}/actions/runs?event=pull_request&branch=${encodeURIComponent(pull.head.ref)}&per_page=100`)
+    const byBranch = read(`${R}/actions/runs?event=pull_request&branch=${encodeURIComponent(pull.head.ref)}&per_page=100`)
+        .filter(run => workflowRunMatches(run, head, pull))
+    if (byBranch.length) return byBranch
+    // Some GitHub responses do not honor the branch filter for pull_request runs; the
+    // association filter keeps this bounded to the exact PR/head before inspecting jobs.
+    return read(`${R}/actions/runs?event=pull_request&per_page=100`)
         .filter(run => workflowRunMatches(run, head, pull))
 }
 const isTicketFlowWorkflow = (run) => run?.name === 'CI' || /(?:^|\/)ci\.ya?ml(?:@|$)/i.test(run?.path ?? '')
