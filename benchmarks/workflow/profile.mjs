@@ -1,0 +1,105 @@
+/** Dedicated profiles for the remote workflow benchmark. No global plugin changes in isolated mode. */
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, chmodSync, mkdirSync, existsSync, rmSync, cpSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { resolve, join, basename } from 'node:path';
+
+// A strict allowlist avoids forwarding unrelated cloud/account secrets to paid agents.
+const SAFE_ENV=new Set(['PATH','LANG','LC_ALL','LC_CTYPE','TERM','TMPDIR','TMP','TEMP','SHELL','USER','LOGNAME',
+  'SYSTEMROOT','COMSPEC','PATHEXT','USERPROFILE','APPDATA','LOCALAPPDATA','HOME','XDG_CONFIG_HOME']);
+const clean=()=>Object.fromEntries(Object.entries(process.env).filter(([k])=>SAFE_ENV.has(k)));
+const call = (bin,args,env) => {
+  const r=spawnSync(bin,args,{encoding:'utf8',env,timeout:60000});
+  if(r.status!==0) throw Error(bin+' '+args.join(' ')+' failed: '+String(r.stderr||r.error?.message||r.status).slice(0,400));
+  return r.stdout;
+};
+function authFile(source,dest) {
+  if(!existsSync(source)) return false;
+  mkdirSync(resolve(dest,'..'),{recursive:true,mode:0o700});
+  copyFileSync(source,dest);chmodSync(dest,0o600);
+  return true;
+}
+function jsonCall(bin,args,env) {
+  const result=call(bin,args,env);
+  try {return JSON.parse(result)} catch {throw Error(bin+' did not return valid JSON for '+args.join(' '))}
+}
+function codexMarketplace(env,work,src,arm,isolated) {
+  const market='tf-workflow-'+basename(work).toLowerCase().replace(/[^a-z0-9-]/g,'');
+  const root=join(work,'marketplace'), target=join(root,'plugins',arm);
+  mkdirSync(join(root,'.agents','plugins'),{recursive:true});
+  cpSync(src,target,{recursive:true,filter:p=>!p.split(/[\\/]/).includes('.git')});
+  writeFileSync(join(root,'.agents','plugins','marketplace.json'),JSON.stringify({
+    name:market,plugins:[{name:arm,source:{source:'local',path:'./plugins/'+arm},
+    policy:{installation:'AVAILABLE',authentication:'ON_INSTALL'},category:'Developer Tools'}]}));
+  let registered=false;
+  const cleanup=()=>{
+    if(!registered || isolated) return;
+    // A failed plugin add may have installed only the marketplace. Remove only our own items.
+    const installed=jsonCall('codex',['plugin','list','--json'],env).installed??[];
+    const ours=installed.filter(p=>p.marketplaceName===market);
+    if(ours.length>1||ours.some(p=>p.name!==arm))throw Error('unexpected benchmark marketplace entries: cleanup stopped');
+    if(ours.length===1)jsonCall('codex',['plugin','remove',arm+'@'+market,'--json'],env);
+    const markets=jsonCall('codex',['plugin','marketplace','list','--json'],env).marketplaces??[];
+    const entry=markets.filter(p=>p.name===market);
+    if(entry.length>1)throw Error('ambiguous marketplace identity: cleanup stopped');
+    if(entry.length===1)jsonCall('codex',['plugin','marketplace','remove',market,'--json'],env);
+    registered=false;
+  };
+  try {
+    const markets=jsonCall('codex',['plugin','marketplace','list','--json'],env);
+    if(JSON.stringify(markets).includes('"'+market+'"')) throw Error('benchmark marketplace already exists');
+    const added=jsonCall('codex',['plugin','marketplace','add',root,'--json'],env);
+    if(added.marketplaceName!==market || (!isolated && added.alreadyAdded)) throw Error('marketplace identity mismatch');
+    registered=true;
+    const plugin=jsonCall('codex',['plugin','add',arm+'@'+market,'--json'],env);
+    if(plugin.name!==arm || plugin.marketplaceName!==market) throw Error('plugin identity mismatch');
+    const list=jsonCall('codex',['plugin','list','--json'],env).installed??[];
+    const ours=list.filter(p=>p.marketplaceName===market && p.name===arm && p.installed===true && p.enabled===true);
+    if(ours.length!==1 || (isolated && list.length!==1)) throw Error('competitor plugin not enabled exclusively');
+    return {cleanup,nativePluginEvidence:arm==='ponytail'? 'codex-plugin-list-enabled-hook-bypass-requested':'codex-plugin-list-enabled'};
+  } catch(e) {
+    try {cleanup()} catch(cleanupErr) {throw Error(e.message+'; plugin cleanup failed: '+cleanupErr.message)}
+    throw e;
+  }
+}
+export function makeProfile(agent,arm,work,source,mode,{githubToken=process.env.WORKFLOW_BENCH_AGENT_TOKEN}={}) {
+  const isolated=mode==='isolated', home=join(work,'home');
+  if(isolated) mkdirSync(home,{recursive:true,mode:0o700});
+  const env=isolated?{...clean(),HOME:home,XDG_CONFIG_HOME:join(home,'.config')}:{...clean()};
+  for(const key of ['ANTHROPIC_API_KEY','CLAUDE_CODE_OAUTH_TOKEN']) if(process.env[key])env[key]=process.env[key];
+  // GH_TOKEN is intentionally available to the agent for the disposable repository.
+  // Use a dedicated token scoped only to benchmark repos; do not run on a production account.
+  if(!githubToken) throw Error('GitHub agent authentication required');
+  env.GH_TOKEN=githubToken;
+  env.GITHUB_TOKEN=githubToken;
+  if(agent==='claude') {
+    if(isolated) {
+      const dir=join(home,'.claude');mkdirSync(dir,{recursive:true,mode:0o700});
+      env.CLAUDE_CONFIG_DIR=dir;
+      for(const key of ['ANTHROPIC_API_KEY','CLAUDE_CODE_OAUTH_TOKEN']) if(process.env[key]) env[key]=process.env[key];
+      if(!env.ANTHROPIC_API_KEY && !env.CLAUDE_CODE_OAUTH_TOKEN)
+        authFile(join(resolve(process.env.CLAUDE_CONFIG_DIR||join(homedir(),'.claude')),'.credentials.json'),join(dir,'.credentials.json'));
+    } else if(process.env.CLAUDE_CONFIG_DIR) {
+      // Unisolated Claude runs were explicitly approved against this profile;
+      // preserve it so the paid invocation uses the login that was checked.
+      env.CLAUDE_CONFIG_DIR=process.env.CLAUDE_CONFIG_DIR;
+    }
+    return {env,pluginArgs:arm==='superpowers'||arm==='ponytail'?['--plugin-dir',source]:[],cleanup:()=>{}};
+  }
+  const codexHome=isolated?join(home,'.codex'):resolve(process.env.CODEX_HOME??join(homedir(),'.codex'));
+  if(isolated) {
+    mkdirSync(codexHome,{recursive:true,mode:0o700});
+    authFile(join(resolve(process.env.CODEX_HOME??join(homedir(),'.codex')),'auth.json'),join(codexHome,'auth.json'));
+    env.CODEX_HOME=codexHome;
+  } else env.CODEX_HOME=codexHome;
+  const plugin=arm==='superpowers'||arm==='ponytail'?codexMarketplace(env,work,source,arm,isolated):{cleanup:()=>{},nativePluginEvidence:null};
+  return {env,pluginArgs:[],cleanup:plugin.cleanup,nativePluginEvidence:plugin.nativePluginEvidence};
+}
+export function githubGitAuth(env) {
+  // Only modifies the selected HOME's git configuration. On an unisolated profile,
+  // use repo-local credential helper instead (no global host configuration changes).
+  return ['-c','credential.helper=!gh auth git-credential'];
+}
+export function destroyProfile(work,mode) {
+  if(mode==='isolated') rmSync(join(work,'home'),{recursive:true,force:true});
+}

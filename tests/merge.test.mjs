@@ -16,8 +16,8 @@ const status = (state, sha = HEAD) => ({ sha, statuses: [{ context: 'other', sta
 const MERGED = pull({ merged: true, merge_commit_sha: 'f'.repeat(40) })
 const SHA7 = HEAD.slice(0, 7)
 const ANCESTOR = '2'.repeat(40)
-/** The head was pushed 30 minutes ago (its first check suite). */
-const suites = (sha = HEAD, min = 30) => ({ [`${R}/commits/${sha}/check-suites`]: { check_suites: [{ created_at: ago(min) }] } })
+/** The head was pushed 30 minutes ago (its first Actions run). */
+const suites = (sha = HEAD, min = 30) => ({ [`${R}/actions/runs`]: { total_count: 1, workflow_runs: [{ id: 1, head_sha: sha, name: 'CI', path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'success', created_at: ago(min), updated_at: ago(min) }] } })
 
 const READY = `Reviewed head: ${SHA7}\n**Verdict:** ready to merge\n**Blockers:** none`
 const NEEDED = `Reviewed head: ${SHA7}\n**Verdict:** changes needed\n**Blockers:** \`a.js:1\`: bug -> fix`
@@ -261,7 +261,7 @@ test('M2: --reviewed-by names the reviewer whose result on this head was acted o
     refused(run({ args: by('nobody[bot]'), reviews: [ext()] }), /nobody\[bot\] has no result/)
     refused(run({ args: by('me'), reviews: [ext()] }), /me has no result/)   // this account's own activity is never a reviewer's
     refused(run({ args: by('author'), reviews: [ext({ user: { login: 'author', type: 'User' }, author_association: 'OWNER' })] }), /author has no result/)   // nor the PR author's
-    // a review of the exact head can only exist after its push, so it counts even when the first check suite came later
+    // a review of the exact head can only exist after its push, so it counts even when the first Actions run came later
     assert.equal(run({ args: by('rb[bot]'), reviews: [ext({ submitted_at: ago(40) })] }).status, 0)
     // a reviewer that only reacted has started but has no result: merge waits for it
     refused(run({ args: by('rb[bot]'), reactions: [eyes()], reviews: [] }), /started on abcdef1 and has not answered/)

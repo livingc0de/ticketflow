@@ -11,8 +11,10 @@ The verdict is that status alone; `merge`, `pr-wait` and the branch ruleset all 
 
 - The verdict is the **status** `gate.context`. The job that runs the work is a **check** named `gate.check` (default `Verify`).
   The two names must differ: a check and a status with one name would both be required.
-- A status can be posted by the CI job or, when Actions refuses to run the job, by `local-verify`; a check run can only come
-  from Actions. Check runs are read only to tell a refused run from a real red one.
+- A status can be posted by the CI job or, when Actions refuses to run the job, by `local-verify`. `pr-wait` reads the
+  Actions workflow-runs and jobs APIs only to tell a run that never reached a runner or step from a real red one; for a
+  pull request it also resolves workflows that ran on GitHub's temporary merge SHA through the exact PR head association.
+  The commit status remains the verdict.
 - The rendered workflow posts the status in the last step of the job, on the head commit (never the test merge commit), with
   `if: always()`, so a timeout or a cancel posts a failure too.
 - Every run, docs-only or not, first checks the agent stubs (`gen-stubs --check`, the checked-out copy): a stale or hand-edited stub
@@ -56,16 +58,34 @@ pull request is installed or run for it.
 
 ## Local fallback
 
-When Actions refuses the job (a billing annotation on a run with no steps, or a job queued 20 minutes without a runner), `pr-wait`
+When Actions refuses the job (a workflow ends before a runner or step, or a job is queued 20 minutes without a runner or step), `pr-wait`
 exits 3 and prints `Fallback: allowed`. Then, by hand and never by a timer, `local-verify <pr | sha>` runs `verify.command` in a
 clean worktree of the exact, up-to-date head and posts the result as the status (and one comment on a pull request).
+
+The recovery sequence is:
+
+```sh
+node .ticketflow/scripts/pr-wait.mjs <PR> --once --ci-only   # exit 3: Fallback: allowed
+node .ticketflow/scripts/local-verify.mjs <PR>                # posts CI / Gate
+node .ticketflow/scripts/pr-wait.mjs <PR>                    # confirm the gate and reviews
+node .ticketflow/scripts/merge.mjs <PR>
+```
+
+A pull request that changes `.github/workflows/` never gets the fallback. GitHub runs a pull request's workflow from its merge
+commit, so a broken workflow fails at startup exactly like a refusal; `pr-wait` exits 1 and the pull request needs a real Actions
+run. A failed or incomplete read of its file list allows nothing. A run waiting for approval (`action_required`) is not a
+refusal: approve it.
+
+The local command is intentionally separate from `pr-wait` and `merge`: it runs tests and posts a gate only after two fail-closed
+refusal checks. A billing or spending-limit refusal is therefore not a reason to stop, but neither is it an automatic permission to
+merge without local verification.
 
 - Fail-closed: nothing is posted unless `pr-wait <target> --once --ci-only` exits 3 both before and right after the run, on the same
   head. A timeout, a moved head, a head behind the default branch (it runs `gh pr update-branch` and stops) or any doubt posts nothing.
 - Exit 3 (refused): the fallback is not allowed, a fork, another base, or the runtime in the checkout differs from
   `origin/<default_branch>` (scripts, lib and `.ticketflow/config.json`, untracked files included), so a pull request cannot widen
   or neuter its own fallback. Run the default branch's copy of the script.
-- A failure is posted too, so the gate is red at once. A red that got a runner on Actions is never replaced.
+- A failure is posted too, so the gate is red at once. A red that got a runner or ran a step on Actions is never replaced.
 - For a pull request it first tries to inherit (with `gate.inherit`), then a docs-only `Local check`, otherwise it runs the verify. A bare sha always gets a full run.
 - A passing default-branch commit moves `deploy_branch` (when set) with a plain push, never forced. A push rejected as
   non-fast-forward leaves the branch where it is; any other push error exits 1. The workflow's `Advance Deploy Branch` job does the

@@ -10,7 +10,7 @@
  *
  * Fail-closed: nothing is posted unless `pr-wait <target> --once --ci-only` exits 3 both before and right after the run, on the same head.
  * A failure is posted too (the status stays the last verdict, so a merge gate sees red at once); a `failure local ...` status
- * stays re-runnable while Actions still refuses the job. A red that got a runner on Actions is never replaced.
+ * stays re-runnable while Actions still refuses the job. A red that got a runner or ran a step on Actions is never replaced.
  * The verify runs the code under test as you, with your HOME: only run branches you would run anyway, and run the default branch's copy of this script.
  * Needs `timeout` (coreutils; on macOS: brew install coreutils) and `gh` >= 2.48.
  */

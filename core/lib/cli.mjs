@@ -24,7 +24,13 @@ export function cli(meta, name, usage, options, valid) {
 /** Runs `fn`; its return value is the exit code (default 0). Any error is an API, config or response error: exit 2 (exit 1 is reserved for "drift / not met"). */
 export function main(name, fn) {
     try {
-        process.exitCode = fn() ?? 0
+        const result = fn()
+        if (result && typeof result.then === 'function') {
+            result.then((code) => { process.exitCode = code ?? 0 }).catch((e) => {
+                console.error(`${name}: ${e.message}`)
+                process.exitCode = 2
+            })
+        } else process.exitCode = result ?? 0
     } catch (e) {
         console.error(`${name}: ${e.message}`)
         process.exitCode = 2

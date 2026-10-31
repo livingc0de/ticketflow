@@ -188,7 +188,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { join } from 'node:path'
 const args = process.argv.slice(2), name = process.argv[1].split('/').pop()
 if (args.includes('--version')) { console.log(name === 'claude' ? '9.9.9 (Claude Code)' : 'codex-cli 9.9.9'); process.exit(0) }
-if (args.includes('--help')) { console.log('--plugin-dir'); process.exit(0) }
+if (args.includes('--help')) { console.log(name === 'codex' ? (process.env.FAKE_NO_CODEX_HOOK_BYPASS === '1' ? '--json' : '--dangerously-bypass-hook-trust') : '--plugin-dir'); process.exit(0) }
 if (name === 'claude' && args[0] === 'auth' && args[1] === 'status') {
     const logged = process.env.FAKE_CLAUDE_KEYRING === '1' && process.env.CLAUDE_CONFIG_DIR === process.env.FAKE_KEYRING_HOME
     console.log(logged ? '{"loggedIn":true}' : '{"loggedIn":false}')
@@ -256,6 +256,7 @@ if (process.env.FAKE_NPM) { mkdirSync('node_modules/left-pad', { recursive: true
 if (process.env.FAKE_CREATE_AUTH && name === 'codex' && args[0] === 'exec') writeFileSync(join(process.env.CODEX_HOME, 'credentials.json'), 'generated')
 if (process.env.FAKE_CREATE_HOME_FILE && name === 'codex' && args[0] === 'exec') writeFileSync(join(process.env.HOME, 'outside-cache'), 'generated')
 if (process.env.FAKE_CREATE_CLAUDE_AUTH && name === 'claude') writeFileSync(join(process.env.CLAUDE_CONFIG_DIR, '.credentials.json'), 'generated')
+if (process.env.FAKE_PLUGIN_BOOTSTRAP) console.error(process.env.FAKE_PLUGIN_BOOTSTRAP)
 const o = args.indexOf('-o')
 if (o >= 0) writeFileSync(args[o + 1], process.env.FAKE_ANSWER ?? '')
 console.log(process.env.FAKE_OUT)
@@ -273,30 +274,44 @@ function sandbox() {
     for (const n of ['claude', 'codex']) { writeFileSync(join(bin, n), FAKE.replace('#!/usr/bin/env node', `#!${process.execPath}`)); chmodSync(join(bin, n), 0o755) }
     const log = join(bin, 'fake.log')
     const run = (args, env = {}, path = `${bin}:${process.env.PATH}`) => {
-        const r = spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', env: { ...process.env, PATH: path, TMPDIR: tmp, CODEX_HOME: codexAuth, CLAUDE_CONFIG_DIR: auth, ANTHROPIC_API_KEY: '', CLAUDE_CODE_OAUTH_TOKEN: '', FAKE_LOG: log, FAKE_OUT: CLAUDE_OUT(), ...env } })
+        const r = spawnSync(process.execPath, [TOOL, ...args], { encoding: 'utf8', env: { ...process.env, PATH: path, TMPDIR: tmp, CODEX_HOME: codexAuth, CLAUDE_CONFIG_DIR: auth, ANTHROPIC_API_KEY: '', CLAUDE_CODE_OAUTH_TOKEN: '', FAKE_LOG: log, FAKE_OUT: CLAUDE_OUT(), BENCHMARK_TRANSCRIPTS_DIR: join(tmp, 'transcripts'), ...env } })
         const row = r.stdout.trim().startsWith('{') ? JSON.parse(r.stdout) : null
         return { ...r, row, calls: existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [] }
     }
     return { bin, tmp, run, workdirs: () => readdirSync(tmp) }
 }
+function ticketflowSource() {
+    const source = tempDir('src-')
+    for (const p of ['core', 'skills', 'practices']) if (existsSync(join(ROOT, p))) cpSync(join(ROOT, p), join(source, p), { recursive: true })
+    writeFileSync(join(source, 'VERSION'), '0.0.1\n')
+    writeFileSync(join(source, '.gitignore'), 'results/\n')
+    git(source, 'init', '-q', '-b', 'main'); git(source, 'remote', 'add', 'origin', 'https://github.com/livingc0de/ticketflow.git'); git(source, 'add', '-A'); git(source, 'commit', '-qm', 'src'); git(source, 'checkout', '--detach', '-q')
+    return { source, sha: git(source, 'rev-parse', 'HEAD') }
+}
 const sha = git(ROOT, 'rev-parse', 'HEAD')
 
 test('claude, ticketflow arm: installs TicketFlow like init does, runs the prompt, records every field', () => {
-    const { tmp, run } = sandbox(), out = join(tmp, 'rows.jsonl')
-    const r = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--effort', 'high', '--out', out], { FAKE_FIX: '1' })
+    const { tmp, run } = sandbox(), source = ticketflowSource(), out = join(tmp, 'rows.jsonl')
+    const r = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', source.source, '--ticketflow-sha', source.sha, '--effort', 'high', '--out', out], { FAKE_FIX: '1' })
     assert.equal(r.status, 0, r.stderr)
     const { row, calls } = r
     assert.equal(row.scenario, L1)
     assert.equal(row.agent, 'claude'); assert.equal(row.agent_version, '9.9.9 (Claude Code)'); assert.equal(row.model, 'fake-model'); assert.equal(row.arm, 'ticketflow')
     assert.equal(row.requested_effort, 'high')
-    assert.equal(row.ticketflow_sha, sha); assert.equal(row.eval_sha, sha)
+    assert.equal(row.ticketflow_sha, source.sha); assert.equal(row.eval_sha, sha)
     assert.match(row.eval_fingerprint, /^[0-9a-f]{64}$/); assert.equal(row.evaluation_mode, 'non-adversarial')
-    assert.equal(typeof row.ticketflow_dirty, 'boolean'); assert.equal(row.ticketflow_version, readFileSync(join(ROOT, 'VERSION'), 'utf8').trim())
+    assert.equal(typeof row.ticketflow_dirty, 'boolean'); assert.equal(row.ticketflow_version, '0.0.1')
     assert.deepEqual(row.check, { pass: true, why: row.check.why }); assert.match(row.check.why, /^PASS/)
     assert.deepEqual(row.diff, { added: 1, removed: 1, files: ['src/messages.js'] })   // the install is in the base commit, not in the diff
     assert.equal(row.deps_added, 0)
     assert.equal(row.turns, 4); assert.equal(row.cost_usd, 0.42); assert.deepEqual(row.tokens, { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 30 })
     assert.equal(row.agent_exit, 0); assert.equal(row.descendants, 'unknown'); assert.equal(typeof row.wall_s, 'number'); assert.match(row.date, /^\d{4}-\d\d-\d\dT/)
+    assert.equal(row.result_row_id, row.transcript_archive.id)
+    assert.deepEqual(row.transcript_archive.files, ['agent.out', 'answer.txt', 'metadata.json'])
+    assert.ok(existsSync(join(tmp, row.transcript_archive.directory)))
+    const archive = join(tmp, row.transcript_archive.directory)
+    assert.deepEqual(readdirSync(archive).sort(), ['agent.out', 'answer.txt', 'metadata.json'])
+    assert.doesNotMatch(readFileSync(join(archive, 'metadata.json'), 'utf8'), /credentials|token|secret/i)
     assert.equal(readFileSync(out, 'utf8'), `${JSON.stringify(row)}\n`, '--out gets the same one-line row')
 
     assert.equal(calls.length, 1)
@@ -314,6 +329,16 @@ test('claude, ticketflow arm: installs TicketFlow like init does, runs the promp
     assert.equal(JSON.parse(readFileSync(join(repo, '.ticketflow/config.json'), 'utf8')).agents[0], 'claude')
     assert.equal(git(repo, 'rev-list', '--count', 'HEAD'), '1')
     assert.match(readFileSync(join(row.workdir, 'agent.out'), 'utf8'), /"num_turns":4/, 'the raw agent output is kept')
+})
+
+test('transcript archive failure is recorded and makes the paid run fail', () => {
+    const { tmp, run } = sandbox(), archivePath = join(tmp, 'archive-file')
+    writeFileSync(archivePath, 'not a directory')
+    const r = run([L1, '--agent', 'claude', '--arm', 'bare'], { FAKE_FIX: '1', BENCHMARK_TRANSCRIPTS_DIR: archivePath })
+    assert.equal(r.status, 1, r.stdout + r.stderr)
+    assert.equal(r.row.check.pass, false)
+    assert.match(r.row.check.why, /transcript archive failed/)
+    assert.match(r.row.archive_error, /EEXIST|not a directory/)
 })
 
 test('Claude authentication preflight fails before any paid session when no portable credentials exist', () => {
@@ -484,8 +509,8 @@ test('Codex keyring-only login needs approval and leaves original profile untouc
 })
 
 test('direct Codex eval requires danger approval, then uses danger-full-access and parses the result', () => {
-    const { run } = sandbox()
-    const codexArgs = ['L4', '--agent', 'codex', '--arm', 'ticketflow', '--model', 'gpt-test', '--effort', 'high']
+    const { run } = sandbox(), source = ticketflowSource()
+    const codexArgs = ['L4', '--agent', 'codex', '--arm', 'ticketflow', '--source', source.source, '--ticketflow-sha', source.sha, '--model', 'gpt-test', '--effort', 'high']
     const env = { FAKE_OUT: CODEX_OUT, FAKE_ANSWER: 'src/files.js:7 path traversal' }
     const blocked = run(codexArgs, env)
     assert.equal(blocked.status, 2, blocked.stderr)
@@ -517,49 +542,46 @@ test('claude answer comes from the result; unreadable output is recorded as null
 })
 
 test('--source installs another checkout (an older tag) and records its revision, not this one\'s', () => {
-    const { run } = sandbox(), src = tempDir('src-')
-    for (const p of ['core', 'skills', 'practices']) if (existsSync(join(ROOT, p))) cpSync(join(ROOT, p), join(src, p), { recursive: true })
-    writeFileSync(join(src, 'VERSION'), '0.0.1\n')
-    git(src, 'init', '-q', '-b', 'main'); git(src, 'remote', 'add', 'origin', 'https://example.invalid/ticketflow.git'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'src')
-    const r = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', src], { FAKE_FIX: '1' })
+    const { run } = sandbox(), { source: src, sha: sourceSha } = ticketflowSource()
+    const r = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', src, '--ticketflow-sha', sourceSha], { FAKE_FIX: '1' })
     assert.equal(r.status, 0, r.stdout + r.stderr)
     assert.equal(r.row.ticketflow_sha, git(src, 'rev-parse', 'HEAD')); assert.equal(r.row.ticketflow_version, '0.0.1'); assert.equal(r.row.ticketflow_dirty, false); assert.equal(r.row.eval_sha, sha)
     assert.equal(JSON.parse(readFileSync(join(r.row.workdir, 'repo/.ticketflow/manifest.json'), 'utf8')).version, '0.0.1')
     // the harness's own result file inside the source checkout is not a change to it, also on a repeated run; anything else is
     mkdirSync(join(src, 'results'))   // as the documented commands do
-    for (let i = 0; i < 2; i++) assert.equal(run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', src, '--out', join(src, 'results/rows.jsonl')], { FAKE_FIX: '1' }).row.ticketflow_dirty, false)
+    for (let i = 0; i < 2; i++) assert.equal(run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', src, '--ticketflow-sha', sourceSha, '--out', join(src, 'results/rows.jsonl')], { FAKE_FIX: '1' }).row.ticketflow_dirty, false)
     writeFileSync(join(src, 'core/stray.txt'), 'x\n')
-    assert.equal(run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', src, '--out', join(src, 'results/rows.jsonl')], { FAKE_FIX: '1' }).row.ticketflow_dirty, true)
+    assert.equal(run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', src, '--ticketflow-sha', sourceSha, '--out', join(src, 'results/rows.jsonl')], { FAKE_FIX: '1' }).status, 2)
     const bad = run([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', tempDir('empty-')])
-    assert.equal(bad.status, 2); assert.match(bad.stderr, /is not a ticketflow checkout/)
+    assert.equal(bad.status, 2); assert.match(bad.stderr, /not a Git checkout|is not a ticketflow checkout/)
 })
 
-test('external frameworks load from clean native Claude plugin checkouts, not copied skill imitations', () => {
+test('Claude external plugin arms load the pinned checkout automatically in isolation', () => {
     const { run } = sandbox(), src = tempDir('plugin-')
     mkdirSync(join(src, '.claude-plugin'), { recursive: true })
     writeFileSync(join(src, '.claude-plugin/plugin.json'), '{"name":"ponytail"}')
-    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned'); git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
+    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned'); git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git'); git(src, 'checkout', '--detach', '-q')
     const r = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src, '--model', 'pinned-model', '--rep', '2', '--label', 'ponytail'], { FAKE_FIX: '1' })
     assert.equal(r.status, 0, r.stdout+r.stderr)
-    assert.equal(r.row.plugin_sha, git(src, 'rev-parse', 'HEAD'))
-    assert.equal(r.row.ticketflow_sha, null)
-    assert.equal(r.row.repeat, 2)
-    assert.equal(r.row.requested_model, 'pinned-model')
-    assert.equal(r.row.variant, 'ponytail')
-    assert.match(r.row.plugin_native, /bootstrap not independently verified/)
-    assert.deepEqual(r.calls[0].args.slice(-2), ['--plugin-dir', src])
+    assert.equal(r.row.plugin_native, 'loaded')
+    assert.deepEqual(r.row.plugin_bootstrap, { status: 'loaded', evidence: 'claude-plugin-dir' })
+    const session = r.calls.find((call) => call.args[0] === '-p')
+    assert.ok(session, 'the Claude plugin arm starts a paid session')
+    assert.ok(session.args.includes('--plugin-dir'))
+    assert.equal(session.args[session.args.indexOf('--plugin-dir') + 1], src)
+    assert.equal(r.row.profile_isolation, 'isolated')
     assert.equal(run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src]).status, 2)
     writeFileSync(join(src, 'stray.txt'), 'uncommitted')
     const dirty = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src])
     assert.equal(dirty.status, 2)
-    assert.match(dirty.stderr, /clean pinned plugin checkout/)
+    assert.match(dirty.stderr, /source must be clean/)
 })
 
 test('Codex native competitor arm installs exactly one plugin in a clean isolated profile and checks activation', () => {
     const { run } = sandbox(), src = tempDir('codex-plugin-')
     mkdirSync(join(src, '.codex-plugin'), { recursive: true })
     writeFileSync(join(src, '.codex-plugin/plugin.json'), '{"name":"ponytail"}')
-    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned'); git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
+    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned'); git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git'); git(src, 'checkout', '--detach', '-q')
     const authDir = tempDir('codex-auth-')
     writeFileSync(join(authDir, 'auth.json'), CODEX_LOGIN)
     const r = run([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--model', 'gpt-test', '--allow-danger-full-access'], { FAKE_FIX: '1', FAKE_CREATE_AUTH: '1', FAKE_CREATE_HOME_FILE: '1', CODEX_HOME: authDir, OPENAI_API_KEY: 'should-not-reach-cli' })
@@ -570,6 +592,7 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     assert.ok(exec, 'the coding session ran after plugin verification')
     assert.equal(exec.secret, null, 'credential-bearing environment variables are not passed to the agent')
     assert.ok(!exec.args.includes('--ignore-user-config'), 'Codex must load the isolated profile with its installed plugin')
+    assert.ok(exec.args.includes('--dangerously-bypass-hook-trust'), 'Ponytail hooks are enabled for the pinned disposable plugin')
     assert.equal(exec.codex_home, join(r.row.workdir, 'home/.codex'))
     assert.equal(exec.home, join(r.row.workdir, 'home'))
     assert.ok(existsSync(join(r.row.workdir, 'marketplace/plugins/ponytail/.codex-plugin/plugin.json')))
@@ -577,10 +600,17 @@ test('Codex native competitor arm installs exactly one plugin in a clean isolate
     assert.ok(!existsSync(join(exec.codex_home, 'credentials.json')), 'generated credential state is never retained')
     assert.ok(!existsSync(join(r.row.workdir, 'home')), 'the entire temporary Codex home is removed')
     assert.equal(readFileSync(join(authDir, 'auth.json'), 'utf8'), CODEX_LOGIN, 'original credentials are untouched')
-    assert.match(r.row.plugin_native, /installed and enabled.*bootstrap not independently verified/)
+    assert.equal(r.row.plugin_native, 'loaded')
+    assert.equal(r.row.plugin_bootstrap.status, 'loaded')
     assert.equal(r.row.plugin_sha, git(src, 'rev-parse', 'HEAD'))
     assert.equal(r.row.ticketflow_sha, null)
 
+    const { run: runWithoutHooks } = sandbox()
+    const missingHookSwitch=runWithoutHooks([L1,'--agent','codex','--arm','ponytail','--source',src,'--allow-danger-full-access'],
+        { FAKE_NO_CODEX_HOOK_BYPASS:'1' })
+    assert.equal(missingHookSwitch.status,2)
+    assert.match(missingHookSwitch.stderr,/--dangerously-bypass-hook-trust/)
+    assert.ok(!missingHookSwitch.calls.some(c=>c.args[0]==='exec'), 'no paid session without the native bypass switch')
     const { run: runDisabled } = sandbox()
     const disabled = runDisabled([L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--allow-danger-full-access'], { FAKE_PLUGIN_DISABLED:'1' })
     assert.equal(disabled.status, 2)
@@ -594,7 +624,7 @@ test('approved unisolated Codex plugin arm installs only its pinned copy and pre
     const { run } = sandbox(), src = tempDir('codex-owned-plugin-'), home = tempDir('codex-keyring-owned-')
     mkdirSync(join(src, '.codex-plugin'))
     writeFileSync(join(src, '.codex-plugin/plugin.json'), '{"name":"ponytail"}')
-    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned')
+    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned'); git(src, 'checkout', '--detach', '-q')
     git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
     const args = [L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--profile-mode', 'unisolated', '--allow-danger-full-access']
     const env = { CODEX_HOME: home, FAKE_CODEX_KEYRING: '1', FAKE_KEYRING_HOME: home, FAKE_PERSIST_PLUGINS: '1',
@@ -620,7 +650,7 @@ test('unisolated Codex plugin cleanup runs on agent failure and on setup verific
     const { run } = sandbox(), src = tempDir('codex-owned-plugin-'), home = tempDir('codex-keyring-owned-')
     mkdirSync(join(src, '.codex-plugin'))
     writeFileSync(join(src, '.codex-plugin/plugin.json'), '{"name":"ponytail"}')
-    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned')
+    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned'); git(src, 'checkout', '--detach', '-q')
     git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
     const args = [L1, '--agent', 'codex', '--arm', 'ponytail', '--source', src, '--profile-mode', 'unisolated', '--allow-danger-full-access']
     const env = { CODEX_HOME: home, FAKE_CODEX_KEYRING: '1', FAKE_KEYRING_HOME: home, FAKE_PERSIST_PLUGINS: '1',
@@ -664,15 +694,16 @@ test('approved unisolated Claude plugin loads pinned checkout without touching u
     const { run } = sandbox(), src = tempDir('claude-owned-plugin-'), profile = tempDir('claude-keyring-owned-')
     mkdirSync(join(src, '.claude-plugin'))
     writeFileSync(join(src, '.claude-plugin/plugin.json'), '{"name":"ponytail"}')
-    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned')
+    git(src, 'init', '-q', '-b', 'main'); git(src, 'add', '-A'); git(src, 'commit', '-qm', 'pinned'); git(src, 'checkout', '--detach', '-q')
     git(src, 'remote', 'add', 'origin', 'https://github.com/DietrichGebert/ponytail.git')
     const r = run([L1, '--agent', 'claude', '--arm', 'ponytail', '--source', src, '--profile-mode', 'unisolated'], {
         CLAUDE_CONFIG_DIR: profile, FAKE_CLAUDE_KEYRING: '1', FAKE_KEYRING_HOME: profile, FAKE_FIX: '1',
     })
     assert.equal(r.status, 0, r.stdout + r.stderr)
+    assert.equal(r.row.plugin_native, 'loaded')
+    assert.deepEqual(r.row.plugin_bootstrap, { status: 'loaded', evidence: 'claude-plugin-dir' })
+    assert.ok(r.calls.some((call) => call.args[0] === '-p'), 'the Claude plugin arm starts a paid session')
     assert.equal(r.row.profile_isolation, 'unisolated')
-    assert.equal(r.calls[0].claude_config, profile)
-    assert.deepEqual(r.calls[0].args.slice(-2), ['--plugin-dir', src])
     assert.deepEqual(readdirSync(profile), [], 'the benchmark did not install or remove personal Claude plugins')
 })
 
@@ -710,7 +741,7 @@ test('a bad scenario, agent or arm, a missing option or a missing CLI exits 2 be
     bad([], /usage: agent-eval/)
     bad([L1, '--agent', 'claude', '--arm', 'bare', '--out', join(tmp, 'missing', 'rows.jsonl')], /cannot be written/)
     bad([L1, '--agent', 'claude', '--arm', 'bare', '--out', tmp], /cannot be written/)   // a directory: refused before the paid run, not at the append after it
-    bad([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', join(tmp, 'nowhere')], /is not a ticketflow checkout/)
+    bad([L1, '--agent', 'claude', '--arm', 'ticketflow', '--source', join(tmp, 'nowhere')], /not a Git checkout|is not a ticketflow checkout/)
     bad([L1, '--agent', 'claude', '--arm', 'bare'], /claude is not installed/, tmp)   // PATH without any CLI
     bad([L1, '--agent', 'codex', '--arm', 'bare'], /codex is not installed/, tmp)
 })

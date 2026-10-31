@@ -3,7 +3,7 @@
  * Maintainer tool, never shipped to installed repos: runs one eval scenario (benchmarks/scenarios/<id>) with a real agent CLI in a fresh
  * temp git repo and appends one JSON row (benchmarks/SCENARIOS.md). It starts a PAID agent session; nothing here runs in CI.
  *
- * Usage: agent-eval.mjs <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--rep n] [--label name] [--out file.jsonl] [--eval-fingerprint sha256] [--allow-danger-full-access]
+ * Usage: agent-eval.mjs <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--ticketflow-sha sha] [--superpowers-sha sha] [--ponytail-sha sha] [--rep n] [--label name] [--out file.jsonl] [--eval-fingerprint sha256] [--allow-danger-full-access]
  *   <scenario> is a directory name or its prefix (L1). The ticketflow arm installs a TicketFlow checkout (--source, default this one; an
  *   older tag's worktree compares revisions) the way `init` does (runtime, gen-stubs, render); the bare arm installs nothing. The scenario's hidden check.mjs runs on the result; the row is printed and appended to --out.
  * Exit: 0 = the hidden check passed, 1 = it failed (the row is still recorded), 2 = usage, unknown scenario or missing CLI, before any run.
@@ -16,16 +16,19 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { main } from '../core/lib/cli.mjs'
-import { evaluatorFingerprint, resolveScenario, validatePluginSource } from './lib/integrity.mjs'
+import { evaluatorFingerprint, resolveScenario, validatePluginSource, validateSourceCheckout } from './lib/integrity.mjs'
 import { approveDangerFullAccess, selectProfileMode } from './lib/profile-auth.mjs'
+import { runProcess } from './lib/process.mjs'
+import { archiveSession, transcriptSessionId } from './lib/transcripts.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SCENARIOS = join(ROOT, 'benchmarks/scenarios')
-const usage = 'usage: agent-eval <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--rep n] [--out file.jsonl] [--eval-fingerprint sha256] [--allow-danger-full-access]'
+const usage = 'usage: agent-eval <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--effort level] [--source dir] [--ticketflow-sha sha] [--superpowers-sha sha] [--ponytail-sha sha] [--rep n] [--out file.jsonl] [--eval-fingerprint sha256] [--allow-danger-full-access]'
 const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
 const TOOLS = 'Read,Edit,Write,Glob,Grep,Bash(node *),Bash(npm *),Bash(git status *),Bash(git diff *),Bash(git log *),Bash(git show *),Bash(git add *),Bash(git commit *)'
 const AGENT_TIMEOUT_MS = 30 * 60 * 1000   // shortcut: one fixed 30-minute ceiling so a hung paid session cannot run forever (a timeout is recorded as agent_exit null), add a --timeout option when a scenario needs longer
 const BUF = 1 << 28
+const TRANSCRIPT_ROOT = resolve(process.env.BENCHMARK_TRANSCRIPTS_DIR ?? join(ROOT, 'benchmarks/results/transcripts'))
 
 const run = (cmd, args, o = {}) => spawnSync(cmd, args, { encoding: 'utf8', maxBuffer: BUF, ...o })
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'user.name=eval', '-c', 'user.email=eval@example.invalid', ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: BUF }).trim()
@@ -103,7 +106,7 @@ function codexProfile(work, arm, src, isolated = true) {
         if ((isolated && installed.length !== 1) || ours.length !== 1 ||
             ours[0].name !== arm || ours[0].installed !== true || ours[0].enabled !== true)
             throw new Error('Codex native plugin was not correctly installed and enabled; refusing the benchmark')
-        return { env, home, codexHome, installed: true, cleanup }
+        return { env, home, codexHome, installed: true, nativePluginEvidence: arm === 'ponytail' ? 'codex-plugin-list-enabled-hook-bypass-requested' : 'codex-plugin-list-enabled', cleanup }
     } catch (e) {
         if (!isolated) {
             // marketplace add can mutate the profile before returning an error or invalid JSON.
@@ -160,14 +163,17 @@ function report(agent, out, answerFile, model) {
     return { answer: orNull(() => readFileSync(answerFile, 'utf8')) ?? '', turns: null, cost_usd: null, tokens, model: null }   // Codex JSONL has not supplied a verified effective model
 }
 
-main('agent-eval', () => {
-    const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, effort: { type: 'string' }, source: { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' }, 'profile-mode': { type: 'string' }, 'eval-fingerprint': { type: 'string' }, 'allow-danger-full-access': { type: 'boolean' } }, allowPositionals: true })
+main('agent-eval', async () => {
+    const { values: v, positionals } = parseArgs({ options: { agent: { type: 'string' }, arm: { type: 'string' }, model: { type: 'string' }, effort: { type: 'string' }, source: { type: 'string' }, 'ticketflow-sha': { type: 'string' }, 'superpowers-sha': { type: 'string' }, 'ponytail-sha': { type: 'string' }, rep: { type: 'string' }, label: { type: 'string' }, out: { type: 'string' }, 'profile-mode': { type: 'string' }, 'eval-fingerprint': { type: 'string' }, 'allow-danger-full-access': { type: 'boolean' } }, allowPositionals: true })
     if (positionals.length !== 1 || !['claude', 'codex'].includes(v.agent) || !['ticketflow', 'bare', 'superpowers', 'ponytail'].includes(v.arm) || (v.effort !== undefined && !EFFORTS.has(v.effort)) || (v.rep !== undefined && (!/^[1-9]\d*$/.test(v.rep) || !Number.isSafeInteger(+v.rep))) || (v.label !== undefined && !/^[a-z][a-z0-9-]{0,30}$/.test(v.label)) || (v['profile-mode'] !== undefined && v['profile-mode'] !== 'unisolated') || (v['eval-fingerprint'] !== undefined && !/^[0-9a-f]{64}$/i.test(v['eval-fingerprint']))) throw new Error(usage)
     const id = resolveScenario(SCENARIOS, positionals[0])
     const external = v.arm === 'superpowers' || v.arm === 'ponytail'
     if (external && !v.source) throw new Error(`--source requires a pinned checkout of ${v.arm}`)
     const src = resolve(v.source ?? ROOT)
-    if (external && (!orNull(() => git(src, 'rev-parse', 'HEAD')) || git(src, 'status', '--porcelain'))) throw new Error(`${src} must be a clean pinned plugin checkout`)
+    const sourceMeta = v.arm === 'bare' ? null : validateSourceCheckout(src, {
+        name: v.arm, expectedSha: v[v.arm + '-sha'] ?? null,
+        expectedRemote: v.arm === 'ticketflow' ? 'https://github.com/livingc0de/ticketflow' : null,
+    })
     if (external) validatePluginSource(src, v.agent, v.arm)
     const outFile = v.out && resolve(v.out)   // the harness's own result file is not a change to a source checkout it sits in
     if (v.out) try { appendFileSync(v.out, '') } catch (e) { throw new Error(`--out ${v.out} cannot be written (${e.code})`) }   // before the paid run, not after it
@@ -175,6 +181,11 @@ main('agent-eval', () => {
     const version = run(v.agent, ['--version'])
     if (version.error || version.status !== 0) throw new Error(`${v.agent} is not installed or not on PATH`)
     if (external && v.agent === 'claude' && !run('claude', ['--help']).stdout?.includes('--plugin-dir')) throw new Error('Claude CLI does not advertise --plugin-dir; cannot load competitor natively')
+    if (v.agent === 'codex' && v.arm === 'ponytail') {
+        const help = run('codex', ['exec', '--help'])
+        if (help.status !== 0 || !(`${help.stdout ?? ''}\n${help.stderr ?? ''}`).includes('--dangerously-bypass-hook-trust'))
+            throw new Error('Codex exec lacks --dangerously-bypass-hook-trust; cannot enable Ponytail lifecycle hooks noninteractively')
+    }
     const profileMode = selectProfileMode(v.agent, [v.arm], { alreadyApproved: v['profile-mode'] === 'unisolated' })
     if (v['profile-mode'] === 'unisolated' && profileMode !== 'unisolated')
         throw new Error('Requested unisolated mode no longer matches the available authentication; restart the benchmark runner.')
@@ -190,7 +201,7 @@ main('agent-eval', () => {
     const prompt = readFileSync(join(sdir, 'prompt.md'), 'utf8')
     const args = claude
         ? ['-p', prompt, '--output-format', 'json', '--no-session-persistence', '--setting-sources', 'project,local', '--allowedTools', TOOLS, ...(v.model ? ['--model', v.model] : []), ...(v.effort ? ['--effort', v.effort] : []), ...(external ? ['--plugin-dir', src] : [])]
-        : ['exec', '--json', ...(!external && isolated ? ['--ignore-user-config'] : []), '--sandbox', 'danger-full-access', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), ...(v.effort ? ['--config', `model_reasoning_effort=${v.effort}`] : []), '-']   // codex reads the prompt from stdin; danger-full-access is required on hosts where user namespaces are unavailable
+        : ['exec', '--json', ...(v.arm === 'ponytail' ? ['--dangerously-bypass-hook-trust'] : []), ...(!external && isolated ? ['--ignore-user-config'] : []), '--sandbox', 'danger-full-access', '-C', dir, '-o', answerFile, ...(v.model ? ['-m', v.model] : []), ...(v.effort ? ['--config', `model_reasoning_effort=${v.effort}`] : []), '-']   // codex reads the prompt from stdin; danger-full-access is required on hosts where user namespaces are unavailable
     const t0 = Date.now()
     // Isolated profiles copy only authentication and erase it afterwards. Opted-in unisolated runs
     // deliberately retain the original profile so OS-keyring credentials remain usable.
@@ -210,16 +221,16 @@ main('agent-eval', () => {
             copyFileSync(originalAuth, dest)
             chmodSync(dest, 0o600)
         }
-        r = run(v.agent, args, { cwd: dir, timeout: AGENT_TIMEOUT_MS, env: profile.env,
-            ...(claude ? { stdio: ['ignore', 'pipe', 'pipe'] } : { input: prompt }) })
+        r = await runProcess(v.agent, args, { cwd: dir, timeoutMs: AGENT_TIMEOUT_MS, env: profile.env,
+            ...(claude ? {} : { input: prompt }) })
     } finally {
         // Never erase a paid result solely because plugin cleanup failed.
         try { profile.cleanup?.() } catch (e) { cleanupFailure = e }
         if (isolated) rmSync(profile.home, { recursive: true, force: true })
     }
     const wall_s = Math.round((Date.now() - t0) / 100) / 10
-    const out = r.stdout ?? ''
-    writeFileSync(join(work, 'agent.out'), out)
+    const out = r.stdout ?? '', rawStderr = r.stderr ?? ''
+    writeFileSync(join(work, 'agent.out'), out + '\nSTDERR:\n' + rawStderr)
     const got = report(v.agent, out, answerFile, v.model ?? null)
     writeFileSync(answerFile, got.answer)
 
@@ -229,23 +240,44 @@ main('agent-eval', () => {
     const before = depNames(orNull(() => git(dir, 'show', `${base}:package.json`)) ?? ''), after = depNames(orNull(() => readFileSync(join(dir, 'package.json'), 'utf8')) ?? '')
     const c = run(process.execPath, [join(sdir, 'check.mjs'), dir, answerFile], { timeout: 5 * 60 * 1000 })
     const checkerPass = c.status === 0
-    const pass = r.status === 0 && checkerPass   // a failed/timed-out agent is never a successful task
+    const processError = r.error?.message ?? null
+    const pass = r.status === 0 && !r.error && checkerPass   // a failed/timed-out agent is never a successful task
     const tf = (f) => (v.arm === 'ticketflow' ? orNull(f) : null)   // the bare arm has no TicketFlow revision
+    const evalSha = orNull(() => git(ROOT, 'rev-parse', 'HEAD'))
+    const pluginBootstrap = external ? (() => {
+        const evidence = profile.nativePluginEvidence ?? (claude ? 'claude-plugin-dir' : null)
+        return { status: r.status === 0 && evidence ? (claude || v.arm === 'ponytail' ? 'loaded' : 'verified') : 'failed',
+            evidence: evidence ?? 'native-plugin-loading-failed' }
+    })() : null
+    const resultRowId = transcriptSessionId('agent-eval', { scenario: id, agent: v.agent, arm: v.arm, repeat: v.rep ?? 0 })
+    let transcriptArchive = null, archiveError = null
+    try {
+        transcriptArchive = archiveSession({ root: TRANSCRIPT_ROOT, sessionId: resultRowId, agentOut: join(work, 'agent.out'), answerFile,
+            metadata: { agent: v.agent, model: got.model, requested_model: v.model ?? null, scenario: id, arm: v.arm,
+                repeat: v.rep ? +v.rep : null, result_row_id: resultRowId, status: pass ? 'completed' : 'failed',
+                checker_pass: checkerPass, agent_exit: r.error ? null : r.status, agent_error: processError,
+                eval_sha: evalSha, eval_fingerprint: evalFingerprint,
+                ticketflow_sha: tf(() => git(src, 'rev-parse', 'HEAD')), plugin_sha: external ? git(src, 'rev-parse', 'HEAD') : null,
+                plugin_bootstrap: pluginBootstrap, timestamp: new Date().toISOString() } })
+    } catch (e) { archiveError = e.message }
     const row = {
         scenario: id, agent: v.agent, agent_version: version.stdout.trim(), model: got.model, requested_model: v.model ?? null, arm: v.arm, variant: v.label ?? v.arm, repeat: v.rep ? +v.rep : null,
-        eval_sha: orNull(() => git(ROOT, 'rev-parse', 'HEAD')),   // the revision of this tool and its scenarios
+        eval_sha: evalSha,   // the revision of this tool and its scenarios
         eval_fingerprint: evalFingerprint,
         evaluation_mode: 'non-adversarial', profile_isolation: profileMode, sandbox_mode: claude ? 'not-applicable' : 'danger-full-access', requested_effort: v.effort ?? null, profile_cleanup: cleanupFailure ? 'failed' : 'ok',
         ticketflow_sha: tf(() => git(src, 'rev-parse', 'HEAD')), ticketflow_dirty: tf(() => git(src, 'status', '--porcelain', '--untracked-files=all').split('\n').some((l) => l && resolve(src, l.slice(3)) !== outFile)),
         ticketflow_version: tf(() => readFileSync(join(src, 'VERSION'), 'utf8').trim()),
         plugin_sha: external ? git(src, 'rev-parse', 'HEAD') : null,
-        plugin_native: external ? (claude ? 'claude --plugin-dir (bootstrap not independently verified)' : 'codex local marketplace: installed and enabled (bootstrap not independently verified)') : null,
-        check: { pass, why: r.status !== 0 && checkerPass
+        plugin_native: external ? pluginBootstrap.status : null, plugin_bootstrap: pluginBootstrap,
+        source_provenance: sourceMeta,
+        result_row_id: resultRowId, transcript_archive: transcriptArchive, archive_error: archiveError,
+        check: { pass: pass && !archiveError, why: archiveError ? `transcript archive failed: ${archiveError}` : processError
+            ? `agent stdin/process failed: ${processError}` : r.status !== 0 && checkerPass
             ? `agent exited ${r.status ?? r.signal ?? 'unknown'} despite a passing checker`
             : `${c.stdout ?? ''}${c.stderr ?? ''}`.trim().split('\n')[0].slice(0, 300) || `check exited ${c.status}` },
         diff: { added: stat.reduce((n, s) => n + (+s[0] || 0), 0), removed: stat.reduce((n, s) => n + (+s[1] || 0), 0), files: stat.map((s) => s[2]) },
         deps_added: [...after].filter((d) => !before.has(d)).length,
-        turns: got.turns, tokens: got.tokens, cost_usd: got.cost_usd, wall_s, agent_exit: r.status,
+        turns: got.turns, tokens: got.tokens, cost_usd: got.cost_usd, wall_s, agent_exit: r.error ? null : r.status, agent_error: processError,
         descendants: 'unknown',   // shortcut: 'unknown' because no CLI is verified to count child agents in these totals, set `included` only after a live run shows it
         workdir: work, date: new Date().toISOString(),
     }
@@ -253,5 +285,5 @@ main('agent-eval', () => {
     if (v.out) appendFileSync(v.out, `${JSON.stringify(row)}\n`)
     if (cleanupFailure) throw new Error('Benchmark result recorded, but plugin cleanup failed: ' + cleanupFailure.message +
         '. Inspect benchmark-owned Codex plugins/marketplaces before another run; existing user plugins were not targeted.')
-    return pass ? 0 : 1
+    return pass && !archiveError ? 0 : 1
 })

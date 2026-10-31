@@ -102,6 +102,25 @@ test('behaviour checks reject peer dependencies', () => {
     assert.equal(result.status, 1)
     assert.match(result.text, /added a dependency/)
 })
+test('behaviour checks include staged-only regression files and deduplicate paths', () => {
+    const staged = fixture('L6-event-replay')
+    writeFileSync(join(staged, 'src/events.js'), fixed['L6-event-replay'][1])
+    mkdirSync(join(staged, 'spec'), { recursive: true })
+    writeFileSync(join(staged, 'spec/regression.test.js'), regressions['L6-event-replay'])
+    git(staged, 'add', '-A')
+    const good = run(staged, 'L6-event-replay')
+    assert.equal(good.status, 0, good.text)
+
+    const duplicate = fixture('L6-event-replay')
+    writeFileSync(join(duplicate, 'src/events.js'), fixed['L6-event-replay'][1])
+    mkdirSync(join(duplicate, 'test'), { recursive: true })
+    writeFileSync(join(duplicate, 'test/regression.test.js'), regressions['L6-event-replay'])
+    git(duplicate, 'add', '-A')
+    writeFileSync(join(duplicate, 'test/regression.test.js'), "import test from 'node:test'\ntest('broken', () => { throw new Error('deliberate') })\n")
+    const bad = run(duplicate, 'L6-event-replay')
+    assert.equal(bad.status, 1)
+    assert.equal((bad.text.match(/test\/regression\.test\.js/g) ?? []).length, 1, bad.text)
+})
 test('review probes demand the right line and finding without editing', () => {
     for (const [id, path, word] of [
         ['L12-review-authorization','src/access.js','tenant authorization'],
@@ -115,4 +134,13 @@ test('review probes demand the right line and finding without editing', () => {
         writeFileSync(join(dir, 'notes.txt'), 'reviewer edited something')
         assert.equal(run(dir,id, path + ':7 ' + word).status, 1, 'review must be read-only')
     }
+})
+test('review citation parser accepts L-prefixed and inclusive line ranges', () => {
+    const dir = fixture('L12-review-authorization')
+    assert.equal(run(dir, 'L12-review-authorization', 'src/access.js:L7 tenant authorization').status, 0)
+    assert.equal(run(dir, 'L12-review-authorization', 'src/access.js:3-7 tenant authorization').status, 0)
+    assert.equal(run(dir, 'L12-review-authorization', 'src/access.js:7-9 tenant authorization').status, 0)
+    const excluded = run(dir, 'L12-review-authorization', 'src/access.js:3-6 tenant authorization')
+    assert.equal(excluded.status, 1)
+    assert.match(excluded.text, /range excludes required line/)
 })

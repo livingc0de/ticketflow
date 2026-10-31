@@ -10,14 +10,14 @@
  *   --more         this reviewer said more is coming, or posted only a status note: only what it posts or edits after this run
  *                  started counts as its result
  *
- * The verdict is the commit status `gate.context`. Check runs of the Actions app are read only to tell a run that Actions refused
- * (billing: no runner, no steps, the billing annotation; or queued 20 minutes without a runner) from a real red one.
- * A failed read is a pending poll, never a verdict.
+ * The verdict is the commit status `gate.context`. Actions workflow runs and jobs are read only to tell a run that Actions refused
+ * before any runner or step (or stayed queued 20 minutes without one) from a real red one. A failed read is a pending poll,
+ * never a verdict. This uses the Actions API rather than the Checks API so a fine-grained personal token can read the gate.
  *
  * External reviewers are observed, never configured or invoked. One counts when it is an app (a `[bot]` login, or type Bot) that
  * commented, reviewed or reacted on the PR (including standalone inline comments on the head; the agent judges whether it is a review), or an OWNER, MEMBER or
  * COLLABORATOR that reviewed it or left an inline comment on the head, other than the PR author and the account running this,
- * and it has a sign on this head: a review of it, a PR-level or inline comment, or a reaction made, or a comment edited, after the head was pushed (the first check suite of the head, else its committer
+ * and it has a sign on this head: a review of it, a PR-level or inline comment, or a reaction made, or a comment edited, after the head was pushed (the first Actions run of the head, else its committer
  * date). Its start is its first sign; it is waited for at most 15 minutes from that start, and only its own result ends its wait: a
  * review of the head (whatever its time: it can only exist after the push), else its latest comment with visible text, its first one
  * included, counted at its last edit, that names the head or no commit at all; its first comment on this head (a new one, or an old one
@@ -36,7 +36,8 @@
  * Exit: 0 = CI green and no started reviewer pending (results, changes requested, late or none); 1 = CI red (after the started
  * reviewers answered or ran out of time), or the PR conflicts with / is behind the default branch; 2 = timed out, still pending, a draft
  * in local-first mode, (sha) superseded, or, at once, the account running this cannot be read (`gh api user`, e.g. an app token;
- * `--ci-only` skips that read); 3 = Actions refused the run, so `local-verify` may take over ("Fallback: allowed" in the summary).
+ * `--ci-only` skips that read); 3 = Actions refused the run, so `local-verify` may take over ("Fallback: allowed" in the summary),
+ * never for a pull request that changes `.github/workflows/` (exit 1, or 2 while the run is only queued).
  * Usage and config errors exit 2 before any call.
  */
 
@@ -48,9 +49,7 @@ import { parseArgs } from 'node:util'
 import { configPath, loadConfig } from '../lib/config.mjs'
 import { gql } from '../lib/gh.mjs'
 
-const ACTIONS_APP_ID = 15368
 const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
-const BILLING = /recent account payments have failed|spending limit/i
 const STUCK_MS = 20 * 60_000
 const POLL_SEC = '60'
 
@@ -89,7 +88,43 @@ function api(path, paginate = false) {
 /** Text from GitHub that is printed in the summary: control characters and line separators become one space, so it can never forge a summary line. */
 const flat = (v) => String(v ?? '').replace(/[\p{Cc}\u2028\u2029]+/gu, ' ')
 const ms = (iso) => Date.parse(iso)
-const fresh = () => ({ head: '', draft: false, gate: null, verify: null, fallback: null, why: 'Actions has not refused the run', notes: [], reviewers: null, threads: null, author: null })
+const fresh = () => ({ head: '', pull: null, draft: false, gate: null, verify: null, fallback: null, why: 'Actions has not refused the run', notes: [], reviewers: null, threads: null, author: null })
+const workflowRunMatches = (run, head, pull) => run?.head_sha === head ||
+    (pull?.head?.ref && run?.event === 'pull_request' && Array.isArray(run.pull_requests) &&
+        run.pull_requests.some(x => Number(x.number) === Number(target) && x.head?.sha === head))
+const workflowRuns = (head, pull = null) => {
+    const read = (path) => {
+        const data = api(path)
+        if (!Array.isArray(data.workflow_runs)) throw new Error('Actions workflow run response was malformed')
+        return data.workflow_runs
+    }
+    const direct = read(`${R}/actions/runs?head_sha=${encodeURIComponent(head)}&per_page=100`)
+    if (!pull?.head?.ref) return direct
+    // pull_request workflows execute on GitHub's temporary merge commit, not necessarily the PR head, and an unrelated run on the head
+    // must not hide them. The branch listing carries the associated PR and its real head SHA, so use it only with an exact match.
+    const seen = new Set(direct.map(run => run?.id))
+    const merged = (runs) => [...direct, ...runs.filter(run => workflowRunMatches(run, head, pull) && !seen.has(run.id))]
+    const byBranch = read(`${R}/actions/runs?event=pull_request&branch=${encodeURIComponent(pull.head.ref)}&per_page=100`)
+    if (byBranch.some(run => workflowRunMatches(run, head, pull))) return merged(byBranch)
+    // Some GitHub responses do not honor the branch filter for pull_request runs; the
+    // association filter keeps this bounded to the exact PR/head before inspecting jobs.
+    return merged(read(`${R}/actions/runs?event=pull_request&per_page=100`))
+}
+// The rendered TicketFlow workflow; a startup failure of it has no job record, so the run itself is the evidence.
+const isTicketFlowWorkflow = (run) => /^\.github\/workflows\/ci\.yml(?:@|$)/.test(run?.path ?? '')
+// GitHub sets started_at even on a job it refused (= created_at, runner_id 0, no runner_name, no steps): only a runner or a step proves it ran.
+const ranOnRunner = (job) => Boolean(job?.runner_id > 0 || job?.runner_name || job?.steps?.length)
+const refusedBeforeRun = new Set(['failure', 'startup_failure', 'timed_out'])
+// pull_request runs the workflow from the PR's own merge commit: a PR that breaks it fails at startup exactly like a refusal.
+const WORKFLOW_FILE = /^\.github\/workflows\//
+const NEEDS_ACTIONS = 'this pull request changes .github/workflows/: it needs a real Actions run'
+function changesWorkflow(pull) {
+    const files = api(`${R}/pulls/${target}/files?per_page=100`, true)
+    // the list API caps at 3000 files: a bigger or moving PR mismatches the count and fails closed
+    if (!Number.isSafeInteger(pull.changed_files) || files.length !== pull.changed_files || files.some((f) => typeof f?.filename !== 'string'))
+        throw new Error('the pull request file list is incomplete')
+    return files.some((f) => [f.filename, f.previous_filename].some((n) => typeof n === 'string' && WORKFLOW_FILE.test(n)))
+}
 
 /** Decides CI for the head and fills `S`. Returns green | red | pending | fallback | conflict | behind | draft | superseded. */
 function pollCi(S) {
@@ -98,6 +133,7 @@ function pollCi(S) {
     else {
         pull = api(`${R}/pulls/${target}`)
         S.head = pull.head.sha
+        S.pull = pull
         S.draft = pull.draft === true
         S.author = pull.user?.login
         if (cfg.verify.mode === 'local-first' && S.draft) { S.notes.push(`Draft: CI skips drafts; gh pr ready ${target}`); return 'draft' }
@@ -113,33 +149,51 @@ function pollCi(S) {
         if (pull && (pull.mergeable == null || pull.mergeable_state === 'unknown')) return 'pending'   // not computed yet: it could still be behind
         return 'green'
     }
-    // A red that got a runner posted its own failure: a later refused re-run never makes it replaceable.
+    // A red job that got a runner or ran a step posted its own failure: a later refused re-run never makes it replaceable.
     if ((g?.state === 'failure' || g?.state === 'error') && !g.description?.startsWith('Local ')) { S.why = 'the gate failed'; return 'red' }
 
     S.why = 'Actions has not refused the run'
-    const runs = api(`${R}/commits/${S.head}/check-runs?check_name=${encodeURIComponent(cfg.gate.check)}&app_id=${ACTIONS_APP_ID}`).check_runs
-    const run = runs.reduce((a, b) => (!a || b.id > a.id ? b : a), null)
-    if (!run) return 'pending'
-    S.verify = `${run.id} ${run.status} ${run.conclusion ?? '-'}`
-    const job = api(`${R}/actions/jobs/${run.id}`)
-    const runner = job.runner_id || 0
-    if (run.status !== 'completed') {
-        if (!runner && Date.now() - ms(job.created_at) >= STUCK_MS) {
-            S.fallback = `queued 20 min without a runner; cancel the stuck run only after the fallback has posted: gh run cancel ${job.run_id}`
+    const candidates = []
+    for (const run of workflowRuns(S.head, pull)) {
+        if (!workflowRunMatches(run, S.head, pull) || !Number.isSafeInteger(run.id) || run.id < 1) throw new Error('Actions workflow run response was malformed')
+        const data = api(`${R}/actions/runs/${run.id}/jobs?filter=all&per_page=100`)
+        if (!Array.isArray(data.jobs) || !Number.isSafeInteger(data.total_count) || data.total_count < 0 || data.total_count > data.jobs.length)
+            throw new Error(`Actions job response for run ${run.id} was malformed or incomplete`)
+        const jobs = data.jobs.filter((job) => typeof job?.head_sha === 'string' &&
+            (job.head_sha === S.head || job.head_sha === run.head_sha) && job.name === cfg.gate.check)
+        for (const job of jobs) candidates.push({ run, job })
+        // The generated workflow can fail during startup before GitHub creates any job: that run-level evidence is a candidate.
+        if (!data.jobs.length && isTicketFlowWorkflow(run)) candidates.push({ run, job: null })
+    }
+    // the newest run decides; job ids only break ties inside a run
+    const candidate = candidates.sort((a, b) => (b.run.id - a.run.id) || ((b.job?.id ?? 0) - (a.job?.id ?? 0)))[0]
+    if (!candidate) return 'pending'
+    const { run, job } = candidate
+    const status = job?.status ?? run.status
+    const conclusion = job?.conclusion ?? run.conclusion
+    const createdAt = job?.created_at ?? run.created_at
+    const ran = ranOnRunner(job)
+    S.verify = `${job?.id ?? run.id} ${status} ${conclusion ?? '-'}`
+    if (status !== 'completed') {
+        if (!ran && Number.isFinite(ms(createdAt)) && Date.now() - ms(createdAt) >= STUCK_MS) {
+            if (pull && changesWorkflow(pull)) { S.why = NEEDS_ACTIONS; return 'pending' }
+            S.fallback = `queued 20 min without a runner or step; cancel the stuck run only after the fallback has posted: gh run cancel ${run.id}`
             return 'fallback'
         }
         return 'pending'
     }
-    if (run.conclusion === 'cancelled') {
+    if (conclusion === 'cancelled') {
         if (!sha) return 'pending'
         S.notes.push(`superseded: check the newest ${base} commit`)
         return 'superseded'
     }
-    if (runner) { S.why = 'Verify ran on a runner'; return run.conclusion === 'failure' || run.conclusion === 'timed_out' ? 'red' : 'pending' }
-    if (run.conclusion === 'failure' && !(job.steps?.length > 0)) {
-        const note = api(`${R}/check-runs/${run.id}/annotations`).map((a) => a.message).find((m) => BILLING.test(m ?? ''))
-        if (note) { S.fallback = `refused for billing: ${note}`; return 'fallback' }
+    if (ran) { S.why = 'Verify got a runner or ran a step'; return conclusion === 'failure' || conclusion === 'timed_out' ? 'red' : 'pending' }
+    if (refusedBeforeRun.has(conclusion)) {
+        if (pull && changesWorkflow(pull)) { S.why = NEEDS_ACTIONS; return 'red' }
+        S.fallback = 'Actions ended before a runner or step; run local verification before replacing the gate'
+        return 'fallback'
     }
+    if (conclusion === 'action_required') S.why = 'the run waits for approval in Actions'
     return 'pending'
 }
 
@@ -203,11 +257,12 @@ function saveSeen() {
 const pushed = new Map()
 let me
 
-/** When this head was pushed: the first check suite created for it (a later run does not move it), else the committer date. */
-function pushedAt(head) {
+/** When this head was pushed: the first Actions run created for it (a later run does not move it), else the committer date. */
+function pushedAt(head, pull = null) {
     if (!pushed.has(head)) {
-        const t = Math.min(...(api(`${R}/commits/${head}/check-suites?per_page=100`).check_suites ?? []).map((x) => ms(x.created_at)).filter((x) => x > 0))
-        if (t === Infinity) return ms(api(`${R}/commits/${head}`).commit.committer.date)   // shortcut: no suite (no CI yet) falls back to the committer date, which can predate the push; read the push event if a repo runs PRs without checks
+        const runs = workflowRuns(head, pull)
+        const t = Math.min(...runs.map((x) => ms(x.created_at)).filter((x) => x > 0))
+        if (t === Infinity) return ms(api(`${R}/commits/${head}`).commit.committer.date)   // shortcut: no Actions run (no CI yet) falls back to the committer date, which can predate the push; read the push event if a repo runs without Actions
         pushed.set(head, t)
     }
     return pushed.get(head)
@@ -218,7 +273,7 @@ function pushedAt(head) {
  * or a trusted human with a submitted review or inline comment, and a sign since the push.
  */
 function pollReviewers(S) {
-    const since = pushedAt(S.head)
+    const since = pushedAt(S.head, S.pull)
     const comments = api(`${R}/issues/${target}/comments`, true)
     const reactions = api(`${R}/issues/${target}/reactions`, true)
     const reviews = api(`${R}/pulls/${target}/reviews`, true).filter((x) => x.state !== 'PENDING' && x.state !== 'DISMISSED')

@@ -21,7 +21,7 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `verify.command` | non-empty string (shell) | required | `local-verify`, `render` |
 | `verify.timeout_min` | integer 1..360 | `45` | `local-verify`, `render` |
 | `gate.context` | string: the commit status that is the merge gate ([CI-GATE.md](CI-GATE.md)) | `"CI / Gate"` | `inherit`, `merge`, `pr-wait`, `local-verify`, `render` |
-| `gate.check` | string: the Actions job (check run) behind the gate | `"Verify"` | `pr-wait`, `render` |
+| `gate.check` | string: the Actions job behind the gate | `"Verify"` | `pr-wait`, `render` |
 | `gate.inherit` | boolean | `false` | `local-verify` (and CI: call `inherit.mjs`), `render` |
 | `gate.ci_files` | list of regexes | `[]` | `inherit` |
 | `docs_only.docs` | list of regexes: paths that are documentation | `[]` | `docs-only`, `inherit`, `local-verify` |
@@ -39,8 +39,8 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `practices` | unique list of names from `live-verify`, `runtime-settings`, `i18n`, `database`, `provider-adapters`, `api-endpoints`, `ui-screens`, `domain-guides`, `deploy-gating`, `analytics-events`: the optional practices copied to `.ticketflow/practices/` and wired into the stubs, the AGENTS block and the PR template | `[]` | `runtime`, `gen-stubs`, `render`, `doctor` |
 | `ci.push_paths` | `null`: the CI workflow has no push run; `[]`: it runs on every push to the default branch; a list of globs: only when one of them changes. Must be `null` or `[]` while `deploy_branch` is set (the deploy signal needs every push) | `null` | `render` |
 
-`gate.context` and `gate.check` must differ: the verdict is the commit status, and check runs are only read to
-detect a refused Actions run.
+`gate.context` and `gate.check` must differ: the verdict is the commit status, and the Actions workflow-runs/jobs APIs are
+only read to detect a refused Actions run.
 
 The template's model entries are working examples, not an assertion that every account has access to every model. They use
 versionless model-family or tier hints for the built-in tools. Each tool's action map keeps a native alias when possible and
