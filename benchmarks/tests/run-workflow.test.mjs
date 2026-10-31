@@ -47,7 +47,13 @@ echo "$*" >> "$GH_LOG"
 if [ "$1" = "auth" ] && [ "$2" = "token" ]; then echo single-gh-token; exit 0; fi
 if [ "$1" = "api" ] && [ "$2" = "user" ]; then printf '{"login":"${user}","type":"User"}\\n'; exit 0; fi
 if [ "$1" = "api" ] && [ "$2" = "orgs/${org}" ]; then printf '{"login":"${org}"}\\n'; exit 0; fi
-if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then printf '{"data":{"deleteProjectV2":{"deletedProjectId":"PVT_123"}}}\\n'; exit 0; fi
+if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
+  case "$*" in
+    *deleteProjectV2*) if [ "$FIND_PROJECT" = "1" ]; then printf '{"data":{"deleteProjectV2":{"deletedProjectId":"PVT_777"}}}\\n'; else printf '{"data":{"deleteProjectV2":{"deletedProjectId":"PVT_123"}}}\\n'; fi ;;
+    *) if [ "$FIND_PROJECT" = "1" ]; then printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[{"id":"PVT_777","number":9,"title":"Workflow cleanup-run W1 bare 1"}],"pageInfo":{"hasNextPage":false}}},"user":null}}\\n'; else printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[],"pageInfo":{"hasNextPage":false}}},"user":null}}\\n'; fi ;;
+  esac
+  exit 0
+fi
 if [ "$1" = "repo" ] && [ "$2" = "delete" ] && [ "$FAIL_REPO_DELETE" = "1" ]; then echo failed >&2; exit 1; fi
 if [ "$1" = "repo" ] && [ "$2" = "delete" ]; then exit 0; fi
 exit 1
@@ -69,11 +75,13 @@ exit 1
 `;
   writeFileSync(join(bin,'gh'),script);chmodSync(join(bin,'gh'),0o755);return bin;
 };
-const cleanupFixture=(dir,{mode='organization',owner='example-benchmark-org'}={})=>{
+const cleanupFixture=(dir,{mode='organization',owner='example-benchmark-org',missingCell=false,project=true,phase='completed'}={})=>{
   const file=join(dir,'cleanup.jsonl'),cell={id:'W1',arm:'bare',repeat:1,key:'W1|bare|1'};
-  writeFileSync(file+'.state.json',JSON.stringify({version:3,runId:'cleanup-run',identity:{mode,owner},schedule:[cell],cells:{
-    [cell.key]:{repo:owner+'/'+(mode==='personal'?'ticketflow-benchmark-':'tfwf-')+'cleanup-w1-bare-1',phase:'completed',project:{id:'PVT_123',number:1,owner,owner_type:mode==='personal'?'user':'organization'},cleanup:{project:'pending',repo:'pending'}}
-  }},null,2));
+  const second={id:'W2',arm:'bare',repeat:1,key:'W2|bare|1'};
+  const record={repo:owner+'/'+(mode==='personal'?'ticketflow-benchmark-':'tfwf-')+'cleanup-w1-bare-1',phase,
+    projectTitle:'Workflow cleanup-run W1 bare 1',cleanup:{project:project?'pending':'not-created',repo:'pending'}};
+  if(project)record.project={id:'PVT_123',number:1,owner,owner_type:mode==='personal'?'user':'organization'};
+  writeFileSync(file+'.state.json',JSON.stringify({version:3,runId:'cleanup-run',identity:{mode,owner},schedule:missingCell?[cell,second]:[cell],cells:{[cell.key]:record}},null,2));
   return file;
 };
 const args=(file,selected='W1',repeats='1',arms='bare')=>[runner,'--agent','claude','--model','benchmark-test-model',
@@ -113,6 +121,51 @@ test('cleanup-only resumes after a repository deletion failure',()=>withTemp(dir
   assert.equal(failed.status,2);let state=JSON.parse(readFileSync(file+'.state.json','utf8'));assert.equal(state.cells['W1|bare|1'].cleanup.project,'deleted');assert.equal(state.cells['W1|bare|1'].cleanup.repo,'pending');
   const retried=spawnSync(process.execPath,[runner,'--lifecycle','cleanup-only','--out',file,'--allow-github-writes'],{cwd:root,encoding:'utf8',env:{...baseEnv,FAIL_REPO_DELETE:'0'},timeout:30000});
   assert.equal(retried.status,0,retried.stderr);state=JSON.parse(readFileSync(file+'.state.json','utf8'));assert.equal(state.cleanup.status,'completed');assert.equal(state.cells['W1|bare|1'].cleanup.repo,'deleted');
+}));
+test('organization paid mode requires both split credentials before remote setup',()=>withTemp(dir=>{
+  const file=join(dir,'runs.jsonl');
+  const result=spawnSync(process.execPath,[...args(file),'--execute','--allow-github-writes'],{cwd:root,encoding:'utf8',env,timeout:30000});
+  assert.equal(result.status,2);assert.match(result.stderr,/WORKFLOW_BENCH_SETUP_TOKEN.*WORKFLOW_BENCH_AGENT_TOKEN/);
+  assert.ok(!existsSync(file));assert.ok(!existsSync(file+'.state.json'));
+}));
+test('personal paid mode requires acknowledgment and emits its account warning',()=>withTemp(dir=>{
+  const file=join(dir,'runs.jsonl'),bin=fakeGh(dir),ghLog=join(dir,'gh.log');
+  const rejected=spawnSync(process.execPath,[runner,'--agent','claude','--model','benchmark-test-model','--mode','personal',
+    '--arms','bare','--scenarios','W1','--repeats','1','--out',file,'--execute','--allow-github-writes'],
+    {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog},timeout:30000});
+  assert.equal(rejected.status,2);assert.match(rejected.stderr,/acknowledge-personal-account/);assert.doesNotMatch(readFileSync(ghLog,'utf8'),/repo create/);
+  const accepted=spawnSync(process.execPath,[runner,'--agent','claude','--model','benchmark-test-model','--mode','personal',
+    '--arms','bare','--scenarios','W1','--repeats','1','--out',file,'--execute','--allow-github-writes','--acknowledge-personal-account'],
+    {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog},timeout:30000});
+  assert.equal(accepted.status,2);assert.match(accepted.stderr,/full permissions of the logged-in gh account/);assert.match(readFileSync(ghLog,'utf8'),/repo create/);
+}));
+test('auto-cleanup lifecycle is selectable without executing remote work',()=>withTemp(dir=>{
+  const file=join(dir,'runs.jsonl');
+  const result=spawnSync(process.execPath,[...args(file),'--lifecycle','run-with-auto-cleanup'],{cwd:root,encoding:'utf8',env,timeout:30000});
+  assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/"lifecycle": "run-with-auto-cleanup"/);assert.ok(!existsSync(file));
+}));
+test('cleanup-only requires personal acknowledgment and deletes personal-prefix resources',()=>withTemp(dir=>{
+  const file=cleanupFixture(dir,{mode:'personal',owner:'bench-user'}),bin=fakeGh(dir),ghLog=join(dir,'gh.log');
+  const rejected=spawnSync(process.execPath,[runner,'--lifecycle','cleanup-only','--out',file,'--allow-github-writes'],
+    {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog},timeout:30000});
+  assert.equal(rejected.status,2);assert.match(rejected.stderr,/acknowledge-personal-account/);assert.ok(!existsSync(ghLog));
+  const accepted=spawnSync(process.execPath,[runner,'--lifecycle','cleanup-only','--out',file,'--allow-github-writes','--acknowledge-personal-account'],
+    {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog},timeout:30000});
+  assert.equal(accepted.status,0,accepted.stderr);assert.match(readFileSync(ghLog,'utf8'),/repo delete bench-user\/ticketflow-benchmark-cleanup-w1-bare-1/);
+}));
+test('cleanup-only rejects a sidecar missing a scheduled cell before deletion',()=>withTemp(dir=>{
+  const file=cleanupFixture(dir,{missingCell:true}),bin=fakeGh(dir),ghLog=join(dir,'gh.log');
+  const result=spawnSync(process.execPath,[runner,'--lifecycle','cleanup-only','--out',file,'--allow-github-writes'],
+    {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog,WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token'},timeout:30000});
+  assert.equal(result.status,2);assert.match(result.stderr,/missing scheduled cell/);assert.doesNotMatch(readFileSync(ghLog,'utf8'),/repo delete|deleteProjectV2/);
+}));
+test('cleanup-only recovers a Project created before its identity was persisted',()=>withTemp(dir=>{
+  const file=cleanupFixture(dir,{phase:'repository-created',project:false}),bin=fakeGh(dir),ghLog=join(dir,'gh.log');
+  const result=spawnSync(process.execPath,[runner,'--lifecycle','cleanup-only','--out',file,'--allow-github-writes'],
+    {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog,FIND_PROJECT:'1',WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token'},timeout:30000});
+  assert.equal(result.status,0,result.stderr);const state=JSON.parse(readFileSync(file+'.state.json','utf8'));
+  assert.equal(state.cells['W1|bare|1'].project.id,'PVT_777');assert.equal(state.cells['W1|bare|1'].cleanup.project,'deleted');
+  assert.match(readFileSync(ghLog,'utf8'),/repo delete example-benchmark-org\/tfwf-cleanup-w1-bare-1/);
 }));
 test('unisolated Claude workflow profiles preserve the approved config directory',()=>withTemp(dir=>{
   const previousConfig=process.env.CLAUDE_CONFIG_DIR,previousToken=process.env.WORKFLOW_BENCH_AGENT_TOKEN;

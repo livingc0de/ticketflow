@@ -72,6 +72,17 @@ const graphql=(query,variables={},env=setupEnv())=>{
 export function projectUrl({owner,number,ownerType='organization'}) {
   return 'https://github.com/'+(ownerType==='user'?'users':'orgs')+'/'+owner+'/projects/'+number;
 }
+export function findProject({owner,title,ownerType='organization',env=setupEnv()}) {
+  const data=graphql('query($owner:String!){ organization(login:$owner){id projectsV2(first:100){nodes{id number title} pageInfo{hasNextPage}}} user(login:$owner){id projectsV2(first:100){nodes{id number title} pageInfo{hasNextPage}}} }',
+    {owner},env);
+  const account=ownerType==='user'?data.user:data.organization;
+  if(!account)throw Error('Project owner is not accessible');
+  const projects=account.projectsV2;
+  const matches=projects.nodes.filter(p=>p.title===title);
+  if(matches.length>1 || (projects.pageInfo.hasNextPage && matches.length===0))
+    throw Error('Project lookup is ambiguous; owner has too many projects');
+  return matches.length?{...matches[0],owner,owner_type:ownerType}:null;
+}
 export function linkProject({repo,owner,title,ownerType='organization',env=setupEnv()}) {
   const data=graphql('query($owner:String!,$repo:String!){ organization(login:$owner){id projectsV2(first:100){nodes{id number title} pageInfo{hasNextPage}}} user(login:$owner){id projectsV2(first:100){nodes{id number title} pageInfo{hasNextPage}}} repository(owner:$owner,name:$repo){id}}',
     {owner,repo:repo.split('/')[1]},env);
@@ -104,7 +115,7 @@ export function deleteRepository({repo,env=setupEnv()}) {
     gh(['repo','delete',repo,'--yes'],{env});
     return 'deleted';
   } catch(e) {
-    if(/404|not found|does not exist/i.test(e.message))return 'absent';
+    if(/404|not found|could not resolve|does not exist/i.test(e.message))return 'absent';
     throw e;
   }
 }

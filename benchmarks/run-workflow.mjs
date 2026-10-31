@@ -8,7 +8,7 @@ import { parseArgs } from 'node:util';
 import { createHash } from 'node:crypto';
 import { scenarios,ids,prompt } from './workflow/scenarios.mjs';
 import { validateOrg,authenticatedUser,authenticatedToken,newRepository,seedIssues,seedBrokenPull,
-  cloneRepository,installTicketFlow,linkProject,projectUrl,deleteProject,deleteRepository,setupEnv,sh,gh,newWork } from './workflow/sandbox.mjs';
+  cloneRepository,installTicketFlow,linkProject,findProject,projectUrl,deleteProject,deleteRepository,setupEnv,sh,gh,newWork } from './workflow/sandbox.mjs';
 import { makeProfile,destroyProfile } from './workflow/profile.mjs';
 import { scoreDelivery, projectSnapshot, meaningfulCheckpoint } from './workflow/check.mjs';
 import { selectProfileMode,approveDangerFullAccess } from './lib/profile-auth.mjs';
@@ -161,14 +161,23 @@ function authenticatedRun(mode,expectedOwner=null) {
 }
 function cleanupTargets(state) {
   const identity=state?.identity,mode=identity?.mode,owner=identity?.owner;
-  if(!MODES.has(mode)||!owner||!Array.isArray(state?.schedule)||!state.schedule.length||!state.runId||
+  if(!MODES.has(mode)||!owner||!validSchedule(state?.schedule)||!state.schedule.length||!state.runId||
       !state.cells||typeof state.cells!=='object'||!Object.keys(state.cells).length)
     throw Error('cleanup state is missing a complete mode, owner, schedule, or cells');
   const prefix=mode==='personal'?'ticketflow-benchmark-':'tfwf-';
   const scheduled=new Set(state.schedule.map(cell=>cell.key));
+  const recorded=new Set(Object.keys(state.cells));
+  for(const key of scheduled)if(!recorded.has(key))throw Error('cleanup state is missing scheduled cell '+key);
+  for(const key of recorded)if(!scheduled.has(key))throw Error('cleanup state has unscheduled cell '+key);
   const seenRepos=new Set(),seenProjects=new Set(),targets=[];
   for(const [key,record] of Object.entries(state.cells)) {
-    if(!scheduled.has(key)||typeof record.repo!=='string')throw Error('cleanup state has an invalid recorded cell '+key);
+    if(!record||typeof record!=='object')throw Error('cleanup state has an invalid recorded cell '+key);
+    if(record.phase==='unstarted') {
+      if(record.repo||record.project)throw Error('cleanup state marks an unstarted cell with remote resources '+key);
+      targets.push({key,repo:null,project:null,record,unstarted:true});
+      continue;
+    }
+    if(typeof record.repo!=='string')throw Error('cleanup state has an invalid recorded cell '+key);
     const [repoOwner,repoName]=record.repo.split('/');
     if(repoOwner!==owner||!repoName||!repoName.startsWith(prefix)||!/^[a-z0-9][a-z0-9.-]*$/i.test(repoName))
       throw Error('cleanup repository owner or benchmark prefix mismatch for '+key);
@@ -188,12 +197,35 @@ function cleanupTargets(state) {
   }
   return targets;
 }
+function recoverProjects(targets,state,statePath,auth) {
+  let changed=false;
+  for(const target of targets) {
+    if(target.unstarted||target.project)continue;
+    const title=target.record.projectTitle;
+    if(typeof title!=='string'||!title.trim())throw Error('cleanup state cannot recover Project identity for '+target.key);
+    const project=findProject({owner:state.identity.owner,title,ownerType:state.identity.mode==='personal'?'user':'organization',env:auth.setupEnv});
+    if(project) {
+      state.cells[target.key].project=project;
+      state.cells[target.key].cleanup={...(state.cells[target.key].cleanup??{}),project:'pending',repo:'pending'};
+      changed=true;
+    }
+  }
+  if(changed)safeOut(statePath,state);
+  return changed?cleanupTargets(state):targets;
+}
 async function cleanupState({state,statePath,auth}) {
-  const targets=cleanupTargets(state);
+  const targets=recoverProjects(cleanupTargets(state),state,statePath,auth);
   state.cleanup={...(state.cleanup??{}),status:'running',started_at:state.cleanup?.started_at??new Date().toISOString()};
   safeOut(statePath,state);
+  let cleaned=0;
   for(const target of targets) {
     const cell=state.cells[target.key];
+    if(target.unstarted) {
+      cell.cleanup={project:'not-created',repo:'not-created'};
+      safeOut(statePath,state);
+      continue;
+    }
+    cleaned++;
     cell.cleanup=cell.cleanup??{project:target.project?'pending':'not-created',repo:'pending'};
     if(target.project&&cell.cleanup.project!=='deleted'&&cell.cleanup.project!=='absent') {
       try {
@@ -215,7 +247,7 @@ async function cleanupState({state,statePath,auth}) {
     }
   }
   state.cleanup.status='completed';state.cleanup.completed_at=new Date().toISOString();safeOut(statePath,state);
-  return targets.length;
+  return cleaned;
 }
 function runAgent({agent,model,effort,arm,dir,work,source,mode,message,githubToken,timeoutMs=35*60_000,interrupt=null,archiveRoot=null,archiveMeta={}}) {
   return new Promise((done,reject)=>{
@@ -493,6 +525,7 @@ async function main() {
   if(!v['allow-github-writes'])throw Error('--allow-github-writes required: creates private repos, real issues, Projects v2, PRs and Actions runs');
   if(targetMode==='personal'&&!v['acknowledge-personal-account'])
     throw Error('personal mode requires --acknowledge-personal-account: the agent will use the logged-in gh identity');
+  if(targetMode==='personal')console.error('WARNING: personal mode gives the agent the full permissions of the logged-in gh account and creates user-owned benchmark resources.');
   if(pending.some(x=>(latestRows.get(x.key)?.invalid_reasons??[]).includes('plugin_cleanup_failed'))&&
       !v['acknowledge-plugin-cleanup'])
     throw Error('Previous plugin cleanup failed. Inspect and remove benchmark-owned leftovers first, then explicitly pass --acknowledge-plugin-cleanup to retry invalid cells.');
@@ -509,6 +542,8 @@ async function main() {
   if(rows.some(r=>r.profile_isolation!==profileMode))throw Error('resume cannot mix isolated and unisolated profiles');
   const runState=state??{runId:Date.now().toString(36),projectTitle:null,projectNumber:null,cells:{}};
   runState.version=3;runState.identity=identity;runState.schedule=schedule;runState.signature=idFor(schedule,identity);
+  runState.cells??={};
+  for(const cell of schedule)if(!runState.cells[cell.key])runState.cells[cell.key]={id:cell.id,arm:cell.arm,repeat:cell.repeat,key:cell.key,phase:'unstarted'};
   safeOut(statePath,runState);
   opts.auth=runAuth;
   let failure=null;
