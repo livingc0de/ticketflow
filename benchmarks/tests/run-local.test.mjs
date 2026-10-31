@@ -59,7 +59,8 @@ const name = process.argv[1].split('/').pop(), args = process.argv.slice(2), log
 if (args.includes('--version')) { console.log(name === 'claude' ? 'fake-claude 1.0' : 'fake-codex 1.0'); process.exit(0) }
 if (name === 'codex' && args[0] === 'login' && args[1] === 'status') { process.exit(existsSync(join(process.env.CODEX_HOME, 'auth.json')) ? 0 : 1) }
 const start = Date.now(); appendFileSync(log, name + ':start:' + start + '\\n')
-const until = Date.now() + 400; while (Date.now() < until) {}
+// stay alive until both agents have started (bounded), so the overlap never depends on process start-up speed
+const until = Date.now() + 8000; while (Date.now() < until && (readFileSync(log, 'utf8').match(/:start:/g) || []).length < 2) {}
 if (name === 'codex') { const o = args.indexOf('-o'); writeFileSync(args[o + 1], 'src/files.js:7 path traversal') ; console.log(JSON.stringify({ type:'turn.completed', usage:{input_tokens:1, output_tokens:1} })) }
 else console.log(JSON.stringify({ type:'result', result:'src/files.js:7 path traversal', num_turns:1, total_cost_usd:0, usage:{input_tokens:1, output_tokens:1}, modelUsage:{'fake-model':{}} }))
 appendFileSync(log, name + ':end:' + Date.now() + '\\n')
