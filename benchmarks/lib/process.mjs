@@ -38,6 +38,23 @@ export function terminateProcess(child, { platform = process.platform, graceMs =
     return () => clearTimeout(timer)
 }
 
+// Children of runProcess still running; a harness signal must not orphan a paid agent in its own process group.
+const live = new Set()
+let signalsInstalled = false
+function forwardSignals() {
+    if (signalsInstalled) return
+    signalsInstalled = true
+    for (const [name, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+        process.on(name, () => {
+            for (const stop of [...live]) stop()
+            const exit = () => process.exit(code)
+            if (!live.size) exit()
+            setTimeout(exit, 5000)
+            setInterval(() => { if (!live.size) exit() }, 50)
+        })
+    }
+}
+
 /** Run a process with bounded process-group termination and captured output. */
 export function runProcess(command, args, {
     cwd, env, input = null, timeoutMs = 0, graceMs = 1000, maxBuffer = 1 << 28,
@@ -54,6 +71,7 @@ export function runProcess(command, args, {
         let stdout = '', stderr = '', timedOut = false, outputLimit = false, stopping = false
         let childError = null, stdinError = null
         let timeout, clearEscalation = () => {}
+        forwardSignals()
         const append = (which, value) => {
             const text = value.toString()
             if (which === 'stdout') stdout += text
@@ -71,10 +89,12 @@ export function runProcess(command, args, {
             clearEscalation = terminateProcess(child, { graceMs, onEscalate: onStderr.bind(null, '\nprocess group escalated to SIGKILL\n') })
         }
         const finish = (status, signal, error = null) => {
+            live.delete(stop)
             clearTimeout(timeout)
             clearEscalation()
             resolve({ status, signal, error: error ?? stdinError, stdout, stderr, timedOut, outputLimit })
         }
+        live.add(stop)
         child.stdout.on('data', (value) => append('stdout', value))
         child.stderr.on('data', (value) => append('stderr', value))
         child.stdin.on('error', (error) => { stdinError ??= error })

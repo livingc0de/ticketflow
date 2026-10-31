@@ -82,6 +82,25 @@ test('a rerun with an earlier failed job remains invalid',()=>{
   assert.match(result.reason,/other failing checks: tests/);
 });
 
+test('local fallback success must predate the merge and cannot excuse a failure that ran on a runner',()=>{
+  const status=at=>[{context:'CI / Gate',state:'success',description:'Local run on runner (Linux), npm test',updated_at:at}];
+  const make=(statuses,runs,jobsByRun)=>path=>{
+    if(path.includes('/commits/abc123/status'))return {sha:'abc123',statuses};
+    if(path.includes('/issues/7/comments'))return [];
+    if(path.includes('/actions/runs?'))return {total_count:runs.length,workflow_runs:runs};
+    const id=Number(path.match(/\/actions\/runs\/(\d+)\/jobs/)?.[1]);
+    const jobs=jobsByRun[id]??[];
+    return {total_count:jobs.length,jobs};
+  };
+  const merged={number:7,headRefOid:'abc123',mergedAt:pr.mergedAt};
+  const failed=[run(1,{conclusion:'failure'})];
+  assert.equal(fallbackEvidence('org/repo',merged,null,make(status(before),failed,{})).success,true);
+  assert.equal(fallbackEvidence('org/repo',merged,null,make(status(after),failed,{})).success,false);
+  const ran=job('tests',{conclusion:'failure',steps:[{name:'npm test'}]});
+  const mixed=fallbackEvidence('org/repo',merged,null,make(status(before),[run(1,{conclusion:'failure'}),run(2,{conclusion:'failure'})],{1:[ran],2:[]}));
+  assert.equal(mixed.allowed,false);
+});
+
 test('a framework gate still running at merge blocks delivery',()=>{
   const started=new Date(Date.parse(pr.mergedAt)-60_000).toISOString();
   const f=fixture([run(1)],{1:[job('tests'),job('Verify',{status:'in_progress',conclusion:null,completed_at:null,started_at:started})]});

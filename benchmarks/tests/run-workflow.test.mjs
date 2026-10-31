@@ -491,3 +491,18 @@ test('runProcess records stdin stream errors without losing the child close resu
   assert.equal(result.status,0);
   assert.equal(result.error?.code,'EPIPE');
 });
+
+test('runProcess forwards SIGTERM to its process group before the harness exits',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'workflow-signal-'));
+  try{
+  const pidFile=join(dir,'pid'),script=join(dir,'h.mjs');
+  writeFileSync(script,`import {runProcess} from ${JSON.stringify(new URL('../lib/process.mjs',import.meta.url).href)};
+runProcess('sh',['-c','echo $$ > '+${JSON.stringify(pidFile)}+'; sleep 30']);`);
+  const h=spawn(process.execPath,[script],{stdio:'ignore'});
+  for(let i=0;i<100&&!existsSync(pidFile);i++)await new Promise(r=>setTimeout(r,50));
+  const pid=Number(readFileSync(pidFile,'utf8'));
+  const exited=new Promise(r=>h.once('exit',r));
+  h.kill('SIGTERM');await exited;
+  assert.throws(()=>process.kill(pid,0),/ESRCH/);
+  }finally{rmSync(dir,{recursive:true,force:true})}
+});
