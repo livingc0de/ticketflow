@@ -80,7 +80,7 @@ export function findProject({owner,title,repo,ownerType='organization',env=setup
   if(!account)throw Error('Project owner is not accessible');
   const projects=account.projectsV2;
   const matches=projects.nodes.filter(p=>p.title===title);
-  if(matches.length>1 || (projects.pageInfo.hasNextPage && matches.length===0))
+  if(matches.length>1 || projects.pageInfo.hasNextPage)
     throw Error('Project lookup is ambiguous; owner has too many projects');
   if(!matches.length)return null;
   const project=matches[0],repositories=project.repositories;
@@ -95,7 +95,7 @@ export function linkProject({repo,owner,title,ownerType='organization',env=setup
   if(!account||!data.repository)throw Error('Project owner or repository not accessible');
   const projects=account.projectsV2;
   const matches=projects.nodes.filter(p=>p.title===title);
-  if(matches.length>1 || (projects.pageInfo.hasNextPage && matches.length===0))
+  if(matches.length>1 || projects.pageInfo.hasNextPage)
     throw Error('Project lookup is ambiguous; owner has too many projects');
   if(matches.length) return {...matches[0],owner,owner_type:ownerType};
   const created=graphql('mutation($o:ID!,$r:ID!,$t:String!){createProjectV2(input:{ownerId:$o,repositoryId:$r,title:$t}){projectV2{id number}}}',

@@ -78,8 +78,9 @@ cleanup. Cleanup never deletes an organization or user account, retains the JSON
 state sidecar and transcript archives, and fails closed on missing or ambiguous
 resource records. If a Project identity is missing, cleanup may recover it only
 from a recorded pending-creation marker and an exact owner/title/repository
-association; no match is an error and the repository is not deleted. Personal
-cleanup-only also requires `--acknowledge-personal-account`.
+association from a complete, non-paginated owner listing; no match or incomplete
+listing is an error and the repository is not deleted. Personal cleanup-only also
+requires `--acknowledge-personal-account`.
 
 Pin competitor checkouts and the TicketFlow source to reviewed commits. The runner
 validates native plugin manifests and source provenance. TicketFlow must have the
