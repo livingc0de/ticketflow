@@ -39,8 +39,8 @@ audit and are not presented as deterministic facts.
 ## Setup
 
 Run only on a disposable Linux VM with no personal, cloud or production credentials.
-Create a **dedicated GitHub organization** used for benchmark fixtures. Use two
-credentials belonging to identities with clearly limited scope:
+Organization mode uses a **dedicated GitHub organization** for benchmark fixtures
+and two credentials belonging to identities with clearly limited scope:
 
 - WORKFLOW_BENCH_SETUP_TOKEN: may create private repos, Projects v2, seed Issues/PRs;
   it is never given to the coding agent.
@@ -48,11 +48,31 @@ credentials belonging to identities with clearly limited scope:
   issue/PR writes, branch push and Project access. **Must not have organization admin**
   permissions or access to production repositories.
 
-Your GitHub organization must allow Actions, Projects v2 and private repository
-creation. The agent identity must already have access to new benchmark repositories.
-The harness does not grant or expand permissions. Inspect the two token scopes and
+The organization must allow Actions, Projects v2 and private repository creation.
+The agent identity must already have access to new benchmark repositories. The
+harness does not grant or expand permissions. Inspect the two token scopes and
 verify repository and Project access before paid runs. GitHub Actions can consume
-runner minutes independently of model charges.
+runner minutes independently of model charges. Personal mode does not require an
+organization or either workflow token variable.
+
+The runner has two target modes. Organization mode is the default and uses the
+split setup/agent identities above. Personal mode is an explicit convenience mode:
+it uses the existing `gh auth login` account for setup, scoring and the agent,
+creates user-owned repositories with a `ticketflow-benchmark-<run-id>-...` prefix,
+and creates user-owned Projects. It does not require the two workflow token
+variables, but it gives the agent the full permissions of that `gh` identity. Run
+personal mode only from a disposable account and pass
+`--acknowledge-personal-account` before paid work. `--org` is accepted only in
+organization mode.
+
+The lifecycle defaults to `run-without-cleanup`, preserving remote evidence. Use
+`--lifecycle run-with-auto-cleanup` to delete the exact repositories and Projects
+recorded in the sidecar after the run, or use
+`--lifecycle cleanup-only --out <file> --allow-github-writes` later to resume that
+cleanup. Cleanup never deletes an organization or user account, retains the JSONL,
+state sidecar and transcript archives, and fails closed on missing or ambiguous
+resource records. Personal cleanup-only also requires
+`--acknowledge-personal-account`.
 
 Pin competitor checkouts and the TicketFlow source to reviewed commits. The runner
 validates native plugin manifests and source provenance. TicketFlow must have the
@@ -67,7 +87,7 @@ rejected before the dry-run plan is printed; detached checkouts may omit the SHA
 ### Dry-run and pilot (free until --execute)
 
     node benchmarks/run-workflow.mjs --agent claude --model YOUR_MODEL \
-      --owner YOUR_DISPOSABLE_ORG \
+      --org YOUR_DISPOSABLE_ORG \
       --arms bare,ticketflow,superpowers,ponytail \
       --ticketflow-source ../ticketflow-reviewed --ticketflow-sha <ticketflow-commit> \
       --superpowers-source ../superpowers --ponytail-source ../ponytail \
@@ -79,7 +99,7 @@ the created GitHub resources and transcripts, and then expand the matrix.
 Execute only after inspecting the printed plan:
 
     node benchmarks/run-workflow.mjs --agent claude --model YOUR_MODEL \
-      --owner YOUR_DISPOSABLE_ORG --arms bare,ticketflow \
+      --org YOUR_DISPOSABLE_ORG --arms bare,ticketflow \
       --ticketflow-source ../ticketflow-reviewed --ticketflow-sha <ticketflow-commit> \
       --scenarios W1 --repeats 1 --max-sessions 2 \
       --out benchmarks/results/<date>-workflow-pilot.jsonl \
@@ -209,10 +229,11 @@ and a corresponding `workflow` array. Use `report-local.mjs` or
 - The runner creates one private repository and one Project for each cell by
   default to avoid cross-cell contamination. The 84-cell matrix can thus create
   84 repositories and 84 Projects. No production repository is touched.
-- Remote resources are **preserved after runs** for auditable evidence. This
-  initial implementation does **not** automatically delete GitHub Projects,
-  repos, issues, PRs or local transcripts. Only delete resources whose IDs
-  match the runner's saved sidecar after reviewing them.
+- Remote resources are **preserved after runs** by default for auditable evidence.
+  The auto-cleanup lifecycle deletes only exact repository names and Project IDs
+  recorded in the runner's sidecar; cleanup-only can be run after reviewing the
+  remote repositories, issues, PRs and Projects. It never deletes an organization,
+  account, or local transcript/result artifact.
 - If Github Actions/Projects permissions, plugin bootstrap or agent authentication
   fail, do not treat the resulting cell as proof of framework inferiority.
 - Native plugin *registration* is not proof that hooks/skills activated. Review

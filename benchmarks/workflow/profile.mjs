@@ -62,16 +62,16 @@ function codexMarketplace(env,work,src,arm,isolated) {
     throw e;
   }
 }
-export function makeProfile(agent,arm,work,source,mode) {
+export function makeProfile(agent,arm,work,source,mode,{githubToken=process.env.WORKFLOW_BENCH_AGENT_TOKEN}={}) {
   const isolated=mode==='isolated', home=join(work,'home');
   if(isolated) mkdirSync(home,{recursive:true,mode:0o700});
   const env=isolated?{...clean(),HOME:home,XDG_CONFIG_HOME:join(home,'.config')}:{...clean()};
   for(const key of ['ANTHROPIC_API_KEY','CLAUDE_CODE_OAUTH_TOKEN']) if(process.env[key])env[key]=process.env[key];
   // GH_TOKEN is intentionally available to the agent for the disposable repository.
   // Use a dedicated token scoped only to benchmark repos; do not run on a production account.
-  if(!process.env.WORKFLOW_BENCH_AGENT_TOKEN) throw Error('WORKFLOW_BENCH_AGENT_TOKEN required');
-  env.GH_TOKEN=process.env.WORKFLOW_BENCH_AGENT_TOKEN;
-  env.GITHUB_TOKEN=process.env.WORKFLOW_BENCH_AGENT_TOKEN;
+  if(!githubToken) throw Error('GitHub agent authentication required');
+  env.GH_TOKEN=githubToken;
+  env.GITHUB_TOKEN=githubToken;
   if(agent==='claude') {
     if(isolated) {
       const dir=join(home,'.claude');mkdirSync(dir,{recursive:true,mode:0o700});

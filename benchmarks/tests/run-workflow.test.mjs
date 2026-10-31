@@ -9,6 +9,7 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {runProcess,signalProcess,terminateProcess} from '../lib/process.mjs';
 import {makeProfile} from '../workflow/profile.mjs';
+import {linkProject,projectUrl} from '../workflow/sandbox.mjs';
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const runner=fileURLToPath(new URL('../run-workflow.mjs',import.meta.url));
@@ -39,8 +40,80 @@ const pluginSource=(dir,arm='ponytail')=>{
   git(source,'checkout','--detach','-q');
   return {source,sha:git(source,'rev-parse','HEAD').stdout.trim()};
 };
+const fakeGh=(dir,{user='bench-user',org='example-benchmark-org'}={})=>{
+  const bin=join(dir,'bin');mkdirSync(bin);
+  const script=`#!/bin/sh
+echo "$*" >> "$GH_LOG"
+if [ "$1" = "auth" ] && [ "$2" = "token" ]; then echo single-gh-token; exit 0; fi
+if [ "$1" = "api" ] && [ "$2" = "user" ]; then printf '{"login":"${user}","type":"User"}\\n'; exit 0; fi
+if [ "$1" = "api" ] && [ "$2" = "orgs/${org}" ]; then printf '{"login":"${org}"}\\n'; exit 0; fi
+if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then printf '{"data":{"deleteProjectV2":{"deletedProjectId":"PVT_123"}}}\\n'; exit 0; fi
+if [ "$1" = "repo" ] && [ "$2" = "delete" ] && [ "$FAIL_REPO_DELETE" = "1" ]; then echo failed >&2; exit 1; fi
+if [ "$1" = "repo" ] && [ "$2" = "delete" ]; then exit 0; fi
+exit 1
+`;
+  writeFileSync(join(bin,'gh'),script);chmodSync(join(bin,'gh'),0o755);return bin;
+};
+const fakeProjectGh=(dir)=>{
+  const bin=join(dir,'project-bin');mkdirSync(bin);
+  const script=`#!/bin/sh
+echo "$*" >> "$GH_LOG"
+if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
+  case "$*" in
+    *createProjectV2*) printf '{"data":{"createProjectV2":{"projectV2":{"id":"PVT_456","number":7}}}}\\n' ;;
+    *) printf '{"data":{"organization":null,"user":{"id":"U_123","projectsV2":{"nodes":[],"pageInfo":{"hasNextPage":false}}},"repository":{"id":"R_123"}}}\\n' ;;
+  esac
+  exit 0
+fi
+exit 1
+`;
+  writeFileSync(join(bin,'gh'),script);chmodSync(join(bin,'gh'),0o755);return bin;
+};
+const cleanupFixture=(dir,{mode='organization',owner='example-benchmark-org'}={})=>{
+  const file=join(dir,'cleanup.jsonl'),cell={id:'W1',arm:'bare',repeat:1,key:'W1|bare|1'};
+  writeFileSync(file+'.state.json',JSON.stringify({version:3,runId:'cleanup-run',identity:{mode,owner},schedule:[cell],cells:{
+    [cell.key]:{repo:owner+'/'+(mode==='personal'?'ticketflow-benchmark-':'tfwf-')+'cleanup-w1-bare-1',phase:'completed',project:{id:'PVT_123',number:1,owner,owner_type:mode==='personal'?'user':'organization'},cleanup:{project:'pending',repo:'pending'}}
+  }},null,2));
+  return file;
+};
 const args=(file,selected='W1',repeats='1',arms='bare')=>[runner,'--agent','claude','--model','benchmark-test-model',
-  '--owner','example-benchmark-org','--arms',arms,'--scenarios',selected,'--repeats',repeats,'--out',file];
+  '--org','example-benchmark-org','--arms',arms,'--scenarios',selected,'--repeats',repeats,'--out',file];
+test('workflow rejects the removed --owner option',()=>withTemp(dir=>{
+  const file=join(dir,'runs.jsonl');
+  const result=spawnSync(process.execPath,[...args(file),'--owner','example-benchmark-org'],{cwd:root,encoding:'utf8',env,timeout:30000});
+  assert.equal(result.status,2);assert.match(result.stderr,/Unknown option '--owner'/);
+}));
+test('personal dry-run discovers the gh account without workflow token variables',()=>withTemp(dir=>{
+  const file=join(dir,'runs.jsonl'),bin=fakeGh(dir),ghLog=join(dir,'gh.log');
+  const result=spawnSync(process.execPath,[runner,'--agent','claude','--model','benchmark-test-model','--mode','personal',
+    '--arms','bare','--scenarios','W1','--repeats','1','--out',file],{cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog},timeout:30000});
+  assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/"target_mode": "personal"/);assert.match(result.stdout,/"owner": "bench-user"/);
+  assert.doesNotMatch(readFileSync(ghLog,'utf8'),/single-gh-token/);assert.ok(!existsSync(file));
+}));
+test('personal Projects resolve through the user GraphQL owner and URL',()=>withTemp(dir=>{
+  const bin=fakeProjectGh(dir),ghLog=join(dir,'gh.log');
+  const project=linkProject({repo:'bench-user/ticketflow-benchmark-demo',owner:'bench-user',ownerType:'user',title:'Workflow demo',
+    env:{...env,PATH:bin+':'+process.env.PATH,GH_TOKEN:'single-gh-token',GITHUB_TOKEN:'single-gh-token',GH_LOG:ghLog}});
+  assert.deepEqual(project,{id:'PVT_456',number:7,owner:'bench-user',owner_type:'user'});
+  assert.equal(projectUrl({owner:'bench-user',ownerType:'user',number:7}),'https://github.com/users/bench-user/projects/7');
+  const log=readFileSync(ghLog,'utf8');assert.match(log,/user\(login:\$owner\)/);assert.match(log,/createProjectV2/);
+}));
+test('cleanup-only deletes exact recorded resources without starting an agent',()=>withTemp(dir=>{
+  const file=cleanupFixture(dir),bin=fakeGh(dir),ghLog=join(dir,'gh.log');
+  const result=spawnSync(process.execPath,[runner,'--lifecycle','cleanup-only','--out',file,'--allow-github-writes'],{cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog,
+    WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token'},timeout:30000});
+  assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/"resources_cleaned": 1/);
+  const state=JSON.parse(readFileSync(file+'.state.json','utf8'));assert.equal(state.cleanup.status,'completed');
+  const log=readFileSync(ghLog,'utf8');assert.match(log,/api graphql/);assert.match(log,/repo delete example-benchmark-org\/tfwf-cleanup-w1-bare-1/);assert.doesNotMatch(log,/orgs\/.*delete|organization.*delete/);
+}));
+test('cleanup-only resumes after a repository deletion failure',()=>withTemp(dir=>{
+  const file=cleanupFixture(dir),bin=fakeGh(dir),baseEnv={...env,PATH:bin+':'+process.env.PATH,GH_LOG:join(dir,'gh.log'),
+    WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token',FAIL_REPO_DELETE:'1'};
+  const failed=spawnSync(process.execPath,[runner,'--lifecycle','cleanup-only','--out',file,'--allow-github-writes'],{cwd:root,encoding:'utf8',env:baseEnv,timeout:30000});
+  assert.equal(failed.status,2);let state=JSON.parse(readFileSync(file+'.state.json','utf8'));assert.equal(state.cells['W1|bare|1'].cleanup.project,'deleted');assert.equal(state.cells['W1|bare|1'].cleanup.repo,'pending');
+  const retried=spawnSync(process.execPath,[runner,'--lifecycle','cleanup-only','--out',file,'--allow-github-writes'],{cwd:root,encoding:'utf8',env:{...baseEnv,FAIL_REPO_DELETE:'0'},timeout:30000});
+  assert.equal(retried.status,0,retried.stderr);state=JSON.parse(readFileSync(file+'.state.json','utf8'));assert.equal(state.cleanup.status,'completed');assert.equal(state.cells['W1|bare|1'].cleanup.repo,'deleted');
+}));
 test('unisolated Claude workflow profiles preserve the approved config directory',()=>withTemp(dir=>{
   const previousConfig=process.env.CLAUDE_CONFIG_DIR,previousToken=process.env.WORKFLOW_BENCH_AGENT_TOKEN;
   process.env.CLAUDE_CONFIG_DIR=join(dir,'approved-claude');
@@ -72,7 +145,7 @@ test('paid invocation without remote-write consent is rejected before token chec
 }));
 test('Claude workflow plugin arms reach the remote-write gate without a plugin opt-in',()=>withTemp(dir=>{
   const plugin=pluginSource(dir),file=join(dir,'runs.jsonl');
-  const base=[runner,'--agent','claude','--model','benchmark-test-model','--owner','example-benchmark-org',
+  const base=[runner,'--agent','claude','--model','benchmark-test-model','--org','example-benchmark-org',
     '--arms','ponytail','--scenarios','W1','--repeats','1','--out',file,'--ponytail-source',plugin.source,'--execute'];
   let result=spawnSync(process.execPath,base,{cwd:root,encoding:'utf8',env,timeout:30000});
   assert.equal(result.status,2,result.stderr);assert.match(result.stderr,/allow-github-writes/);
@@ -85,7 +158,7 @@ test('workflow Claude plugin preflight rejects a CLI without native plugin loadi
   writeFileSync(claude,'#!/bin/sh\nif [ "$1" = "--version" ]; then echo fake-claude; exit 0; fi\necho --some-other-option\n');
   writeFileSync(join(bin,'gh'),'#!/bin/sh\necho called >> "$GH_PREFLIGHT_LOG"\nexit 1\n');
   chmodSync(claude,0o755);chmodSync(join(bin,'gh'),0o755);
-  const args=[runner,'--agent','claude','--model','benchmark-test-model','--owner','example-benchmark-org',
+  const args=[runner,'--agent','claude','--model','benchmark-test-model','--org','example-benchmark-org',
     '--arms','ponytail','--scenarios','W1','--repeats','1','--out',file,'--ponytail-source',plugin.source,
     '--execute','--allow-github-writes'];
   const result=spawnSync(process.execPath,args,{cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,
@@ -100,7 +173,7 @@ test('Codex Ponytail workflow preflight rejects missing hook trust bypass before
   writeFileSync(codex,'#!/bin/sh\nif [ "$1" = "--version" ]; then echo fake-codex; exit 0; fi\necho "codex exec help without hook support"\n');
   writeFileSync(join(bin,'gh'),'#!/bin/sh\necho called >> "$GH_PREFLIGHT_LOG"\nexit 1\n');
   chmodSync(codex,0o755);chmodSync(join(bin,'gh'),0o755);
-  const args=[runner,'--agent','codex','--model','benchmark-test-model','--owner','example-benchmark-org',
+  const args=[runner,'--agent','codex','--model','benchmark-test-model','--org','example-benchmark-org',
     '--arms','ponytail','--scenarios','W1','--repeats','1','--out',file,'--ponytail-source',plugin.source,
     '--execute','--allow-github-writes','--allow-danger-full-access'];
   const result=spawnSync(process.execPath,args,{cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,
@@ -191,7 +264,7 @@ test('failed cleanup requires explicit acknowledgment before paying for invalid 
 }));
 test('TicketFlow workflow sources must be clean and reproducibly pinned',()=>withTemp(dir=>{
   const {source,sha}=ticketflowSource(dir), file=join(dir,'runs.jsonl');
-  const base=[runner,'--agent','claude','--model','benchmark-test-model','--owner','example-benchmark-org',
+  const base=[runner,'--agent','claude','--model','benchmark-test-model','--org','example-benchmark-org',
     '--arms','ticketflow','--scenarios','W1','--repeats','1','--out',file,'--ticketflow-source',source];
   let result=spawnSync(process.execPath,[...base,'--ticketflow-sha',sha],{cwd:root,encoding:'utf8',env,timeout:30000});
   assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/PLAN W1\|ticketflow\|1/);

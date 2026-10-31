@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Paid opt-in, remote GitHub workflow benchmark. No automatic real-repo deletion. */
+/** Paid opt-in, remote GitHub workflow benchmark with explicit resource lifecycle. */
 import { spawn,spawnSync,execFileSync } from 'node:child_process';
 import { existsSync,readFileSync,writeFileSync,appendFileSync,mkdirSync } from 'node:fs';
 import { dirname,join,resolve } from 'node:path';
@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createHash } from 'node:crypto';
 import { scenarios,ids,prompt } from './workflow/scenarios.mjs';
-import { validateOrg,newRepository,seedIssues,seedBrokenPull,cloneRepository,installTicketFlow,
-  linkProject,setupEnv,sh,gh,newWork } from './workflow/sandbox.mjs';
+import { validateOrg,authenticatedUser,authenticatedToken,newRepository,seedIssues,seedBrokenPull,
+  cloneRepository,installTicketFlow,linkProject,projectUrl,deleteProject,deleteRepository,setupEnv,sh,gh,newWork } from './workflow/sandbox.mjs';
 import { makeProfile,destroyProfile } from './workflow/profile.mjs';
 import { scoreDelivery, projectSnapshot, meaningfulCheckpoint } from './workflow/check.mjs';
 import { selectProfileMode,approveDangerFullAccess } from './lib/profile-auth.mjs';
@@ -20,11 +20,13 @@ import { classifyOutcome, outcomeOf } from './workflow/outcome.mjs';
 const HERE=dirname(fileURLToPath(import.meta.url)),ROOT=resolve(HERE,'..');
 const ARMS=new Set(['bare','ticketflow','superpowers','ponytail']);
 const EFFORTS=new Set(['low','medium','high','xhigh','max']);
-const help='run-workflow --agent claude|codex --model ID --owner DISPOSABLE_ORG --out FILE [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5,W6,W7] [--repeats 3] [--effort high] [--superpowers-source DIR --superpowers-sha SHA] [--ponytail-source DIR --ponytail-sha SHA] [--ticketflow-source DIR --ticketflow-sha SHA] [--resume] [--acknowledge-plugin-cleanup] [--execute --allow-github-writes] [--allow-danger-full-access]';
+const MODES=new Set(['organization','personal']);
+const LIFECYCLES=new Set(['run-with-auto-cleanup','run-without-cleanup','cleanup-only']);
+const help='run-workflow --agent claude|codex --model ID --mode organization|personal [--org DISPOSABLE_ORG] --out FILE [--lifecycle run-with-auto-cleanup|run-without-cleanup|cleanup-only] [--acknowledge-personal-account] [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5,W6,W7] [--repeats 3] [--effort high] [--superpowers-source DIR --superpowers-sha SHA] [--ponytail-source DIR --ponytail-sha SHA] [--ticketflow-source DIR --ticketflow-sha SHA] [--resume] [--acknowledge-plugin-cleanup] [--execute --allow-github-writes] [--allow-danger-full-access]';
 const readJson=(file)=>JSON.parse(readFileSync(file,'utf8'));
 const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
 const cellKey=(cell)=>cell.id+'|'+cell.arm+'|'+cell.repeat;
-const identityFor=({owner,agent,model,effort,sourceShas,sourceMeta,fingerprint})=>({owner,agent,model,effort,sourceShas,sourceMeta,fingerprint});
+const identityFor=({mode,owner,agent,model,effort,sourceShas,sourceMeta,fingerprint})=>({mode,owner,agent,model,effort,sourceShas,sourceMeta,fingerprint});
 const idFor=(schedule,identity)=>JSON.stringify({p:schedule,...identity});
 const sameJson=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const sourceSubset=(previous,current)=>Object.entries(previous??{}).every(([name,value])=>sameJson(current?.[name],value));
@@ -44,6 +46,7 @@ const mergeSchedule=(previous,requested)=>{
 const validSchedule=(schedule)=>Array.isArray(schedule)&&schedule.every(cell=>cell&&ids.includes(cell.id)&&ARMS.has(cell.arm)&&
   Number.isSafeInteger(cell.repeat)&&cell.repeat>0&&cell.key===cellKey(cell));
 const ownerFromState=(state)=>{
+  if(typeof state.identity?.owner==='string')return state.identity.owner;
   const owners=new Set(Object.values(state.cells??{}).map(cell=>typeof cell.repo==='string'?cell.repo.split('/')[0]:null).filter(Boolean));
   return owners.size===1?[...owners][0]:null;
 };
@@ -57,10 +60,10 @@ const previousRun=(state)=>{
   if(!validSchedule(parsed?.p))throw Error('resume state has no valid schedule; use a new output/state pair');
   const owner=parsed.owner??ownerFromState(state);
   if(!owner)throw Error('resume state owner cannot be verified; reconcile it or use a new output/state pair');
-  return {schedule:parsed.p,identity:identityFor({...parsed,owner})};
+  return {schedule:parsed.p,identity:identityFor({mode:parsed.mode??'organization',...parsed,owner})};
 };
 const compatibleIdentity=(previous,current)=>{
-  if(previous.owner!==current.owner||previous.agent!==current.agent||previous.model!==current.model||
+  if((previous.mode??'organization')!==current.mode||previous.owner!==current.owner||previous.agent!==current.agent||previous.model!==current.model||
       (previous.effort??null)!==(current.effort??null)||previous.fingerprint!==current.fingerprint)
     throw Error('resume immutable options, evaluator or owner changed');
   if(!sourceSubset(previous.sourceShas,current.sourceShas)||!sourceSubset(previous.sourceMeta,current.sourceMeta))
@@ -88,13 +91,23 @@ function fingerprint() {
 const safeOut=(file,data)=>{mkdirSync(dirname(file),{recursive:true});writeFileSync(file,JSON.stringify(data,null,2)+'\n',{mode:0o600});};
 function parse() {
   const {values:v}=parseArgs({options:{
-    agent:{type:'string'},model:{type:'string'},owner:{type:'string'},out:{type:'string'},arms:{type:'string'},scenarios:{type:'string'},
+    agent:{type:'string'},model:{type:'string'},mode:{type:'string'},org:{type:'string'},out:{type:'string'},lifecycle:{type:'string'},arms:{type:'string'},scenarios:{type:'string'},
     repeats:{type:'string'},effort:{type:'string'},'max-sessions':{type:'string'},'ticketflow-source':{type:'string'},
     'superpowers-source':{type:'string'},'ponytail-source':{type:'string'},'ticketflow-sha':{type:'string'},
     'superpowers-sha':{type:'string'},'ponytail-sha':{type:'string'},'allow-github-writes':{type:'boolean'},
-    'allow-danger-full-access':{type:'boolean'},'acknowledge-plugin-cleanup':{type:'boolean'},execute:{type:'boolean'},resume:{type:'boolean'},
+    'allow-danger-full-access':{type:'boolean'},'acknowledge-plugin-cleanup':{type:'boolean'},'acknowledge-personal-account':{type:'boolean'},execute:{type:'boolean'},resume:{type:'boolean'},
   }});
-  if(!['claude','codex'].includes(v.agent)||!v.model?.trim()||!v.owner?.trim()||!v.out?.trim()) throw Error(help);
+  const mode=v.mode??'organization',lifecycle=v.lifecycle??'run-without-cleanup';
+  if(!MODES.has(mode)||!LIFECYCLES.has(lifecycle)||!v.out?.trim()) throw Error(help);
+  if(lifecycle==='cleanup-only') {
+    if(v.agent||v.model||v.mode||v.org||v.arms||v.scenarios||v.repeats||v.effort||v.resume||v.execute||v['max-sessions']||
+      v['ticketflow-source']||v['ticketflow-sha']||v['superpowers-source']||v['superpowers-sha']||v['ponytail-source']||v['ponytail-sha'])
+      throw Error('cleanup-only accepts only --out, --lifecycle, authentication consent, and --allow-github-writes');
+    return {v,mode,lifecycle,arms:[],selected:[],repeats:0,max:0,sources:{},sourceMeta:{},sourceShas:{},
+      out:resolve(v.out),statePath:resolve(v.out)+'.state.json',cleanupOnly:true};
+  }
+  if(!['claude','codex'].includes(v.agent)||!v.model?.trim()||!v.out?.trim()) throw Error(help);
+  if(mode==='organization'&&!v.org?.trim()||mode==='personal'&&v.org!==undefined) throw Error(help);
   const arms=(v.arms??'bare,ticketflow,superpowers,ponytail').split(',');
   const selected=(v.scenarios??ids.join(',')).split(',');
   const repeats=Number(v.repeats??3),max=Number(v['max-sessions']??96);
@@ -116,8 +129,8 @@ function parse() {
     if(arm!=='ticketflow') validatePluginSource(dir,v.agent,arm);
     else if(!existsSync(join(dir,'core/scripts/runtime.mjs'))) throw Error('TicketFlow runtime not found at '+dir);
   }
-  return {v,arms,selected,repeats,max,sources,sourceMeta,sourceShas:Object.fromEntries(Object.entries(sourceMeta).map(([a,m])=>[a,m.sha])),
-    out:resolve(v.out),statePath:resolve(v.out)+'.state.json'};
+  return {v,mode,lifecycle,arms,selected,repeats,max,sources,sourceMeta,sourceShas:Object.fromEntries(Object.entries(sourceMeta).map(([a,m])=>[a,m.sha])),
+    out:resolve(v.out),statePath:resolve(v.out)+'.state.json',cleanupOnly:false};
 }
 function cliVersion(agent) {
   const r=spawnSync(agent,['--version'],{encoding:'utf8',timeout:12000});
@@ -133,10 +146,81 @@ function requireCodexPonytailHooks() {
   if(r.status!==0||!(r.stdout+'\n'+r.stderr).includes('--dangerously-bypass-hook-trust'))
     throw Error('Codex exec does not advertise --dangerously-bypass-hook-trust; Ponytail lifecycle hooks cannot be enabled noninteractively');
 }
-function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs=35*60_000,interrupt=null,archiveRoot=null,archiveMeta={}}) {
+const tokenEnv=(token)=>({...process.env,GH_TOKEN:token,GITHUB_TOKEN:token,GIT_TERMINAL_PROMPT:'0'});
+function authenticatedRun(mode,expectedOwner=null) {
+  if(mode==='organization') {
+    const setupToken=process.env.WORKFLOW_BENCH_SETUP_TOKEN,agentToken=process.env.WORKFLOW_BENCH_AGENT_TOKEN;
+    if(!setupToken||!agentToken)throw Error('Use dedicated WORKFLOW_BENCH_SETUP_TOKEN and WORKFLOW_BENCH_AGENT_TOKEN in a disposable GitHub organization');
+    return {mode,owner:expectedOwner,ownerType:'organization',setupToken,agentToken,
+      setupEnv:setupEnv({token:setupToken}),agentEnv:tokenEnv(agentToken)};
+  }
+  const token=authenticatedToken(),owner=authenticatedUser();
+  if(expectedOwner&&owner!==expectedOwner.toLowerCase())throw Error('gh login account '+owner+' does not match recorded personal owner '+expectedOwner);
+  return {mode,owner,ownerType:'user',setupToken:token,agentToken:token,
+    setupEnv:tokenEnv(token),agentEnv:tokenEnv(token)};
+}
+function cleanupTargets(state) {
+  const identity=state?.identity,mode=identity?.mode,owner=identity?.owner;
+  if(!MODES.has(mode)||!owner||!Array.isArray(state?.schedule)||!state.schedule.length||!state.runId||
+      !state.cells||typeof state.cells!=='object'||!Object.keys(state.cells).length)
+    throw Error('cleanup state is missing a complete mode, owner, schedule, or cells');
+  const prefix=mode==='personal'?'ticketflow-benchmark-':'tfwf-';
+  const scheduled=new Set(state.schedule.map(cell=>cell.key));
+  const seenRepos=new Set(),seenProjects=new Set(),targets=[];
+  for(const [key,record] of Object.entries(state.cells)) {
+    if(!scheduled.has(key)||typeof record.repo!=='string')throw Error('cleanup state has an invalid recorded cell '+key);
+    const [repoOwner,repoName]=record.repo.split('/');
+    if(repoOwner!==owner||!repoName||!repoName.startsWith(prefix)||!/^[a-z0-9][a-z0-9.-]*$/i.test(repoName))
+      throw Error('cleanup repository owner or benchmark prefix mismatch for '+key);
+    if(seenRepos.has(record.repo))throw Error('cleanup state repeats repository '+record.repo);
+    seenRepos.add(record.repo);
+    const project=record.project??null;
+    if(project) {
+      if(project.owner!==owner||project.owner_type!==(mode==='personal'?'user':'organization')||
+        typeof project.id!=='string'||!/^PVT_/.test(project.id)||!Number.isSafeInteger(project.number)||project.number<1)
+        throw Error('cleanup Project ownership or identity mismatch for '+key);
+      if(seenProjects.has(project.id))throw Error('cleanup state repeats Project '+project.id);
+      seenProjects.add(project.id);
+    } else if(record.phase!=='creating'&&record.phase!=='repository-created') {
+      throw Error('cleanup state is missing Project identity for '+key);
+    }
+    targets.push({key,repo:record.repo,project,record});
+  }
+  return targets;
+}
+async function cleanupState({state,statePath,auth}) {
+  const targets=cleanupTargets(state);
+  state.cleanup={...(state.cleanup??{}),status:'running',started_at:state.cleanup?.started_at??new Date().toISOString()};
+  safeOut(statePath,state);
+  for(const target of targets) {
+    const cell=state.cells[target.key];
+    cell.cleanup=cell.cleanup??{project:target.project?'pending':'not-created',repo:'pending'};
+    if(target.project&&cell.cleanup.project!=='deleted'&&cell.cleanup.project!=='absent') {
+      try {
+        cell.cleanup.project=deleteProject({projectId:target.project.id,env:auth.setupEnv});
+        safeOut(statePath,state);
+      } catch(e) {
+        cell.cleanup.project_error=e.message;safeOut(statePath,state);
+        throw Error('cleanup Project '+target.project.id+' failed: '+e.message);
+      }
+    }
+    if(cell.cleanup.repo!=='deleted'&&cell.cleanup.repo!=='absent') {
+      try {
+        cell.cleanup.repo=deleteRepository({repo:target.repo,env:auth.setupEnv});
+        safeOut(statePath,state);
+      } catch(e) {
+        cell.cleanup.repo_error=e.message;safeOut(statePath,state);
+        throw Error('cleanup repository '+target.repo+' failed: '+e.message);
+      }
+    }
+  }
+  state.cleanup.status='completed';state.cleanup.completed_at=new Date().toISOString();safeOut(statePath,state);
+  return targets.length;
+}
+function runAgent({agent,model,effort,arm,dir,work,source,mode,message,githubToken,timeoutMs=35*60_000,interrupt=null,archiveRoot=null,archiveMeta={}}) {
   return new Promise((done,reject)=>{
     let profile;
-    try {profile=makeProfile(agent,arm,work,source,mode);}
+    try {profile=makeProfile(agent,arm,work,source,mode,{githubToken});}
     catch(e){reject(e);return;}
     const outfile=join(work,'agent-answer-'+Date.now()+'.txt');
     const args=agent==='claude'?['-p',message,'--output-format','json','--no-session-persistence',
@@ -145,8 +229,7 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,timeoutMs
       '--model',model,...(effort?['--effort',effort]:[]),...profile.pluginArgs]:
       ['exec','--json',...(arm==='ponytail'?['--dangerously-bypass-hook-trust']:[]),...(arm==='bare'||arm==='ticketflow'?['--ignore-user-config']:[]),'--sandbox','danger-full-access',
         '-C',dir,'-o',outfile,'-m',model,...(effort?['--config','model_reasoning_effort='+effort]:[]),'-'];
-    const env={...profile.env,GH_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN,
-      GITHUB_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN,GIT_TERMINAL_PROMPT:'0'};
+    const env={...profile.env,GH_TOKEN:githubToken,GITHUB_TOKEN:githubToken,GIT_TERMINAL_PROMPT:'0'};
     const start=Date.now();let stdout='',stderr='',interrupted=false,reason=null,closed=false,probing=false;
     let childError=null,stdinError=null;
     let timer,watcher,child,clearEscalation;
@@ -224,7 +307,7 @@ const mergeUsage=parts=>{
     model:parts.map(p=>p.observed_model).filter(Boolean).join(',')||null};
 };
 async function runCell(x,opts,state,mode,version,evalFingerprint) {
-  const {v,sources,out,statePath}=opts;
+  const {v,sources,out,statePath,auth}=opts;
   const previous=opts.latestRows?.get(x.key);
   // Retry a discarded measurement in a fresh repo. Never contaminate a retry
   // with a failed attempt's remote state or overwrite its original transcript.
@@ -238,73 +321,75 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   const rowId=cell.result_row_id??`workflow:${x.key}:attempt-${cell.attempt??1}:${Date.now().toString(36)}`;
   if(!cell.result_row_id){cell.result_row_id=rowId;safeOut(statePath,state);}
   const archiveRoot=resolve(process.env.BENCHMARK_TRANSCRIPTS_DIR??join(ROOT,'benchmarks/results/transcripts'));
-  const work=cell.work??newWork(),repo=cell.repo??v.owner+'/tfwf-'+state.runId+'-'+x.id.toLowerCase()+'-'+x.arm+'-'+x.repeat+(cell.attempt>1?'-retry'+cell.attempt:'');
+  const prefix=auth.mode==='personal'?'ticketflow-benchmark-':'tfwf-';
+  const work=cell.work??newWork(),repo=cell.repo??auth.owner+'/'+prefix+state.runId+'-'+x.id.toLowerCase()+'-'+x.arm+'-'+x.repeat+(cell.attempt>1?'-retry'+cell.attempt:'');
   if(!cell.repo) {
-    state.cells[x.key]={...cell,repo,work,phase:'creating',result_row_id:rowId,projectTitle:'Workflow '+state.runId+' '+x.id+' '+x.arm+' '+x.repeat+(cell.attempt>1?' retry '+cell.attempt:'')};
+    state.cells[x.key]={...cell,repo,work,phase:'creating',cleanup:{project:'not-created',repo:'pending'},result_row_id:rowId,projectTitle:'Workflow '+state.runId+' '+x.id+' '+x.arm+' '+x.repeat+(cell.attempt>1?' retry '+cell.attempt:'')};
     safeOut(statePath,state);
-    newRepository({repo,id:x.id,work});
+    newRepository({repo,id:x.id,work,env:auth.setupEnv});
     state.cells[x.key].phase='repository-created';safeOut(statePath,state);
   }
   const current=state.cells[x.key];
+  current.cleanup=current.cleanup??{project:current.project?'pending':'not-created',repo:'pending'};
   if(current.phase==='creating') throw Error('Repository creation interrupted: inspect '+repo+' before resuming');
   if(!current.project) {
-    current.project=linkProject({repo,owner:v.owner,title:current.projectTitle});
+    current.project=linkProject({repo,owner:auth.owner,ownerType:auth.ownerType,title:current.projectTitle,env:auth.setupEnv});
+    current.cleanup.project='pending';
     safeOut(statePath,state);
   }
   if(!current.issues) {
-    current.issues=seedIssues({repo,id:x.id,projectId:current.project.id});
+    current.issues=seedIssues({repo,id:x.id,projectId:current.project.id,env:auth.setupEnv});
     safeOut(statePath,state);
   }
   if(x.arm==='ticketflow'&&!current.installed) {
-    const tmp=join(work,'base');const dir=cloneRepository(repo,tmp);
-    installTicketFlow({repo,dir,source:sources.ticketflow,agent:v.agent,owner:v.owner,
-      projectNumber:current.project.number,title:current.projectTitle,issues:current.issues});
+    const tmp=join(work,'base');const dir=cloneRepository(repo,tmp,auth.setupEnv);
+    installTicketFlow({repo,dir,source:sources.ticketflow,agent:v.agent,owner:auth.owner,
+      projectNumber:current.project.number,title:current.projectTitle,issues:current.issues,env:auth.setupEnv});
     current.installed=true;safeOut(statePath,state);
   }
   if(x.id==='W4'&&!current.initialPR) {
-    current.initialPR=seedBrokenPull({repo,id:x.id,work,issue:current.issues[0]});
-    const initial=JSON.parse(sh('gh',['api','repos/'+repo+'/pulls/'+current.initialPR]));
+    current.initialPR=seedBrokenPull({repo,id:x.id,work,issue:current.issues[0],env:auth.setupEnv});
+    const initial=JSON.parse(sh('gh',['api','repos/'+repo+'/pulls/'+current.initialPR],{env:auth.setupEnv}));
     current.initialHead=initial.head?.sha??null;
     safeOut(statePath,state);
   }
-  // Check the restricted agent token can see and write this newly-created fixture.
-  // Setup-token permissions must never be silently substituted for agent permissions.
-  const agentEnv={...process.env,GH_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN,
-    GITHUB_TOKEN:process.env.WORKFLOW_BENCH_AGENT_TOKEN};
+  // Check the agent credential can see and write this newly-created fixture.
+  // In organization mode, setup-token permissions must never be substituted for it.
+  const agentEnv=auth.agentEnv;
   const access=JSON.parse(sh('gh',['api','repos/'+repo],{env:agentEnv}));
   if(access.permissions?.push!==true)throw Error('agent token lacks push access to '+repo+'; no paid agent invoked');
-  const actions=JSON.parse(sh('gh',['api','repos/'+repo+'/actions/permissions'],{env:setupEnv()}));
+  const actions=JSON.parse(sh('gh',['api','repos/'+repo+'/actions/permissions'],{env:auth.setupEnv}));
   if(!actions.enabled)throw Error('GitHub Actions is disabled for '+repo+'; no paid agent invoked');
-  try {sh('gh',['project','view',String(current.project.number),'--owner',v.owner,'--format','json'],{env:agentEnv});}
+  try {sh('gh',['project','view',String(current.project.number),'--owner',auth.owner,'--format','json'],{env:agentEnv});}
   catch(e){throw Error('agent token cannot read benchmark Project '+current.project.number+'; no paid agent invoked: '+e.message);}
 
   // Capture post-bootstrap, pre-agent Project state. Setup itself must never count as agent work.
   if(!current.baselineProjects) {
-    current.baselineProjects=current.issues.map(n=>({number:n,project:projectSnapshot(repo,n)}));
+    current.baselineProjects=current.issues.map(n=>({number:n,project:projectSnapshot(repo,n,auth.setupEnv)}));
     safeOut(statePath,state);
   }
   // Initial branch and issue state is prepared before the paid agent run.
   if(current.phase==='agent-running')throw Error('previous paid session may still be active; inspect remote state before resume for '+repo);
   current.phase='agent-running';safeOut(statePath,state);
-  const dir=cloneRepository(repo,join(work,'attempt-'+Date.now()));
+  const dir=cloneRepository(repo,join(work,'attempt-'+Date.now()),auth.setupEnv);
   const initial=prompt(x.id,repo,current.issues,current.initialPR??null,
-    'https://github.com/orgs/'+v.owner+'/projects/'+current.project.number);
+    projectUrl({owner:auth.owner,ownerType:auth.ownerType,number:current.project.number}));
   // All arms receive the same early remote-checkpoint instruction in W5.
   const stagedPrompt=x.id==='W5'?initial+
     '\n\nFor the deliberate interruption test, push meaningful src/ or test/ changes to a remote feature branch early. Keep working on verification but do not merge during this first session; recovery and merging belong to the fresh resumed session.':initial;
   const source=sources[x.arm]??null,parts=[];
   let interrupted=false;
   if(x.id==='W5') {
-    const first=runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,message:stagedPrompt,archiveRoot,
+    const first=runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,githubToken:auth.agentToken,message:stagedPrompt,archiveRoot,
       archiveMeta:{scenario:x.id,repeat:x.repeat,result_row_id:rowId,eval_fingerprint:evalFingerprint,source_sha:opts.sourceShas[x.arm]??null,
         ticketflow_sha:x.arm==='ticketflow'?opts.sourceShas.ticketflow:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null},
       timeoutMs:15*60_000,interrupt:async()=>{
-        const branches=JSON.parse(gh(['api','repos/'+repo+'/branches?per_page=100']));
-        const prs=JSON.parse(gh(['pr','list','-R',repo,'--state','all','--json','mergedAt,number','--limit','100']));
+        const branches=JSON.parse(gh(['api','repos/'+repo+'/branches?per_page=100'],{env:auth.setupEnv}));
+        const prs=JSON.parse(gh(['pr','list','-R',repo,'--state','all','--json','mergedAt,number','--limit','100'],{env:auth.setupEnv}));
         if(prs.some(p=>p.mergedAt))return false;
         const compares={};
         for(const branch of branches.filter(b=>b.name!=='main')){
-          compares[branch.name]=JSON.parse(gh(['api','repos/'+repo+'/compare/main...'+encodeURIComponent(branch.name)]));
+          compares[branch.name]=JSON.parse(gh(['api','repos/'+repo+'/compare/main...'+encodeURIComponent(branch.name)],{env:auth.setupEnv}));
         }
         return meaningfulCheckpoint({branches,prs,compares});
       }});
@@ -312,16 +397,16 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     interrupted=parts[0].interrupted;
     if(interrupted) {
       // A clean, separately cloned context proves recovery from remote GitHub state.
-      const fresh=cloneRepository(repo,join(work,'resumed'));
-      parts.push(await runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir:fresh,work,archiveRoot,
+      const fresh=cloneRepository(repo,join(work,'resumed'),auth.setupEnv);
+      parts.push(await runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir:fresh,work,source,mode,githubToken:auth.agentToken,archiveRoot,
         archiveMeta:{scenario:x.id,repeat:x.repeat,result_row_id:rowId,eval_fingerprint:evalFingerprint,source_sha:opts.sourceShas[x.arm]??null,
           ticketflow_sha:x.arm==='ticketflow'?opts.sourceShas.ticketflow:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null},
-        source,mode,message:'The previous session was interrupted. Recover the state from GitHub and resume without duplicating issues or pull requests.\n\n'+initial}));
+        message:'The previous session was interrupted. Recover the state from GitHub and resume without duplicating issues or pull requests.\n\n'+initial}));
     }
-  } else parts.push(await runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,message:initial,archiveRoot,
+  } else parts.push(await runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,githubToken:auth.agentToken,message:initial,archiveRoot,
     archiveMeta:{scenario:x.id,repeat:x.repeat,result_row_id:rowId,eval_fingerprint:evalFingerprint,source_sha:opts.sourceShas[x.arm]??null,
       ticketflow_sha:x.arm==='ticketflow'?opts.sourceShas.ticketflow:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null}}));
-  const result=scoreDelivery({repo,id:x.id,issues:current.issues,interrupted,resumed:interrupted&&parts.length===2&&parts[1].exit===0,
+  const result=scoreDelivery({repo,id:x.id,issues:current.issues,interrupted,resumed:interrupted&&parts.length===2&&parts[1].exit===0,env:auth.setupEnv,
     initialPR:current.initialPR??null,initialHead:current.initialHead??null,
     baselineProjects:current.baselineProjects??[]});
   const metrics=mergeUsage(parts);
@@ -334,7 +419,7 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   const row={
     suite:'workflow',scenario:x.id,agent:v.agent,agent_version:version,requested_model:v.model,
     model:metrics.model,requested_effort:v.effort??null,arm:x.arm,variant:x.arm,repeat:x.repeat,
-    eval_fingerprint:evalFingerprint,source_sha:opts.sourceShas[x.arm]??null,
+    eval_fingerprint:evalFingerprint,mode:auth.mode,owner:auth.owner,source_sha:opts.sourceShas[x.arm]??null,
     ticketflow_sha:x.arm==='ticketflow'?opts.sourceShas.ticketflow:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null,
     evaluation_mode:'non-adversarial',profile_isolation:mode,
     sandbox_mode:v.agent==='codex'?'danger-full-access':'not-applicable',
@@ -353,10 +438,26 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   if(parts.some(p=>p.cleanup_error)) throw Error('benchmark plugin cleanup failed; stop and inspect original profile');
   return row;
 }
+async function cleanupOnly(opts) {
+  if(!existsSync(opts.statePath))throw Error('cleanup-only requires an existing state sidecar at '+opts.statePath);
+  if(!opts.v['allow-github-writes'])throw Error('--allow-github-writes required for cleanup-only remote deletion');
+  const state=readJson(opts.statePath),mode=state.identity?.mode,owner=state.identity?.owner;
+  if(!MODES.has(mode)||!owner)throw Error('cleanup-only state has no supported mode and owner');
+  if(mode==='personal'&&!opts.v['acknowledge-personal-account'])
+    throw Error('personal cleanup requires --acknowledge-personal-account');
+  const auth=authenticatedRun(mode,owner);
+  if(mode==='organization')validateOrg(owner,{env:auth.setupEnv});
+  const count=await cleanupState({state,statePath:opts.statePath,auth});
+  console.log(JSON.stringify({mode,lifecycle:'cleanup-only',owner,resources_cleaned:count,state:opts.statePath},null,2));
+}
 async function main() {
-  const opts=parse(),{v,arms,selected,repeats,max,out,statePath,sourceShas,sourceMeta}=opts;
+  const opts=parse();
+  if(opts.cleanupOnly)return cleanupOnly(opts);
+  const {v,mode:targetMode,lifecycle,arms,selected,repeats,max,out,statePath,sourceShas,sourceMeta}=opts;
+  const auth=targetMode==='personal'?authenticatedRun('personal'):null;
+  const owner=targetMode==='personal'?auth.owner:v.org;
   const evalFingerprint=fingerprint();
-  const plan=planFor(selected,arms,repeats),identity=identityFor({owner:v.owner,agent:v.agent,model:v.model,
+  const plan=planFor(selected,arms,repeats),identity=identityFor({mode:targetMode,owner,agent:v.agent,model:v.model,
     effort:v.effort??null,sourceShas,sourceMeta,fingerprint:evalFingerprint});
   const state=v.resume?readJson(statePath):null;
   const prior=state?previousRun(state):null;
@@ -368,9 +469,10 @@ async function main() {
   if(!v.resume && (existsSync(out)||existsSync(statePath)))throw Error('output already exists: use --resume or new output');
   const rows=v.resume&&existsSync(out)?readFileSync(out,'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse):[];
   const rowMatches=(row)=>row.agent===v.agent&&row.requested_model===v.model&&
-    (row.requested_effort??null)===(v.effort??null)&&row.eval_fingerprint===evalFingerprint&&
+    (row.requested_effort??null)===(v.effort??null)&&(row.mode??'organization')===targetMode&&
+    (row.owner??owner)===owner&&row.eval_fingerprint===evalFingerprint&&
     (row.source_sha??null)===(sourceShas[row.arm]??null);
-  if(rows.some(row=>!rowMatches(row)))throw Error('resume output contains rows from a different agent, model, evaluator or source revision');
+  if(rows.some(row=>!rowMatches(row)))throw Error('resume output contains rows from a different mode, owner, agent, model, evaluator or source revision');
   const latestRows=new Map();
   for(const r of rows)latestRows.set(r.scenario+'|'+r.arm+'|'+r.repeat,r);
   const requestedKeys=new Set(plan.map(cell=>cell.key));
@@ -381,35 +483,50 @@ async function main() {
   const newCells=plan.filter(cell=>!prior||!prior.schedule.some(old=>old.key===cell.key)).length;
   const deferred=schedule.filter(cell=>!requestedKeys.has(cell.key)&&!validKeys.has(cell.key)).length;
   opts.latestRows=latestRows;
-  console.log(JSON.stringify({mode:v.execute?'PAID REMOTE GITHUB':'DRY RUN',agent:v.agent,model:v.model,effort:v.effort??null,
-    owner:v.owner,scenarios:selected,arms,repeats,total_cells:plan.length,scheduled_cells:scheduledKeys.size,new_cells:newCells,
+  console.log(JSON.stringify({mode:v.execute?'PAID REMOTE GITHUB':'DRY RUN',target_mode:targetMode,lifecycle,agent:v.agent,model:v.model,effort:v.effort??null,
+    owner,scenarios:selected,arms,repeats,total_cells:plan.length,scheduled_cells:scheduledKeys.size,new_cells:newCells,
     completed:completed.size,pending:pending.length,deferred,
     invalid_to_retry:pending.filter(x=>outcomeOf(latestRows.get(x.key)??{})==='invalid').length,
     maximum_paid_invocations:pending.reduce((n,p)=>n+(p.id==='W5'?2:1),0),
     sourceShas,projects:'independent disposable Project per session',output:out},null,2));
   if(!v.execute){for(const p of pending)console.log('PLAN '+p.key);return}
   if(!v['allow-github-writes'])throw Error('--allow-github-writes required: creates private repos, real issues, Projects v2, PRs and Actions runs');
+  if(targetMode==='personal'&&!v['acknowledge-personal-account'])
+    throw Error('personal mode requires --acknowledge-personal-account: the agent will use the logged-in gh identity');
   if(pending.some(x=>(latestRows.get(x.key)?.invalid_reasons??[]).includes('plugin_cleanup_failed'))&&
       !v['acknowledge-plugin-cleanup'])
     throw Error('Previous plugin cleanup failed. Inspect and remove benchmark-owned leftovers first, then explicitly pass --acknowledge-plugin-cleanup to retry invalid cells.');
   const invocationCeiling=pending.reduce((n,p)=>n+(p.id==='W5'?2:1),0);
   if(invocationCeiling>max)throw Error(invocationCeiling+' possible paid invocations exceeds --max-sessions '+max+' (W5 can require two invocations)');
-  if(!process.env.WORKFLOW_BENCH_SETUP_TOKEN||!process.env.WORKFLOW_BENCH_AGENT_TOKEN)throw Error('Use dedicated WORKFLOW_BENCH_SETUP_TOKEN and WORKFLOW_BENCH_AGENT_TOKEN in a disposable GitHub organization');
+  const runAuth=auth??authenticatedRun('organization',v.org);
   const version=cliVersion(v.agent);
   if(v.agent==='claude'&&arms.some(arm=>arm==='superpowers'||arm==='ponytail'))requireClaudePluginDir();
   if(v.agent==='codex'&&arms.includes('ponytail'))requireCodexPonytailHooks();
-  validateOrg(v.owner);
+  if(targetMode==='organization')validateOrg(owner,{env:runAuth.setupEnv});
   if(rows.some(r=>r.agent_version!==version||r.eval_fingerprint!==evalFingerprint))throw Error('CLI or evaluator version changed; cannot resume');
   if(v.agent==='codex')approveDangerFullAccess({alreadyApproved:v['allow-danger-full-access'],count:pending.reduce((n,p)=>n+(p.id==='W5'?2:1),0)});
-  const mode=selectProfileMode(v.agent,arms,{count:invocationCeiling});
-  if(rows.some(r=>r.profile_isolation!==mode))throw Error('resume cannot mix isolated and unisolated profiles');
+  const profileMode=selectProfileMode(v.agent,arms,{count:invocationCeiling});
+  if(rows.some(r=>r.profile_isolation!==profileMode))throw Error('resume cannot mix isolated and unisolated profiles');
   const runState=state??{runId:Date.now().toString(36),projectTitle:null,projectNumber:null,cells:{}};
-  runState.version=2;runState.identity=identity;runState.schedule=schedule;runState.signature=idFor(schedule,identity);
+  runState.version=3;runState.identity=identity;runState.schedule=schedule;runState.signature=idFor(schedule,identity);
   safeOut(statePath,runState);
-  for(const [i,cell] of pending.entries()){
-    console.log('SESSION '+(i+1)+'/'+pending.length+' '+cell.key);
-    const row=await runCell(cell,opts,runState,mode,version,evalFingerprint);
-    console.log('RESULT '+cell.key+' '+row.outcome.toUpperCase()+' '+JSON.stringify(row.outcome==='invalid'?row.invalid_reasons:row.delivery.steps));
+  opts.auth=runAuth;
+  let failure=null;
+  try {
+    for(const [i,cell] of pending.entries()){
+      console.log('SESSION '+(i+1)+'/'+pending.length+' '+cell.key);
+      const row=await runCell(cell,opts,runState,profileMode,version,evalFingerprint);
+      console.log('RESULT '+cell.key+' '+row.outcome.toUpperCase()+' '+JSON.stringify(row.outcome==='invalid'?row.invalid_reasons:row.delivery.steps));
+    }
+  } catch(e) { failure=e; }
+  if(lifecycle==='run-with-auto-cleanup'&&runState) {
+    try {
+      const count=await cleanupState({state:runState,statePath,auth:runAuth});
+      console.log('CLEANUP '+count+' resource cells completed');
+    } catch(e) {
+      if(failure)console.error('automatic cleanup also failed: '+e.message);else failure=e;
+    }
   }
+  if(failure)throw failure;
 }
 main().catch(e=>{console.error('run-workflow: '+e.message);process.exitCode=2});

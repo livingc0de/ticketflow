@@ -14,7 +14,7 @@ const withTemp=(run)=>{
   mkdirSync(dir,{recursive:true});
   try{return run(dir)}finally{rmSync(dir,{recursive:true,force:true})}
 };
-const workflowArgs=(file)=>['--agent','claude','--model','benchmark-test-model','--owner','example-benchmark-org',
+const workflowArgs=(file)=>['--agent','claude','--model','benchmark-test-model','--org','example-benchmark-org',
   '--arms','bare','--scenarios','W1','--repeats','1','--out',file];
 const localArgs=(file)=>['--agent','claude','--model','benchmark-test-model','--arms','bare','--scenarios','L1','--repeats','1','--out',file];
 

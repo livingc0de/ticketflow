@@ -16,16 +16,16 @@ export const command=(bin,args,options={})=>{
     String(out.stderr||out.error?.message||out.status).slice(0,500));
   return out.stdout.trim();
 };
-const api=(path)=>JSON.parse(command('gh',['api',path]));
-const ghjson=(args)=>JSON.parse(command('gh',args));
-const all=(repo,endpoint)=>{ // All pages or fail, rather than silently scoring partial evidence.
+const api=(path,env)=>JSON.parse(command('gh',['api',path],{env}));
+const ghjson=(args,env)=>JSON.parse(command('gh',args,{env}));
+const all=(repo,endpoint,env)=>{ // All pages or fail, rather than silently scoring partial evidence.
   const separator=endpoint.includes('?')?'&':'?';
-  const data=ghjson(['api','--paginate','--slurp','repos/'+repo+'/'+endpoint+separator+'per_page=100']);
+  const data=ghjson(['api','--paginate','--slurp','repos/'+repo+'/'+endpoint+separator+'per_page=100'],env);
   if(!Array.isArray(data)||!data.every(Array.isArray))throw Error('GitHub pagination response invalid for '+endpoint);
   return data.flat();
 };
-export const pulls=(repo)=>ghjson(['pr','list','-R',repo,'--state','all',
-  '--json','number,headRefOid,mergedAt,body,headRefName,createdAt','--limit','100']);
+export const pulls=(repo,env)=>ghjson(['pr','list','-R',repo,'--state','all',
+  '--json','number,headRefOid,mergedAt,body,headRefName,createdAt','--limit','100'],env);
 export const checkpoint=(repo)=>pulls(repo).some(p=>!p.mergedAt);
 /** A W5 checkpoint must contain product changes pushed remotely, not just a named branch.
  * This is a trigger, not proof that the subsequent agent reused the work. */
@@ -37,18 +37,18 @@ export function meaningfulCheckpoint({branches=[],prs=[],compares={}}={}) {
 const textLinks=(n,body)=>new RegExp('(?:#|issues/)'+n+'(?!\\d)').test(body);
 const isMerged=(p)=>Boolean(p.mergedAt);
 const relevant=(name)=>/(?:^|\/)(?:plans?|design|decisions|docs\/architecture)\/.*\.md$/i.test(name);
-export const projectSnapshot=(repo,n)=>{
+export const projectSnapshot=(repo,n,env)=>{
   try {
-    const data=ghjson(['issue','view',String(n),'-R',repo,'--json','projectItems']);
+    const data=ghjson(['issue','view',String(n),'-R',repo,'--json','projectItems'],env);
     return {readable:true,items:data.projectItems??[]};
   } catch {return {readable:false,items:[]};}
 };
-const issueSnapshot=(repo,seed)=>{
-  const issues=all(repo,'issues?state=all').filter(i=>!i.pull_request);
+const issueSnapshot=(repo,seed,env)=>{
+  const issues=all(repo,'issues?state=all',env).filter(i=>!i.pull_request);
   const records=issues.map(issue=>{
-    const comments=all(repo,'issues/'+issue.number+'/comments');
-    const timeline=all(repo,'issues/'+issue.number+'/events');
-    const project=projectSnapshot(repo,issue.number);
+    const comments=all(repo,'issues/'+issue.number+'/comments',env);
+    const timeline=all(repo,'issues/'+issue.number+'/events',env);
+    const project=projectSnapshot(repo,issue.number,env);
     return {number:issue.number,title:issue.title,body:issue.body??'',state:issue.state,created_at:issue.created_at,
       seeded:seed.includes(issue.number),comments:comments.length,
       comments_after_creation:comments.filter(c=>c.created_at>issue.created_at).length,
@@ -65,9 +65,9 @@ const actionable=(issue)=>{
     !/^(?:task|issue|todo|work item|fix)\s*#?\d*$/i.test(title)&&
     /\b(?:add|build|create|design|document|fix|handle|implement|improve|migrate|remove|refactor|support|test|update|verify)\w*\b/i.test(title+' '+body);
 };
-function checkRuns(repo,pr){
+function checkRuns(repo,pr,env){
   if(!pr?.headRefOid||!pr?.mergedAt)return {pass:false,reason:'no merged PR and final head'};
-  const runs=api('repos/'+repo+'/commits/'+pr.headRefOid+'/check-runs?per_page=100').check_runs??[];
+  const runs=api('repos/'+repo+'/commits/'+pr.headRefOid+'/check-runs?per_page=100',env).check_runs??[];
   const checks=runs.filter(c=>c.name==='tests'&&c.app?.slug==='github-actions');
   const pass=checks.some(c=>c.status==='completed'&&c.conclusion==='success'&&
     c.completed_at&&Date.parse(c.completed_at)<=Date.parse(pr.mergedAt));
@@ -80,12 +80,12 @@ function checkRuns(repo,pr){
       (failures.length?' (other failing checks: '+failures.map(c=>c.name).join(',')+')':''):
       'required neutral GitHub Actions test missing'};
 }
-function reviewEvidence(repo,pr,{seededPR=null}={}){
-  const reviews=all(repo,'pulls/'+pr.number+'/reviews');
-  const comments=all(repo,'issues/'+pr.number+'/comments');
-  const lineComments=all(repo,'pulls/'+pr.number+'/comments');
+function reviewEvidence(repo,pr,{seededPR=null}={},env){
+  const reviews=all(repo,'pulls/'+pr.number+'/reviews',env);
+  const comments=all(repo,'issues/'+pr.number+'/comments',env);
+  const lineComments=all(repo,'pulls/'+pr.number+'/comments',env);
   const mergedAt=Date.parse(pr.mergedAt??''),head=pr.headRefOid;
-  const headCommit=api('repos/'+repo+'/commits/'+head);
+  const headCommit=api('repos/'+repo+'/commits/'+head,env);
   const headAt=Date.parse(headCommit.commit?.committer?.date??'');
   const afterHead=(ts)=>Number.isFinite(headAt)&&Number.isFinite(mergedAt)&&
     Date.parse(ts)>=headAt&&Date.parse(ts)<=mergedAt;
@@ -232,27 +232,27 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
     dependency_edges:dependencyEdges,invalid_dependency_references:invalidDependencies,dependency_cycle:dependencyCycle};
   return {pass:pipeline,functionality:functional,delivery,pipeline,steps,process};
 }
-export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,resumed=false,initialPR=null,initialHead=null,baselineProjects=[]}){
+export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,resumed=false,initialPR=null,initialHead=null,baselineProjects=[],env}){
   const sc=scenarios[id],work=mkdtempSync(join(tmpdir(),'workflow-verify-'));
   let prs=[],issueRows=[],hidden={pass:false,reason:'unverified'},
     suite={pass:false,reason:'unverified'},error=null;
   const recordError=e=>{error=(error?error+'; ':'')+e.message};
   // A broken evaluator, failed API call or unavailable clone invalidates the
   // measurement. It must never be converted into an apparent agent failure.
-  try{prs=pulls(repo)}catch(e){recordError(e)}
+  try{prs=pulls(repo,env)}catch(e){recordError(e)}
   try {
-    command('gh',['repo','clone',repo,join(work,'checkout'),'--','--depth','1'],{timeout:120000});
+    command('gh',['repo','clone',repo,join(work,'checkout'),'--','--depth','1'],{timeout:120000,env});
     hidden=hiddenCorrectness(join(work,'checkout'),sc.hidden);
     suite=localTests(join(work,'checkout'));
   }catch(e){recordError(e)}
   finally{rmSync(work,{recursive:true,force:true})}
-  try{issueRows=issueSnapshot(repo,seededIssues)}catch(e){recordError(e)}
+  try{issueRows=issueSnapshot(repo,seededIssues,env)}catch(e){recordError(e)}
   const merged=prs.filter(isMerged),checks=[],reviews=[],plans=[];
   for(const p of merged){
     try{
-      checks.push({number:p.number,...checkRuns(repo,p)});
-      reviews.push({number:p.number,...reviewEvidence(repo,p,{seededPR:initialPR})});
-      const files=all(repo,'pulls/'+p.number+'/files');
+      checks.push({number:p.number,...checkRuns(repo,p,env)});
+      reviews.push({number:p.number,...reviewEvidence(repo,p,{seededPR:initialPR},env)});
+      const files=all(repo,'pulls/'+p.number+'/files',env);
       plans.push(...files.map(f=>f.filename).filter(relevant));
     }catch(e){recordError(e)}
   }
