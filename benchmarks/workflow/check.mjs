@@ -154,7 +154,7 @@ export function fallbackEvidence(repo,pr,env,request=api){
   const attempted=localStatus||localComments.length>0;
   // For a merged PR the local gate only counts when it was posted before the merge.
   const inTime=!pr.mergedAt||completeBefore(gate?.updated_at??gate?.created_at,Date.parse(pr.mergedAt));
-  return {allowed,attempted,posted:localStatus,success:localStatus&&gate.state==='success'&&inTime,state:gate?.state??null,
+  return {allowed,attempted,posted:localStatus,success:Boolean(localStatus&&gate.state==='success'&&inTime),state:gate?.state??null,
     description:gate?.description??null,local_comments:localComments.length};
 }
 function reviewEvidence(repo,pr,{seededPR=null}={},env){

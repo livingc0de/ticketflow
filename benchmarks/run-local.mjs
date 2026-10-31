@@ -39,7 +39,7 @@ const readRows = (out) => readFileSync(out, 'utf8').split(/\r?\n/).filter(Boolea
 const identity = (i, agent, model, effort, evalFingerprint) => [i.scenario, i.arm, i.rep, agent, model, effort ?? 'default', i.source_sha ?? 'bare', evalFingerprint].join('|')
 
 function spawnSession(args, label) {
-    return runProcess(process.execPath, args, { timeoutMs: SESSION_TIMEOUT_MS,
+    return runProcess(process.execPath, args, { timeoutMs: SESSION_TIMEOUT_MS, graceMs: 6000,
         onStdout: (data) => process.stdout.write(`[${label}] ${data}`),
         onStderr: (data) => process.stderr.write(`[${label}] ${data}`) })
 }
@@ -181,7 +181,7 @@ async function main() {
             const list = pending.get(agent)
             for (const [i, x] of list.entries()) {
                 console.log(`SESSION ${i + 1}/${list.length} ${x.scenario} ${x.arm} rep=${x.rep}`)
-                const result = await runProcess(process.execPath, argsFor(agent, x), { timeoutMs: SESSION_TIMEOUT_MS,
+                const result = await runProcess(process.execPath, argsFor(agent, x), { timeoutMs: SESSION_TIMEOUT_MS, graceMs: 6000,
                     onStdout: (data) => process.stdout.write(data), onStderr: (data) => process.stderr.write(data) })
                 if (result.error || ![0, 1].includes(result.status)) throw Error('session did not record a result; stopped at ' + agent + '/' + x.scenario + '/' + x.arm + '/rep' + x.rep)
             }

@@ -39,18 +39,20 @@ export function terminateProcess(child, { platform = process.platform, graceMs =
 }
 
 // Children of runProcess still running; a harness signal must not orphan a paid agent in its own process group.
+// After a signal every runProcess rejects (never resolves a killed session as a result) and the harness exits once they close.
 const live = new Set()
-let signalsInstalled = false
+let signalsInstalled = false, interruptedCode = 0
+const interrupted = () => Object.assign(Error('interrupted by signal'), { code: 'HARNESS_INTERRUPTED' })
 function forwardSignals() {
     if (signalsInstalled) return
     signalsInstalled = true
     for (const [name, code] of [['SIGINT', 130], ['SIGTERM', 143]]) {
         process.on(name, () => {
+            interruptedCode ||= code
             for (const stop of [...live]) stop()
-            const exit = () => process.exit(code)
-            if (!live.size) exit()
-            setTimeout(exit, 5000)
-            setInterval(() => { if (!live.size) exit() }, 50)
+            if (!live.size) process.exit(interruptedCode)
+            // ponytail: hard stop if a child ignores SIGKILL escalation, which graceMs bounds
+            setTimeout(() => process.exit(interruptedCode), 5000)
         })
     }
 }
@@ -61,6 +63,8 @@ export function runProcess(command, args, {
     onStdout = () => {}, onStderr = () => {},
 } = {}) {
     return new Promise((resolve, reject) => {
+        forwardSignals()
+        if (interruptedCode) return reject(interrupted())
         let child
         try {
             child = spawn(command, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32' })
@@ -71,7 +75,6 @@ export function runProcess(command, args, {
         let stdout = '', stderr = '', timedOut = false, outputLimit = false, stopping = false
         let childError = null, stdinError = null
         let timeout, clearEscalation = () => {}
-        forwardSignals()
         const append = (which, value) => {
             const text = value.toString()
             if (which === 'stdout') stdout += text
@@ -92,6 +95,12 @@ export function runProcess(command, args, {
             live.delete(stop)
             clearTimeout(timeout)
             clearEscalation()
+            if (interruptedCode) {
+                reject(interrupted())
+                // let the caller's cleanup (finally blocks) run before the harness exits
+                if (!live.size) setTimeout(() => process.exit(interruptedCode), 100)
+                return
+            }
             resolve({ status, signal, error: error ?? stdinError, stdout, stderr, timedOut, outputLimit })
         }
         live.add(stop)
