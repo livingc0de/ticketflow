@@ -65,16 +65,43 @@ const actionable=(issue)=>{
     !/^(?:task|issue|todo|work item|fix)\s*#?\d*$/i.test(title)&&
     /\b(?:add|build|create|design|document|fix|handle|implement|improve|migrate|remove|refactor|support|test|update|verify)\w*\b/i.test(title+' '+body);
 };
-function checkRuns(repo,pr,env){
+const actionsFailures=new Set(['failure','timed_out','cancelled','action_required']);
+const completeBefore=(timestamp,mergedAt)=>timestamp&&Number.isFinite(Date.parse(timestamp))&&Date.parse(timestamp)<=mergedAt;
+const page=(response,key,label)=>{
+  if(!response||!Array.isArray(response[key])||!Number.isSafeInteger(response.total_count)||response.total_count<0)
+    throw Error('GitHub Actions '+label+' response is malformed');
+  if(response.total_count>response[key].length)
+    throw Error('GitHub Actions '+label+' listing is incomplete');
+  return response[key];
+};
+export function checkRuns(repo,pr,env,request=api){
   if(!pr?.headRefOid||!pr?.mergedAt)return {pass:false,reason:'no merged PR and final head'};
-  const runs=api('repos/'+repo+'/commits/'+pr.headRefOid+'/check-runs?per_page=100',env).check_runs??[];
-  const checks=runs.filter(c=>c.name==='tests'&&c.app?.slug==='github-actions');
-  const pass=checks.some(c=>c.status==='completed'&&c.conclusion==='success'&&
-    c.completed_at&&Date.parse(c.completed_at)<=Date.parse(pr.mergedAt));
+  const mergedAt=Date.parse(pr.mergedAt);
+  if(!Number.isFinite(mergedAt))throw Error('merged PR has an invalid merge timestamp');
+  const runs=page(request('repos/'+repo+'/actions/runs?head_sha='+encodeURIComponent(pr.headRefOid)+'&per_page=100',env),
+    'workflow_runs','workflow run');
+  const checks=[],failures=[];
+  for(const run of runs){
+    if(run?.head_sha!==pr.headRefOid||!Number.isSafeInteger(run.id)||run.id<1)
+      throw Error('GitHub Actions workflow run response is malformed');
+    const jobs=page(request('repos/'+repo+'/actions/runs/'+run.id+'/jobs?filter=all&per_page=100',env),
+      'jobs','jobs for workflow run '+run.id);
+    for(const job of jobs){
+      if(job?.head_sha!==pr.headRefOid||typeof job.name!=='string')
+        throw Error('GitHub Actions job response is malformed');
+      const evidence={name:job.name,status:job.status,conclusion:job.conclusion,completed_at:job.completed_at,
+        workflow:run.name??null,run_id:run.id};
+      if(job.name==='tests')checks.push(evidence);
+      if(actionsFailures.has(job.conclusion)&&completeBefore(job.completed_at,mergedAt))failures.push(evidence);
+    }
+    // A run can fail before producing a job record (for example, during workflow
+    // setup), so retain the run-level failure signal as well.
+    if(actionsFailures.has(run.conclusion)&&completeBefore(run.updated_at,mergedAt))
+      failures.push({name:run.name??'workflow',status:run.status,conclusion:run.conclusion,
+        completed_at:run.updated_at,workflow:run.name??null,run_id:run.id});
+  }
+  const pass=checks.some(c=>c.status==='completed'&&c.conclusion==='success'&&completeBefore(c.completed_at,mergedAt));
   // A green neutral fixture check cannot excuse merging while a framework's own gate is red.
-  const failures=runs.filter(c=>c.app?.slug==='github-actions' &&
-    ['failure','timed_out','cancelled','action_required'].includes(c.conclusion) &&
-    c.completed_at&&Date.parse(c.completed_at)<=Date.parse(pr.mergedAt));
   return {pass:pass&&failures.length===0,
     reason:checks.length?checks.map(c=>c.status+'/'+c.conclusion).join(',')+
       (failures.length?' (other failing checks: '+failures.map(c=>c.name).join(',')+')':''):
