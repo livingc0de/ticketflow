@@ -125,7 +125,8 @@ Create a token named, for example, `ticketflow-benchmark-setup` for the setup ac
 with these permissions:
 
 - **Repository permissions:** `Administration: Read and write`, `Contents: Read and
-  write`, `Issues: Read and write`, `Pull requests: Read and write`, and `Metadata: Read`.
+  write`, `Issues: Read and write`, `Pull requests: Read and write`, `Checks: Read`,
+  and `Metadata: Read`.
   Administration write is needed both to create the private repositories and to
   delete exactly those repositories during cleanup. It also covers the runner's
   read-only Actions-policy check. Do not grant organization administration, member,
@@ -140,7 +141,8 @@ Create a separate token named, for example, `ticketflow-benchmark-agent` for the
 agent account with these permissions:
 
 - **Repository permissions:** `Contents: Read and write`, `Issues: Read and write`,
-  `Pull requests: Read and write`, and `Metadata: Read`.
+  `Pull requests: Read and write`, `Actions: Read`, `Checks: Read`, and
+  `Metadata: Read`.
 - **Organization permissions:** `Projects: Read and write`.
 
 The organization membership's Write base permission plus this token lets the agent
