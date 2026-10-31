@@ -117,7 +117,7 @@ export function linkProject({repo,owner,title,ownerType='organization',env=setup
 export function deleteProject({projectId,env=setupEnv()}) {
   if(typeof projectId!=='string'||!/^PVT_/.test(projectId))throw Error('invalid recorded Project ID');
   try {
-    const deleted=graphql('mutation($id:ID!){deleteProjectV2(input:{projectId:$id}){deletedProjectId}}',{id:projectId},env).deleteProjectV2?.deletedProjectId;
+    const deleted=graphql('mutation($id:ID!){deleteProjectV2(input:{projectId:$id}){projectV2{id}}}',{id:projectId},env).deleteProjectV2?.projectV2?.id;
     if(deleted!==projectId)throw Error('GitHub did not confirm Project deletion for '+projectId);
     return 'deleted';
   } catch(e) {

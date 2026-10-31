@@ -53,7 +53,7 @@ if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
     case "$*" in *"user(login:"*) echo organization owner query must not resolve as user >&2; exit 1;; esac
   fi
   case "$*" in
-    *deleteProjectV2*) if [ "$FIND_PROJECT" = "1" ]; then printf '{"data":{"deleteProjectV2":{"deletedProjectId":"PVT_777"}}}\\n'; else printf '{"data":{"deleteProjectV2":{"deletedProjectId":"PVT_123"}}}\\n'; fi ;;
+    *deleteProjectV2*) if [ "$FIND_PROJECT" = "1" ]; then printf '{"data":{"deleteProjectV2":{"projectV2":{"id":"PVT_777"}}}}\\n'; else printf '{"data":{"deleteProjectV2":{"projectV2":{"id":"PVT_123"}}}}\\n'; fi ;;
     *createProjectV2*) printf '{"data":{"createProjectV2":{"projectV2":{"id":"PVT_456","number":7}}}}\\n' ;;
     *) if [ "$FIND_PROJECT" = "1" ]; then if [ "$FIND_PROJECT_WRONG_REPO" = "1" ]; then printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[{"id":"PVT_777","number":9,"title":"Workflow cleanup-run W1 bare 1","repositories":{"nodes":[{"nameWithOwner":"example-benchmark-org/other-repo"}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":${projectPage}}}},"user":null}}\\n'; else printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[{"id":"PVT_777","number":9,"title":"Workflow cleanup-run W1 bare 1","repositories":{"nodes":[{"nameWithOwner":"example-benchmark-org/tfwf-cleanup-w1-bare-1"}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":${projectPage}}}},"user":null}}\\n'; fi; else printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[],"pageInfo":{"hasNextPage":false}}},"user":null,"repository":{"id":"R_123"}}}\\n'; fi ;;
   esac
