@@ -58,7 +58,9 @@ if [ "$1" = "repo" ] && [ "$2" = "delete" ] && [ "$FAIL_REPO_DELETE" = "1" ]; th
 if [ "$1" = "repo" ] && [ "$2" = "delete" ]; then exit 0; fi
 exit 1
 `;
-  writeFileSync(join(bin,'gh'),script);chmodSync(join(bin,'gh'),0o755);return bin;
+  writeFileSync(join(bin,'gh'),script);chmodSync(join(bin,'gh'),0o755);
+  writeFileSync(join(bin,'claude'),'#!/bin/sh\nif [ "$1" = "--version" ]; then echo fake-claude; exit 0; fi\nexit 1\n');
+  chmodSync(join(bin,'claude'),0o755);return bin;
 };
 const fakeProjectGh=(dir)=>{
   const bin=join(dir,'project-bin');mkdirSync(bin);
