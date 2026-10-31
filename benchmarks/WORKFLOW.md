@@ -50,8 +50,8 @@ Complete these steps once before the first organization-mode run. The runner nee
 two separately scoped tokens, but it does **not** require two different GitHub users.
 The strongest isolation is two disposable accounts: a setup account that owns the
 organization and an agent account that is only a normal organization member. For a
-simpler setup, the same account can create both fine-grained tokens below with
-different permissions. In that case, the agent process still receives only the
+simpler setup, the same account can create both tokens below with different
+permissions. In that case, the agent process still receives only the
 limited agent token; it does not receive the setup token.
 
 1. **Create the organization.** Sign in to GitHub as the setup account, open
@@ -117,39 +117,48 @@ webhooks, packages, releases, custom rulesets or a pre-created team.
 
 ### Creating the two organization-mode tokens
 
-Create each token while signed in as the identity that will own it. Go to **avatar →
-Settings → Developer settings → Personal access tokens → Fine-grained tokens →
-Generate new token**, set a short expiration, choose the disposable organization as
-**Resource owner**, and choose **All repositories**. All repositories is intentional:
-the runner generates unique repository names at runtime, so selected-repository access
-cannot be configured in advance. The [PAT creation guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
-and GitHub's [fine-grained permission reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens)
-describe the current token UI.
+There is one important token-type exception. The runner's evaluator reads private
+GitHub Actions check runs through the Checks API. GitHub's current fine-grained PAT
+support does not expose that API to user-owned fine-grained tokens, so the **setup
+token must currently be a classic PAT**. This is why you will not find a `Checks`
+permission in the fine-grained form. GitHub documents the limitation [here](https://docs.github.com/en/enterprise-cloud@latest/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
+and the check-run endpoint requirements [here](https://docs.github.com/en/rest/checks/runs).
 
 Create a token named, for example, `ticketflow-benchmarks-setup` for the setup account
-with these permissions:
+at **avatar → Settings → Developer settings → Personal access tokens → Tokens
+(classic) → Generate new token (classic)**. Set an expiration and select these
+scopes:
 
-- **Repository permissions:** `Administration: Read and write`, `Contents: Read and
-  write`, `Issues: Read and write`, `Pull requests: Read and write`, `Checks: Read`,
-  and `Metadata: Read`.
-  Administration write is needed both to create the private repositories and to
-  delete exactly those repositories during cleanup. It also covers the runner's
-  read-only Actions-policy check. Do not grant organization administration, member,
-  secrets, runners, packages or billing permissions.
-- **Organization permissions:** `Projects: Read and write`.
+- `repo`: private repository creation, cloning, contents, issues, pull requests and
+  organization API access.
+- `delete_repo`: cleanup of the exact benchmark repositories.
+- `project`: Projects v2 GraphQL queries and mutations.
+- `workflow`: pushing the seeded `.github/workflows/bench.yml` file.
 
-This token creates and seeds repositories, creates and links Projects, creates the
-fixture issues/PR, checks Actions, and performs cleanup. It is never passed to the
-paid agent.
+Do not select `admin:org`, billing, packages or other unrelated scopes. A classic PAT
+is broader than a fine-grained PAT and can access every repository visible to its
+owner, so use it only with the disposable setup account/organization, keep it
+short-lived, and revoke it after the run. This token creates and seeds repositories,
+creates and links Projects, creates the fixture issues/PR, reads Actions check runs,
+and performs cleanup. It is never passed to the paid agent.
 
 Create a second token named, for example, `ticketflow-benchmarks-agent` for the
-agent role with these permissions. It may belong to the same GitHub account as the
-setup token; the distinction is the token's permissions and which environment
-variable receives it:
+agent role. This token can remain fine-grained. Go to **avatar → Settings → Developer
+settings → Personal access tokens → Fine-grained tokens → Generate new token**, set a
+short expiration, choose the disposable organization as **Resource owner**, and
+choose **All repositories**. All repositories is intentional: the runner generates
+unique repository names at runtime, so selected-repository access cannot be configured
+in advance. The [PAT creation guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
+and GitHub's [fine-grained permission reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens)
+describe the current token UI. It may belong to the same GitHub account as the setup
+token; the distinction is the token's permissions and which environment variable
+receives it:
 
 - **Repository permissions:** `Contents: Read and write`, `Issues: Read and write`,
-  `Pull requests: Read and write`, `Actions: Read`, `Checks: Read`, and
-  `Metadata: Read`.
+  `Pull requests: Read and write`, `Actions: Read`, and `Metadata: Read`.
+  Add `Workflows: Read and write` only if the agent must edit files under
+  `.github/workflows`; the setup token already has the classic `workflow` scope for
+  the seeded workflow.
 - **Organization permissions:** `Projects: Read and write`.
 
 For a separate member account, the organization membership's Write base permission
@@ -160,13 +169,10 @@ Do **not** grant Administration, organization administration, repository deletio
 member management, secrets, billing or access to any other organization. The agent
 token is deliberately unable to create or delete benchmark repositories.
 
-If GitHub shows an additional required permission for a specific endpoint, use the
-[fine-grained permission reference](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens)
-to confirm it. Do not solve a failed request by giving the agent a broad classic
-`repo` or `admin:org` token. A classic PAT with `repo` is only a broad fallback for
-an account where the fine-grained GraphQL/Projects flow is unavailable; use it only
-in the disposable organization, never for the agent if a fine-grained token works,
-and revoke it immediately after the run.
+The agent token does not need `Checks`: the runner uses the setup token for check-run
+scoring. If the agent itself must call the Checks API rather than inspect runs through
+Actions, use a classic token for the agent too; that is broader and should be avoided
+unless required.
 
 ### Supplying and checking the tokens
 
