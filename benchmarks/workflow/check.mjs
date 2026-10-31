@@ -66,6 +66,17 @@ const actionable=(issue)=>{
 };
 const actionsFailures=new Set(['failure','timed_out','cancelled','action_required']);
 const ranOnRunner=(job)=>Boolean(job?.runner_id||job?.started_at||job?.steps?.length);
+const workflowRunMatches=(run,pr)=>run?.head_sha===pr.headRefOid||
+  (run?.event==='pull_request'&&Array.isArray(run.pull_requests)&&run.pull_requests.some(x=>Number(x.number)===Number(pr.number)&&x.head?.sha===pr.headRefOid));
+const workflowRuns=(repo,pr,env,request)=>{
+  const read=(path)=>page(request(path,env),'workflow_runs','workflow run');
+  const direct=read('repos/'+repo+'/actions/runs?head_sha='+encodeURIComponent(pr.headRefOid)+'&per_page=100');
+  if(direct.length||!pr.headRefName)return direct;
+  // pull_request workflows execute on GitHub's temporary merge commit, not necessarily the PR head.
+  // Resolve those runs through the source branch, then require the exact PR and head association.
+  return read('repos/'+repo+'/actions/runs?event=pull_request&branch='+encodeURIComponent(pr.headRefName)+'&per_page=100')
+    .filter(run=>workflowRunMatches(run,pr));
+};
 const completeBefore=(timestamp,mergedAt)=>timestamp&&Number.isFinite(Date.parse(timestamp))&&Date.parse(timestamp)<=mergedAt;
 const page=(response,key,label)=>{
   if(!response||!Array.isArray(response[key])||!Number.isSafeInteger(response.total_count)||response.total_count<0)
@@ -78,16 +89,15 @@ export function checkRuns(repo,pr,env,request=api){
   if(!pr?.headRefOid||!pr?.mergedAt)return {pass:false,reason:'no merged PR and final head'};
   const mergedAt=Date.parse(pr.mergedAt);
   if(!Number.isFinite(mergedAt))throw Error('merged PR has an invalid merge timestamp');
-  const runs=page(request('repos/'+repo+'/actions/runs?head_sha='+encodeURIComponent(pr.headRefOid)+'&per_page=100',env),
-    'workflow_runs','workflow run');
+  const runs=workflowRuns(repo,pr,env,request);
   const checks=[],failures=[];
   for(const run of runs){
-    if(run?.head_sha!==pr.headRefOid||!Number.isSafeInteger(run.id)||run.id<1)
+    if(!workflowRunMatches(run,pr)||!Number.isSafeInteger(run.id)||run.id<1)
       throw Error('GitHub Actions workflow run response is malformed');
     const jobs=page(request('repos/'+repo+'/actions/runs/'+run.id+'/jobs?filter=all&per_page=100',env),
       'jobs','jobs for workflow run '+run.id);
     for(const job of jobs){
-      if(job?.head_sha!==pr.headRefOid||typeof job.name!=='string')
+      if(typeof job?.head_sha!=='string'||(job.head_sha!==pr.headRefOid&&job.head_sha!==run.head_sha)||typeof job.name!=='string')
         throw Error('GitHub Actions job response is malformed');
       const evidence={name:job.name,status:job.status,conclusion:job.conclusion,completed_at:job.completed_at,
         workflow:run.name??null,run_id:run.id};
@@ -116,12 +126,12 @@ export function fallbackEvidence(repo,pr,env,request=api){
   const comments=request===api?all(repo,'issues/'+pr.number+'/comments',env):request('repos/'+repo+'/issues/'+pr.number+'/comments?per_page=100',env);
   if(!Array.isArray(comments))throw Error('pull request comment response is malformed');
   const localComments=comments.filter(x=>/^### CI \/ Gate:\s+(?:Passed|Failed)\b/m.test(String(x?.body??'')));
-  const runs=page(request('repos/'+repo+'/actions/runs?head_sha='+encodeURIComponent(pr.headRefOid)+'&per_page=100',env),'workflow_runs','workflow run');
+  const runs=workflowRuns(repo,pr,env,request);
   let allowed=false;
   for(const run of runs){
     if(run?.head_sha!==pr.headRefOid||!Number.isSafeInteger(run.id)||run.id<1)throw Error('GitHub Actions workflow run response is malformed');
     const jobs=page(request('repos/'+repo+'/actions/runs/'+run.id+'/jobs?filter=all&per_page=100',env),'jobs','jobs for workflow run '+run.id);
-    if(actionsFailures.has(run.conclusion)&&!jobs.some(job=>job?.head_sha===pr.headRefOid&&ranOnRunner(job)))allowed=true;
+    if(actionsFailures.has(run.conclusion)&&!jobs.some(job=>ranOnRunner(job)))allowed=true;
   }
   const localStatus=/^Local (?:run|check) on /i.test(String(gate?.description??''));
   const attempted=localStatus||localComments.length>0;

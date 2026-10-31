@@ -87,11 +87,22 @@ function api(path, paginate = false) {
 /** Text from GitHub that is printed in the summary: control characters and line separators become one space, so it can never forge a summary line. */
 const flat = (v) => String(v ?? '').replace(/[\p{Cc}\u2028\u2029]+/gu, ' ')
 const ms = (iso) => Date.parse(iso)
-const fresh = () => ({ head: '', draft: false, gate: null, verify: null, fallback: null, why: 'Actions has not refused the run', notes: [], reviewers: null, threads: null, author: null })
-const workflowRuns = (head) => {
-    const data = api(`${R}/actions/runs?head_sha=${encodeURIComponent(head)}&per_page=100`)
-    if (!Array.isArray(data.workflow_runs)) throw new Error('Actions workflow run response was malformed')
-    return data.workflow_runs
+const fresh = () => ({ head: '', pull: null, draft: false, gate: null, verify: null, fallback: null, why: 'Actions has not refused the run', notes: [], reviewers: null, threads: null, author: null })
+const workflowRunMatches = (run, head, pull) => run?.head_sha === head ||
+    (pull?.head?.ref && run?.event === 'pull_request' && Array.isArray(run.pull_requests) &&
+        run.pull_requests.some(x => Number(x.number) === Number(target) && x.head?.sha === head))
+const workflowRuns = (head, pull = null) => {
+    const read = (path) => {
+        const data = api(path)
+        if (!Array.isArray(data.workflow_runs)) throw new Error('Actions workflow run response was malformed')
+        return data.workflow_runs
+    }
+    const direct = read(`${R}/actions/runs?head_sha=${encodeURIComponent(head)}&per_page=100`)
+    if (direct.length || !pull?.head?.ref) return direct
+    // pull_request workflows execute on GitHub's temporary merge commit, not necessarily the PR head.
+    // The branch listing carries the associated PR and its real head SHA, so use it only with an exact match.
+    return read(`${R}/actions/runs?event=pull_request&branch=${encodeURIComponent(pull.head.ref)}&per_page=100`)
+        .filter(run => workflowRunMatches(run, head, pull))
 }
 const isTicketFlowWorkflow = (run) => run?.name === 'CI' || /(?:^|\/)ci\.ya?ml(?:@|$)/i.test(run?.path ?? '')
 const ranOnRunner = (job) => Boolean(job?.runner_id || job?.started_at || job?.steps?.length)
@@ -104,6 +115,7 @@ function pollCi(S) {
     else {
         pull = api(`${R}/pulls/${target}`)
         S.head = pull.head.sha
+        S.pull = pull
         S.draft = pull.draft === true
         S.author = pull.user?.login
         if (cfg.verify.mode === 'local-first' && S.draft) { S.notes.push(`Draft: CI skips drafts; gh pr ready ${target}`); return 'draft' }
@@ -124,11 +136,12 @@ function pollCi(S) {
 
     S.why = 'Actions has not refused the run'
     const candidates = []
-    for (const run of workflowRuns(S.head)) {
-        if (run?.head_sha !== S.head || !Number.isSafeInteger(run.id) || run.id < 1) throw new Error('Actions workflow run response was malformed')
+    for (const run of workflowRuns(S.head, pull)) {
+        if (!workflowRunMatches(run, S.head, pull) || !Number.isSafeInteger(run.id) || run.id < 1) throw new Error('Actions workflow run response was malformed')
         const data = api(`${R}/actions/runs/${run.id}/jobs?filter=all&per_page=100`)
         if (!Array.isArray(data.jobs)) throw new Error(`Actions job response for run ${run.id} was malformed`)
-        const jobs = data.jobs.filter((job) => job?.head_sha === S.head && job.name === cfg.gate.check)
+        const jobs = data.jobs.filter((job) => typeof job?.head_sha === 'string' &&
+            (job.head_sha === S.head || job.head_sha === run.head_sha) && job.name === cfg.gate.check)
         for (const job of jobs) candidates.push({ run, job })
         // The generated TicketFlow workflow is named CI. It can fail during startup
         // before GitHub creates a job, so retain that run-level evidence as a candidate.
@@ -223,9 +236,9 @@ const pushed = new Map()
 let me
 
 /** When this head was pushed: the first Actions run created for it (a later run does not move it), else the committer date. */
-function pushedAt(head) {
+function pushedAt(head, pull = null) {
     if (!pushed.has(head)) {
-        const runs = workflowRuns(head)
+        const runs = workflowRuns(head, pull)
         const t = Math.min(...runs.map((x) => ms(x.created_at)).filter((x) => x > 0))
         if (t === Infinity) return ms(api(`${R}/commits/${head}`).commit.committer.date)   // shortcut: no Actions run (no CI yet) falls back to the committer date, which can predate the push; read the push event if a repo runs without Actions
         pushed.set(head, t)
@@ -238,7 +251,7 @@ function pushedAt(head) {
  * or a trusted human with a submitted review or inline comment, and a sign since the push.
  */
 function pollReviewers(S) {
-    const since = pushedAt(S.head)
+    const since = pushedAt(S.head, S.pull)
     const comments = api(`${R}/issues/${target}/comments`, true)
     const reactions = api(`${R}/issues/${target}/reactions`, true)
     const reviews = api(`${R}/pulls/${target}/reviews`, true).filter((x) => x.state !== 'PENDING' && x.state !== 'DISMISSED')

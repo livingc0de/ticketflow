@@ -16,7 +16,7 @@ const run = (id, st, conclusion = null) => ({ id, head_sha: HEAD, name: 'CI', pa
 const job = (id, extra = {}) => ({ [`actions/runs/${id}/jobs`]: { total_count: 1, jobs: [{ id, name: 'Verify', head_sha: HEAD, ...extra }] } })
 const notes = () => ({})
 const pushedRuns = (...minutes) => ({ 'actions/runs': { total_count: minutes.length, workflow_runs: minutes.map((min, i) => ({ ...run(i + 1, 'completed', 'success'), created_at: ago(min), updated_at: ago(min) })) } })
-const pull = (extra) => ({ pulls: { 7: { head: { sha: HEAD }, draft: false, mergeable: true, mergeable_state: 'blocked', user: { login: 'author' }, ...extra } } })
+const pull = (extra) => ({ pulls: { 7: { head: { sha: HEAD, ref: 'feature' }, draft: false, mergeable: true, mergeable_state: 'blocked', user: { login: 'author' }, ...extra } } })
 const refused = (id = 5) => ({ ...runs(run(id, 'completed', 'failure')), ...job(id, { runner_id: 0, steps: [], created_at: ago(1), run_id: 9 }) })
 
 function baseFixtures() {
@@ -112,6 +112,18 @@ test('a job that ends before a runner or step allows the local fallback, exit 3'
     assert.match(r.stdout, /^PR #7 head aaaaaaa draft=false$/m)
     assert.equal(code({ ...runs(run(6, 'completed', 'action_required')), ...job(6, { runner_id: null, steps: [] }) }), 3)
     assert.equal(code({ ...runs(run(7, 'completed', 'timed_out')), ...job(7, { runner_id: null, steps: [] }) }), 3)
+})
+
+test('pull-request Actions runs on a temporary merge SHA are matched through the exact PR head', () => {
+    const merge = 'b'.repeat(40)
+    const r = wait({
+        ...runs(),
+        'actions/runs?event=pull_request&branch=feature&per_page=100': { total_count: 1, workflow_runs: [{ ...run(8, 'completed', 'failure'), head_sha: merge, event: 'pull_request', pull_requests: [{ number: 7, head: { sha: HEAD } }] }] },
+        'actions/runs/8/jobs': { total_count: 1, jobs: [{ id: 8, name: 'Verify', head_sha: merge, runner_id: 0, steps: [] }] },
+    })
+    assert.equal(r.status, 3, r.stderr)
+    assert.match(r.stdout, /^Fallback: allowed \(Actions ended before a runner or step/m)
+    assert.ok(r.calls.some(c => c.includes('actions/runs?event=pull_request&branch=feature&per_page=100')), r.calls.join('\n'))
 })
 
 test('a red job that got a runner or ran steps never allows the fallback', () => {
