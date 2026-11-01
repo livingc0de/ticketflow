@@ -22,7 +22,8 @@ const { values, positionals: [cmd, issue], cfg, configFile } = cli(import.meta.u
     (p, v) => p.length === 2 && isNumber(p[1]) && (p[0] === 'claim' ? v.pr === undefined : p[0] === 'handoff' && isNumber(v.pr)))
 const R = `repos/${cfg.repo}`
 const marker = cmd === 'claim' ? '<!-- ticketflow:claim -->' : `<!-- ticketflow:summary pr=${values.pr} -->`
-const body = readFileSync(0, 'utf8').trim()
+let body = ''
+try { body = readFileSync(0, 'utf8').trim() } catch { /* no stdin: handled as an empty body */ }
 if (body === '') { console.error('ticket: the comment body on stdin is empty'); process.exit(2) }
 const done = []
 
@@ -41,6 +42,7 @@ main('ticket', () => {
             done.push(`assigned ${me}`)
             status('In Progress')
         } else status('In Review')
+        // shortcut: check-then-post is not atomic; two concurrent runs of one account can both post. Callers run one session per ticket.
         const mine = api(`${R}/issues/${issue}/comments`, { paginate: true }).some((c) => c.user?.login === me && String(c.body ?? '').startsWith(marker))
         if (mine) console.log(`${cmd}: already ${cmd === 'claim' ? 'claimed' : 'handed off'}, comment kept`)
         else {

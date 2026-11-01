@@ -48,6 +48,9 @@ test('a repeated claim keeps the existing comment and posts no second one; anoth
     assert.equal(again.status, 0, again.stderr)
     assert.match(again.stdout, /claim: already claimed, comment kept/)
     assert.deepEqual(again.posts.map((p) => p.path), [`${R}/issues/7/assignees`])
+    // the real paginated shape: the marker is on the second page
+    const paged = run(['claim', '7'], { extra: { [`${R}/issues/7/comments`]: { __pages: [[{ user: { login: 'x' }, body: 'hi' }], [mine]] } } })
+    assert.match(paged.stdout, /already claimed/)
     const other = run(['claim', '7'], { comments: [{ user: { login: 'someone' }, body: '<!-- ticketflow:claim -->\nx' }, { user: { login: 'me' }, body: 'a plain comment' }] })
     assert.equal(other.posts.at(-1).path, `${R}/issues/7/comments`)
 })

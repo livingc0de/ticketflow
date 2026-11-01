@@ -24,12 +24,6 @@ Docs: <!-- updated, or not affected -->
 <!-- Fill these once, when the PR is created: no step edits the body later. No secrets or personal data in code, logs or screenshots. A partial or deferred part has its own issue, linked in Review Notes. -->
 <!-- ticketflow:end head -->
 
-## Change Impact
-
-- [ ] Documentation is updated where behaviour changed
-- [ ] No secrets or personal data in code, logs or screenshots
-- [ ] Partial or deferred parts have their own issue, linked below
-
 <!-- ticketflow:begin tail -->
 ## Review Notes
 
