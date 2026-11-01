@@ -16,12 +16,12 @@ ticket, plan, implement, verify, review, merge, handoff.
 
 1. **Ticket.** One issue is one shippable unit that one pull request can complete; anything bigger is a `Type: Initiative` tracker
    with children. Type, priority, work effort, model class, AI effort and (when relevant) environment are labels; tier and planning are decided when work starts.
-2. **Claim.** Assign, set the status to In Progress, post a claim comment with the tier, the assumptions and one `Planning:` line (a `normal` change without a planner trigger carries its 3-8 line inline plan there).
+2. **Claim.** One call, `ticket.mjs claim`: assign, set the status to In Progress, post a claim comment with the tier, the assumptions and one `Planning:` line (a `normal` change without a planner trigger carries its 3-8 line inline plan there).
    Work happens in a git worktree on a `<type>/issue-<N>-<slug>` branch from the up-to-date default branch.
 3. **Plan** (below), **implement** in one context with one conventional commit per task, `verify`, open the pull request.
 4. **Review** (below), then **merge** only through `merge`, which checks every gate on the exact head, then merges with a method the
    repo allows (squash first; `protect --squash-only` makes it the only one, on the owner's choice).
-5. **Handoff.** Status In Review, the issue stays open, and a summary comment ends with the Run line. Done only when the owner asks.
+5. **Handoff.** One call, `ticket.mjs handoff`: status In Review, the issue stays open, and a summary comment ends with the Run line. Done only when the owner asks.
 
 Pull requests and commits say `Ticket #N` or `Refs #N`, never a closing keyword (Closes, Fixes, Resolves): nothing may close or
 move the issue on merge.
@@ -253,7 +253,7 @@ What each tool allows (installing and enabling them: [TOOLS.md](TOOLS.md)):
 | GitHub Copilot | VS Code only with `chat.subagents.allowInvocationsFromSubagents`; the cloud agent never | none | yes | 2026-10-27 |
 | Any other | no | none | n/a | n/a |
 
-Fallbacks: a lead that cannot dispatch plans inline and reports `needs-review` once CI is green; the orchestrator then dispatches the
+Fallbacks: a lead that cannot dispatch plans inline and, when the change needs a review (its lane is `review`, or it is `high` or `critical`), reports `needs-review` once CI is green; the orchestrator then dispatches the
 `pr-reviewer` and a fresh lead continues the ticket. With no dispatch at all, one ticket is run and the run stops, and says so.
 
 Limits:
