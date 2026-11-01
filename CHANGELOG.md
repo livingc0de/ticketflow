@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **`pr-wait` no longer waits on a reviewer that "started in the future".** A GitHub timestamp ahead of the machine's clock now counts from
+  the moment `pr-wait` first sees it, so a clock difference never adds more than the 15-minute window (a `Clock:` line says when it happened).
+- **Tiny tickets can share a lead in `orchestrate-tickets`.** Up to 3 `ready` list or backlog tickets labelled `Effort: XS` without a
+  `Security` or `Needs:` label are worked one after another by one lead, one pull request each; tracker children never batch. The lead
+  brief also names the tier's process (self-check where `merge` accepts it).
+- **The skill states the reviewer order and the tier rule.** `pr-reviewer` is dispatched only after `pr-wait` has completed, and the tier
+  follows what a wrong change could break, not where the code lives.
+
 ## 0.6.1
 
 ### Highlights

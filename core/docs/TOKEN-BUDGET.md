@@ -12,8 +12,8 @@ Every word an agent loads costs time and money, and crowds out the code it shoul
 
 ## What is loaded on demand
 
-- The body of a skill or role, when it runs (the stub only points at it). `implement-ticket` is the largest; its after-merge steps
-  sit in a separate file read only after a merge.
+- The body of a skill or role, when it runs (the stub only points at it). `implement-ticket` is the largest; its after-merge steps,
+  the reading of `pr-wait` results, resuming a started ticket and dispatching the planner each sit in a separate file read only when that case comes up.
 - `engineering-method`: the method for any code change, review or audit, with or without a ticket. It is read when code is written or reviewed, so a ticket loads it once, at step 3; a plain request loads only it.
 - `orchestrate-tickets` (optional, [WORKFLOW.md](WORKFLOW.md)): its stub description is one more always-loaded line per agent; its body is read only when you ask for several tickets. The orchestrator holds only the
   queue output and each lead's `Result` line; every ticket's context lives in its own fresh lead, not in the orchestrator.
@@ -40,24 +40,8 @@ update does to a real repo. Bytes are a rough proxy for tokens.
 | AGENTS block, with its two marker lines | 13 lines | 14 lines | 15 lines | one new line: the method applies with or without a ticket |
 | `implement-ticket` (read when a ticket is worked) | 95 lines, 11,076 B | 104 lines, 12,848 B | 80 lines, 12,132 B | the method moved out, into the next row |
 | `engineering-method` (read when code is written or reviewed) | none | none | 68 lines, 6,684 B | one home for the method (and the plan-or-skip tests), also used without a ticket |
-| `implement-ticket` detail files (`review-wait.md`, `resume.md`, `planner.md`) | none | none | none | read only when `pr-wait` exits non-zero or reports a result, a ticket is already started, or the planner is dispatched; they carry the edge branches the main file no longer repeats (the main file went from 14,325 B to 10,847 B; the 0.6.0 column is measured at release) |
 | `orchestrate-tickets` (read only when asked) | none | 4,938 B | 5,318 B | host limits and the resume line |
 | `ticket-planner` / `pr-reviewer` roles | 3,546 / 3,218 B | 3,786 / 3,713 B | 4,106 / 5,393 B | plain briefs and `review: task`; diff and audit modes |
-
-Measured the same way for 0.5.0 and 0.6.0 (a scratch repo with `runtime`, `gen-stubs` and `render` for Claude Code and Codex; the files
-as installed under `.ticketflow/`):
-
-| | 0.5.0 | 0.6.0 | Note |
-|---|---|---|---|
-| `implement-ticket` main file (read when a ticket is worked) | 79 lines, 12,582 B | 74 lines, 10,847 B | the edge branches moved out; the tier-driven process added about 1.7 kB of it |
-| `implement-ticket` detail files (`review-wait`, `resume`, `planner`) | none | 5,229 B, only when needed | pr-wait results and exits, a started ticket, dispatching the planner |
-| `engineering-method` | 68 lines, 6,781 B | 62 lines, 7,063 B | the planner triggers |
-| `ticket-planner` / `pr-reviewer` roles | 4,106 / 5,906 B | 4,127 / 6,346 B | no install or test run; the process lens and the class override |
-| Claude Code skill and role stubs | 3,297 B | 3,302 B | the descriptions barely changed |
-
-A normal ticket now loads about 1.7 kB less of the main skill, and the detail files only on the paths that need them. The saving that
-matters is not tokens of instruction but fewer subagent runs: a small change merges on a self-check and a nit fix needs no second
-reviewer ([WORKFLOW.md](WORKFLOW.md)).
 
 A stub's description is loaded at the start of every session; the rest of the stub and the skill only when it runs. A ticket now
 loads the method as a second file (12,132 B + 6,684 B = 18,816 B against 12,848 B in 0.3.0: about 6.0 kB more), in return for the

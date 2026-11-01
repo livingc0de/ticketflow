@@ -205,6 +205,7 @@ const firstLine = (b) => strip(b).split(/[\n\r\u2028\u2029\u0085]/).find((l) => 
 const isApp = (u) => u?.type === 'Bot' || /\[bot\]$/.test(u?.login ?? '')
 
 const WINDOW_MS = 15 * 60_000
+const SKEW_MS = 60_000   // a timestamp this far ahead of the local clock is reported
 const launched = Date.now()
 let reviewerPendingSince = null
 let reviewerWaitMs = 0
@@ -273,6 +274,7 @@ function pushedAt(head, pull = null) {
  * or a trusted human with a submitted review or inline comment, and a sign since the push.
  */
 function pollReviewers(S) {
+    let skewed = 0
     const since = pushedAt(S.head, S.pull)
     const comments = api(`${R}/issues/${target}/comments`, true)
     const reactions = api(`${R}/issues/${target}/reactions`, true)
@@ -295,8 +297,13 @@ function pollReviewers(S) {
         const mine = (x) => x.user?.login === login
         const onHead = reviews.filter((x) => mine(x) && x.commit_id === S.head)
         const own = [...comments.filter(mine), ...onHeadInline.filter(mine)]
-        const signs = [...onHead.map((x) => ms(x.submitted_at)), ...[...own.map(at), ...reactions.filter(mine).map((x) => ms(x.created_at))].filter((t) => t > since)]   // a review of the head counts whatever its time
-        if (!signs.length) return null
+        const raw = [...onHead.map((x) => ms(x.submitted_at)), ...[...own.map(at), ...reactions.filter(mine).map((x) => ms(x.created_at))].filter((t) => t > since)]   // a review of the head counts whatever its time
+        if (!raw.length) return null
+        // An event cannot lie in the future: a GitHub timestamp ahead of this clock counts from the moment it is first seen (the cache keeps that first value),
+        // so the 15 minutes end 15 minutes after first sight. A local clock AHEAD of GitHub still shortens the window; the clock alone cannot show that.
+        const now = Date.now()
+        if (raw.some((t) => t > now + SKEW_MS)) skewed = Math.max(skewed, Math.max(...raw) - now)
+        const signs = raw.map((t) => Math.min(t, now))
         const key = `${cfg.repo}#${target} ${S.head} ${since} ${login}`   // per repo and PR: the cache is shared by every run in the checkout
         const start = Math.min(firstSeen.get(key) ?? Infinity, ...signs)
         firstSeen.set(key, start)
@@ -325,6 +332,7 @@ function pollReviewers(S) {
         if (Date.now() >= start + WINDOW_MS) return { login, state: 'late', text: `no result 15 min after its start ${iso(start)}` }
         return { login, state: 'pending', text: `pending since ${iso(start)} (at most until ${iso(start + WINDOW_MS)})` }
     }).filter(Boolean)
+    if (skewed > 0) S.notes.push(`Clock: GitHub timestamps are ahead of this machine's clock by about ${Math.round(skewed / 60_000)} min: reviewer windows count from first sight`)
     saveSeen()
 }
 

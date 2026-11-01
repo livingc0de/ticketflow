@@ -695,3 +695,36 @@ test('--ci-only and a sha make no review, user or Actions-run call; --once still
     assert.equal(once.status, 1)
     assert.match(once.stdout, /^Review rb\[bot\]: pending since/m)
 })
+
+test('a reviewer timestamp ahead of the local clock counts from first sight, does not slide, heals a stale future cache entry and says so', () => {
+    const dir = tempDir('pr-wait-skew-')
+    spawnSync('git', ['init', '-q', dir])
+    // GitHub stamps the reaction 30 minutes after this machine's now; the push time is fixed so every run reads the same cache key
+    const future = { ...green, 'issues/7/reactions': [react(-30)], [`commits/${HEAD}`]: { commit: { committer: { date: ago(40) } } } }
+    const until = (r) => Date.parse(/at most until (\S+)\)/.exec(r.stdout)[1]) - Date.now()
+    const first = wait(future, ['7', '--once'], {}, { dir })
+    assert.match(first.stdout, /^Review rb\[bot\]: pending since /m)
+    assert.ok(until(first) > 14 * 60_000 && until(first) <= 15 * 60_000, `window ends ${until(first)} ms from now, not 45 minutes`)
+    assert.match(first.stdout, /^Clock: GitHub timestamps are ahead of this machine's clock by about 3\d min: reviewer windows count from first sight$/m)
+    const startOf = (r) => /pending since (\S+) /.exec(r.stdout)[1]
+    const second = wait(future, ['7', '--once'], {}, { dir })
+    assert.equal(startOf(second), startOf(first), 'the first-seen start is kept, not slid')
+    // a stale entry from before the fix, a start in the future, is replaced by the clamped value
+    const gitDir = spawnSync('git', ['-C', dir, 'rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim()
+    const cache = join(gitDir, 'ticketflow-pr-wait.json')
+    const stale = Object.fromEntries(Object.keys(JSON.parse(readFileSync(cache, 'utf8'))).map((k) => [k, Date.now() + 40 * 60_000]))
+    writeFileSync(cache, JSON.stringify(stale))
+    const healed = wait(future, ['7', '--once'], {}, { dir })
+    assert.ok(until(healed) <= 15 * 60_000 + 1000, 'a future cache value no longer extends the window')
+    // a 16-minute-old start in the shared cache has ended the window (the clamp never lengthens it)
+    const old = Object.fromEntries(Object.keys(JSON.parse(readFileSync(cache, 'utf8'))).map((k) => [k, Date.now() - 16 * 60_000]))
+    writeFileSync(cache, JSON.stringify(old))
+    assert.match(wait(future, ['7', '--once'], {}, { dir }).stdout, /^Review rb\[bot\]: no result 15 min after its start/m)
+})
+
+test('timestamps on the local clock print no Clock note and keep the window of their own start', () => {
+    const r = wait({ ...green, 'issues/7/reactions': [react(2)] }, ['7', '--once'])
+    assert.doesNotMatch(r.stdout, /^Clock:/m)
+    const until = Date.parse(/at most until (\S+)\)/.exec(r.stdout)[1]) - Date.now()
+    assert.ok(until > 12 * 60_000 && until < 13.1 * 60_000, `started 2 min ago: ${until}`)
+})
