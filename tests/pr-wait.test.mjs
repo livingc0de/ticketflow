@@ -38,11 +38,11 @@ function threads(nodes, totalCount = nodes.length) {
     return { 'graphql ReviewThreads': { repository: { pullRequest: { reviewThreads: { totalCount, nodes } } } } }
 }
 // Fixture keys are relative to repos/o/r/ (except `user` and `graphql ...`); `pulls` is shorthand for 'pulls/7'.
-function wait(fix = {}, args = ['7', '--timeout-min', '0'], over = {}, { dir = tempDir('pr-wait-') } = {}) {
+function wait(fix = {}, args = ['7', '--timeout-min', '0'], over = {}, { dir = tempDir('pr-wait-'), env = {} } = {}) {
     const { pulls, ...rest } = fix
     const map = { ...baseFixtures(), ...rest, ...(pulls ? { 'pulls/7': pulls[7] } : {}) }
     const gh = fakeGh(dir, Object.fromEntries(Object.entries(map).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' ? k : `repos/o/r/${k}`, v])))
-    const r = spawnSync(process.execPath, [script, ...args, '--config', writeConfig(dir, over)], { encoding: 'utf8', env: gh.env, cwd: dir })
+    const r = spawnSync(process.execPath, [script, ...args, '--config', writeConfig(dir, over)], { encoding: 'utf8', env: { ...gh.env, ...env }, cwd: dir })
     return { ...r, calls: gh.calls().map((c) => c.join(' ')), dir }
 }
 const code = (fix, args, over) => wait(fix, args, over).status
@@ -727,4 +727,27 @@ test('timestamps on the local clock print no Clock note and keep the window of t
     assert.doesNotMatch(r.stdout, /^Clock:/m)
     const until = Date.parse(/at most until (\S+)\)/.exec(r.stdout)[1]) - Date.now()
     assert.ok(until > 12 * 60_000 && until < 13.1 * 60_000, `started 2 min ago: ${until}`)
+})
+
+test('--more with GitHub timestamps ahead of the local clock: an old status note is not an answer; a change after the first look is', () => {
+    const CXB = 'cx[bot]'
+    // an unedited note has created_at = updated_at; `edit` is a later edit of the same note
+    const summary = (text, at, edit = at, over = {}) => note(at, `<!-- cx-pull-request-review-summary -->\n## Review Summary\n\n| Code Review | ${text} |`, { id: 31, user: app(CXB), updated_at: ago(edit), ...over })
+    const base = { ...green, 'issues/7/reactions': [react(14, 'eyes', CXB)], [`commits/${HEAD}`]: { commit: { committer: { date: ago(40) } } } }
+    const more = ['7', '--more', CXB, '--timeout-min', '0']
+    // the status note was last edited 30 minutes "in the future" by the clock: without --more it is shown as the first comment, with --more it is pending, not a result
+    const running = { ...base, 'issues/7/comments': [summary('Running', -30)] }
+    assert.match(wait(running).stdout, /^Review cx\[bot\]: result first comment /m)
+    const now = wait(running, more)
+    assert.match(now.stdout, /^Review: pending \(cx\[bot\]\)$/m)
+    assert.match(now.stdout, /^Clock: GitHub timestamps are ahead of this machine's clock by about 3\d min/m)
+    // two looks, one second apart: the second finds the note edited (to Completed), which is the answer, whatever the clocks say
+    const edited = { ...base, 'issues/7/comments': { __seq: [[summary('Running', -30)], [summary('Completed', -30, -31)]] } }
+    const answered = wait(edited, ['7', '--more', CXB, '--timeout-min', '1'], {}, { env: { TICKETFLOW_POLL_SEC: '1' } })
+    assert.match(answered.stdout, /^Review cx\[bot\]: result comment https:\/\/x\/c /m, answered.stdout)
+    assert.doesNotMatch(answered.stdout, /^TIMEOUT/m)
+    // a review posted after the first look is the answer too
+    const reviewed = { ...base, 'issues/7/comments': [summary('Running', -30)], 'pulls/7/reviews': { __seq: [[], [rev('COMMENTED', { user: app(CXB), submitted_at: ago(-31) })]] } }
+    const r2 = wait(reviewed, ['7', '--more', CXB, '--timeout-min', '1'], {}, { env: { TICKETFLOW_POLL_SEC: '1' } })
+    assert.match(r2.stdout, /^Review cx\[bot\]: result review COMMENTED /m, r2.stdout)
 })

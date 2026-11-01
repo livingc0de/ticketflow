@@ -8,7 +8,8 @@
  *   --ci-only      do not read or wait for reviewers. A sha (a default-branch commit) implies it and makes no PR calls.
  *   --timeout-min  how long to wait (default 45)
  *   --more         this reviewer said more is coming, or posted only a status note: only what it posts or edits after this run
- *                  started counts as its result
+ *                  started counts as its result (by the clock; when GitHub's timestamps run ahead of this machine's clock, by a change
+ *                  against what was there at the first look, and a `Clock:` line says so)
  *
  * The verdict is the commit status `gate.context`. Actions workflow runs and jobs are read only to tell a run that Actions refused
  * before any runner or step (or stayed queued 20 minutes without one) from a real red one. A failed read is a pending poll,
@@ -51,7 +52,7 @@ import { gql } from '../lib/gh.mjs'
 
 const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
 const STUCK_MS = 20 * 60_000
-const POLL_SEC = '60'
+const POLL_SEC = process.env.TICKETFLOW_POLL_SEC ?? '60'   // the environment variable is a test seam
 
 const usage = 'usage: pr-wait.mjs <pr | 40-hex sha> [--once] [--ci-only] [--timeout-min N] [--more <login>]... [--config f]'
 let cfg, target, once, ciOnly, timeoutMin, more
@@ -205,7 +206,10 @@ const firstLine = (b) => strip(b).split(/[\n\r\u2028\u2029\u0085]/).find((l) => 
 const isApp = (u) => u?.type === 'Bot' || /\[bot\]$/.test(u?.login ?? '')
 
 const WINDOW_MS = 15 * 60_000
-const SKEW_MS = 60_000   // a timestamp this far ahead of the local clock is reported
+const SKEW_MS = 60_000   // a timestamp this far ahead of the local clock is a clock difference
+// What the reviewers had posted when this run first looked: with a clock difference, "new since this run started" is a change against it, never a clock comparison.
+const launchSeen = new Map()
+let launchTaken = false, clockSkewed = false
 const launched = Date.now()
 let reviewerPendingSince = null
 let reviewerWaitMs = 0
@@ -274,13 +278,19 @@ function pushedAt(head, pull = null) {
  * or a trusted human with a submitted review or inline comment, and a sign since the push.
  */
 function pollReviewers(S) {
-    let skewed = 0
     const since = pushedAt(S.head, S.pull)
     const comments = api(`${R}/issues/${target}/comments`, true)
     const reactions = api(`${R}/issues/${target}/reactions`, true)
     const reviews = api(`${R}/pulls/${target}/reviews`, true).filter((x) => x.state !== 'PENDING' && x.state !== 'DISMISSED')
     const inline = api(`${R}/pulls/${target}/comments`, true)
     const outside = (l) => l && l !== me && l !== S.author
+    const stamps = [...reviews.map((x) => ms(x.submitted_at)), ...reactions.map((x) => ms(x.created_at)), ...[...comments, ...inline].flatMap((c) => [ms(c.created_at), ms(c.updated_at)])].filter(Number.isFinite)
+    const ahead = Math.max(0, ...stamps) - Date.now()
+    if (ahead > SKEW_MS) { clockSkewed = true; S.notes.push(`Clock: GitHub timestamps are ahead of this machine's clock by about ${Math.round(ahead / 60_000)} min: reviewer windows count from first sight`) }
+    const stampKey = (kind, c) => `${kind}${c.id}`
+    if (!launchTaken) { launchTaken = true; for (const x of reviews) launchSeen.set(stampKey('r', x), x.submitted_at); for (const c of comments) launchSeen.set(stampKey('c', c), c.updated_at); for (const c of inline) launchSeen.set(stampKey('i', c), c.updated_at) }
+    // posted or edited after this run started (--more): by the clock, or, when the clocks differ, by comparing with what was there at the first look
+    const newSince = (kind, c, stamp) => (clockSkewed ? launchSeen.get(stampKey(kind, c)) !== (kind === 'r' ? c.submitted_at : c.updated_at) : stamp > launched)
     // A comment counts when it was posted after the push, else when it was edited after it.
     const at = (c) => (ms(c.created_at) > since ? ms(c.created_at) : ms(c.updated_at))
     const edited = (c) => Math.max(ms(c.created_at), ms(c.updated_at ?? c.created_at))
@@ -297,19 +307,17 @@ function pollReviewers(S) {
         const mine = (x) => x.user?.login === login
         const onHead = reviews.filter((x) => mine(x) && x.commit_id === S.head)
         const own = [...comments.filter(mine), ...onHeadInline.filter(mine)]
-        const raw = [...onHead.map((x) => ms(x.submitted_at)), ...[...own.map(at), ...reactions.filter(mine).map((x) => ms(x.created_at))].filter((t) => t > since)]   // a review of the head counts whatever its time
-        if (!raw.length) return null
+        const signs0 = [...onHead.map((x) => ms(x.submitted_at)), ...[...own.map(at), ...reactions.filter(mine).map((x) => ms(x.created_at))].filter((t) => t > since)]   // a review of the head counts whatever its time
+        if (!signs0.length) return null
         // An event cannot lie in the future: a GitHub timestamp ahead of this clock counts from the moment it is first seen (the cache keeps that first value),
         // so the 15 minutes end 15 minutes after first sight. A local clock AHEAD of GitHub still shortens the window; the clock alone cannot show that.
         const now = Date.now()
-        if (raw.some((t) => t > now + SKEW_MS)) skewed = Math.max(skewed, Math.max(...raw) - now)
-        const signs = raw.map((t) => Math.min(t, now))
+        const signs = signs0.map((t) => Math.min(t, now))
         const key = `${cfg.repo}#${target} ${S.head} ${since} ${login}`   // per repo and PR: the cache is shared by every run in the checkout
         const start = Math.min(firstSeen.get(key) ?? Infinity, ...signs)
         firstSeen.set(key, start)
         const last = onHead.at(-1)
         if (last?.state === 'CHANGES_REQUESTED') return { login, state: 'changes', text: `changes requested (${S.head.slice(0, 7)}) ${last.html_url}` }
-        const after = more.has(login) ? launched : since
         // a review of the head is the result; else its latest comment with visible text, at its last edit (the start above keeps the first
         // sign). Its first comment, unedited, is shown at once (it can hold the findings) but marked `first comment` while the window runs:
         // it may be the status note of a review still running, so the agent reads it (--more for a status note) and merge --reviewed-by waits
@@ -324,15 +332,14 @@ function pollReviewers(S) {
         // Require explicit agent judgment for it even if other comments or cache activity preceded it.
         const kind = (c) => (Date.now() < start + WINDOW_MS &&
             (edited(c) <= firstAnswer || (c.commit_id === S.head && edited(c) === ms(c.created_at))) ? 'first comment' : 'comment')
-        const said = latest(onHead.filter((x) => !more.has(login) || ms(x.submitted_at) > launched).map((x) => [ms(x.submitted_at), `review ${x.state} ${x.html_url} ${firstLine(x.body)}`]))
-            ?? latest(own.filter((c) => edited(c) > after && visible(c.body) && !aboutOther(c)).map((c) => [edited(c),
+        const said = latest(onHead.filter((x) => !more.has(login) || newSince('r', x, ms(x.submitted_at))).map((x) => [ms(x.submitted_at), `review ${x.state} ${x.html_url} ${firstLine(x.body)}`]))
+            ?? latest(own.filter((c) => (more.has(login) ? newSince(c.path ? 'i' : 'c', c, edited(c)) : edited(c) > since) && visible(c.body) && !aboutOther(c)).map((c) => [edited(c),
                 `${kind(c) === 'comment' && c.commit_id === S.head ? 'inline comment' : kind(c)} ${c.html_url} ${c.commit_id === S.head ? `${c.path}:${c.line ?? c.original_line} ` : ''}${firstLine(c.body)}`]))
         if (said) return { login, state: 'result', text: `result ${said[1]}` }
         const iso = (t) => new Date(t).toISOString()
         if (Date.now() >= start + WINDOW_MS) return { login, state: 'late', text: `no result 15 min after its start ${iso(start)}` }
         return { login, state: 'pending', text: `pending since ${iso(start)} (at most until ${iso(start + WINDOW_MS)})` }
     }).filter(Boolean)
-    if (skewed > 0) S.notes.push(`Clock: GitHub timestamps are ahead of this machine's clock by about ${Math.round(skewed / 60_000)} min: reviewer windows count from first sight`)
     saveSeen()
 }
 
