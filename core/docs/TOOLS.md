@@ -10,7 +10,7 @@ point at the same skills and roles, a short action map (how "dispatch the review
 
 **Any other agent** (Windsurf, Cline, Roo Code, Amp, Kiro, Junie, Zed, Aider, Goose, Factory Droid and so on) reads `AGENTS.md`
 and follows `START.md`. It has no command guard, and without sub-agents the review runs in the same session, so you are asked
-before a merge that rests on it. It uses the universal model fallback: keep no entry for it in `config.models` and let the tool use
+before a merge that rests on it (a small, low-risk change that `merge --self-checked` accepts needs no asking: the diff qualifies it). It uses the universal model fallback: keep no entry for it in `config.models` and let the tool use
 the model selected by the user.
 
 ## What every tool gets
@@ -120,7 +120,7 @@ Evidence and fallbacks:
   run end to end. **The other five guards:** the hook scripts and the OpenCode ask rules are tested against the same examples; none
   was run inside its tool.
 - **Antigravity** has no role files; its roles run as built-in subagents. **Any other agent** has no sub-agents and no guard: the
-  review runs in the same session and you are asked before a merge that rests on it.
+  review runs in the same session and you are asked before a merge that rests on it, unless `merge --self-checked` accepts the diff.
 - **A lead dispatches roles** follows each tool's documentation ([WORKFLOW.md](WORKFLOW.md#several-tickets-optional)); no run has
   counted nested agents. Copilot allows it in VS Code only (the cloud agent never). Where it is unsupported, a lead plans inline and
   reports `needs-review`.

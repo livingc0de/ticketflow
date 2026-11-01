@@ -23,7 +23,10 @@ OpenCode, Antigravity and GitHub Copilot a guard asks you before (or blocks) the
 - **The review gate** `merge` refuses unresolved review threads (any author), an external reviewer that started on the head and has not
   answered (at most 15 minutes from its start) or asked for changes, a `pr-reviewer` verdict on the head that is not exactly `ready to
   merge` (every trusted account's last one; only that account lifts it), and a head with no review of record: the merging account's own
-  `pr-reviewer` review of exactly that head, or `--reviewed-by <login>` naming an external reviewer `pr-wait` shows with a result on it.
+  `pr-reviewer` review of exactly that head, `--reviewed-by <login>` naming an external reviewer `pr-wait` shows with a result on it, or
+  `--self-checked`: the account's own `Self-check head:` review, accepted only where the diff itself qualifies (small, tested, no risky path or
+  label, or a small fix delta after a ready review; `core/lib/risk.mjs`). A self-check proves the diff's facts, not that anyone looked carefully;
+  the floor and its limits are in [REVIEWERS.md](REVIEWERS.md#the-self-check-lane).
   Only reviews of an `OWNER`, `MEMBER` or `COLLABORATOR` set a verdict. `merge` reads no repository permission and takes no comment as a
   basis: GitHub's own rules decide who may merge. The review is posted with the credentials the agent merges with, unless you run the
   high-assurance mode below: `merge` proves which review the agent named, where and when it was posted, not that an independent
