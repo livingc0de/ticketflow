@@ -6,7 +6,7 @@ Treat versionless values such as `grok`, `composer` and `gemini-flash` as model-
 
 | Action | How |
 |---|---|
-| Dispatch the `<role>` role | Task tool with the subagent named `<role>` (the repo's agent in `.cursor/agents/`, which wins over `.claude/` and `.codex/`). Its model comes from its frontmatter; resolve the model hint if Cursor requires a full id; the effort follows the model |
+| Dispatch the `<role>` role | Task tool with the subagent named `<role>` (the repo's agent in `.cursor/agents/`, which wins over `.claude/` and `.codex/`). Its model comes from its frontmatter; resolve the model hint if Cursor requires a full id; when the skill asks for a class override, name the model from `(config.models.cursor ?? config.models.default)[<class>]` when it is not `null`, as the helper row does; the effort follows the model |
 | Dispatch a helper of a class | Task tool: `Explore` for broad read-only search, a generic subagent for work; name the model from `(config.models.cursor ?? config.models.default)[<class>]` when it is not `null` |
 | Dispatch a fresh ticket lead | Task tool, a generic subagent, the standard-class model, never resumed; brief it fully, it has no context |
 | Run in the background and wait once | Run it in the foreground; on a timeout run it again (the ticketflow scripts are stateless and bounded) |

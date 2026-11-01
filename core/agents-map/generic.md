@@ -4,7 +4,7 @@ The canonical skills and roles name actions. Without sub-agents, do them like th
 
 | Action | How |
 |---|---|
-| Dispatch the `<role>` role | Do the role yourself, inline: read `.ticketflow/agents/<role>.md` and follow it, and say in your report that it ran inline. An inline `pr-reviewer` is never independent: ask the user before merging on it |
+| Dispatch the `<role>` role | Do the role yourself, inline: read `.ticketflow/agents/<role>.md` and follow it, and say in your report that it ran inline. A class or effort override from the skill does not apply inline. An inline `pr-reviewer` is never independent: ask the user before merging on it |
 | Dispatch a helper | Do the work yourself, one piece at a time |
 | Dispatch a fresh ticket lead | Not possible: run one ticket yourself, then stop and say so |
 | Run in the background and wait once | Run it in the foreground: the ticketflow scripts are bounded by their own timeouts |

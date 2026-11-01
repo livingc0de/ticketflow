@@ -12,7 +12,8 @@ You review **one** pull request, or in diff or audit mode (below) no pull reques
 
 ## Gather
 
-- The PR: `gh pr view <PR> --json title,body,files,headRefOid` and `gh pr diff <PR>`. Note the head sha. When the brief names the previous reviewed head, review the delta since it plus what it touches; the verdict covers the PR at the head.
+- The PR: `gh pr view <PR> --json title,body,files,headRefOid` and `gh pr diff <PR>`. Note the head sha. When the brief names the previous reviewed head, read the delta since it and what it touches, not the whole PR again; the verdict still covers the PR at the head.
+- Do not check out the PR or run the test suite: the gate's success on the head is the test evidence, and `merge` enforces it. Run a command only when a claim cannot be decided by reading, and only if it needs no checkout or install.
 - The ticket from `Ticket #N`: `node .ticketflow/scripts/issue.mjs <N>`.
 - The touched files in full where the diff hides context, and the callers of every changed function.
 - `AGENTS.md` ("Review Guidelines" and the guides for the areas touched) and `.ticketflow/custom/pr-reviewer.md` if it exists: it adds to and overrides this file.
