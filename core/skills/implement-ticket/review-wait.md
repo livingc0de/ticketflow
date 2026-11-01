@@ -10,7 +10,7 @@ Read its `Review:` and `Unresolved threads:` lines.
 - One that says more is coming, or a `first comment` that is only a status note (the review is still running): wait again with `--more '<login>'`.
 - A first comment that is a **complete** review can be used immediately by passing its exact link as `--review-result-url` in step 6, but only after reading it fully and addressing its findings. Do not pass it for progress, quota or failure messages.
 - A comment that is not a review (a deploy or coverage note), an error or quota note, or a result about another commit than the head, is no result.
-- `none` or no usable result: the lane decides (`SKILL.md` step 5 item 3). A `low` change whose lane is `review` runs `pr-reviewer` at standard/medium. After an external result `pr-reviewer` also runs on `critical`, when the ticket or the owner asks, and on `high` only where the result does not cover the risky part (auth, money or migration logic it never discussed), never for the tier alone.
+- `none` or no usable result: the lane decides (`SKILL.md` step 5 item 3). After an external result `pr-reviewer` also runs on `critical`, when the ticket or the owner asks, and on `high` only where the result does not cover the risky part (auth, money or migration logic it never discussed), never for the tier alone.
 - `changes requested (...)`, a listed thread or `unknown`: the fix round, then wait again.
 - If a relevant reviewer is still working, wait for its result or its original 15-minute window even when an internal review is ready; another review does not complete that reviewer's work.
 

@@ -40,7 +40,7 @@ update does to a real repo. Bytes are a rough proxy for tokens.
 | AGENTS block, with its two marker lines | 13 lines | 14 lines | 15 lines | one new line: the method applies with or without a ticket |
 | `implement-ticket` (read when a ticket is worked) | 95 lines, 11,076 B | 104 lines, 12,848 B | 80 lines, 12,132 B | the method moved out, into the next row |
 | `engineering-method` (read when code is written or reviewed) | none | none | 68 lines, 6,684 B | one home for the method (and the plan-or-skip tests), also used without a ticket |
-| `implement-ticket` detail files (`review-wait.md`, `resume.md`, `planner.md`) | none | none | none | read only when `pr-wait` exits non-zero or reports a result, a ticket is already started, or the planner is dispatched; they carry the edge branches the main file no longer repeats (the main file went from 14,325 B to 10,503 B; the 0.6.0 column is measured at release) |
+| `implement-ticket` detail files (`review-wait.md`, `resume.md`, `planner.md`) | none | none | none | read only when `pr-wait` exits non-zero or reports a result, a ticket is already started, or the planner is dispatched; they carry the edge branches the main file no longer repeats (the main file went from 14,325 B to 10,847 B; the 0.6.0 column is measured at release) |
 | `orchestrate-tickets` (read only when asked) | none | 4,938 B | 5,318 B | host limits and the resume line |
 | `ticket-planner` / `pr-reviewer` roles | 3,546 / 3,218 B | 3,786 / 3,713 B | 4,106 / 5,393 B | plain briefs and `review: task`; diff and audit modes |
 

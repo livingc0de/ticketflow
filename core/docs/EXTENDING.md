@@ -14,6 +14,7 @@ A file here adds to and overrides the TicketFlow file of the same name; each can
 |---|---|
 | `implement-ticket.md` | the implement-ticket skill: your build, test and live-check commands |
 | `post-merge.md` | the steps after a merge: deploy, smoke checks, your handoff rules |
+| `review-wait.md`, `resume.md`, `planner.md` | the detail files of implement-ticket: how pr-wait results are read, resuming a started ticket, dispatching the planner |
 | `create-ticket.md` | the create-ticket skill: your label and tracker conventions |
 | `engineering-method.md` | the engineering-method skill, ticket or not: your test, review and lean-code conventions |
 | `orchestrate-tickets.md` | the optional multi-ticket skill: your budget and parallelism defaults, tickets that must never run together |
