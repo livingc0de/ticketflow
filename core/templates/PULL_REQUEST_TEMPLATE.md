@@ -15,21 +15,15 @@ Planning: <!-- copy the claim comment's line: planner, planned earlier (link), i
 
 ## Verification
 
-- [ ] The gate status is success on the head commit
-- [ ] Focused checks, listed below
-- [ ] Visible changes verified live
+Verification: <!-- the commands run after the last change and what they printed; "Not checked:" for what could not run -->
 
-Verification evidence:
+Deferred checks: <!-- none, or the issue/row that lists them -->
 
-Deferred checks:
+Docs: <!-- updated, or not affected -->
+
+<!-- Fill these once, when the PR is created: no step edits the body later. No secrets or personal data in code, logs or screenshots. A partial or deferred part has its own issue, linked in Review Notes. -->
 {{practice_pr}}
 <!-- ticketflow:end head -->
-
-## Change Impact
-
-- [ ] Documentation is updated where behaviour changed
-- [ ] No secrets or personal data in code, logs or screenshots
-- [ ] Partial or deferred parts have their own issue, linked below
 
 <!-- ticketflow:begin tail -->
 ## Review Notes
