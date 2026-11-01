@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.3
+
+### Highlights
+
+- **`local-verify` no longer piles up checkouts.** A run that was killed outright (a stopped background task, a closed session) could not remove its
+  checkout, and each one kept its installed dependencies (about 1.2 GB), so a machine collected gigabytes. Every run now first removes this
+  repo's other checkouts older than a day and logs older than a week.
+
+### What You Need To Do When Upgrading From 0.6.2
+
+Nothing is required. `sync` refreshes `local-verify`. Details: [UPGRADING.md](core/docs/UPGRADING.md).
+
 ## 0.6.2
 
 ### Highlights

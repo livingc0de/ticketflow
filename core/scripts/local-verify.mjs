@@ -16,7 +16,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { closeSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
 import { homedir, hostname, machine } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -63,6 +63,17 @@ function checkHead(sha, stubsOnly = false) {
     const wt = join(homedir(), '.cache', 'ticketflow-verify', cfg.repo.replace('/', '__'), sha.slice(0, 12))
     const log = `${wt}.log`
     mkdirSync(dirname(wt), { recursive: true })
+    // A run killed outright (SIGKILL, a stopped background task) cannot remove its checkout: drop this repo's other checkouts older than a day
+    // (a run is limited to 6 hours) and logs older than a week. Pruning never blocks a run.
+    try {
+        for (const name of readdirSync(dirname(wt))) {
+            const p = join(dirname(wt), name)
+            if (p === wt || p === log) continue
+            const age = Date.now() - statSync(p).mtimeMs
+            if (name.endsWith('.log')) { if (age > 7 * 86_400_000) rmSync(p, { force: true }) }
+            else if (age > 86_400_000) { git('worktree', 'remove', '--force', p); rmSync(p, { recursive: true, force: true }) }
+        }
+    } catch { /* a leftover that cannot be removed is left for the next run */ }
     git('worktree', 'remove', '--force', wt); rmSync(wt, { recursive: true, force: true }); git('worktree', 'prune')   // a run killed earlier left one
     if (git('worktree', 'add', '-q', '--detach', wt, sha).status !== 0) stop(1, 'cannot create the worktree; nothing posted')
     const fd = openSync(log, 'w')
