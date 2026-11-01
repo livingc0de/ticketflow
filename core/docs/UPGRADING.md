@@ -62,6 +62,17 @@ job, after it when the local fallback does): `protect.mjs --apply --replace-cont
 
 Per release, newest first:
 
+### From 0.5.0
+
+The config schema stays at version 2. A config without a `review` section behaves as the defaults below, so no edit is needed. The
+`review` section (see [CONFIG.md](CONFIG.md)) sets when a small change may merge on the agent's own self-check
+(`self_check`, `self_check_max_files`, `self_check_max_lines`, `self_check_untested_lines`, `fix_check_max_lines`) and which paths always
+need a review (`always_review`). Set `review.self_check` to `false` to keep the old behaviour of a review on every pull request. Add your
+own sensitive paths, for example an auth or billing directory, to `always_review`; the default list replaces nothing you wrote and
+covers dependency files, lockfiles, migrations and `.sql`. If your runtime is not `.ticketflow/`, add its scripts too. `sync` refreshes
+the skills, roles, agent maps, allow list (`ticket.mjs`, `risk.mjs`) and documentation; an installed pull request template keeps its
+old Change Impact section until you re-render it. The full list is in the `## 0.6.0` section of `CHANGELOG.md`.
+
 ### From 0.4.0
 
 The config schema stays at version 2, and existing configurations remain valid. `sync` refreshes the generated issue forms, skills,

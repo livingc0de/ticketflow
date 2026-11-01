@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.6.0
+
+### Highlights
+
+- **The risk tier sets the whole process, not only the review depth.** The strong planner is dispatched only on a trigger (a `high` or
+  `critical` tier, an open design choice, a cross-cutting change, an unclear bug root cause, two failed fixes, or a request); everything
+  else gets a 3-8 line inline plan in the claim comment. Reviewer class follows the tier: standard for `normal`, strong for `high` and
+  `critical`, and every action map says how a role runs at a class or that it cannot.
+- **Small, low-risk changes merge on a checked self-check.** `risk.mjs` computes the minimum review lane from the diff itself (code size,
+  untested code, paths such as workflows, dependency files, migrations and agent rule files, `Security` and `Needs:` labels), and
+  `merge --self-checked` accepts the agent's own `Self-check head:` review only where that lane allows it. A small fix after a
+  `ready to merge` review merges the same way, so nit fixes no longer cost a second reviewer. The thresholds are the new optional
+  `review` config section.
+- **Recurring GitHub steps are one call.** `ticket.mjs claim` and `ticket.mjs handoff --pr <N>` assign, set the Status and post the
+  claim or summary comment once; a resumed run never posts a second one. The PR template no longer has checkboxes to edit later.
+- **A leaner skill and leaner reviewers.** `implement-ticket` moved its edge branches (pr-wait results, resuming a started ticket,
+  dispatching the planner) into files read only when needed (14.3 kB down to 10.8 kB for the main file). Reviewers and planners no longer
+  check out, install or run the suite; the green gate is the test evidence.
+
+### What You Need To Do When Upgrading From 0.5.0
+
+Nothing is required: a config without a `review` section parses to defaults, the schema stays at version 2, and `sync` refreshes the
+generated files. To keep the old behaviour of a review on every pull request, set `review.self_check` to `false`. Add the paths where
+a small change is still dangerous (auth, billing, permissions) to `review.always_review`; the default list covers dependency files and
+lockfiles, migrations and `.sql`. Your PR template keeps its old Change Impact section until you re-render it. Details:
+[UPGRADING.md](core/docs/UPGRADING.md).
+
 ## 0.5.0
 
 ### Highlights

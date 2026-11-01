@@ -44,6 +44,21 @@ update does to a real repo. Bytes are a rough proxy for tokens.
 | `orchestrate-tickets` (read only when asked) | none | 4,938 B | 5,318 B | host limits and the resume line |
 | `ticket-planner` / `pr-reviewer` roles | 3,546 / 3,218 B | 3,786 / 3,713 B | 4,106 / 5,393 B | plain briefs and `review: task`; diff and audit modes |
 
+Measured the same way for 0.5.0 and 0.6.0 (a scratch repo with `runtime`, `gen-stubs` and `render` for Claude Code and Codex; the files
+as installed under `.ticketflow/`):
+
+| | 0.5.0 | 0.6.0 | Note |
+|---|---|---|---|
+| `implement-ticket` main file (read when a ticket is worked) | 79 lines, 12,582 B | 74 lines, 10,847 B | the edge branches moved out; the tier-driven process added about 1.7 kB of it |
+| `implement-ticket` detail files (`review-wait`, `resume`, `planner`) | none | 5,229 B, only when needed | pr-wait results and exits, a started ticket, dispatching the planner |
+| `engineering-method` | 68 lines, 6,781 B | 62 lines, 7,063 B | the planner triggers |
+| `ticket-planner` / `pr-reviewer` roles | 4,106 / 5,906 B | 4,127 / 6,346 B | no install or test run; the process lens and the class override |
+| Claude Code skill and role stubs | 3,297 B | 3,302 B | the descriptions barely changed |
+
+A normal ticket now loads about 1.7 kB less of the main skill, and the detail files only on the paths that need them. The saving that
+matters is not tokens of instruction but fewer subagent runs: a small change merges on a self-check and a nit fix needs no second
+reviewer ([WORKFLOW.md](WORKFLOW.md)).
+
 A stub's description is loaded at the start of every session; the rest of the stub and the skill only when it runs. A ticket now
 loads the method as a second file (12,132 B + 6,684 B = 18,816 B against 12,848 B in 0.3.0: about 6.0 kB more), in return for the
 same method being available to every plain request. Adding a tool (Cursor, Gemini CLI and so on) adds its own

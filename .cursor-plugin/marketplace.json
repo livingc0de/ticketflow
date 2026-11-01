@@ -7,7 +7,7 @@
     {
       "name": "ticketflow",
       "source": "./",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "description": "Set up and update the TicketFlow workflow in a GitHub repo."
     }
   ]
