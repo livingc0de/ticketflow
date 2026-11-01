@@ -28,7 +28,7 @@ move the issue on merge.
 
 ## Risk tiers
 
-The tier sets the whole process: planning, who reviews and at which class, and what a fix round needs. Classify up when unsure; a
+The tier sets the whole process: planning, who reviews and at which class, and what a fix round needs. Classify up when unsure, by what a wrong change could break rather than where the code lives; a
 ticket's recommendation can raise a tier, never lower it. The `implement-ticket` skill holds the full definitions; in short:
 
 - `low`: copy, docs or a config value in one file.
