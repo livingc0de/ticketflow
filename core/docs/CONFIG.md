@@ -38,6 +38,12 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `environments` | unique list of 1-37 character names (no commas, braces or control characters): the `Environment:` labels. `[]`: no Environment labels | `[]` | `labels`, skills |
 | `practices` | unique list of names from `live-verify`, `runtime-settings`, `i18n`, `database`, `provider-adapters`, `api-endpoints`, `ui-screens`, `domain-guides`, `deploy-gating`, `analytics-events`: the optional practices copied to `.ticketflow/practices/` and wired into the stubs, the AGENTS block and the PR template | `[]` | `runtime`, `gen-stubs`, `render`, `doctor` |
 | `ci.push_paths` | `null`: the CI workflow has no push run; `[]`: it runs on every push to the default branch; a list of globs: only when one of them changes. Must be `null` or `[]` while `deploy_branch` is set (the deploy signal needs every push) | `null` | `render` |
+| `review.self_check` | boolean: `false` makes every PR need a review, as before | `true` | `merge`, `risk` |
+| `review.self_check_max_files` | integer 1..50: most non-test, non-docs files a self-check may cover | `4` | `merge`, `risk` |
+| `review.self_check_max_lines` | integer 1..2000: most added plus deleted lines in those files | `80` | `merge`, `risk` |
+| `review.self_check_untested_lines` | integer 1..2000 or `null` (off): more changed code lines than this with no test file touched need a review | `10` | `merge`, `risk` |
+| `review.fix_check_max_lines` | integer 1..2000: most added plus deleted lines of the fix delta since a ready review | `30` | `merge` |
+| `review.always_review` | list of regexes: paths that always need a review. The default covers dependency manifests and lockfiles, `migrations/` directories and `.sql` files; `[]` removes it. Add your auth, billing or permission paths | the default list | `merge`, `risk` |
 
 `gate.context` and `gate.check` must differ: the verdict is the commit status, and the Actions workflow-runs/jobs APIs are
 only read to detect a refused Actions run.
@@ -68,6 +74,7 @@ See [UPGRADING.md](UPGRADING.md).
 The config can add to these, never remove them.
 
 - Never docs (always code): `^\.ticketflow/`, `^\.github/workflows/`.
+- Always needs a review (the self-check lane; `review.always_review` adds to it): `^\.github/workflows/`, `^\.ticketflow/`, `(^|/)\.env`, the agents' rule and permission folders (`.claude/`, `.codex/`, `.cursor/`, `.gemini/`, `.opencode/`, `.agents/`) and `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`, `.github/agents|instructions|hooks|prompts/`, plugin folders (`.*-plugin/`) and `gemini-extension.json`. If your runtime is not `.ticketflow/` (this repo's is `core/`), add its whole runtime directory to `review.always_review`, or an agent could loosen the gate on a self-check.
 - CI files (a pull request that changes one never inherits a gate result): `^\.github/`, `^\.ticketflow/`, `^core/`.
 
 ## gen-stubs

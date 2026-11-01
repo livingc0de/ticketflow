@@ -12,7 +12,8 @@
       "Bash(node core/scripts/doctor.mjs *)",
       "Bash(node core/scripts/thread.mjs *)",
       "Bash(node core/scripts/queue.mjs *)",
-      "Bash(node core/scripts/debt.mjs *)"
+      "Bash(node core/scripts/debt.mjs *)",
+      "Bash(node core/scripts/risk.mjs *)"
     ],
     "ask": [
       "Bash(gh pr merge)",
