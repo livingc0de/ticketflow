@@ -11,6 +11,8 @@ an unknown key, a wrong type, an invalid regex, or a `schema_version` other than
 
 Regexes are JavaScript regex source strings, tested against repo-relative paths with `/` separators.
 
+The generated config uses `"review": {}` by default. Missing keys inherit current runtime defaults; set only intentional overrides to avoid pinning defaults across future upgrades. Older installations may contain explicit old defaults, which cannot be distinguished from owner overrides until those keys are removed.
+
 | Key | Type | Default | Read by |
 |---|---|---|---|
 | `schema_version` | integer, must equal the core's (`2`) | required | `config`, `sync` |

@@ -276,6 +276,16 @@ test('practices only accepts the shipped practice names', () => {
     bad({ practices: ['nope'] }, /practices\[0\] must be one of live-verify/)
 })
 
+test('new installs inherit review defaults; explicit legacy values stay pinned until removed', () => {
+    const template = JSON.parse(readFileSync(new URL('../core/templates/config.json', import.meta.url), 'utf8'))
+    assert.deepEqual(template.review, {})
+    const inherited = validate(template)
+    assert.deepEqual([inherited.review.self_check_max_files, inherited.review.self_check_max_lines, inherited.review.self_check_untested_lines], [5, 120, 20])
+    const old = { ...template, review: { self_check_max_files: 4, self_check_max_lines: 80, self_check_untested_lines: 10 } }
+    assert.equal(migrate(old), old, 'sync does not silently rewrite owner configuration')
+    assert.deepEqual([validate(old).review.self_check_max_files, validate(old).review.self_check_max_lines, validate(old).review.self_check_untested_lines], [4, 80, 10])
+})
+
 test('review: every key is validated, always_review adds to the defaults, default_always_review: false drops them, a bad regex fails closed', () => {
     const hits = (cfg, path) => cfg.review.always_review.some((r) => r.test(path))
     const off = validate(rawConfig({ review: { self_check: false, self_check_untested_lines: null, default_always_review: false } }))

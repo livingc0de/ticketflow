@@ -21,6 +21,10 @@ Start from `<TF>/core/templates/config.json` and write the result to `.ticketflo
 | `plans_dir`, `worktrees_dir` | reuse an existing worktree directory if there is one; otherwise use the neutral `.worktrees/` directory |
 | `custom/` | draft the repo-specific workflow rules found in AGENTS.md, CLAUDE.md and the skills ticketflow replaces; show every draft before writing it |
 
+## Review defaults
+
+Keep `review: {}` when the owner accepts TicketFlow's standard policy. Runtime defaults are applied automatically. Copying their current numeric values into `.ticketflow/config.json` would pin them across future releases; write individual `review` keys only when the owner requests a repository-specific override.
+
 ## Reviewers
 
 Review bots and people need no configuration: they are observed from GitHub activity (`<TF>/core/docs/REVIEWERS.md`), and the `pr-reviewer` role covers a PR no one else reviews.
