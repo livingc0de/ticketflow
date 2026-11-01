@@ -196,7 +196,7 @@ The orchestrator is a coordinator only. It never edits files, merges or reads co
 lead**, a helper that starts with an empty head (never a copy of the orchestrator's conversation) and follows `implement-ticket`
 unchanged: claim, plan, build, verify, review, merge, hand off. The lead answers with one line, `Result #N: ...`.
 
-Tickets labelled `Effort: XS` without a `Security` or `Needs:` label may share a lead: at most 3 that are `ready`, worked one after another with one pull request each, and the lead returns one `Result` line per ticket. Anything larger, and every ticket already started, keeps its own fresh lead, which stays the default.
+In a list or the ready backlog (never a tracker's children, whose order and stop conditions matter), tickets labelled `Effort: XS` without a `Security` or `Needs:` label may share a lead: at most 3 that are `ready`, worked one after another with one pull request each, and the lead returns one `Result` line per ticket. Anything larger, and every ticket already started, keeps its own fresh lead, which stays the default.
 
 After every result the orchestrator runs `queue.mjs`, which rebuilds each ticket's state from GitHub (the issue, its Status, labels,
 `Depends on` lines and pull requests): `ready`, `in-progress`, `merged`, `blocked`, `waiting`, `conflict` or `done`. GitHub wins
