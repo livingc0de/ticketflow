@@ -6,7 +6,7 @@ import { alwaysReviewHit, minimumLane } from '../core/lib/risk.mjs'
 import { loadConfig } from '../core/lib/config.mjs'
 
 const f = (filename, additions = 1, deletions = 0, extra = {}) => ({ filename, additions, deletions, ...extra })
-const lane = (files, labels = [], over = {}) => minimumLane(files, labels, config(over))
+const lane = (files, labels = [], over = {}) => minimumLane(files, labels.some(l => l.startsWith('Tier: ')) ? labels : ['Tier: Normal', ...labels], config(over))
 const review = (files, labels, over) => { const r = lane(files, labels, over); assert.equal(r.lane, 'review', JSON.stringify(r)); return r }
 const selfCheck = (files, labels, over) => { const r = lane(files, labels, over); assert.equal(r.lane, 'self-check', JSON.stringify(r)); return r }
 
@@ -18,15 +18,15 @@ test('small code with a test, a big test next to small code and a docs-only PR a
 })
 
 test('size: too many code files, too many code lines, untested code', () => {
-    review([1, 2, 3, 4, 5].map((i) => f(`src/${i}.js`)).concat(f('tests/x.test.mjs')))
-    const lines = review([f('src/a.js', 70, 11), f('tests/a.test.mjs')])
+    review([1, 2, 3, 4, 5, 6].map((i) => f(`src/${i}.js`)).concat(f('tests/x.test.mjs')))
+    const lines = review([f('src/a.js', 110, 11), f('tests/a.test.mjs')])
     assert.equal(lines.size, true)
-    const untested = review([f('src/a.js', 11)])
+    const untested = review([f('src/a.js', 21)])
     assert.match(untested.reasons[0], /no test file touched/)
     selfCheck([f('src/a.js', 11)], [], { review: { self_check_untested_lines: null } })
-    selfCheck([f('src/a.js', 10)])   // at the limit
-    selfCheck([f('src/a.js', 80), f('tests/a.test.mjs')])
-    review([f('src/a.js', 81), f('tests/a.test.mjs')])
+    selfCheck([f('src/a.js', 20)])   // at the limit
+    selfCheck([f('src/a.js', 120), f('tests/a.test.mjs')])
+    review([f('src/a.js', 121), f('tests/a.test.mjs')])
 })
 
 test('paths: the built-in floor, the default always_review list, the config adding to it or switching it off', () => {
@@ -47,17 +47,20 @@ test('paths: the built-in floor, the default always_review list, the config addi
 
 test('labels, self_check off', () => {
     const files = [f('src/a.js'), f('tests/a.test.mjs')]
-    review(files, ['Security']); review(files, ['Review Required']); review(files, ['Critical Review']); review(files, ['Needs: Decision']); review(files, ['Needs: Design'])
+    review(files, ['Security']); review(files, ['Tier: High']); review(files, ['Tier: Critical']); review(files, ['Needs: Decision']); review(files, ['Needs: Design'])
     selfCheck(files, ['Type: Task', 'Area: Scripts'])
+    assert.match(minimumLane(files, [], config()).reasons.join(), /exactly one valid Tier/)
+    assert.match(minimumLane(files, ['Tier: Low', 'Tier: High'], config()).reasons.join(), /exactly one valid Tier/)
+    assert.match(minimumLane(files, ['Tier: Unknown'], config()).reasons.join(), /exactly one valid Tier/)
     const off = review(files, [], { review: { self_check: false } })
     assert.equal(off.size, false)
 })
 
-function cli(pulls, { files = [f('src/a.js'), f('tests/a.test.mjs')], body = 'Ticket #7', labels = [], config: over, filesFixture, extra = {} } = {}) {
+function cli(pulls, { files = [f('src/a.js'), f('tests/a.test.mjs')], body = 'Ticket #7', labels = ['Tier: Normal'], config: over, filesFixture, extra = {} } = {}) {
     const dir = tempDir('risk-')
     const gh = fakeGh(dir, {
         'repos/o/r/pulls/5': pulls ?? { body, changed_files: files.length },
-        'repos/o/r/pulls/5/files': filesFixture ?? files, 'repos/o/r/issues/7': { labels: labels.map((name) => ({ name })) }, ...extra,
+        'repos/o/r/pulls/5/files': filesFixture ?? files, 'repos/o/r/issues/7': { labels: (labels.some(l => l.startsWith('Tier: ')) ? labels : ['Tier: Normal', ...labels]).map((name) => ({ name })) }, ...extra,
     })
     return spawnSync(process.execPath, [new URL('../core/scripts/risk.mjs', import.meta.url).pathname, '5', '--config', writeConfig(dir, over)], { encoding: 'utf8', env: gh.env, cwd: dir })
 }
@@ -69,7 +72,7 @@ test('risk.mjs prints the lane and a Reason line each; exit 2 on a read error or
     assert.equal(sec.stdout, 'Lane: review\nReason: label Security\nReason: path package.json always needs a review\n')
     assert.match(cli(undefined, { body: 'no ticket here' }).stdout, /^Lane: review\nReason: no "Ticket #N" in the PR title or body/)
     assert.match(cli({ body: 'Ticket #7', changed_files: 5 }).stdout, /the file list is incomplete/)
-    const two = cli(undefined, { body: 'Ticket #7 and Ticket #8', extra: { 'repos/o/r/issues/8': { labels: [{ name: 'Needs: Decision' }] } } })
+    const two = cli(undefined, { body: 'Ticket #7 and Ticket #8', extra: { 'repos/o/r/issues/8': { labels: [{ name: 'Tier: Normal' }, { name: 'Needs: Decision' }] } } })
     assert.equal(two.stdout, 'Lane: review\nReason: label Needs: Decision\n')
     assert.match(cli(undefined, { extra: { 'repos/o/r/issues/7': { labels: [], pull_request: {} } } }).stdout, /Reason: #7 is a pull request, not a ticket/)
     const bad = cli({ __status: 404, __stderr: 'nope' })
@@ -78,13 +81,13 @@ test('risk.mjs prints the lane and a Reason line each; exit 2 on a read error or
 })
 
 test('the high-risk floor permits only a later small reviewed fix; critical never does', () => {
-    const high = lane([f('src/a.js', 2), f('tests/a.test.mjs')], ['Review Required'])
+    const high = lane([f('src/a.js', 2), f('tests/a.test.mjs')], ['Tier: High'])
     assert.equal(high.lane, 'review')
     assert.equal(high.fixDelta, true)
-    const critical = lane([f('src/a.js', 2), f('tests/a.test.mjs')], ['Critical Review'])
+    const critical = lane([f('src/a.js', 2), f('tests/a.test.mjs')], ['Tier: Critical'])
     assert.equal(critical.lane, 'review')
     assert.equal(critical.fixDelta, false)
-    assert.equal(lane([f('package.json')], ['Review Required']).fixDelta, false)
+    assert.equal(lane([f('package.json')], ['Tier: High']).fixDelta, false)
 })
 
 test('fail closed: unreadable entries, code renamed into tests, binary changes, several tickets', () => {

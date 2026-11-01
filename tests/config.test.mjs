@@ -17,7 +17,7 @@ test('a minimal config loads, with defaults applied and deeply frozen', () => {
         { schema_version: 2, repo: 'o/r', default_branch: 'main', verify: { mode: 'ci', install: '', command: 'npm test', timeout_min: 45 },
             gate: { context: 'CI / Gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, deploy_branch: null, project: null, agents: [], models: {}, plans_dir: 'docs/plans', worktrees_dir: '.worktrees', live_verify_skill: null, deferred_checks_issue: null, areas: [], environments: [], practices: [], ci: { push_paths: null } })
     assert.ok(Object.isFrozen(cfg) && Object.isFrozen(cfg.verify) && Object.isFrozen(cfg.gate) && Object.isFrozen(cfg.gate.ci_files))
-    assert.deepEqual({ ...review, always_review: undefined }, { self_check: true, self_check_max_files: 4, self_check_max_lines: 80, self_check_untested_lines: 10, fix_check_max_lines: 30, default_always_review: true, always_review: undefined })
+    assert.deepEqual({ ...review, always_review: undefined }, { self_check: true, self_check_max_files: 5, self_check_max_lines: 120, self_check_untested_lines: 20, fix_check_max_lines: 30, default_always_review: true, always_review: undefined })
     assert.ok(review.always_review.length > 0 && review.always_review.every((r) => r instanceof RegExp) && review.always_review.some((r) => r.test('package.json')))
     assert.throws(() => { 'use strict'; cfg.repo = 'x/y' }, TypeError)
 })
