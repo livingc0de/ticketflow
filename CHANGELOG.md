@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.6.2
+
+### Highlights
 
 - **`pr-wait` measures the reviewer windows on GitHub's clock.** The clock is read from the `Date` header of one GitHub call, so a machine
   clock that runs ahead of GitHub's no longer shortens the 15-minute window. A reviewer timestamp still ahead of it counts from the moment
@@ -11,6 +13,10 @@
   brief also names the tier's process (self-check where `merge` accepts it).
 - **The skill states the reviewer order and the tier rule.** `pr-reviewer` is dispatched only after `pr-wait` has completed, and the tier
   follows what a wrong change could break, not where the code lives.
+
+### What You Need To Do When Upgrading From 0.6.1
+
+Nothing is required. `sync` refreshes the skills, the orchestration skill and `pr-wait`. Details: [UPGRADING.md](core/docs/UPGRADING.md).
 
 ## 0.6.1
 
