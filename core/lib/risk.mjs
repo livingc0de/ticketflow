@@ -22,7 +22,7 @@ export function minimumLane(files, labels, cfg) {
     const r = cfg.review
     const reasons = [], sizeReasons = []
     if (!r.self_check) reasons.push('review.self_check is false')
-    for (const l of labels) if (l === 'Security' || l === 'Review Required' || l.startsWith('Needs:')) reasons.push(`label ${l}`)
+    for (const l of labels) if (l === 'Security' || l === 'Review Required' || l === 'Critical Review' || l.startsWith('Needs:')) reasons.push(`label ${l}`)
     if (!files.every((f) => typeof f?.filename === 'string' && Number.isInteger(f.additions) && Number.isInteger(f.deletions))) reasons.push('the file list is unreadable')
     else {
         for (const f of files) {
@@ -38,7 +38,8 @@ export function minimumLane(files, labels, cfg) {
         if (r.self_check_untested_lines !== null && lines > r.self_check_untested_lines && !files.some((f) => names(f).every((n) => TEST.test(n)))) sizeReasons.push(`${lines} changed code lines and no test file touched (limit ${r.self_check_untested_lines})`)
     }
     const all = [...reasons, ...sizeReasons]
-    return { lane: all.length ? 'review' : 'self-check', reasons: all, size: reasons.length === 0 && sizeReasons.length > 0 }
+    return { lane: all.length ? 'review' : 'self-check', reasons: all, size: reasons.length === 0 && sizeReasons.length > 0,
+        fixDelta: reasons.every((reason) => reason === 'label Review Required') }
 }
 
 /** Every ticket number a PR names in its title and body ("Ticket #N"), first one first. */
@@ -55,5 +56,6 @@ export function laneOfPull(cfg, pull, pr) {
     const labels = issues.flatMap(([, i]) => i.labels.map((l) => l.name ?? l))
     const lane = minimumLane(files, labels, cfg)
     const extra = [...(tickets.length ? [] : ['no "Ticket #N" in the PR title or body']), ...issues.filter(([, i]) => i.pull_request).map(([n]) => `#${n} is a pull request, not a ticket`), ...(files.length === pull.changed_files ? [] : ['the file list is incomplete'])]
-    return { lane: extra.length ? 'review' : lane.lane, reasons: [...extra, ...lane.reasons], size: extra.length === 0 && lane.size, ticket: tickets[0] ?? null }
+    return { lane: extra.length ? 'review' : lane.lane, reasons: [...extra, ...lane.reasons], size: extra.length === 0 && lane.size,
+        fixDelta: extra.length === 0 && lane.fixDelta, ticket: tickets[0] ?? null }
 }

@@ -40,7 +40,7 @@ test('high/critical claims add a persistent review floor; normal claims do not',
         const r = run(['claim', '7'], { body: `Tier: ${tier}\nPlanning: planner` })
         assert.equal(r.status, 0, r.stderr)
         assert.deepEqual(r.posts.map(p => p.path), [`${R}/issues/7/assignees`, `${R}/issues/7/labels`, `${R}/issues/7/comments`])
-        assert.deepEqual(r.posts[1].body, { labels: ['Review Required'] })
+        assert.deepEqual(r.posts[1].body, { labels: [tier === 'critical' ? 'Critical Review' : 'Review Required'] })
     }
     const missing = run(['claim', '7'], { body: 'Planning: none (low)' })
     assert.equal(missing.status, 2)

@@ -163,5 +163,10 @@
     "name": "Review Required",
     "color": "d93f0b",
     "description": "High-risk or critical ticket: independent PR review required"
+  },
+  {
+    "name": "Critical Review",
+    "color": "b60205",
+    "description": "Critical ticket: independent review after each changed head"
   }
 ]

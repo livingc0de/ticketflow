@@ -47,7 +47,7 @@ test('paths: the built-in floor, the default always_review list, the config addi
 
 test('labels, self_check off', () => {
     const files = [f('src/a.js'), f('tests/a.test.mjs')]
-    review(files, ['Security']); review(files, ['Review Required']); review(files, ['Needs: Decision']); review(files, ['Needs: Design'])
+    review(files, ['Security']); review(files, ['Review Required']); review(files, ['Critical Review']); review(files, ['Needs: Decision']); review(files, ['Needs: Design'])
     selfCheck(files, ['Type: Task', 'Area: Scripts'])
     const off = review(files, [], { review: { self_check: false } })
     assert.equal(off.size, false)
@@ -75,6 +75,16 @@ test('risk.mjs prints the lane and a Reason line each; exit 2 on a read error or
     const bad = cli({ __status: 404, __stderr: 'nope' })
     assert.equal(bad.status, 2); assert.equal(bad.stdout, '')
     assert.equal(spawnSync(process.execPath, [new URL('../core/scripts/risk.mjs', import.meta.url).pathname, 'x'], { encoding: 'utf8' }).status, 2)
+})
+
+test('the high-risk floor permits only a later small reviewed fix; critical never does', () => {
+    const high = lane([f('src/a.js', 2), f('tests/a.test.mjs')], ['Review Required'])
+    assert.equal(high.lane, 'review')
+    assert.equal(high.fixDelta, true)
+    const critical = lane([f('src/a.js', 2), f('tests/a.test.mjs')], ['Critical Review'])
+    assert.equal(critical.lane, 'review')
+    assert.equal(critical.fixDelta, false)
+    assert.equal(lane([f('package.json')], ['Review Required']).fixDelta, false)
 })
 
 test('fail closed: unreadable entries, code renamed into tests, binary changes, several tickets', () => {

@@ -44,7 +44,7 @@ main('ticket', () => {
             api(`${R}/issues/${issue}/assignees`, { method: 'POST', body: { assignees: [me] } })
             done.push(`assigned ${me}`)
             if (tier === 'high' || tier === 'critical') {
-                api(`${R}/issues/${issue}/labels`, { method: 'POST', body: { labels: ['Review Required'] } })
+                api(`${R}/issues/${issue}/labels`, { method: 'POST', body: { labels: [tier === 'critical' ? 'Critical Review' : 'Review Required'] } })
                 done.push('review required')
             }
             status('In Progress')

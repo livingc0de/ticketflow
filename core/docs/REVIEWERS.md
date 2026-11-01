@@ -91,7 +91,7 @@ A small, low-risk change does not need a second pair of eyes; it needs proof tha
 from the diff, not from the agent's word. `node core/scripts/risk.mjs <PR>` prints `Lane: self-check` or `Lane: review`, with a `Reason:` line
 per rule that forces a review. `merge --self-checked` runs the same function (`core/lib/risk.mjs`). The lane is `review` when:
 
-- `review.self_check` is `false`, the PR names no `Ticket #N` (in its title or body; a named pull request is no ticket), or any named ticket has a `Security`, `Review Required` or a `Needs: ...` label;
+- `review.self_check` is `false`, the PR names no `Ticket #N` (in its title or body; a named pull request is no ticket), or any named ticket has a `Security`, `Review Required`, `Critical Review` or a `Needs: ...` label;
 - a changed path (or the old path of a rename) matches the built-in floor (`.github/workflows/`, `.ticketflow/`, `.env` files, the agents' rule, permission and plugin folders, `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`, `gemini-extension.json`, the Copilot instruction files and folders under `.github/`) or
   `review.always_review` (your paths, added to the defaults: dependency files and lockfiles, `migrations/`, `.sql`; add your auth and money paths, and the whole runtime of a repo where it is not `.ticketflow/`);
 - the non-test, non-docs files exceed `review.self_check_max_files` or `review.self_check_max_lines`, or changed more code lines than
@@ -115,10 +115,11 @@ Self-check head: <sha7>
 **Not checked:** what could not be verified, or none
 ```
 
-What this is and is not: a floor from facts (code size, untested code, paths, labels). It does not judge subtle logic or design, it
-cannot tell which model wrote the review or how carefully, and it does not know the tier: whether `high` or `critical` work gets a
-strong `pr-reviewer` stays the skill's rule, and the agent can only go above the floor, never below it. A high/critical ticket claim automatically adds `Review Required`, so the declared tier forces independent review even on a small diff. The tier itself remains an agent judgement. Add `review.always_review` patterns for sensitive paths as a second, independent floor. The thresholds
-and `always_review` are in `.ticketflow/config.json`; a PR that edits them touches `.ticketflow/`, so it always needs a review: an
+What this is and is not: a floor from facts (code size, untested code, paths, labels). It does not judge subtle logic or design or
+which model wrote the review. A declared `high` tier adds `Review Required` at claim time, and `critical` adds `Critical Review`.
+Both require an independent first review, even for a tiny diff. A ready independent review can be followed by a small self-checked fix
+delta on `high`, but never on `critical` (or sensitive paths and other blocking labels). The tier remains an agent judgement;
+add `review.always_review` for sensitive paths as a separate floor. The thresholds and `always_review` are in `.ticketflow/config.json`; a PR that edits them touches `.ticketflow/`, so it always needs a review: an
 agent cannot loosen its own rules on a self-check, as long as `merge` reads the repo's own config (`--config <file>` points it
 elsewhere, as it does for every gate). The rules bind agents only; the owner can still merge by hand.
 

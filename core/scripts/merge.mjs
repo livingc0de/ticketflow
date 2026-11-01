@@ -79,7 +79,7 @@ function selfCheck(pull, head, own, reviews, me) {
     if (found.ticket === null) return `no "Ticket #N" in the PR title or body: a self-check is for ticket work only (add it, or ${NEXT('the last reviewed head')})`
     if (found.lane === 'self-check') return { lane: 'small diff' }
     const why = found.reasons.join('; ')
-    if (!found.size) return `this PR needs a review, not a self-check (${why}): ${NEXT('the last reviewed head')}`
+    if (!found.fixDelta) return `this PR needs a review, not a self-check (${why}): ${NEXT('the last reviewed head')}`
     // mode B: the reasons are only size ones; a small fix delta after a ready pr-reviewer review is still a self-check
     if (!prior || prior.commit_id === head) return `this PR is too big for a self-check (${why}) and has no ready pr-reviewer review of an earlier head to build on: ${NEXT('the last reviewed head')}`
     const since = prior.commit_id.slice(0, 7)

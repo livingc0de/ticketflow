@@ -16,7 +16,7 @@ ticket, plan, implement, verify, review, merge, handoff.
 
 1. **Ticket.** One issue is one shippable unit that one pull request can complete; anything bigger is a `Type: Initiative` tracker
    with children. Type, priority, work effort, model class, AI effort and (when relevant) environment are labels; tier and planning are decided when work starts.
-2. **Claim.** One call, `ticket.mjs claim`: assign, set the status to In Progress, post a claim comment with a standalone `Tier:` line, the assumptions and one `Planning:` line (high/critical claims also add `Review Required`) (a `normal` change without a planner trigger carries its 3-8 line inline plan there).
+2. **Claim.** One call, `ticket.mjs claim`: assign, set the status to In Progress, post a claim comment with a standalone `Tier:` line, the assumptions and one `Planning:` line (high adds `Review Required`, critical adds `Critical Review`; a `normal` change without a planner trigger carries its 3-8 line inline plan there).
    Work happens in a git worktree on a `<type>/issue-<N>-<slug>` branch from the up-to-date default branch.
 3. **Plan** (below), **implement** in one context with one conventional commit per task, `verify`, open the pull request.
 4. **Review** (below), then **merge** only through `merge`, which checks every gate on the exact head, then merges with a method the
@@ -50,7 +50,7 @@ ticket's recommendation can raise a tier, never lower it. The `implement-ticket`
 | Per-task diff reviews (`review: task`) | no | no | only where the planner marks them | only where the planner marks them |
 
 A self-check is only possible where `risk.mjs` finds the whole pull request small and low-risk (or a small fix delta): [REVIEWERS.md](REVIEWERS.md).
-It is never the first review of `high` or `critical` work. Their claim adds `Review Required`, which the merge lane checks. Classifying the tier and choosing the reviewer class remain the agent's responsibility; sensitive paths can also be protected through `review.always_review`.
+It is never the first review of `high` or `critical` work. Their claim adds `Review Required` or `Critical Review`, which the merge lane checks. High-risk small fix deltas after a ready review remain self-check eligible; critical fixes do not. Classifying the tier and choosing the reviewer class remain the agent's responsibility; sensitive paths can also be protected through `review.always_review`.
 
 The implementer runs in the standard class at `high` by default: it is cheaper, and the planner and the reviewer, who catch
 mistakes, stay on the strong class where the tier asks for them. The implementer moves up to the strong class or `xhigh` only for genuinely hard reasoning (a

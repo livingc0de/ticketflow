@@ -389,6 +389,10 @@ test('S4: fix delta: a ready pr-reviewer review of an ancestor plus a small delt
     const ok = selfChecked({ files: BIG, reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js', 6, 4)]) })
     assert.equal(ok.status, 0, ok.stderr)
     assert.match(ok.stdout, /^Merged on a self-check \(fix delta since 2222222\)$/m)
+    const highFix = selfChecked({ files: SMALL, labels: ['Review Required'], reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js', 2)]) })
+    assert.equal(highFix.status, 0, highFix.stderr)
+    refused(selfChecked({ files: SMALL, labels: ['Review Required'] }), /too big for a self-check.*no ready pr-reviewer review/)
+    refused(selfChecked({ files: SMALL, labels: ['Critical Review'], reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js', 2)]) }), /needs a review, not a self-check.*Critical Review/)
     const next = /run pr-reviewer on the head \(a delta review since 2222222 is enough\)/
     refused(selfChecked({ files: BIG, reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js', 20, 11)]) }), /fix delta since 2222222 is 31 lines \(limit 30\)/)
     refused(selfChecked({ files: BIG, reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js'), f('package.json')]) }), /touches package\.json, which always needs a review/)
