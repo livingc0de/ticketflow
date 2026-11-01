@@ -4,7 +4,7 @@ const additions = {
   "W2": {
     "goal": "One financial-correctness ticket: repair the shared half-cent rounding defect and propagate exact cents through invoice lines, refunds, VAT, settlement, payment replay, and reconciliation. Preserve existing exports; test edge rounding, duplicate payment IDs, and immutable inputs. Deliver one reviewed, verified PR.",
     "issues": [
-      "Fix the shared half-cent bug across invoice/refunds. Add settlement with VAT in basis points (round half up to cents after subtracting refunds), idempotent payment ledger keyed by event ID, and reconciliation of outstanding balance. Keep money as numeric cents-compatible decimal values, handle repeated webhook events without double counting, preserve input immutability, add cross-module regression tests."
+      "Fix the shared half-cent bug across invoice/refunds. Add settlement with VAT in basis points (round half up to cents after subtracting refunds), idempotent payment ledger keyed by event ID, and reconciliation of outstanding balance. Money values stay decimal currency amounts rounded to cents (for example 8.8), not integer cents. Handle repeated webhook events without double counting, preserve input immutability, add cross-module regression tests."
     ],
     "files": {
       "src/settlement.mjs": "import {invoiceLine} from './invoice.mjs';\nimport {refundLine} from './refund.mjs';\nexport function settle(items, refunds, vatBps=1900) {\n  const subtotal=items.reduce((n,x)=>n+invoiceLine(x.price,x.qty),0);\n  const refunded=refunds.reduce((n,x)=>n+refundLine(x.price,x.qty),0);\n  const taxable=Math.max(0,subtotal-refunded);\n  const vat=Math.floor(taxable*vatBps/10000*100)/100;\n  return {subtotal,refunded,vat,total:taxable+vat};\n}\n",
@@ -18,7 +18,7 @@ const additions = {
     "issues": [
       "Secure tenant-specific order lookup with colliding IDs and missing records; add a regression test that denies cross-tenant access.",
       "Correct pagination boundary and next-cursor behavior, including empty pages; add edge-case tests.",
-      "Integrate tenant-safe lookup and pagination with order API, tenant-scoped CSV export, batch lookup and auditable access decision. Depends on lookup and pagination fixes. Verify all outputs exclude other tenants."
+      "Integrate tenant-safe lookup and pagination with order API, tenant-scoped CSV export, batch lookup and auditable access decision. Depends on lookup and pagination fixes. CSV export quotes values containing commas, quotes or newlines (RFC 4180) and returns only the header for a tenant with no orders. Verify all outputs exclude other tenants."
     ],
     "files": {
       "src/export.mjs": "export function exportTenantCsv(orders,tenant) {\n return ['id,tenant',...orders.map(o=>o.id+','+o.tenant)].join('\\n');\n}\n",
@@ -41,7 +41,7 @@ const additions = {
   "W5": {
     "goal": "Implement a resilient event-sourced order transition flow with immutable state, deduplicated event IDs, legal transitions, deterministic replay and resumable snapshots. Delivery will be interrupted after work is pushed; recover from GitHub without duplicate PRs or lost progress.",
     "issues": [
-      "Implement legal immutable order transitions and replay, including duplicate/out-of-order events. Add checkpoint(state,events,count) and resume(checkpoint,events) APIs with stable cursor positions and tests. Ship through a reviewed PR, and after an interruption resume from remote state without creating a second PR."
+      "Implement legal immutable order transitions and replay, including duplicate/out-of-order events. Add checkpoint(state,events,count) and resume(checkpoint,events) APIs with stable cursor positions (checkpoint throws when count is not an integer from 0 to events.length) and tests. Ship through a reviewed PR, and after an interruption resume from remote state without creating a second PR."
     ],
     "files": {
       "src/events.mjs": "import {transition} from './orders.mjs';\nexport function replay(initial,events){return events.reduce((s,e)=>transition(s,e),initial)}\n",
@@ -66,7 +66,7 @@ const additions = {
     "issues": [
       "Implement escapeHtml and renderMessage(value) in src/render.mjs; escape &, <, >, quotes and apostrophes once, never interpolate unescaped user text into HTML. Include XSS-shaped regression cases.",
       "Implement validated page(items,offset,limit) and tenantPage(items,tenant,offset,limit) in src/tenant-pages.mjs; filter before paginating, enforce valid offsets/limits and return null at the end.",
-      "Implement toCents(value) with half-up rounding to integer cents and refundTotal(lines) in src/refunds.mjs; quantities and adjustments must not double-round or lose cents.",
+      "Implement toCents(value) with half-up rounding to integer cents and refundTotal(lines) in src/refunds.mjs; convert each unit price to cents (half-up) before multiplying by quantity, so quantities never re-round.",
       "Implement parseRequestId(value) (exactly eight lowercase hex digits) and requestIdFromHeaders(headers) in src/requests.mjs; reject missing, malformed or wrong-case IDs without coercing nonstrings."
     ],
     "files": {

@@ -52,7 +52,7 @@ Type, Priority, Tier, Effort, AI Model, AI Effort, Area and Environment are labe
 
 - `Type:` Bug, Feature, Task, Decision, Initiative.
 - `Priority:` P0 Critical, P1 High, P2 Medium, P3 Low.
-- `Tier:` Low, Normal, High, Critical (Bug, Feature and Task; risk of a wrong change, separate from task size). Exactly one is required for the lightweight review lane.
+- `Tier:` Low, Normal, High, Critical (risk of a wrong change, separate from effort). `risk` and `merge` read it from every ticket a PR names and use the highest; no label means Normal, so only `High` and `Critical` need one.
 - `Effort:` XS, S, M, L, XL (Bug, Feature and Task only; XL means split it).
 - `AI Model:` Strong, Standard, Light (the semantic model class selected for the work).
 - `AI Effort:` Low, Medium, High, XHigh (reasoning effort for the selected model).

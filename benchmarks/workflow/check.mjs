@@ -252,9 +252,9 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
   const created=issues.filter(i=>!seededIssues.includes(i.number));
   const seeded=issues.filter(i=>seededIssues.includes(i.number));
   const closed=issues.filter(i=>i.state==='closed');
-  // Owner handoff is a completed delivery milestone, but not a closed issue.
-  // Use the observed project state for any arm, never a TicketFlow-only marker.
-  const handedOff=i=>i.state==='closed'||(i.project?.items??[]).some(item=>['In Review','Done'].includes(item.status?.name??item.status));
+  // Owner handoff is a completed delivery milestone, but not a closed issue. Any board column that names review or completion counts
+  // (GitHub's own Done, another setup's "Ready for review"), so no arm's status vocabulary is required.
+  const handedOff=i=>i.state==='closed'||(i.project?.items??[]).some(item=>/\b(review|done|complete[d]?)\b/i.test(item.status?.name??item.status??''));
   const closedTracked=linked.filter(i=>i.state==='closed');
   const deliveredTracked=linked.filter(handedOff);
   const reviewRelevant=merged.map(p=>reviews.find(r=>r.number===p.number)).filter(Boolean);

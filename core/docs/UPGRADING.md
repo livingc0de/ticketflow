@@ -62,12 +62,16 @@ job, after it when the local fallback does): `protect.mjs --apply --replace-cont
 
 Per release, newest first:
 
-### Upcoming (after 0.6.3)
+### From 0.6.3
 
-The new `Tier: Low`, `Tier: Normal`, `Tier: High` and `Tier: Critical` issue labels replace claim-comment tier metadata and the proposed `Review Required` / `Critical Review` labels. Sync adds the labels **after** the update PR merges. Existing Bug, Feature and Task issues are not automatically relabelled; before implementing one, classify it and add exactly one Tier label. If risk increases while implementing, replace the old label. `risk.mjs` and the self-check merge gate require a valid Tier on every referenced ticket; missing or conflicting Tier labels fail closed to an independent review. Existing claim comments are left untouched and are no longer used for risk.
+`sync` adds the four `Tier:` labels after the update pull request merges. A ticket without a `Tier:` label counts as Normal, so existing tickets need nothing;
+label a `high` or `critical` one `Tier: High` / `Tier: Critical` before its pull request merges (a `high` PR then needs a `pr-reviewer` review before any self-check, a
+`critical` PR a review of every head).
 
-New installs use `review: {}` unless the owner specifically overrides its settings, so runtime defaults are inherited across releases. These defaults are now 5 code files, 120 changed code lines and 20 untested lines instead of 4/80/10; the 30-line post-review fix-delta limit, protected paths, CI and reviewer requirements are unchanged. Old installs generated from previous templates may contain explicit 4/80/10 values even if their owners never customized them. Sync cannot distinguish those from intentional overrides and does **not** rewrite them. To inherit future defaults automatically, remove `self_check_max_files`, `self_check_max_lines` and `self_check_untested_lines` from your `review` section. Alternatively, explicitly set 5/120/20 to adopt only this release's limits.
-
+The self-check limits are now stored in the config with a flag, `review.custom_limits`. `config.mjs migrate --write` (which `sync` runs) sets them to this
+release's values (5 code files, 120 changed code lines, 20 untested lines, 30 fix-delta lines) while the flag is `false`, and keeps every value when it is `true`.
+A 0.6.3 config without the flag is read as custom when a stored limit is not 4, 80, 10 or 30 (or the current value); otherwise it is refreshed. Set
+`custom_limits` to `true` when you edit a limit by hand, or `sync` replaces it.
 
 ### From 0.6.2
 

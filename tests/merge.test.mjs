@@ -348,13 +348,12 @@ test('the removed review basis: --review-basis, "Review basis" comments and perm
 const SELF = `Self-check head: ${SHA7}\n**Verdict:** ready to merge\n**Acceptance criteria:** [x] it works (npm test: 30 passed)\n**Not checked:** none`
 const f = (filename, additions = 1, deletions = 0) => ({ filename, additions, deletions })
 const SMALL = [f('src/a.js', 5, 1), f('tests/a.test.mjs', 20)]
-const BIG = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => f(`src/${n}.js`, 5)).concat(f('tests/a.test.mjs', 20))   // 5 code files: over the limit of 4
+const BIG = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => f(`src/${n}.js`, 5)).concat(f('tests/a.test.mjs', 20))   // 6 code files: over the limit of 5
 const PRIOR = review({ id: 70, commit_id: ANCESTOR, body: READY.replace(SHA7, ANCESTOR.slice(0, 7)) })
 const delta = (files, behind_by = 0) => ({ [`${R}/compare/${ANCESTOR}...${HEAD}`]: { behind_by, files } })
 function selfChecked({ files = SMALL, labels = [], body = 'Ticket #7', reviews = [review({ body: SELF })], extra = {}, ...rest } = {}) {
     const p = pull({ body, changed_files: files.length })
-    const issueLabels = labels.some(l => l.startsWith('Tier: ')) ? labels : ['Tier: Normal', ...labels]
-    return run({ args: ['5', '--self-checked'], pulls: seq(p, p, MERGED), reviews, extra: { [`${R}/pulls/5/files`]: files, [`${R}/issues/7`]: { labels: issueLabels.map((name) => ({ name })) }, ...extra }, ...rest })
+    return run({ args: ['5', '--self-checked'], pulls: seq(p, p, MERGED), reviews, extra: { [`${R}/pulls/5/files`]: files, [`${R}/issues/7`]: { labels: labels.map((name) => ({ name })) }, ...extra }, ...rest })
 }
 
 test('S1: a small PR with tests and a ready self-check of the head merges and says so', () => {
@@ -390,12 +389,6 @@ test('S4: fix delta: a ready pr-reviewer review of an ancestor plus a small delt
     const ok = selfChecked({ files: BIG, reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js', 6, 4)]) })
     assert.equal(ok.status, 0, ok.stderr)
     assert.match(ok.stdout, /^Merged on a self-check \(fix delta since 2222222\)$/m)
-    const highFix = selfChecked({ files: SMALL, labels: ['Tier: High'], reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js', 2)]) })
-    assert.equal(highFix.status, 0, highFix.stderr)
-    refused(selfChecked({ files: SMALL, labels: ['Tier: High'] }), /too big for a self-check.*no ready pr-reviewer review/)
-    refused(selfChecked({ extra: { [`${R}/issues/7`]: { labels: [] } } }), /exactly one valid Tier/)
-    refused(selfChecked({ extra: { [`${R}/issues/7`]: { labels: [{ name: 'Tier: Low' }, { name: 'Tier: Critical' }] } } }), /exactly one valid Tier/)
-    refused(selfChecked({ files: SMALL, labels: ['Tier: Critical'], reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js', 2)]) }), /needs a review, not a self-check.*Tier: Critical/)
     const next = /run pr-reviewer on the head \(a delta review since 2222222 is enough\)/
     refused(selfChecked({ files: BIG, reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js', 20, 11)]) }), /fix delta since 2222222 is 31 lines \(limit 30\)/)
     refused(selfChecked({ files: BIG, reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js'), f('package.json')]) }), /touches package\.json, which always needs a review/)
@@ -404,6 +397,10 @@ test('S4: fix delta: a ready pr-reviewer review of an ancestor plus a small delt
     refused(selfChecked({ files: BIG, reviews: [needed, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /is not a ready verdict/)
     refused(selfChecked({ files: BIG, reviews: [PRIOR, { ...needed, id: 71 }, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /is not a ready verdict/)   // the latest review decides
     refused(selfChecked({ files: BIG, reviews: [review({ body: SELF })] }), /too big for a self-check.*no ready pr-reviewer review/)
+    const high = selfChecked({ files: SMALL, labels: ['Tier: High'], reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js', 2)]) })
+    assert.equal(high.status, 0, high.stderr)   // high: a ready review of an earlier head, then a small fix
+    refused(selfChecked({ files: SMALL, labels: ['Tier: High'] }), /too big for a self-check.*Tier: High.*no ready pr-reviewer review/)
+    refused(selfChecked({ files: SMALL, labels: ['Tier: Critical'], reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js', 2)]) }), /needs a review, not a self-check.*Tier: Critical/)
     // a path or label reason is never rescued by a small delta
     refused(selfChecked({ files: [f('package.json'), ...BIG], reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /needs a review, not a self-check/)
     refused(selfChecked({ files: BIG, labels: ['Needs: Decision'], reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /needs a review, not a self-check/)
@@ -449,11 +446,9 @@ test('S8: the fix-delta base is checked like a review of record: state, the comm
 })
 
 test('S9: the ticket labels are read from every named ticket; a named pull request or an unreadable ticket refuses', () => {
-    const multi = selfChecked({ body: 'Ticket #7 and Ticket #8', extra: { [`${R}/issues/8`]: { labels: [{ name: 'Tier: Low' }] } } })
-    assert.equal(multi.status, 0, multi.stderr)
-    refused(selfChecked({ body: 'Ticket #7 and Ticket #8', extra: { [`${R}/issues/8`]: { labels: [{ name: 'Tier: Critical' }] } } }), /Tier: Critical requires independent review/)
-    const issues = { [`${R}/issues/8`]: { labels: [{ name: 'Tier: Normal' }, { name: 'Security' }] } }
+    const issues = { [`${R}/issues/8`]: { labels: [{ name: 'Security' }] } }
     refused(selfChecked({ body: 'Ticket #7\nTicket #8', extra: issues }), /needs a review.*label Security/)
+    refused(selfChecked({ body: 'Ticket #7\nTicket #8', extra: { [`${R}/issues/8`]: { labels: [{ name: 'Tier: Critical' }] } } }), /Tier: Critical/)   // the highest tier of the named tickets
     refused(selfChecked({ extra: { [`${R}/issues/7`]: { labels: [], pull_request: {} } } }), /#7 is a pull request, not a ticket/)
     refused(selfChecked({ extra: { [`${R}/issues/7`]: { __status: 404, __stderr: 'gone' } } }), /cannot read/)
     refused(selfChecked({ files: [f('src/a.js'), { filename: 'tests/a.test.mjs' }] }), /file list is unreadable/)

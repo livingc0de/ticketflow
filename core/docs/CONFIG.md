@@ -11,8 +11,6 @@ an unknown key, a wrong type, an invalid regex, or a `schema_version` other than
 
 Regexes are JavaScript regex source strings, tested against repo-relative paths with `/` separators.
 
-The generated config uses `"review": {}` by default. Missing keys inherit current runtime defaults; set only intentional overrides to avoid pinning defaults across future upgrades. Older installations may contain explicit old defaults, which cannot be distinguished from owner overrides until those keys are removed.
-
 | Key | Type | Default | Read by |
 |---|---|---|---|
 | `schema_version` | integer, must equal the core's (`2`) | required | `config`, `sync` |
@@ -45,6 +43,7 @@ The generated config uses `"review": {}` by default. Missing keys inherit curren
 | `review.self_check_max_lines` | integer 1..2000: most added plus deleted lines in those files | `120` | `merge`, `risk` |
 | `review.self_check_untested_lines` | integer 1..2000 or `null` (off): more changed code lines than this with no test file touched need a review | `20` | `merge`, `risk` |
 | `review.fix_check_max_lines` | integer 1..2000: most added plus deleted lines of the fix delta since a ready review | `30` | `merge` |
+| `review.custom_limits` | boolean: `false` means the four limits above are this release's defaults, which `sync` rewrites when a release changes them; `true` means they are yours and `sync` keeps every value. Set it to `true` when you edit one. A config written before the flag existed is read as custom when a limit is neither the current nor the previous default (4 files, 80 lines, 10 untested lines) | `false` | `sync` |
 | `review.always_review` | list of regexes: your paths that always need a review, added to the built-in defaults (dependency manifests and lockfiles, `migrations/` directories, `.sql` files). Add your auth, billing or permission paths, and the whole runtime of a repo where it is not `.ticketflow/` | `[]` | `merge`, `risk` |
 | `review.default_always_review` | boolean: `false` drops the built-in defaults above, so only `always_review` (and the built-in floor below) applies | `true` | `merge`, `risk` |
 

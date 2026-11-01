@@ -15,8 +15,8 @@ method without the ticket ceremony: [Without a ticket](#without-a-ticket).
 ticket, plan, implement, verify, review, merge, handoff.
 
 1. **Ticket.** One issue is one shippable unit that one pull request can complete; anything bigger is a `Type: Initiative` tracker
-   with children. Type, priority, work effort, model class, AI effort, Tier and (when relevant) environment are labels; planning is decided when work starts.
-2. **Claim.** Ensure exactly one `Tier: Low|Normal|High|Critical` issue label before claiming, adding one to older tickets and raising it when risk grows. One call, `ticket.mjs claim`: assign, set In Progress and post a claim comment with assumptions and one `Planning:` line. A `normal` change includes its inline 3-8 line plan there; tier is never copied into the comment.
+   with children. Type, priority, work effort, model class, AI effort and (when relevant) environment are labels; tier and planning are decided when work starts.
+2. **Claim.** One call, `ticket.mjs claim`: assign, set the status to In Progress, post a claim comment with the tier, the assumptions and one `Planning:` line (a `normal` change without a planner trigger carries its 3-8 line inline plan there).
    Work happens in a git worktree on a `<type>/issue-<N>-<slug>` branch from the up-to-date default branch.
 3. **Plan** (below), **implement** in one context with one conventional commit per task, `verify`, open the pull request.
 4. **Review** (below), then **merge** only through `merge`, which checks every gate on the exact head, then merges with a method the
@@ -50,12 +50,12 @@ ticket's recommendation can raise a tier, never lower it. The `implement-ticket`
 | Per-task diff reviews (`review: task`) | no | no | only where the planner marks them | only where the planner marks them |
 
 A self-check is only possible where `risk.mjs` finds the whole pull request small and low-risk (or a small fix delta): [REVIEWERS.md](REVIEWERS.md).
-It is never the first review of `high` or `critical` work. The risk and merge scripts read the Tier label directly. High-risk small fix deltas after a ready review remain self-check eligible; critical fixes do not. A missing or ambiguous tier forces independent review. Classifying the tier and choosing the reviewer class remain the agent's responsibility; sensitive paths can also be protected through `review.always_review`.
+It is never the first review of `high` or `critical` work. The script sets a floor from facts and reads the `Tier: High` / `Tier: Critical` issue labels (none means Normal): a `high` PR may take a small self-checked fix after a ready `pr-reviewer` review, a `critical` one never. The tier and the reviewer's class stay the agent's call, and it can only go above the floor.
 
 The implementer runs in the standard class at `high` by default: it is cheaper, and the planner and the reviewer, who catch
 mistakes, stay on the strong class where the tier asks for them. The implementer moves up to the strong class or `xhigh` only for genuinely hard reasoning (a
 subtle lock order, a money state machine), never because of the tier.
-A plan whose diff grows past its stated scope is re-tiered up (update the Tier label) and gets the planner for the rest.
+A plan whose diff grows past its stated scope is re-tiered up (its `Tier:` label too, when it becomes `high` or `critical`) and gets the planner for the rest.
 
 ## Planning
 
@@ -196,7 +196,7 @@ The orchestrator is a coordinator only. It never edits files, merges or reads co
 lead**, a helper that starts with an empty head (never a copy of the orchestrator's conversation) and follows `implement-ticket`
 unchanged: claim, plan, build, verify, review, merge, hand off. The lead answers with one line, `Result #N: ...`.
 
-In a list or the ready backlog (never a tracker's children, whose order and stop conditions matter), tickets labelled `Effort: XS` with `Tier: Low` or `Tier: Normal` and without a `Security` or `Needs:` label may share a lead: at most 3 that are `ready`, worked one after another with one pull request each, and the lead returns one `Result` line per ticket. A batch uses one lead slot, the lead goes on to the next ticket only after the previous one merged (or needed a decision without a pull request), and on anything else it stops there and reports the rest as `not started`. Anything larger, and every ticket already started, keeps its own fresh lead, which stays the default.
+In a list or the ready backlog (never a tracker's children, whose order and stop conditions matter), tickets labelled `Effort: XS` without a `Security`, `Needs:`, `Tier: High` or `Tier: Critical` label may share a lead: at most 3 that are `ready`, worked one after another with one pull request each, and the lead returns one `Result` line per ticket. A batch uses one lead slot, the lead goes on to the next ticket only after the previous one merged (or needed a decision without a pull request), and on anything else it stops there and reports the rest as `not started`. Anything larger, and every ticket already started, keeps its own fresh lead, which stays the default.
 
 After every result the orchestrator runs `queue.mjs`, which rebuilds each ticket's state from GitHub (the issue, its Status, labels,
 `Depends on` lines and pull requests): `ready`, `in-progress`, `merged`, `blocked`, `waiting`, `conflict` or `done`. GitHub wins

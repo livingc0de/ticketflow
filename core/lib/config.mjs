@@ -20,6 +20,25 @@ export const MIGRATIONS = {
     1: ({ reviewers, ...rest }) => rest,   // 1 -> 2: external reviewers are observed from GitHub, no longer configured
 }
 
+/**
+ * The self-check limits of this release. New configs store them; `sync` rewrites them while `review.custom_limits` is false, so a release can
+ * change them. `LEGACY_REVIEW_LIMITS` are the values 0.6.3 and earlier wrote into every config.
+ */
+export const REVIEW_LIMITS = Object.freeze({ self_check_max_files: 5, self_check_max_lines: 120, self_check_untested_lines: 20, fix_check_max_lines: 30 })
+const LEGACY_REVIEW_LIMITS = { self_check_max_files: 4, self_check_max_lines: 80, self_check_untested_lines: 10, fix_check_max_lines: 30 }
+
+/**
+ * Brings `review` to this release's limits unless the owner customized them. `custom_limits: true` keeps every value. A config without the flag
+ * (written before it existed) is customized when a stored limit is neither the current nor the legacy default. Returns `raw` itself when nothing changes.
+ */
+export function refreshReview(raw) {
+    const review = raw.review ?? {}
+    if (!isObject(review)) return raw
+    const custom = review.custom_limits ?? Object.entries(review).some(([k, v]) => k in REVIEW_LIMITS && v !== REVIEW_LIMITS[k] && v !== LEGACY_REVIEW_LIMITS[k])
+    const next = { ...review, ...(custom ? {} : REVIEW_LIMITS), custom_limits: custom }
+    return Object.keys(next).length === Object.keys(review).length && Object.keys(next).every((k) => next[k] === review[k]) ? raw : { ...raw, review: next }
+}
+
 /** Built-in floors: the config can add to them, never remove them. */
 export const NEVER_DOCS = Object.freeze([/^\.ticketflow\//, /^\.github\/workflows\//])
 /** Built-in floor of the self-check lane (`risk.mjs`): paths that change the gate, what an agent may run, or secrets always need a review. */
@@ -133,10 +152,11 @@ const parse = section({
     practices: [unique(list(oneOf(...PRACTICES))), []],
     review: [section({
         self_check: [bool, true],
-        self_check_max_files: [int(1, 50), 5],
-        self_check_max_lines: [int(1, 2000), 120],
-        self_check_untested_lines: [orNull(int(1, 2000)), 20],
-        fix_check_max_lines: [int(1, 2000), 30],
+        self_check_max_files: [int(1, 50), REVIEW_LIMITS.self_check_max_files],
+        self_check_max_lines: [int(1, 2000), REVIEW_LIMITS.self_check_max_lines],
+        self_check_untested_lines: [orNull(int(1, 2000)), REVIEW_LIMITS.self_check_untested_lines],
+        fix_check_max_lines: [int(1, 2000), REVIEW_LIMITS.fix_check_max_lines],
+        custom_limits: [bool, false],
         default_always_review: [bool, true],
         always_review: [list(regex()), []],   // added to the defaults in `validate`
     }), {}],
@@ -200,7 +220,7 @@ export function loadConfig(path) {
 /**
  * CLI, run from the cloned ticketflow by init and sync.
  *   config.mjs validate <file>             prints "config valid"; exit 2 with the error otherwise
- *   config.mjs migrate <file> [--write]    prints "already at schema_version N", or the migrated JSON; --write replaces the file, only after
+ *   config.mjs migrate <file> [--write]    also refreshes the review limits unless review.custom_limits is true; prints "already at schema_version N", or the migrated JSON; --write replaces the file, only after
  *                                          the result validates. Exit 2 on any error, the file untouched.
  */
 function isMain() {   // realpath: a symlinked path (macOS /var) must still run; a stdin or eval script has no path
@@ -216,7 +236,7 @@ if (isMain()) {
         } else {
             let raw
             try { raw = JSON.parse(readFileSync(file, 'utf8')) } catch (e) { fail(`cannot read config ${file}: ${e.code ?? e.message}`) }
-            const next = migrate(raw)
+            const next = refreshReview(migrate(raw))
             validate(next)
             if (next === raw) console.log(`already at schema_version ${SCHEMA_VERSION}`)
             else if (flag) {

@@ -13,7 +13,7 @@ const PROJECT = {
     'graphql SetProjectStatus': {},
 }
 
-function run(args, { body = 'Planning: inline: x', comments = [], project = true, extra = {}, input } = {}) {
+function run(args, { body = 'Tier: normal\nPlanning: inline: x', comments = [], project = true, extra = {}, input } = {}) {
     const dir = tempDir('ticket-')
     const gh = fakeGh(dir, {
         user: { login: 'me' }, [`${R}/issues/7/comments`]: comments, [`POST ${R}/issues/7/comments`]: {}, [`POST ${R}/issues/7/assignees`]: {},
@@ -30,16 +30,9 @@ test('claim assigns, sets In Progress and posts the marked claim comment', () =>
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(r.posts.map((p) => p.path), [`${R}/issues/7/assignees`, `${R}/issues/7/comments`])
     assert.deepEqual(r.posts[0].body, { assignees: ['me'] })
-    assert.equal(r.posts[1].body.body, '<!-- ticketflow:claim -->\nPlanning: inline: x')
+    assert.equal(r.posts[1].body.body, '<!-- ticketflow:claim -->\nTier: normal\nPlanning: inline: x')
     assert.deepEqual(r.names, ['ProjectTarget', 'SetProjectStatus'])
     assert.equal(r.stdout.trim(), 'claim #7: assigned me, status In Progress, claim comment')
-})
-
-test('claim does not duplicate Tier metadata in the comment or mutate labels', () => {
-    const r = run(['claim', '7'], { body: 'Planning: none (low)' })
-    assert.equal(r.status, 0, r.stderr)
-    assert.deepEqual(r.posts.map(p => p.path), [`${R}/issues/7/assignees`, `${R}/issues/7/comments`])
-    assert.equal(r.posts[1].body.body, '<!-- ticketflow:claim -->\nPlanning: none (low)')
 })
 
 test('claim without a project skips the status', () => {

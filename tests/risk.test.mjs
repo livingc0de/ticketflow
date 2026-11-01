@@ -6,7 +6,7 @@ import { alwaysReviewHit, minimumLane } from '../core/lib/risk.mjs'
 import { loadConfig } from '../core/lib/config.mjs'
 
 const f = (filename, additions = 1, deletions = 0, extra = {}) => ({ filename, additions, deletions, ...extra })
-const lane = (files, labels = [], over = {}) => minimumLane(files, labels.some(l => l.startsWith('Tier: ')) ? labels : ['Tier: Normal', ...labels], config(over))
+const lane = (files, labels = [], over = {}) => minimumLane(files, labels, config(over))
 const review = (files, labels, over) => { const r = lane(files, labels, over); assert.equal(r.lane, 'review', JSON.stringify(r)); return r }
 const selfCheck = (files, labels, over) => { const r = lane(files, labels, over); assert.equal(r.lane, 'self-check', JSON.stringify(r)); return r }
 
@@ -47,20 +47,19 @@ test('paths: the built-in floor, the default always_review list, the config addi
 
 test('labels, self_check off', () => {
     const files = [f('src/a.js'), f('tests/a.test.mjs')]
-    review(files, ['Security']); review(files, ['Tier: High']); review(files, ['Tier: Critical']); review(files, ['Needs: Decision']); review(files, ['Needs: Design'])
+    review(files, ['Security']); review(files, ['Needs: Decision']); review(files, ['Needs: Design'])
+    review(files, ['Tier: High']); review(files, ['Tier: Critical']); review(files, ['Tier: Low', 'Tier: High'])   // the highest label wins
+    selfCheck(files, ['Tier: Low']); selfCheck(files, ['Tier: Normal']); selfCheck(files, ['Tier: Unknown']); selfCheck(files, ['tier: high'])   // no valid label means Normal
     selfCheck(files, ['Type: Task', 'Area: Scripts'])
-    assert.match(minimumLane(files, [], config()).reasons.join(), /exactly one valid Tier/)
-    assert.match(minimumLane(files, ['Tier: Low', 'Tier: High'], config()).reasons.join(), /exactly one valid Tier/)
-    assert.match(minimumLane(files, ['Tier: Unknown'], config()).reasons.join(), /exactly one valid Tier/)
     const off = review(files, [], { review: { self_check: false } })
     assert.equal(off.size, false)
 })
 
-function cli(pulls, { files = [f('src/a.js'), f('tests/a.test.mjs')], body = 'Ticket #7', labels = ['Tier: Normal'], config: over, filesFixture, extra = {} } = {}) {
+function cli(pulls, { files = [f('src/a.js'), f('tests/a.test.mjs')], body = 'Ticket #7', labels = [], config: over, filesFixture, extra = {} } = {}) {
     const dir = tempDir('risk-')
     const gh = fakeGh(dir, {
         'repos/o/r/pulls/5': pulls ?? { body, changed_files: files.length },
-        'repos/o/r/pulls/5/files': filesFixture ?? files, 'repos/o/r/issues/7': { labels: (labels.some(l => l.startsWith('Tier: ')) ? labels : ['Tier: Normal', ...labels]).map((name) => ({ name })) }, ...extra,
+        'repos/o/r/pulls/5/files': filesFixture ?? files, 'repos/o/r/issues/7': { labels: labels.map((name) => ({ name })) }, ...extra,
     })
     return spawnSync(process.execPath, [new URL('../core/scripts/risk.mjs', import.meta.url).pathname, '5', '--config', writeConfig(dir, over)], { encoding: 'utf8', env: gh.env, cwd: dir })
 }
@@ -72,7 +71,7 @@ test('risk.mjs prints the lane and a Reason line each; exit 2 on a read error or
     assert.equal(sec.stdout, 'Lane: review\nReason: label Security\nReason: path package.json always needs a review\n')
     assert.match(cli(undefined, { body: 'no ticket here' }).stdout, /^Lane: review\nReason: no "Ticket #N" in the PR title or body/)
     assert.match(cli({ body: 'Ticket #7', changed_files: 5 }).stdout, /the file list is incomplete/)
-    const two = cli(undefined, { body: 'Ticket #7 and Ticket #8', extra: { 'repos/o/r/issues/8': { labels: [{ name: 'Tier: Normal' }, { name: 'Needs: Decision' }] } } })
+    const two = cli(undefined, { body: 'Ticket #7 and Ticket #8', extra: { 'repos/o/r/issues/8': { labels: [{ name: 'Needs: Decision' }] } } })
     assert.equal(two.stdout, 'Lane: review\nReason: label Needs: Decision\n')
     assert.match(cli(undefined, { extra: { 'repos/o/r/issues/7': { labels: [], pull_request: {} } } }).stdout, /Reason: #7 is a pull request, not a ticket/)
     const bad = cli({ __status: 404, __stderr: 'nope' })
@@ -80,14 +79,12 @@ test('risk.mjs prints the lane and a Reason line each; exit 2 on a read error or
     assert.equal(spawnSync(process.execPath, [new URL('../core/scripts/risk.mjs', import.meta.url).pathname, 'x'], { encoding: 'utf8' }).status, 2)
 })
 
-test('the high-risk floor permits only a later small reviewed fix; critical never does', () => {
-    const high = lane([f('src/a.js', 2), f('tests/a.test.mjs')], ['Tier: High'])
-    assert.equal(high.lane, 'review')
-    assert.equal(high.fixDelta, true)
-    const critical = lane([f('src/a.js', 2), f('tests/a.test.mjs')], ['Tier: Critical'])
-    assert.equal(critical.lane, 'review')
-    assert.equal(critical.fixDelta, false)
-    assert.equal(lane([f('package.json')], ['Tier: High']).fixDelta, false)
+test('high needs a first review but a later small fix delta may follow; critical and a floor path never take one', () => {
+    const files = [f('src/a.js', 2), f('tests/a.test.mjs')]
+    assert.deepEqual([lane(files, ['Tier: High']).lane, lane(files, ['Tier: High']).size], ['review', true])
+    assert.deepEqual([lane(files, ['Tier: Critical']).lane, lane(files, ['Tier: Critical']).size], ['review', false])
+    assert.equal(lane([f('package.json')], ['Tier: High']).size, false)
+    assert.equal(lane(files, ['Tier: High'], { review: { self_check: false } }).size, false)
 })
 
 test('fail closed: unreadable entries, code renamed into tests, binary changes, several tickets', () => {
@@ -118,5 +115,5 @@ test('this repo\'s own config puts its whole runtime (core/) behind a review, de
     for (const path of ['core/lib/config.mjs', 'core/scripts/merge.mjs', 'core/skills/implement-ticket/SKILL.md', 'core/agents/pr-reviewer.md', 'core/templates/config.json', 'package.json']) {
         assert.equal(minimumLane([f(path), f('tests/a.test.mjs')], [], own).lane, 'review', path)
     }
-    assert.equal(minimumLane([f('README.md', 3), f('tests/a.test.mjs')], ['Tier: Normal'], own).lane, 'self-check')
+    assert.equal(minimumLane([f('README.md', 3), f('tests/a.test.mjs')], [], own).lane, 'self-check')
 })

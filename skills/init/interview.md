@@ -19,11 +19,8 @@ Start from `<TF>/core/templates/config.json` and write the result to `.ticketflo
 | `project` | projects linked to the repo (GraphQL `repository{projectsV2}`): reuse one (its number) or a new one (number 0, title = the repo name). No optional views by default: the Work Board and Roadmap always exist |
 | `practices` | see Practices below |
 | `plans_dir`, `worktrees_dir` | reuse an existing worktree directory if there is one; otherwise use the neutral `.worktrees/` directory |
+| `review` | keep the template's limits and `custom_limits: false`: `sync` then moves them to each release's values. Set `custom_limits: true` only for limits the owner chose |
 | `custom/` | draft the repo-specific workflow rules found in AGENTS.md, CLAUDE.md and the skills ticketflow replaces; show every draft before writing it |
-
-## Review defaults
-
-Keep `review: {}` when the owner accepts TicketFlow's standard policy. Runtime defaults are applied automatically. Copying their current numeric values into `.ticketflow/config.json` would pin them across future releases; write individual `review` keys only when the owner requests a repository-specific override.
 
 ## Reviewers
 
