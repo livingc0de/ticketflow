@@ -2,9 +2,10 @@
 
 ## Unreleased
 
-- **`pr-wait` copes with GitHub timestamps ahead of the machine's clock.** Such a reviewer start counts from the moment `pr-wait` first sees
-  it, so a clock difference never adds more than the 15-minute window, and `--more` no longer takes an old status note for the awaited result:
-  it waits for a change against its first look (a `Clock:` line says when it happened).
+- **`pr-wait` measures the reviewer windows on GitHub's clock.** The clock is read from the `Date` header of one GitHub call, so a machine
+  clock that is off no longer shortens or lengthens the 15-minute window. A reviewer timestamp still ahead of it counts from the moment
+  `pr-wait` first sees it, and `--more` then waits for a change against its first look instead of taking an old status note for the result
+  (a `Clock:` line says when that happened).
 - **Tiny tickets can share a lead in `orchestrate-tickets`.** Up to 3 `ready` list or backlog tickets labelled `Effort: XS` without a
   `Security` or `Needs:` label are worked one after another by one lead, one pull request each; tracker children never batch. The lead
   brief also names the tier's process (self-check where `merge` accepts it).

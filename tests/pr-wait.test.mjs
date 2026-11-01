@@ -41,7 +41,7 @@ function threads(nodes, totalCount = nodes.length) {
 function wait(fix = {}, args = ['7', '--timeout-min', '0'], over = {}, { dir = tempDir('pr-wait-'), env = {} } = {}) {
     const { pulls, ...rest } = fix
     const map = { ...baseFixtures(), ...rest, ...(pulls ? { 'pulls/7': pulls[7] } : {}) }
-    const gh = fakeGh(dir, Object.fromEntries(Object.entries(map).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' ? k : `repos/o/r/${k}`, v])))
+    const gh = fakeGh(dir, Object.fromEntries(Object.entries(map).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' || k === 'rate_limit' ? k : `repos/o/r/${k}`, v])))
     const r = spawnSync(process.execPath, [script, ...args, '--config', writeConfig(dir, over)], { encoding: 'utf8', env: { ...gh.env, ...env }, cwd: dir })
     return { ...r, calls: gh.calls().map((c) => c.join(' ')), dir }
 }
@@ -384,7 +384,7 @@ test('the loop sleeps and polls again until the gate is final', () => {
     const gh = fakeGh(dir, Object.fromEntries(Object.entries({
         ...baseFixtures(), 'pulls/7': seq(pull({ mergeable: null, mergeable_state: 'unknown' }).pulls[7], pull().pulls[7]),
         ...status('success', 'x'),
-    }).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' ? k : `repos/o/r/${k}`, v])))
+    }).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' || k === 'rate_limit' ? k : `repos/o/r/${k}`, v])))
     writeFileSync(join(dir, 'bin', 'sleep'), '#!/bin/sh\necho "$@" >> ' + join(dir, 'slept') + '\n')
     chmodSync(join(dir, 'bin', 'sleep'), 0o755)
     // first poll: unknown mergeability (pending); second: clean
@@ -510,7 +510,7 @@ test('concurrent waits preserve every reviewer observation in the shared cache',
         const client = tempDir(`pr-wait-client-${i}-`)
         const login = `reviewer-${i}[bot]`
         const fix = { ...baseFixtures(), ...green, 'pulls/7/comments': [inline(4, `finding ${i}`, { id: i + 1, user: app(login) })] }
-        const map = Object.fromEntries(Object.entries(fix).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' ? k : `repos/o/r/${k}`, v]))
+        const map = Object.fromEntries(Object.entries(fix).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' || k === 'rate_limit' ? k : `repos/o/r/${k}`, v]))
         const gh = fakeGh(client, map)
         const wrapper = join(client, 'slow-gh')
         writeFileSync(wrapper, `#!/bin/sh\nsleep 0.03\nexec ${join(client, 'bin', 'gh')} "$@"\n`)
@@ -750,4 +750,20 @@ test('--more with GitHub timestamps ahead of the local clock: an old status note
     const reviewed = { ...base, 'issues/7/comments': [summary('Running', -30)], 'pulls/7/reviews': { __seq: [[], [rev('COMMENTED', { user: app(CXB), submitted_at: ago(-31) })]] } }
     const r2 = wait(reviewed, ['7', '--more', CXB, '--timeout-min', '1'], {}, { env: { TICKETFLOW_POLL_SEC: '1' } })
     assert.match(r2.stdout, /^Review cx\[bot\]: result review COMMENTED /m, r2.stdout)
+})
+
+test('the windows are measured on GitHub\'s clock (its Date header), so a local clock that runs ahead does not end them early', () => {
+    const header = (offsetMin) => ({ rate_limit: { __raw: `HTTP/2 200\ndate: ${new Date(Date.now() + offsetMin * 60_000).toUTCString()}\ncontent-type: application/json\n\n{}` } })
+    const base = { ...green, 'issues/7/reactions': [react(70)], [`commits/${HEAD}`]: { commit: { committer: { date: ago(90) } } } }
+    // this machine is 60 minutes ahead of GitHub: the reaction GitHub stamped 70 minutes ago is 10 minutes old there
+    const aheadLocal = wait({ ...base, ...header(-60) }, ['7', '--once'])
+    assert.match(aheadLocal.stdout, /^Review: pending \(rb\[bot\]\)$/m, aheadLocal.stdout)
+    // the same data with no readable header is judged on the local clock (70 minutes old: the window is over)
+    assert.match(wait(base, ['7', '--once']).stdout, /^Review: none \(no result in time: rb\[bot\]\)$/m)
+    // this machine is 60 minutes behind GitHub: a reaction GitHub stamped 2 minutes ago is 58 minutes ahead of the local clock, and current, not "from the future"
+    const behind = wait({ ...green, 'issues/7/reactions': [react(-58)], ...header(60) }, ['7', '--once'])
+    assert.match(behind.stdout, /^Review: pending \(rb\[bot\]\)$/m)
+    assert.doesNotMatch(behind.stdout, /^Clock:/m)
+    // --ci-only does not read the clock
+    assert.ok(!wait(green, ['7', '--ci-only', '--timeout-min', '0']).calls.some((c) => /rate_limit/.test(c)))
 })
