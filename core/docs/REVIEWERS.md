@@ -88,7 +88,7 @@ decide who may merge; to require the owner's approval, see the high-assurance mo
 
 A small, low-risk change does not need a second pair of eyes; it needs proof that it is small and low-risk, and `merge` computes that
 from the diff, not from the agent's word. `node core/scripts/risk.mjs <PR>` prints `Lane: self-check` or `Lane: review`, with a `Reason:` line
-per rule that forces a review. `merge --self-checked` runs the same function (`core/lib/risk.mjs`). The lane is `review` when:
+per rule that forces a review. `merge --self-checked` runs the same function (`core/lib/risk.mjs`). Default limits are 5 code files, 120 changed code lines and 20 changed code lines without a touched test file. The lane is `review` when:
 
 - `review.self_check` is `false`, the PR names no `Ticket #N` (in its title or body; a named pull request is no ticket), or any named ticket has a `Security` or a `Needs: ...` label, or a missing/ambiguous Tier label or a `Tier: High` / `Tier: Critical` label;
 - a changed path (or the old path of a rename) matches the built-in floor (`.github/workflows/`, `.ticketflow/`, `.env` files, the agents' rule, permission and plugin folders, `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`, `gemini-extension.json`, the Copilot instruction files and folders under `.github/`) or

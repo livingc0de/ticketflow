@@ -48,10 +48,11 @@ request merged.
 
 ## Labels
 
-Type, Priority, Effort, AI Model, AI Effort, Area and Environment are labels, not project fields, so nothing is stored twice. `core/templates/labels.json` is the core list; repository-specific Area and Environment labels come from config.
+Type, Priority, Tier, Effort, AI Model, AI Effort, Area and Environment are labels, not project fields, so nothing is stored twice. `core/templates/labels.json` is the core list; repository-specific Area and Environment labels come from config.
 
 - `Type:` Bug, Feature, Task, Decision, Initiative.
 - `Priority:` P0 Critical, P1 High, P2 Medium, P3 Low.
+- `Tier:` Low, Normal, High, Critical (Bug, Feature and Task; risk of a wrong change, separate from task size). Exactly one is required for the lightweight review lane.
 - `Effort:` XS, S, M, L, XL (Bug, Feature and Task only; XL means split it).
 - `AI Model:` Strong, Standard, Light (the semantic model class selected for the work).
 - `AI Effort:` Low, Medium, High, XHigh (reasoning effort for the selected model).
@@ -65,7 +66,7 @@ Type, Priority, Effort, AI Model, AI Effort, Area and Environment are labels, no
 description and case are never changed, except for the entries of `custom/labels.json`, which are kept in line, and, on the owner's
 choice, `--restyle` (a dry run lists each differing label as `differs:`). It deletes other labels
 only with `--prune`, and only those no issue or pull request uses. The issue forms (feature, bug, task, decision) carry only their
-static Type label and, for decisions, `Needs: Decision`; triage adds Priority, Area, Environment, Effort, AI Model and AI Effort directly as labels.
+static Type label and, for decisions, `Needs: Decision`; triage adds Priority, Area, Environment, Tier, Effort, AI Model and AI Effort directly as labels.
 
 ## Trackers
 

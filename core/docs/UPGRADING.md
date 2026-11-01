@@ -62,6 +62,13 @@ job, after it when the local fallback does): `protect.mjs --apply --replace-cont
 
 Per release, newest first:
 
+### Upcoming (after 0.6.3)
+
+The new `Tier: Low`, `Tier: Normal`, `Tier: High` and `Tier: Critical` issue labels replace claim-comment tier metadata and the proposed `Review Required` / `Critical Review` labels. Sync adds the labels **after** the update PR merges. Existing Bug, Feature and Task issues are not automatically relabelled; before implementing one, classify it and add exactly one Tier label. If risk increases while implementing, replace the old label. `risk.mjs` and the self-check merge gate require a valid Tier on every referenced ticket; missing or conflicting Tier labels fail closed to an independent review. Existing claim comments are left untouched and are no longer used for risk.
+
+New installs use slightly wider self-check defaults (5 code files, 120 changed code lines and 20 untested lines instead of 4/80/10); the 30-line post-review fix-delta limit, protected paths, CI and reviewer requirements are unchanged. Existing repositories' explicit `review` settings remain owned by the repository and are **not** rewritten by sync: opt in to the new thresholds in `.ticketflow/config.json` if desired.
+
+
 ### From 0.6.2
 
 No config change. `sync` refreshes `local-verify`, which now removes this repo's leftover checkouts under `~/.cache/ticketflow-verify` older than a day
