@@ -6,7 +6,7 @@ Treat versionless values as model-family hints. Before passing a configured mode
 
 | Action | How |
 |---|---|
-| Dispatch the `<role>` role | Agent tool with `subagent_type: "<role>"` (the repo's agent in `.claude/agents/`). Its model and effort come from its frontmatter; resolve the model hint if Claude requires a full id; pass `effort` only when the skill asks for an override |
+| Dispatch the `<role>` role | Agent tool with `subagent_type: "<role>"` (the repo's agent in `.claude/agents/`). Its model and effort come from its frontmatter; resolve the model hint if Claude requires a full id; when the skill asks for a class or effort override, also pass `model` from `(config.models.claude ?? config.models.default)[<class>]` (a Claude-native alias) and `effort`; otherwise the frontmatter applies |
 | Dispatch a helper of a class | `Explore` for broad read-only search, `general-purpose` for work; `model` from `(config.models.claude ?? config.models.default)[<class>]`, and an explicit `effort` |
 | Dispatch a fresh ticket lead | `general-purpose`, `model` of the standard class, an explicit `effort`, never a fork; brief it fully, it has no context |
 | Run in the background and wait once | Bash with `run_in_background: true`; you are notified when it exits. Do not poll and do not sleep-loop |

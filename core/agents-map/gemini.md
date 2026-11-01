@@ -6,7 +6,7 @@ Treat versionless values as model-family hints. Before passing a configured mode
 
 | Action | How |
 |---|---|
-| Dispatch the `<role>` role | Call the `<role>` tool (the repo's agent in `.gemini/agents/`), or `@<role>` in a prompt. Its model comes from its frontmatter; resolve the model hint if Gemini requires a full id; there is no effort setting |
+| Dispatch the `<role>` role | Call the `<role>` tool (the repo's agent in `.gemini/agents/`), or `@<role>` in a prompt. Its model comes from its frontmatter; resolve the model hint if Gemini requires a full id; there is no effort setting, and the model is set per agent, not per call, so a class override cannot be honoured: the role runs at its frontmatter class, and say so in the report |
 | Dispatch a helper of a class | `generalist` for work, `codebase_investigator` for broad read-only search; the model is set per agent, not per call |
 | Dispatch a fresh ticket lead | `generalist`; brief it fully, it has no context. It cannot dispatch (see Nesting) |
 | Run in the background and wait once | Run it in the foreground. A command silent for 300 s is cut off by the inactivity timeout: run the stateless script again |

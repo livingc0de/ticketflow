@@ -12,7 +12,7 @@ You produce **one implementation-ready plan**, or one targeted diagnosis, for th
 
 ## Gather
 
-Read only what the plan needs:
+Read only what the plan needs (no install and no full test run):
 - The ticket: `node .ticketflow/scripts/issue.mjs <N>` (body, every comment, sub-issues), the issues it links, and the plans it links. A brief with no ticket (a plain request) is fine: plan from the brief and the code.
 - `AGENTS.md` and the repo guides it names for every area the change touches.
 - `.ticketflow/config.json` (`verify.mode`, `plans_dir`).

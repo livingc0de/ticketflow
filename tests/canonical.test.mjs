@@ -173,3 +173,12 @@ test('the skills and roles stay agent-neutral: none names a front-door tool or i
     const tools = /\.cursor|\.gemini|\.opencode|\.antigravity|opencode\.json|GEMINI\.md|\.agent\.md|invoke_subagent|runSubagent|activate_skill|ask_user|write_todos/
     for (const { path } of prose) assert.doesNotMatch(text(path), tools, path)
 })
+
+test('every action map says how a role is dispatched at a class and effort the skill asks for, or that it cannot be', () => {
+    const files = readdirSync(new URL('../core/agents-map/', import.meta.url)).filter((f) => f.endsWith('.md'))
+    assert.equal(files.length, 8)
+    for (const m of files) {
+        const row = text(`agents-map/${m}`).split('\n').find((l) => l.startsWith('| Dispatch the `<role>` role'))
+        assert.match(row, /class/, m)   // an override from the skill, or the statement that it does not apply / cannot be honoured
+    }
+})
