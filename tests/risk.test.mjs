@@ -18,15 +18,15 @@ test('small code with a test, a big test next to small code and a docs-only PR a
 })
 
 test('size: too many code files, too many code lines, untested code', () => {
-    review([1, 2, 3, 4, 5].map((i) => f(`src/${i}.js`)).concat(f('tests/x.test.mjs')))
-    const lines = review([f('src/a.js', 70, 11), f('tests/a.test.mjs')])
+    review([1, 2, 3, 4, 5, 6].map((i) => f(`src/${i}.js`)).concat(f('tests/x.test.mjs')))
+    const lines = review([f('src/a.js', 110, 11), f('tests/a.test.mjs')])
     assert.equal(lines.size, true)
-    const untested = review([f('src/a.js', 11)])
+    const untested = review([f('src/a.js', 21)])
     assert.match(untested.reasons[0], /no test file touched/)
     selfCheck([f('src/a.js', 11)], [], { review: { self_check_untested_lines: null } })
-    selfCheck([f('src/a.js', 10)])   // at the limit
-    selfCheck([f('src/a.js', 80), f('tests/a.test.mjs')])
-    review([f('src/a.js', 81), f('tests/a.test.mjs')])
+    selfCheck([f('src/a.js', 20)])   // at the limit
+    selfCheck([f('src/a.js', 120), f('tests/a.test.mjs')])
+    review([f('src/a.js', 121), f('tests/a.test.mjs')])
 })
 
 test('paths: the built-in floor, the default always_review list, the config adding to it or switching it off', () => {
@@ -48,6 +48,8 @@ test('paths: the built-in floor, the default always_review list, the config addi
 test('labels, self_check off', () => {
     const files = [f('src/a.js'), f('tests/a.test.mjs')]
     review(files, ['Security']); review(files, ['Needs: Decision']); review(files, ['Needs: Design'])
+    review(files, ['Tier: High']); review(files, ['Tier: Critical']); review(files, ['Tier: Low', 'Tier: High'])   // the highest label wins
+    selfCheck(files, ['Tier: Low']); selfCheck(files, ['Tier: Normal']); selfCheck(files, ['Tier: Unknown']); selfCheck(files, ['tier: high'])   // no valid label means Normal
     selfCheck(files, ['Type: Task', 'Area: Scripts'])
     const off = review(files, [], { review: { self_check: false } })
     assert.equal(off.size, false)
@@ -75,6 +77,14 @@ test('risk.mjs prints the lane and a Reason line each; exit 2 on a read error or
     const bad = cli({ __status: 404, __stderr: 'nope' })
     assert.equal(bad.status, 2); assert.equal(bad.stdout, '')
     assert.equal(spawnSync(process.execPath, [new URL('../core/scripts/risk.mjs', import.meta.url).pathname, 'x'], { encoding: 'utf8' }).status, 2)
+})
+
+test('high needs a first review but a later small fix delta may follow; critical and a floor path never take one', () => {
+    const files = [f('src/a.js', 2), f('tests/a.test.mjs')]
+    assert.deepEqual([lane(files, ['Tier: High']).lane, lane(files, ['Tier: High']).size], ['review', true])
+    assert.deepEqual([lane(files, ['Tier: Critical']).lane, lane(files, ['Tier: Critical']).size], ['review', false])
+    assert.equal(lane([f('package.json')], ['Tier: High']).size, false)
+    assert.equal(lane(files, ['Tier: High'], { review: { self_check: false } }).size, false)
 })
 
 test('fail closed: unreadable entries, code renamed into tests, binary changes, several tickets', () => {

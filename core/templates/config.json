@@ -25,6 +25,6 @@
   "areas": [],
   "environments": [],
   "practices": [],
-  "review": { "self_check": true, "self_check_max_files": 4, "self_check_max_lines": 80, "self_check_untested_lines": 10, "fix_check_max_lines": 30, "default_always_review": true, "always_review": [] },
+  "review": { "self_check": true, "self_check_max_files": 5, "self_check_max_lines": 120, "self_check_untested_lines": 20, "fix_check_max_lines": 30, "custom_limits": false, "default_always_review": true, "always_review": [] },
   "ci": { "push_paths": null }
 }

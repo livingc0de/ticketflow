@@ -52,7 +52,7 @@ Never delegate a deterministic command, a lookup, or one small task.
 
 - **Receiving:** check each finding against the code, then fix it or reject it with the reason. No agreeing to be polite. A feature nobody asked for is declined (YAGNI) unless the code needs it.
 - **A PR:** "review PR #N" goes to the `pr-reviewer` role in its normal mode, which posts one review on the PR. For a PR of your own, review and merge are `implement-ticket` steps 5 and 6.
-- **No PR:** a diff, range, branch or plan task goes to the role in diff mode, "audit the repo" in audit mode. Both report and post nothing; relay the findings.
+- **No PR:** a diff, range, branch or plan task goes to the role in diff mode, "audit the repo" in audit mode, dispatched at the strong class. Both report and post nothing; relay the findings.
 - **Shortcut debt:** `node .ticketflow/scripts/debt.mjs [path]` lists every `shortcut:` marker with its trigger; a row marked `[no-trigger]` needs one.
 
 ## 6. Report

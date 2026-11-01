@@ -6,7 +6,7 @@ with no setup. When each review happens: [WORKFLOW.md](WORKFLOW.md).
 
 ## pr-reviewer
 
-An independent review by the `pr-reviewer` role (strong model class, read-only). One pass produces separate specification-compliance and code-quality assessments. It checks, in order: acceptance criteria, security
+An independent review by the `pr-reviewer` role (read-only; standard model class unless the tier asks for strong, see [WORKFLOW.md](WORKFLOW.md)). One pass produces separate specification-compliance and code-quality assessments. It checks, in order: acceptance criteria, security
 and data, correctness and tests, money and legal logic, the repo's own rules, UI evidence, process (a `Planning:` skip without its four
 reasons, a plan claim without a committed plan file, a closing keyword, out-of-scope changes) and over-engineering. It posts exactly
 one review comment whose first line is `Reviewed head: <sha7>`, and reports its verdict, the head and one line per finding, each with
@@ -91,7 +91,7 @@ A small, low-risk change does not need a second pair of eyes; it needs proof tha
 from the diff, not from the agent's word. `node core/scripts/risk.mjs <PR>` prints `Lane: self-check` or `Lane: review`, with a `Reason:` line
 per rule that forces a review. `merge --self-checked` runs the same function (`core/lib/risk.mjs`). The lane is `review` when:
 
-- `review.self_check` is `false`, the PR names no `Ticket #N` (in its title or body; a named pull request is no ticket), or any named ticket has a `Security` or a `Needs: ...` label;
+- `review.self_check` is `false`, the PR names no `Ticket #N` (in its title or body; a named pull request is no ticket), or any named ticket has a `Security` or a `Needs: ...` label, or a `Tier: Critical` label (a `Tier: High` label needs a review of an earlier head first: see below; a ticket without a `Tier:` label counts as Normal, and the highest label of the named tickets wins);
 - a changed path (or the old path of a rename) matches the built-in floor (`.github/workflows/`, `.ticketflow/`, `.env` files, the agents' rule, permission and plugin folders, `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`, `gemini-extension.json`, the Copilot instruction files and folders under `.github/`) or
   `review.always_review` (your paths, added to the defaults: dependency files and lockfiles, `migrations/`, `.sql`; add your auth and money paths, and the whole runtime of a repo where it is not `.ticketflow/`);
 - the non-test, non-docs files exceed `review.self_check_max_files` or `review.self_check_max_lines`, or changed more code lines than
@@ -116,9 +116,10 @@ Self-check head: <sha7>
 ```
 
 What this is and is not: a floor from facts (code size, untested code, paths, labels). It does not judge subtle logic or design, it
-cannot tell which model wrote the review or how carefully, and it does not know the tier: whether `high` or `critical` work gets a
-strong `pr-reviewer` stays the skill's rule, and the agent can only go above the floor, never below it. The thresholds
-and `always_review` are in `.ticketflow/config.json`; a PR that edits them touches `.ticketflow/`, so it always needs a review: an
+cannot tell which model wrote the review or how carefully, and it knows the tier only from the `Tier: High` and `Tier: Critical` issue labels the agent sets:
+both need a `pr-reviewer` review before anything else, even for a tiny diff; after a ready `pr-reviewer` review of an earlier head, `high` may take a small
+self-checked fix delta, `critical` never. Which class reviews stays the skill's rule, and the agent can only go above the floor, never below it. The thresholds
+(`review.self_check_*`, `fix_check_max_lines`) and `always_review` are in `.ticketflow/config.json`; a PR that edits them touches `.ticketflow/`, so it always needs a review: an
 agent cannot loosen its own rules on a self-check, as long as `merge` reads the repo's own config (`--config <file>` points it
 elsewhere, as it does for every gate). The rules bind agents only; the owner can still merge by hand.
 
@@ -156,7 +157,7 @@ also dismiss an external reviewer's changes request on GitHub, or merge by hand.
 | A review of the head: the own `pr-reviewer` verdict, or a named `result` | enforced by `merge` | Every trusted account's last verdict must be ready |
 | The 15-minute wait for a started reviewer is measured on GitHub's clock | enforced by `pr-wait` with a limit | The clock is read once from the `Date` header of a GitHub call (when it cannot be read, or reads later than the machine clock, the machine clock), so a machine clock that runs ahead of GitHub's does not shorten the window. A reviewer timestamp still ahead of that clock counts from the moment `pr-wait` first sees it (it prints a `Clock:` note); with `--more`, what a reviewer posted or edited after the run started is then a change against the first look. If GitHub's own object timestamps disagree with its `Date` header in the other direction (they read older), the window ends early and nothing in the clocks shows it |
 | A reviewer ran, was independent of the author, and an external result says what the agent says it does | **not verifiable** | The review is posted with the agent's own credentials in standard mode, and a result is read by the agent: `merge` proves where and when it was posted. High-assurance mode: [SECURITY.md](SECURITY.md#two-ways-to-run) |
-| A self-check is only used on a small, low-risk diff | enforced by `merge`, from the diff | Floor from facts only: size, untested code, paths, labels. It cannot judge design or the care of the self-check, and it does not read the tier |
+| A self-check is only used on a small, low-risk diff | enforced by `merge`, from the diff | Floor from facts only: size, untested code, paths, labels. It cannot judge design or the care of the self-check, and it reads the tier only from the `Tier: High` / `Tier: Critical` labels |
 | A review was not edited afterwards by the account that wrote it | **not verifiable** | `merge` reads the body as it is now |
 | Findings are fixed and answered with a reason | convention | Only the threads are gated; a finding left in a review body is not. A finding rejected without a fix, about security, data or correctness, gets a `pr-reviewer` pass on the head |
 | The owner is asked before an inline (non-independent) review is the only one | convention | The skill and the action map say so |

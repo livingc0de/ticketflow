@@ -8,6 +8,13 @@ import { ALWAYS_REVIEW } from './config.mjs'
 import { docsOnly } from './docs-only.mjs'
 import { api } from './gh.mjs'
 
+const TIERS = ['Low', 'Normal', 'High', 'Critical']
+/** The highest `Tier:` label of the named tickets; none means Normal (the label is only needed to raise the floor). */
+const tierOf = (labels) => {
+    const ranks = labels.filter((l) => l.startsWith('Tier: ')).map((l) => TIERS.indexOf(l.slice(6))).filter((i) => i >= 0)
+    return TIERS[ranks.length ? Math.max(...ranks) : 1]
+}
+
 const TEST = /(^|\/)(tests?|__tests__|spec)\/|[._-](test|spec)\.[^/]+$/
 const names = (f) => [f.filename, f.previous_filename].filter((n) => typeof n === 'string')
 
@@ -22,6 +29,9 @@ export function minimumLane(files, labels, cfg) {
     const r = cfg.review
     const reasons = [], sizeReasons = []
     if (!r.self_check) reasons.push('review.self_check is false')
+    const tier = tierOf(labels)
+    if (tier === 'Critical') reasons.push('Tier: Critical needs a review of every head')
+    else if (tier === 'High') sizeReasons.push('Tier: High needs a first review')   // a ready review plus a small fix delta clears it, like size
     for (const l of labels) if (l === 'Security' || l.startsWith('Needs:')) reasons.push(`label ${l}`)
     if (!files.every((f) => typeof f?.filename === 'string' && Number.isInteger(f.additions) && Number.isInteger(f.deletions))) reasons.push('the file list is unreadable')
     else {

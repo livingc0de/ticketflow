@@ -26,6 +26,8 @@ description: Use when asked to implement, continue or fix a GitHub ticket ("impl
 - `high`: auth, permissions, grants or row-level rules; billing or money; data deletion or migrations that rewrite rows; locks, queues, transactions, idempotency, webhooks or async jobs; legal, consent or kids' data; external write integrations; production boot, deploy scripts or config, admin grants or startup gates; scripts, config, deploy and docs together; three or more subsystems or about 8 files; an ambiguous or conflicting spec.
 - `critical`: high plus data exposure or loss, money movement, irreversible data operations, or production config.
 
+**Tier label:** `risk` and `merge` read the `Tier: High` / `Tier: Critical` issue labels of every ticket the PR names (the highest wins, none means Normal). For a `high` or `critical` ticket add the label before the claim (`gh issue edit <N> --add-label 'Tier: High'`), and add or raise it as soon as the work shows greater risk; never lower or remove a higher one. A `normal` or `low` ticket needs no label.
+
 **Dispatch the `ticket-planner` role only on a planner trigger** (the list is in `.ticketflow/skills/engineering-method/SKILL.md` section 1; a `high` or `critical` tier, or the ticket asking for it, is one). The length of the description does not decide, and a ticket that reads like a plan is input to verify. Without a trigger, write the 3-8 line inline plan into the claim comment and build it. A plan whose diff grows past its stated scope is re-tiered up and gets the planner for the rest.
 
 **State exactly one `Planning:` line** in the claim comment:
