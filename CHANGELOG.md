@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.6.4
+
+### Highlights
+
+- **The risk tier is a label that `risk` and `merge` read.** A `Tier: High` or `Tier: Critical` issue label (the highest one across the tickets a pull
+  request names; no label means Normal, so routine tickets need none) keeps a pull request off the self-check lane until a `pr-reviewer` review
+  of an earlier head exists. After that review a `high` pull request may take a small self-checked fix; a `critical` one is reviewed on every head.
+  Ticket batching in `orchestrate-tickets` leaves out `High` and `Critical` tickets. No new review stage or GitHub call.
+- **Routine self-checks are a little roomier.** The defaults go from 4 to 5 code files, 80 to 120 changed code lines and 10 to 20 untested lines;
+  the 30-line fix delta, CI, protected paths, unresolved threads and the exact-head merge are unchanged.
+- **The review limits are stored in the config with a flag.** New configs hold the limits and `review.custom_limits: false`. `sync` (through
+  `config.mjs migrate --write`) moves them to each release's values while the flag is `false` and keeps them when it is `true`; a config from 0.6.3 without
+  the flag counts as custom only when a limit is not the old or the current default.
+- **The workflow benchmark probes harder scenarios.** W2 to W7 now cover money rounding and replay, tenant isolation, webhook recovery, interrupted
+  state machines, subscription decomposition and four parallel tickets; W1 stays a cheap control. Delivery counts any review or done board column,
+  dependency order is measured at merge, and every hidden requirement is stated in the issue text.
+- **`UPGRADING.md` no longer repeats the changelog.** It describes how an upgrade works; what to do for a release is in that release's section here.
+
+### What You Need To Do When Upgrading From 0.6.3
+
+Nothing is required. `sync` adds the four `Tier:` labels and refreshes the review limits. Label a ticket `Tier: High` or `Tier: Critical` before its pull
+request merges when a wrong change could break what the tier list in `implement-ticket` names. If you edited a review limit by hand, set
+`review.custom_limits` to `true` before you run `sync`, or it is replaced.
+
 ## 0.6.3
 
 ### Highlights
@@ -139,7 +163,7 @@ existing configured worktree directory is left alone.
    the exact head, or pass `--reviewed-by '<login>'` for the external reviewer whose result you acted on.
 3. **Setup and update pull requests** (`init`, `sync`) are reviewed and merged like any pull request, only after you say so in chat. You no
    longer post an approval comment.
-4. **Details:** [UPGRADING.md](core/docs/UPGRADING.md#from-035) and [REVIEWERS.md](core/docs/REVIEWERS.md).
+4. **Details:** [REVIEWERS.md](core/docs/REVIEWERS.md).
 
 ## 0.3.5
 
