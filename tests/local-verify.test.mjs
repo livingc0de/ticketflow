@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { FAIL, fakeGh, rawConfig, seq, tempDir } from './helpers.mjs'
 
@@ -487,4 +487,22 @@ test('a deploy push declined by the remote (a hook) is an error, not "not moved"
     assert.equal(r.status, 1)
     assert.match(r.stderr, new RegExp(`git push origin ${h.main}:refs/heads/deploy`))
     assert.equal(h.statuses()[0].state, 'success', 'the status stands')
+})
+
+test('a run first removes this repo\'s checkouts older than a day and logs older than a week, and nothing else', () => {
+    const h = setup()
+    const root = `${h.home}/.cache/ticketflow-verify`
+    const days = (n) => new Date(Date.now() - n * 86_400_000)
+    const make = (rel, age, dir = false) => { const p = `${root}/${rel}`; mkdirSync(join(p, '..'), { recursive: true }); if (dir) { mkdirSync(p); writeFileSync(`${p}/f`, 'x') } else writeFileSync(p, 'log'); utimesSync(p, days(age), days(age)) }
+    make('o__r/aaaaaaaaaaaa', 2, true)      // a killed run's checkout, 2 days old: removed
+    make('o__r/bbbbbbbbbbbb', 0.2, true)    // 5 hours old, could still be running: kept
+    make('o__r/aaaaaaaaaaaa.log', 8)        // old log: removed
+    make('o__r/cccccccccccc.log', 3)        // recent log: kept
+    make('x__y/dddddddddddd', 10, true)     // another repo: untouched
+    const r = h.run()
+    assert.equal(r.status, 0, r.stderr)
+    assert.ok(!existsSync(`${root}/o__r/aaaaaaaaaaaa`) && !existsSync(`${root}/o__r/aaaaaaaaaaaa.log`), 'stale checkout and old log are gone')
+    assert.ok(existsSync(`${root}/o__r/bbbbbbbbbbbb`) && existsSync(`${root}/o__r/cccccccccccc.log`), 'recent ones stay')
+    assert.ok(existsSync(`${root}/x__y/dddddddddddd`), 'another repo is not touched')
+    assert.ok(!existsSync(`${root}/o__r/${h.head.slice(0, 12)}`), 'this run still removes its own checkout')
 })

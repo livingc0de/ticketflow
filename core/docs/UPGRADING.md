@@ -62,6 +62,11 @@ job, after it when the local fallback does): `protect.mjs --apply --replace-cont
 
 Per release, newest first:
 
+### From 0.6.2
+
+No config change. `sync` refreshes `local-verify`, which now removes this repo's leftover checkouts under `~/.cache/ticketflow-verify` older than a day
+and logs older than a week the next time it runs. The full list is in the `## 0.6.3` section of `CHANGELOG.md`.
+
 ### From 0.6.1
 
 No config change. `sync` refreshes `pr-wait` (the reviewer windows are measured on GitHub's clock, so a machine clock that is off no longer
