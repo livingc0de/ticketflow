@@ -3,10 +3,11 @@
  * The recurring ticket steps as one call each, safe to repeat.
  *
  * Usage: ticket.mjs claim <issue> [--config f]      body on stdin: assign @me, Status "In Progress" (when a project is set), then the claim comment
- *        ticket.mjs handoff <issue> [--config f]    body on stdin: Status "In Review" (when a project is set), then the summary comment
+ *        ticket.mjs handoff <issue> --pr <pr> [--config f]   body on stdin: Status "In Review" (when a project is set), then the summary comment
  *
- * The comment starts with a hidden marker (`<!-- ticketflow:claim -->` / `<!-- ticketflow:summary -->`) and is skipped when the current
- * account already posted one: a resumed run never posts a second claim or summary. Assignment and Status are idempotent and always run.
+ * The comment starts with a hidden marker (`<!-- ticketflow:claim -->` / `<!-- ticketflow:summary pr=<pr> -->`) and is skipped when the current
+ * account already posted it: a resumed run never posts a second claim or a second summary of the same PR, while a later change to the
+ * ticket (another PR) gets its own summary. Assignment and Status are idempotent and always run.
  * Exit: 0 = done, 1 = a GitHub step failed (the steps already done are printed), 2 = usage, config or empty body.
  */
 
@@ -17,9 +18,10 @@ import { fileURLToPath } from 'node:url'
 import { cli, main } from '../lib/cli.mjs'
 import { GhError, api, isNumber } from '../lib/gh.mjs'
 
-const { positionals: [cmd, issue], cfg, configFile } = cli(import.meta.url, 'ticket', 'claim|handoff <issue> [--config f]  (comment body on stdin)', {}, (p) => ['claim', 'handoff'].includes(p[0]) && p.length === 2 && isNumber(p[1]))
+const { values, positionals: [cmd, issue], cfg, configFile } = cli(import.meta.url, 'ticket', 'claim <issue> | handoff <issue> --pr <pr> [--config f]  (comment body on stdin)', { pr: { type: 'string' } },
+    (p, v) => p.length === 2 && isNumber(p[1]) && (p[0] === 'claim' ? v.pr === undefined : p[0] === 'handoff' && isNumber(v.pr)))
 const R = `repos/${cfg.repo}`
-const marker = `<!-- ticketflow:${cmd === 'claim' ? 'claim' : 'summary'} -->`
+const marker = cmd === 'claim' ? '<!-- ticketflow:claim -->' : `<!-- ticketflow:summary pr=${values.pr} -->`
 const body = readFileSync(0, 'utf8').trim()
 if (body === '') { console.error('ticket: the comment body on stdin is empty'); process.exit(2) }
 const done = []

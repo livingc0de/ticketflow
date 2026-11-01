@@ -53,16 +53,18 @@ test('a repeated claim keeps the existing comment and posts no second one; anoth
 })
 
 test('handoff sets In Review and posts the marked summary once', () => {
-    const r = run(['handoff', '7'], { body: 'Merged #5.\nRun: tier normal' })
+    const r = run(['handoff', '7', '--pr', '5'], { body: 'Merged #5.\nRun: tier normal' })
     assert.equal(r.status, 0, r.stderr)
     assert.deepEqual(r.posts.map((p) => p.path), [`${R}/issues/7/comments`])
-    assert.equal(r.posts[0].body.body, '<!-- ticketflow:summary -->\nMerged #5.\nRun: tier normal')
+    assert.equal(r.posts[0].body.body, '<!-- ticketflow:summary pr=5 -->\nMerged #5.\nRun: tier normal')
     assert.equal(r.stdout.trim(), 'handoff #7: status In Review, summary comment')
-    const again = run(['handoff', '7'], { comments: [{ user: { login: 'me' }, body: '<!-- ticketflow:summary -->\nold' }] })
+    const old = { user: { login: 'me' }, body: '<!-- ticketflow:summary pr=5 -->\nold' }
+    const again = run(['handoff', '7', '--pr', '5'], { comments: [old] })
     assert.match(again.stdout, /handoff: already handed off, comment kept/)
     assert.deepEqual(again.posts, [])
-    // a claim marker is not a summary marker
-    assert.equal(run(['handoff', '7'], { comments: [{ user: { login: 'me' }, body: '<!-- ticketflow:claim -->\nx' }] }).posts.length, 1)
+    // a later change to the same ticket (another PR) gets its own summary; a claim marker is not a summary marker
+    assert.equal(run(['handoff', '7', '--pr', '9'], { comments: [old] }).posts.length, 1)
+    assert.equal(run(['handoff', '7', '--pr', '5'], { comments: [{ user: { login: 'me' }, body: '<!-- ticketflow:claim -->\nx' }] }).posts.length, 1)
 })
 
 test('a failed step exits 1 and prints what already happened; running it again is safe', () => {
@@ -71,14 +73,14 @@ test('a failed step exits 1 and prints what already happened; running it again i
     assert.match(noStatus.stderr, /project status "In Progress" failed.*boom/)
     assert.match(noStatus.stderr, /done before the failure: assigned me; run it again/)
     assert.ok(!noStatus.posts.some((p) => p.path.endsWith('/comments')), 'no comment after a failed status')
-    const noComment = run(['handoff', '7'], { extra: { [`POST ${R}/issues/7/comments`]: { __status: 500, __stderr: 'down' } } })
+    const noComment = run(['handoff', '7', '--pr', '5'], { extra: { [`POST ${R}/issues/7/comments`]: { __status: 500, __stderr: 'down' } } })
     assert.equal(noComment.status, 1)
     assert.match(noComment.stderr, /done before the failure: status In Review;/)
     assert.equal(run(['claim', '7'], { extra: { user: { __status: 401, __stderr: 'bad credentials' } } }).status, 1)
 })
 
 test('usage, config and an empty body exit 2 before any write', () => {
-    for (const args of [[], ['claim'], ['claim', 'x'], ['done', '7'], ['claim', '7', '8']]) {
+    for (const args of [[], ['claim'], ['claim', 'x'], ['done', '7'], ['claim', '7', '8'], ['handoff', '7'], ['handoff', '7', '--pr', 'x'], ['claim', '7', '--pr', '5']]) {
         const r = run(args); assert.equal(r.status, 2, args.join(' ')); assert.deepEqual(r.posts, [])
     }
     const empty = run(['claim', '7'], { input: '  \n' })
