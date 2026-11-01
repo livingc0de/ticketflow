@@ -280,7 +280,7 @@ test('review: every key is validated, always_review adds to the defaults, defaul
     const hits = (cfg, path) => cfg.review.always_review.some((r) => r.test(path))
     const off = validate(rawConfig({ review: { self_check: false, self_check_untested_lines: null, default_always_review: false } }))
     assert.deepEqual({ ...off.review, always_review: undefined },
-        { self_check: false, self_check_max_files: 4, self_check_max_lines: 80, self_check_untested_lines: null, fix_check_max_lines: 30, default_always_review: false, always_review: undefined })
+        { self_check: false, self_check_max_files: 5, self_check_max_lines: 120, self_check_untested_lines: null, fix_check_max_lines: 30, default_always_review: false, always_review: undefined })
     assert.deepEqual(off.review.always_review, [])   // switched off and nothing added
     const defaults = validate(rawConfig({}))
     const both = validate(rawConfig({ review: { always_review: ['^src/auth/'] } }))

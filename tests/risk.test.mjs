@@ -118,5 +118,5 @@ test('this repo\'s own config puts its whole runtime (core/) behind a review, de
     for (const path of ['core/lib/config.mjs', 'core/scripts/merge.mjs', 'core/skills/implement-ticket/SKILL.md', 'core/agents/pr-reviewer.md', 'core/templates/config.json', 'package.json']) {
         assert.equal(minimumLane([f(path), f('tests/a.test.mjs')], [], own).lane, 'review', path)
     }
-    assert.equal(minimumLane([f('README.md', 3), f('tests/a.test.mjs')], [], own).lane, 'self-check')
+    assert.equal(minimumLane([f('README.md', 3), f('tests/a.test.mjs')], ['Tier: Normal'], own).lane, 'self-check')
 })
