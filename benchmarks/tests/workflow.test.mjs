@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join,dirname} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {fixture,scenarios,ids,prompt} from '../workflow/scenarios.mjs';
+import {depthReference} from '../workflow/reference-depth.mjs';
 
 const repairs={
   W1:{'src/report.mjs': [
@@ -44,7 +45,7 @@ function check(id,correct) {
   try{
     const files={...fixture(id)};
     if(id==='W4' && !correct) Object.assign(files,scenarios[id].seedBrokenPR.changes);
-    if(correct) Object.assign(files,repairs[id]);
+    if(correct) Object.assign(files,repairs[id],depthReference[id]??{});
     for(const [path,content] of Object.entries(files)){
       const target=join(dir,path);mkdirSync(dirname(target),{recursive:true});writeFileSync(target,content);
     }

@@ -15,13 +15,15 @@ in this new module change its fingerprint. Finish existing runs on their pinned 
 
 | ID | Starting state | Task |
 | --- | --- | --- |
-| W1 | Plain request, no issue | Small CSV feature from request through native planning and delivery |
-| W2 | One Ready issue (TicketFlow arm); one ordinary issue (others) | Shared rounding defect, cross-module regression tests and delivery |
-| W3 | Three related work items | Agent-led coordination, dependencies, traceability and integration |
-| W4 | Existing failing PR and review comment | Repair, reverify current head, respond to review and merge |
-| W5 | One issue, deliberate session interruption | Reopen with a fresh session and recover GitHub state without duplicates |
-| W6 | Broad request, no issues | Explore, break down, sequence and deliver a complete solution using the setup's native workflow |
-| W7 | Four independent existing work items | Coordinate parallelizable work without duplication, integration conflicts or unnecessary overhead |
+| W1 | Plain request, no issue | Small CSV feature, retained as the control where TicketFlow's fixed cost is expected to hurt |
+| W2 | One Ready issue (TicketFlow arm); one ordinary issue (others) | Financial invariants across invoices, refunds, VAT, idempotent payments and reconciliation |
+| W3 | Three dependent work items | Tenant isolation across lookup, pagination, API, export and auditing, with integration risk |
+| W4 | Existing failing PR and review comment | Repair a payment webhook regression, batch replay, reversals and review findings on the same PR |
+| W5 | One issue, deliberate session interruption | Resume an event-sourced state machine and checkpoint flow from remote state without duplication |
+| W6 | Broad request, no issues | Design and decompose subscription lifecycle, entitlements, quotas, plan changes and billing events |
+| W7 | Four independent existing work items | Coordinate four security/validation/payment workstreams, each with a consumer integration boundary |
+
+**Interpretation:** W1 is a deliberate negative control. W2-W7 are complexity and recovery probes, not guaranteed wins. All arms face identical code fixtures and hidden cases; TicketFlow pays for separate tickets and reviewers only when its own rules require them. Report per-scenario correctness, verified delivery, known token cost, wall time, review quality proxies and rework separately. Do not conclude a quality-adjusted cost advantage unless the observed results support one. The extra fixture requirements live in `workflow/scenarios-depth.mjs` and the reference solutions exist solely for smoke tests.
 
 **GitHub Projects:** Each scenario/arm/repeat gets a new neutral Projects v2 board and
 a public repository. The harness creates *only* initial fixtures, not completed work. For W1 and W6 it creates **no issues**. Agents may use issues, plans, pull requests, Projects or another native mechanism to organize and trace the work; the evaluator records those choices rather than requiring a particular one.
