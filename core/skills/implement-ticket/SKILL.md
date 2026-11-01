@@ -15,7 +15,7 @@ description: Use when asked to implement, continue or fix a GitHub ticket ("impl
 - **Read** it with `node .ticketflow/scripts/issue.mjs <N>`, plus its linked plans and the docs it names. Later comments override the description. A statement about behaviour ("the job starts by itself") is checked in the code, never reinterpreted.
 - **Readiness gate:** scope, acceptance criteria and verification must be coherent and checkable against the code. A material gap (a decision, a criterion you cannot verify, an unmerged dependency): ask one targeted question; with a recommended default, set `Needs: Decision`, say so on the ticket and continue other unblocked work. A non-material gap: state your assumption in the claim comment.
 - **Already started:** `node .ticketflow/scripts/queue.mjs <N>` shows an open PR (a closed one is history), `merged`, `done`, or `in-progress` with no PR (a crash after the claim): read `.ticketflow/skills/implement-ticket/resume.md`, which replaces Claim and Workspace. Never a second claim comment, worktree add or PR.
-- **Claim:** one call, `node .ticketflow/scripts/ticket.mjs claim <N>` with the claim comment on stdin (heredoc): the tier, the assumptions and exactly one `Planning:` line (step 2). It assigns you, sets "In Progress" when `project` is set, and posts the comment once (a repeated call keeps the existing one).
+- **Claim:** one call, `node .ticketflow/scripts/ticket.mjs claim <N>` with the claim comment on stdin (heredoc): a standalone `Tier: low|normal|high|critical` line, the assumptions and exactly one `Planning:` line (step 2). The claim script adds `Review Required` for high/critical tiers. Never remove that label on a later downgrade. It assigns you, sets "In Progress" when `project` is set, and posts the comment once (a repeated call keeps the existing one).
 - **Workspace:** `git fetch origin` every time, then `git worktree add --no-track <worktrees_dir>/<branch> -b <type>/issue-<N>-<slug> origin/<default_branch>`, then `verify.install` there. Edit and test in the worktree; run `pr-wait`, `merge` and `local-verify` with the up-to-date primary checkout as the working directory (`git -C <primary> pull --ff-only` first), so a branch never gates itself.
 
 ## 2. Route
@@ -33,6 +33,8 @@ description: Use when asked to implement, continue or fix a GitHub ticket ("impl
 - `Planning: planned earlier: <path>, re-verified because ... by <planner | main session: files unchanged since <sha>>`
 - `Planning: inline: <the 3-8 line plan>` (`normal`, no trigger)
 - `Planning: none (low)`
+
+Every claim includes one standalone `Tier: <tier>` line; the claim script persists high/critical risk as a review-required issue label. Classification is still a judgement, not a code-derived guarantee; configure sensitive paths in `review.always_review`.
 
 **Implementer:** you, in this session, in the standard class at high by default; after a planner plan too. A strong helper only for an isolated hard piece (the engineering-method table); the strong class or xhigh only for genuinely hard reasoning, never because of the tier. Hidden complexity later: escalate that problem alone, do not re-plan the ticket.
 

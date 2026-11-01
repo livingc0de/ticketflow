@@ -71,6 +71,12 @@ test('W2 preserves existing issue coverage independent of workflow-specific stat
   const missing=evidence('W2',{seeded:[2],issues:[issue(2,{closed:false})],prs:[pr(19,'Refs #2')]});
   assert.equal(missing.steps.issue_tracking,false);
   assert.equal(missing.pipeline,true);
+  const handedOff=issue(2,{closed:false});
+  handedOff.project={readable:true,items:[{status:{name:'In Review'}}]};
+  const tracked=evidence('W2',{seeded:[2],issues:[handedOff],prs:[pr(19,'Refs #2')]});
+  assert.equal(tracked.steps.issue_tracking,true);
+  assert.equal(tracked.process.issues_closed_and_linked,0);
+  assert.equal(tracked.process.issues_handed_off_or_closed,1);
 });
 test('W3 reports dependent issue coverage without prescribing the workflow',()=>{
   const source=[issue(1),issue(2),issue(3)];

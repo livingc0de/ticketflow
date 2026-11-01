@@ -25,6 +25,9 @@ const marker = cmd === 'claim' ? '<!-- ticketflow:claim -->' : `<!-- ticketflow:
 let body = ''
 try { body = readFileSync(0, 'utf8').trim() } catch { /* no stdin: handled as an empty body */ }
 if (body === '') { console.error('ticket: the comment body on stdin is empty'); process.exit(2) }
+// The declared tier becomes a persistent review floor, without an extra call for low/normal work.
+const tier = cmd === 'claim' ? /^Tier: (low|normal|high|critical)$/m.exec(body)?.[1] : null
+if (cmd === 'claim' && !tier) { console.error('ticket: claim needs one `Tier: low|normal|high|critical` line'); process.exit(2) }
 const done = []
 
 function status(name) {
@@ -40,6 +43,10 @@ main('ticket', () => {
         if (cmd === 'claim') {
             api(`${R}/issues/${issue}/assignees`, { method: 'POST', body: { assignees: [me] } })
             done.push(`assigned ${me}`)
+            if (tier === 'high' || tier === 'critical') {
+                api(`${R}/issues/${issue}/labels`, { method: 'POST', body: { labels: ['Review Required'] } })
+                done.push('review required')
+            }
             status('In Progress')
         } else status('In Review')
         // shortcut: check-then-post is not atomic; two concurrent runs of one account can both post. Callers run one session per ticket.

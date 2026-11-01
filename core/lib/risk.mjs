@@ -22,7 +22,7 @@ export function minimumLane(files, labels, cfg) {
     const r = cfg.review
     const reasons = [], sizeReasons = []
     if (!r.self_check) reasons.push('review.self_check is false')
-    for (const l of labels) if (l === 'Security' || l.startsWith('Needs:')) reasons.push(`label ${l}`)
+    for (const l of labels) if (l === 'Security' || l === 'Review Required' || l.startsWith('Needs:')) reasons.push(`label ${l}`)
     if (!files.every((f) => typeof f?.filename === 'string' && Number.isInteger(f.additions) && Number.isInteger(f.deletions))) reasons.push('the file list is unreadable')
     else {
         for (const f of files) {

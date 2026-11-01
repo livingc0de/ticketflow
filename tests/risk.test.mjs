@@ -47,7 +47,7 @@ test('paths: the built-in floor, the default always_review list, the config addi
 
 test('labels, self_check off', () => {
     const files = [f('src/a.js'), f('tests/a.test.mjs')]
-    review(files, ['Security']); review(files, ['Needs: Decision']); review(files, ['Needs: Design'])
+    review(files, ['Security']); review(files, ['Review Required']); review(files, ['Needs: Decision']); review(files, ['Needs: Design'])
     selfCheck(files, ['Type: Task', 'Area: Scripts'])
     const off = review(files, [], { review: { self_check: false } })
     assert.equal(off.size, false)

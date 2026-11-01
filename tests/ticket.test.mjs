@@ -17,7 +17,7 @@ function run(args, { body = 'Tier: normal\nPlanning: inline: x', comments = [], 
     const dir = tempDir('ticket-')
     const gh = fakeGh(dir, {
         user: { login: 'me' }, [`${R}/issues/7/comments`]: comments, [`POST ${R}/issues/7/comments`]: {}, [`POST ${R}/issues/7/assignees`]: {},
-        ...(project ? PROJECT : {}), ...extra,
+        [`POST ${R}/issues/7/labels`]: {}, ...(project ? PROJECT : {}), ...extra,
     })
     const cfg = writeConfig(dir, project ? { project: { owner: 'o', number: 3 } } : {})
     const r = spawnSync(process.execPath, [script, ...args, '--config', cfg], { encoding: 'utf8', env: gh.env, input: input ?? body })
@@ -33,6 +33,18 @@ test('claim assigns, sets In Progress and posts the marked claim comment', () =>
     assert.equal(r.posts[1].body.body, '<!-- ticketflow:claim -->\nTier: normal\nPlanning: inline: x')
     assert.deepEqual(r.names, ['ProjectTarget', 'SetProjectStatus'])
     assert.equal(r.stdout.trim(), 'claim #7: assigned me, status In Progress, claim comment')
+})
+
+test('high/critical claims add a persistent review floor; normal claims do not', () => {
+    for (const tier of ['high', 'critical']) {
+        const r = run(['claim', '7'], { body: `Tier: ${tier}\nPlanning: planner` })
+        assert.equal(r.status, 0, r.stderr)
+        assert.deepEqual(r.posts.map(p => p.path), [`${R}/issues/7/assignees`, `${R}/issues/7/labels`, `${R}/issues/7/comments`])
+        assert.deepEqual(r.posts[1].body, { labels: ['Review Required'] })
+    }
+    const missing = run(['claim', '7'], { body: 'Planning: none (low)' })
+    assert.equal(missing.status, 2)
+    assert.deepEqual(missing.posts, [])
 })
 
 test('claim without a project skips the status', () => {

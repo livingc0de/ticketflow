@@ -252,12 +252,16 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
   const created=issues.filter(i=>!seededIssues.includes(i.number));
   const seeded=issues.filter(i=>seededIssues.includes(i.number));
   const closed=issues.filter(i=>i.state==='closed');
+  // Owner handoff is a completed delivery milestone, but not a closed issue.
+  // Use the observed project state for any arm, never a TicketFlow-only marker.
+  const handedOff=i=>i.state==='closed'||(i.project?.items??[]).some(item=>['In Review','Done'].includes(item.status?.name??item.status));
   const closedTracked=linked.filter(i=>i.state==='closed');
+  const deliveredTracked=linked.filter(handedOff);
   const reviewRelevant=merged.map(p=>reviews.find(r=>r.number===p.number)).filter(Boolean);
   const reviewObserved=merged.length>0&&reviewRelevant.length===merged.length&&reviewRelevant.every(r=>r.observed&&!r.unresolved);
-  const required=seededIssues.every(n=>linked.some(i=>i.number===n&&i.state==='closed'));
+  const required=seededIssues.every(n=>deliveredTracked.some(i=>i.number===n));
   const optionalNewIssuesLinked=created.filter(i=>linked.some(l=>l.number===i.number));
-  const meaningfulNew=optionalNewIssuesLinked.filter(i=>i.state==='closed');
+  const meaningfulNew=optionalNewIssuesLinked.filter(handedOff);
   const startingProject=new Map(baselineProjects.map(x=>[x.number,JSON.stringify(x.project?.items??[])]));
   const projectProgress=issues.filter(i=>{
     if(!i.project?.readable)return false;
@@ -358,7 +362,7 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
     pr_deduplication:steps.pr_deduplication,failed_pr_corrected:steps.failed_pr_corrected};
   const process={seeded_issues:seeded.length,agent_created_issues:created.length,
     created_linked:optionalNewIssuesLinked.length,issue_total:issues.length,
-    issues_linked:linked.length,issues_closed:closed.length,issues_closed_and_linked:closedTracked.length,
+    issues_linked:linked.length,issues_closed:closed.length,issues_closed_and_linked:closedTracked.length,issues_handed_off_or_closed:deliveredTracked.length,
     issue_coverage:seededIssues.length?seededIssues.filter(n=>linked.some(i=>i.number===n&&i.state==='closed')).length/seededIssues.length:null,
     planning,review:reviewRelevant,pr_count:prs.length,merged_pr_count:merged.length,
     plan_artifacts:plans,tracking,issue_tracking:issueTracking,
