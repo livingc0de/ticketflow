@@ -50,7 +50,7 @@ const additions = {
     "hidden": "const {replay}=await import(pathToFileURL(join(dir,'src/events.mjs')).href);\nconst {checkpoint,resume}=await import(pathToFileURL(join(dir,'src/snapshot.mjs')).href);\nconst initial={status:'created',history:[]};\nconst events=[{id:'p',to:'paid'},{id:'p',to:'shipped'},{id:'s',to:'shipped'}];\nconst full=replay(initial,events);\nassert.deepEqual(full,{status:'shipped',history:['p','s']});\nassert.deepEqual(initial,{status:'created',history:[]});\nconst saved=checkpoint(initial,events,1);\nassert.deepEqual(saved,{cursor:1,state:{status:'paid',history:['p']}});\nassert.deepEqual(resume(saved,events),full);\nassert.throws(()=>checkpoint(initial,events,4));"
   },
   "W6": {
-    "goal": "Start from the product request without seeded issues: choose a practical architecture, decompose cross-cutting work with dependencies, and deliver a coherent subscription service including pricing, immutable lifecycle, entitlements, seat quotas, plan switching and payment-event recovery. Use the native workflow of each arm; no framework-specific artifacts are required.",
+    "goal": "Start from the product request without seeded issues: explore a practical architecture, break the work into independently deliverable pieces with dependencies, and deliver a coherent subscription service including pricing, immutable lifecycle, entitlements, seat quotas, plan switching and payment-event recovery. Use the native workflow of each arm; no framework-specific artifacts are required.",
     "issues": [],
     "files": {
       "src/entitlements.mjs": "export function hasAccess(state,capability){\n return state.status==='active';\n}\n",
