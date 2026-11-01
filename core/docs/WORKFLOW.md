@@ -4,8 +4,8 @@ This is the heart of TicketFlow: how a piece of work travels from an idea to mer
 the same rules step by step through the `implement-ticket`, `create-ticket` and `engineering-method` skills; this page explains them for people, in one
 place. For what the board statuses and labels mean, see [PROJECT.md](PROJECT.md).
 
-**The short version:** every change that ships starts as a ticket, is planned unless it is small and obvious, is built on its own branch,
-proves itself with a green gate, gets a review, merges only through a script that checks all of that, and comes back
+**The short version:** every change that ships starts as a ticket, is planned in proportion to its risk tier, is built on its own branch,
+proves itself with a green gate, gets the review its tier needs (a script-checked self-check for small, low-risk changes), merges only through a script that checks all of that, and comes back
 to you as In Review with a summary. You decide when it is Done.
 Asking an agent to fix a bug or build something starts (or finds) a ticket. Work that ships nothing (an investigation, a review, an audit, a local experiment) gets the same engineering
 method without the ticket ceremony: [Without a ticket](#without-a-ticket).
@@ -16,7 +16,7 @@ ticket, plan, implement, verify, review, merge, handoff.
 
 1. **Ticket.** One issue is one shippable unit that one pull request can complete; anything bigger is a `Type: Initiative` tracker
    with children. Type, priority, work effort, model class, AI effort and (when relevant) environment are labels; tier and planning are decided when work starts.
-2. **Claim.** Assign, set the status to In Progress, post a claim comment with the tier, the assumptions and one `Planning:` line.
+2. **Claim.** Assign, set the status to In Progress, post a claim comment with the tier, the assumptions and one `Planning:` line (a `normal` change without a planner trigger carries its 3-8 line inline plan there).
    Work happens in a git worktree on a `<type>/issue-<N>-<slug>` branch from the up-to-date default branch.
 3. **Plan** (below), **implement** in one context with one conventional commit per task, `verify`, open the pull request.
 4. **Review** (below), then **merge** only through `merge`, which checks every gate on the exact head, then merges with a method the
@@ -28,8 +28,8 @@ move the issue on merge.
 
 ## Risk tiers
 
-A tier sets review depth and verification, nothing else. Classify up when unsure; a ticket's recommendation can raise a tier,
-never lower it. The `implement-ticket` skill holds the full definitions; in short:
+The tier sets the whole process: planning, who reviews and at which class, and what a fix round needs. Classify up when unsure; a
+ticket's recommendation can raise a tier, never lower it. The `implement-ticket` skill holds the full definitions; in short:
 
 - `low`: copy, docs or a config value in one file.
 - `normal`: logic in one subsystem, already tested.
@@ -37,30 +37,47 @@ never lower it. The `implement-ticket` skill holds the full definitions; in shor
   production boot or deploy config, an ambiguous spec, or three or more subsystems.
 - `critical`: `high` plus data exposure or loss, money movement, irreversible data operations, or production config.
 
+| | `low` | `normal` | `high` | `critical` |
+|---|---|---|---|---|
+| Ticket | yes (Goal and criteria only) | yes | yes | yes |
+| Strong planner | no | only on a planner trigger (below) | yes | yes, `xhigh` |
+| Plan record | none | inline plan in the claim comment | committed plan file | committed plan file |
+| Implementer | the lead | the lead | the lead; a strong helper only for an isolated hard piece | same as `high` |
+| Pull request and CI gate | yes | yes | yes | yes |
+| Review of record | self-check (`merge --self-checked`) | an external result, else a self-check when `merge` accepts it, else `pr-reviewer` at standard class | an external result covering the risky part, else `pr-reviewer` at strong/`high` | `pr-reviewer` at strong/`xhigh`, plus any external result |
+| After fixes to a "ready" review | self-check (fix delta) | self-check (fix delta) | self-check (fix delta) | a new review |
+| After fixes to "changes needed" | n/a | delta `pr-reviewer`, standard | delta `pr-reviewer`, standard (strong if the finding was security or data) | delta `pr-reviewer`, strong |
+| Per-task diff reviews (`review: task`) | no | no | only where the planner marks them | only where the planner marks them |
+
+A self-check is only possible where `risk.mjs` finds the whole pull request small and low-risk (or a small fix delta): [REVIEWERS.md](REVIEWERS.md).
+It is never the first review of `high` or `critical` work. The script sets a floor from facts; the tier and the reviewer's class stay the agent's call, and it can only go above the floor.
+
 The implementer runs in the standard class at `high` by default: it is cheaper, and the planner and the reviewer, who catch
-mistakes, stay on the strong class. The implementer moves up to the strong class or `xhigh` only for genuinely hard reasoning (a
+mistakes, stay on the strong class where the tier asks for them. The implementer moves up to the strong class or `xhigh` only for genuinely hard reasoning (a
 subtle lock order, a money state machine), never because of the tier.
-A skipped plan whose diff grows past its stated scope is re-tiered up.
+A plan whose diff grows past its stated scope is re-tiered up and gets the planner for the rest.
 
 ## Planning
 
-**Plan by default**: the `ticket-planner` role writes the plan. Skip only when all four tests hold, judged from the code:
+Planning is in proportion to the tier. The strong `ticket-planner` role is dispatched when **any** of these triggers holds:
 
-- (a) you understand the whole change end to end, no design choice left;
-- (b) a small diff in one place, roughly under 4 files, nothing cross-cutting;
-- (c) no boot, deploy or config change, auth, permission or admin grant, data or schema change, money, concurrency or startup gate,
-  and no second subsystem;
-- (d) verification is obvious and automated.
+1. The tier is `high` or `critical`.
+2. A real design choice is still open after reading the code (two or more defensible approaches with different consequences).
+3. The change is cross-cutting: a second subsystem, or roughly 6 or more files.
+4. A bug whose root cause is not clear after one reproduction and one trace.
+5. Two failed attempts at the same failure (a targeted diagnosis).
+6. The ticket or the owner asks for it.
 
-Effort and complexity decide, not the tier or the length of the description. A ticket that reads like a plan is input to verify.
-Any doubt: plan.
+Without a trigger the lead writes a 3-8 line **inline plan** (files, approach, tests, risks) into the claim comment and builds it. If
+the diff outgrows that plan's stated scope, it is re-tiered up and the planner is dispatched for the rest. The length of the
+description does not decide; a ticket that reads like a plan is input to verify. After a planner plan, the lead implements it in the same session.
 
-A ticket counts as **planned** only when its `Planning:` line links a plan file under `plans_dir`
+A ticket counts as **planned by the planner** only when its `Planning:` line links a plan file under `plans_dir`
 (`YYYY-MM-DD-issue-<N>-<slug>-technical.md`) that is committed to the repo and written by the `ticket-planner` role. Model or
 effort text, "plan ready" or a detailed description never counts. A linked plan is re-verified against the current code before use.
 The plan ends with `Verified against <sha> on <date>`; its open decisions go to the owner, never assumed.
 
-Exactly one `Planning:` line, in the claim comment and the ticket (formats in the skill); a skip gives one reason per test.
+Exactly one `Planning:` line, in the claim comment and the ticket (formats in the skill): the planner, `planned earlier`, `inline: <plan>`, or `none (low)`.
 
 ## Building: tests, bugs and small changes
 
@@ -91,7 +108,7 @@ ticket it is how steps 3 and 4 of `implement-ticket` are done; without one it is
   that proves it and weighs 2-3 approaches when a choice is open; it marks a task `review: task` only when it is high-risk and later
   tasks build on it. The reviewer's "Lean" lens asks what can be deleted or reused, names a concrete breaking case and the smallest fix
   for every blocker, and ends with a "Not checked" line.
-- **Deviations are recorded.** A departure from the plan gets one line in the PR's Review Notes; a skipped plan whose diff grows gets
+- **Deviations are recorded.** A departure from the plan gets one line in the PR's Review Notes; an inline plan whose diff grows gets
   the planner for the rest.
 
 ## Without a ticket
@@ -104,8 +121,8 @@ skill's method without the ticket ceremony:
 - **No ticket, branch, commit, PR or merge unless you ask.** Finishing is a short report: what changed, the evidence, what was not
   checked, the shortcuts added. A commit or PR is made when you ask. A PR opened that way is reviewed and merged like any other
   (below), with the rules of [SECURITY.md](SECURITY.md) unchanged. Asking the agent to merge is not a review.
-- **Anything beyond an easy change gets a plan** from the `ticket-planner` role on a plain brief; no ticket is needed, and its open
-  decisions come to you.
+- **A change that hits a planner trigger gets a plan** from the `ticket-planner` role on a plain brief; no ticket is needed, and its open
+  decisions come to you. Anything smaller gets an inline plan in the report.
 - **A review without a PR:** the `pr-reviewer` role in *diff mode* reviews a diff, range, branch or one task of a plan (a plan task
   marked `review: task` is reviewed on its commits before the next task starts; the default stays one PR-level review). In *audit
   mode* it maps the repo, states the expected load and returns up to 20 numbered findings (Must / Should / Nice, each with
@@ -133,17 +150,20 @@ The gate itself: [CI-GATE.md](CI-GATE.md).
 
 ## Review
 
-External reviewers (a review bot, a teammate) are never configured or asked. While CI runs, `pr-wait` notices any that start on the
+The tier decides who reviews (the matrix above). External reviewers (a review bot, a teammate) are never configured or asked. While CI runs, `pr-wait` notices any that start on the
 exact head (a reaction, a comment, a review) and waits for each one's result, at most 15 minutes from its start, ending as soon as
-it lands (a review, a comment or its edit); the agent reads and fixes what it finds. If none started by the time CI settles, or
-none gave a usable result, the built-in `pr-reviewer` role reviews the
+it lands (a review, a comment or its edit); the agent reads and fixes what it finds. Once CI is green, `risk.mjs <PR>` prints the minimum lane:
+`self-check` allows a self-check for `low` and `normal` work (the lead then posts it on the head), `review` requires a review whatever the tier.
+When a review is needed and no external reviewer started by the time CI settles, or none gave a usable result, the built-in `pr-reviewer` role reviews the
 head and reports its findings straight to the agent; its posted review is what `merge` reads. A `critical` pull request gets
-`pr-reviewer` after an external result as well; a `high` one only where that result does not cover the risky part. Its effort follows
-the tier. It never approves or edits. A red CI is fixed first, with no review of a red head. Diff and audit mode review without a
+`pr-reviewer` (strong, `xhigh`) after an external result as well; a `high` one only where that result does not cover the risky part. Its class and effort follow
+the tier (`normal` standard/`high`, `high` strong/`high`, `critical` strong/`xhigh`). It never approves or edits. A red CI is fixed first, with no review of a red head. Diff and audit mode review without a
 pull request (above) and post nothing. What is and is not proven: [REVIEWERS.md](REVIEWERS.md).
 
 Wait once, in the background (`pr-wait`), batch every finding into one push, and fix or reject each with a reason; reply to and resolve
-each review thread with `thread.mjs`. A push needs a review of its new head: an external result, or a `pr-reviewer` review of the delta since its last one. A related small problem found along the way is fixed in the same pull request and listed as "Also fixed"; only a big or unrelated one gets its own issue.
+each review thread with `thread.mjs`. **A fix round:** after a `ready to merge` review, fixes to its should-fix and nit findings merge on a
+self-check when `merge --self-checked` accepts the delta (small, no risky path); a `critical` pull request always gets a new review. After `changes needed`, a delta
+`pr-reviewer` review of the head (standard class, strong if the finding was security or data). A security, data or correctness finding rejected without a fix gets a `pr-reviewer` pass on the head. A related small problem found along the way is fixed in the same pull request and listed as "Also fixed"; only a big or unrelated one gets its own issue.
 
 ## Merge
 
@@ -151,7 +171,8 @@ each review thread with `thread.mjs`. A push needs a review of its new head: an 
 gate status `success`; the head contains the default branch; no unresolved review thread (any author); no external reviewer that
 started and has not answered (at most 15 minutes from its start) or requested changes; every trusted account's last `pr-reviewer`
 verdict on the head exactly `ready to merge`; and a review of the head: the merging account's own `pr-reviewer` review, or, with
-`--reviewed-by <login>`, that external reviewer's result on the head, which the agent read and acted on. What that proves: [REVIEWERS.md](REVIEWERS.md). It merges (squash, else rebase, else a
+`--reviewed-by <login>`, that external reviewer's result on the head, which the agent read and acted on, or, with `--self-checked`, the
+agent's own `Self-check head:` review where the diff itself qualifies (small, low-risk, tested; or a small fix delta after a ready review). What that proves: [REVIEWERS.md](REVIEWERS.md). It merges (squash, else rebase, else a
 merge commit, as the repo allows) with `--match-head-commit`. When the gates pass, merge without asking, except when the only review
 was an inline `pr-reviewer` (no sub-agents): ask the owner. The setup and update pull requests of `init` and `sync` are reviewed and merged
 the same way, but only after you say so in chat, because they change the gate itself. Never `--admin`, never `--auto`; see [SECURITY.md](SECURITY.md).
@@ -254,11 +275,11 @@ Limits:
 After the merge: status In Review, a summary comment (what merged, the evidence, decisions, assumptions, "Also fixed",
 follow-ups, anything not verified), then clean up the worktree. The comment ends with:
 
-`Run: tier <t> · main <model>/<effort> · planner <matches the Planning line> · reviewer <names | pr-reviewer/effort | none> · review rounds <n> · CI runs <n> · fallback <yes|no>`
+`Run: tier <t> · main <model>/<effort> · planner <strong | inline | none> · lane <self-check | review (<risk.mjs reasons>)> · reviewer <names | pr-reviewer/class/effort | self-check | none> · review rounds <n> · CI runs <n> · fallback <yes|no>`
 
 Optional `Efficiency:` metadata can be generated from an already-saved Claude Code JSON result or Codex JSONL session using `node .ticketflow/scripts/efficiency.mjs <capture> [--wait-log <pr-wait.log>]` (add `--json` for structured output). It reports the CLI's observed duration, token categories and cost; unavailable fields and descendant coverage remain `unknown`, never estimated or double-counted. Capturing sessions is optional; this is not a required service or merge gate.
 
-It is how plan skips, review rounds and CI runs get measured ([TOKEN-BUDGET.md](TOKEN-BUDGET.md)). When `deploy_branch` is set,
+The `lane` field shows which rule forces reviews, so the thresholds can be tuned from a few weeks of tickets. It is how plans, review rounds and CI runs get measured ([TOKEN-BUDGET.md](TOKEN-BUDGET.md)). When `deploy_branch` is set,
 watch the merge commit's CI too.
 
 ## Branching

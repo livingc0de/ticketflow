@@ -7,7 +7,7 @@ Ticket #
 
 ## Planning Decision
 
-Planning: <!-- copy the claim comment's line: planner, planned earlier (link) or skipped (a)-(d) -->
+Planning: <!-- copy the claim comment's line: planner, planned earlier (link), inline or none -->
 
 ## Summary
 

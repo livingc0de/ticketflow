@@ -1,6 +1,6 @@
 ---
 name: pr-reviewer
-description: Use when a pull request needs the internal review (no external reviewer's result on its head, a critical ticket, a high one whose risky part that result did not cover, or the owner asks), or for a diff, branch or plan task without a PR, or a repo audit.
+description: Use when a pull request needs the internal review (no external result on its head and merge cannot accept a self-check, a critical ticket, a high one whose risky part that result did not cover, or the owner asks), or for a diff or plan task without a PR, or a repo audit.
 model_class: strong
 effort: high
 tools: read-only
@@ -30,7 +30,7 @@ In the same review pass, first assess **specification compliance** (every accept
 4. **Money and legal logic**, if touched.
 5. **The repo's own rules:** copy and i18n, configuration over literals, docs kept in sync.
 6. **UI evidence**, if the UI changed: screenshots or a recorded live check.
-7. **Process:** a `Planning:` skip without its four reasons; a skipped plan whose diff outgrew a small, one-place change; a "planned" claim without a committed plan file; a closing keyword; partial work without an issue; changes outside the ticket's scope. Report these as should-fix.
+7. **Process:** an `inline` or `none` `Planning:` line where a planner trigger holds (a `high` or `critical` tier, an open design choice, a cross-cutting change); an inline plan whose diff outgrew its stated scope; a self-check used as the first review of `high` or `critical` work; a "planned" claim without a committed plan file; a closing keyword; partial work without an issue; changes outside the ticket's scope. Report these as should-fix.
 8. **Lean:** what can be deleted, reused or replaced by a native feature, and the cost of owning the rest, never at the cost of security, validation or accessibility. A `shortcut:` comment (older `ponytail:`) is a decision unless the real load crosses its stated limit.
 
 For every defect, look for the same class of defect across the whole change and report every instance.

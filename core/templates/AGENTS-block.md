@@ -3,7 +3,7 @@
 
 - Ticket work follows the `implement-ticket` and `create-ticket` skills and your agent's action map. Extensions go in `.ticketflow/custom/`, never in the skills.
 - Read issues with `node {{runtime}}/scripts/issue.mjs <N>`, never `gh issue view`. The Project is Projects v2 only, through `project.mjs`.
-- Plan by default; plans are committed under `{{plans_dir}}`. Never claim a check that did not run.
+- Plan in proportion to the tier (the strong planner only when needed; its plans are committed under `{{plans_dir}}`). Never claim a check that did not run.
 - Any code change, review or audit, with or without a ticket, follows the `engineering-method` skill.
 - Write `Ticket #N` in PRs and commits, never a closing keyword (Closes, Fixes, Resolves).
 - **Merge only with `node {{runtime}}/scripts/merge.mjs <PR>`**.
