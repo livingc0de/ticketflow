@@ -19,7 +19,7 @@ const maps = ls('agents-map').map((f) => ({ path: `agents-map/${f}`, max: 40 }))
 const text = (p) => readFileSync(join(core, p), 'utf8')
 
 test('there are canonical skills and roles to check', () => {
-    for (const p of ['skills/implement-ticket/SKILL.md', 'skills/implement-ticket/post-merge.md', 'skills/create-ticket/SKILL.md', 'skills/orchestrate-tickets/SKILL.md', 'skills/engineering-method/SKILL.md', 'agents/ticket-planner.md', 'agents/pr-reviewer.md', 'agents/e2e-verifier.md', 'agents-map/claude.md', 'agents-map/codex.md', 'agents-map/generic.md', ...['cursor', 'gemini', 'opencode', 'antigravity', 'copilot'].map((n) => `agents-map/${n}.md`)]) assert.ok(prose.some((x) => x.path === p) || maps.some((x) => x.path === p), p)
+    for (const p of ['skills/implement-ticket/SKILL.md', 'skills/implement-ticket/post-merge.md', 'skills/implement-ticket/review-wait.md', 'skills/implement-ticket/resume.md', 'skills/implement-ticket/planner.md', 'skills/create-ticket/SKILL.md', 'skills/orchestrate-tickets/SKILL.md', 'skills/engineering-method/SKILL.md', 'agents/ticket-planner.md', 'agents/pr-reviewer.md', 'agents/e2e-verifier.md', 'agents-map/claude.md', 'agents-map/codex.md', 'agents-map/generic.md', ...['cursor', 'gemini', 'opencode', 'antigravity', 'copilot'].map((n) => `agents-map/${n}.md`)]) assert.ok(prose.some((x) => x.path === p) || maps.some((x) => x.path === p), p)
 })
 
 test('skills and roles name actions, never one agent\'s tools', () => {
