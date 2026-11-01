@@ -74,8 +74,8 @@ The config schema stays at version 2. A config without a `review` section behave
 `review` section (see [CONFIG.md](CONFIG.md)) sets when a small change may merge on the agent's own self-check
 (`self_check`, `self_check_max_files`, `self_check_max_lines`, `self_check_untested_lines`, `fix_check_max_lines`) and which paths always
 need a review (`always_review`). Set `review.self_check` to `false` to keep the old behaviour of a review on every pull request. Add your
-own sensitive paths, for example an auth or billing directory, to `always_review`. In 0.6.0 that list replaced the defaults; since 0.6.1 it
-adds to them (dependency files, lockfiles, migrations and `.sql`), and `default_always_review: false` switches them off. If your runtime is not `.ticketflow/`, add its scripts too. `sync` refreshes
+own sensitive paths, for example an auth or billing directory, to `always_review`; they add to the built-in defaults (dependency files,
+lockfiles, migrations and `.sql`), and `default_always_review: false` switches those off. If your runtime is not `.ticketflow/`, add its scripts too. `sync` refreshes
 the skills, roles, agent maps, allow list (`ticket.mjs`, `risk.mjs`) and documentation; an installed pull request template keeps its
 old Change Impact section until you re-render it. The full list is in the `## 0.6.0` section of `CHANGELOG.md`.
 

@@ -38,10 +38,11 @@ function threads(nodes, totalCount = nodes.length) {
     return { 'graphql ReviewThreads': { repository: { pullRequest: { reviewThreads: { totalCount, nodes } } } } }
 }
 // Fixture keys are relative to repos/o/r/ (except `user` and `graphql ...`); `pulls` is shorthand for 'pulls/7'.
-function wait(fix = {}, args = ['7', '--timeout-min', '0'], over = {}, { dir = tempDir('pr-wait-') } = {}) {
+function wait(fix = {}, args = ['7', '--timeout-min', '0'], over = {}, { dir = tempDir('pr-wait-'), sleep = false } = {}) {
     const { pulls, ...rest } = fix
     const map = { ...baseFixtures(), ...rest, ...(pulls ? { 'pulls/7': pulls[7] } : {}) }
-    const gh = fakeGh(dir, Object.fromEntries(Object.entries(map).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' ? k : `repos/o/r/${k}`, v])))
+    const gh = fakeGh(dir, Object.fromEntries(Object.entries(map).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' || k === 'rate_limit' ? k : `repos/o/r/${k}`, v])))
+    if (sleep) { writeFileSync(join(dir, 'bin', 'sleep'), '#!/bin/sh\n'); chmodSync(join(dir, 'bin', 'sleep'), 0o755) }   // the poll loop does not really wait
     const r = spawnSync(process.execPath, [script, ...args, '--config', writeConfig(dir, over)], { encoding: 'utf8', env: gh.env, cwd: dir })
     return { ...r, calls: gh.calls().map((c) => c.join(' ')), dir }
 }
@@ -384,7 +385,7 @@ test('the loop sleeps and polls again until the gate is final', () => {
     const gh = fakeGh(dir, Object.fromEntries(Object.entries({
         ...baseFixtures(), 'pulls/7': seq(pull({ mergeable: null, mergeable_state: 'unknown' }).pulls[7], pull().pulls[7]),
         ...status('success', 'x'),
-    }).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' ? k : `repos/o/r/${k}`, v])))
+    }).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' || k === 'rate_limit' ? k : `repos/o/r/${k}`, v])))
     writeFileSync(join(dir, 'bin', 'sleep'), '#!/bin/sh\necho "$@" >> ' + join(dir, 'slept') + '\n')
     chmodSync(join(dir, 'bin', 'sleep'), 0o755)
     // first poll: unknown mergeability (pending); second: clean
@@ -510,7 +511,7 @@ test('concurrent waits preserve every reviewer observation in the shared cache',
         const client = tempDir(`pr-wait-client-${i}-`)
         const login = `reviewer-${i}[bot]`
         const fix = { ...baseFixtures(), ...green, 'pulls/7/comments': [inline(4, `finding ${i}`, { id: i + 1, user: app(login) })] }
-        const map = Object.fromEntries(Object.entries(fix).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' ? k : `repos/o/r/${k}`, v]))
+        const map = Object.fromEntries(Object.entries(fix).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' || k === 'rate_limit' ? k : `repos/o/r/${k}`, v]))
         const gh = fakeGh(client, map)
         const wrapper = join(client, 'slow-gh')
         writeFileSync(wrapper, `#!/bin/sh\nsleep 0.03\nexec ${join(client, 'bin', 'gh')} "$@"\n`)
@@ -694,4 +695,87 @@ test('--ci-only and a sha make no review, user or Actions-run call; --once still
     const once = wait({ ...pull({ mergeable: false, mergeable_state: 'dirty' }), 'issues/7/reactions': [react(2)] }, ['7', '--once'])
     assert.equal(once.status, 1)
     assert.match(once.stdout, /^Review rb\[bot\]: pending since/m)
+})
+
+test('a reviewer timestamp ahead of the local clock counts from first sight, does not slide, heals a stale future cache entry and says so', () => {
+    const dir = tempDir('pr-wait-skew-')
+    spawnSync('git', ['init', '-q', dir])
+    // GitHub stamps the reaction 30 minutes after this machine's now; the push time is fixed so every run reads the same cache key
+    const future = { ...green, 'issues/7/reactions': [react(-30)], [`commits/${HEAD}`]: { commit: { committer: { date: ago(40) } } } }
+    const until = (r) => Date.parse(/at most until (\S+)\)/.exec(r.stdout)[1]) - Date.now()
+    const first = wait(future, ['7', '--once'], {}, { dir })
+    assert.match(first.stdout, /^Review rb\[bot\]: pending since /m)
+    assert.ok(until(first) > 14 * 60_000 && until(first) <= 15 * 60_000, `window ends ${until(first)} ms from now, not 45 minutes`)
+    assert.match(first.stdout, /^Clock: GitHub timestamps are ahead of this machine's clock by about 3\d min: reviewer windows count from first sight$/m)
+    const startOf = (r) => /pending since (\S+) /.exec(r.stdout)[1]
+    const second = wait(future, ['7', '--once'], {}, { dir })
+    assert.equal(startOf(second), startOf(first), 'the first-seen start is kept, not slid')
+    // a stale entry from before the fix, a start in the future, is replaced by the clamped value
+    const gitDir = spawnSync('git', ['-C', dir, 'rev-parse', '--absolute-git-dir'], { encoding: 'utf8' }).stdout.trim()
+    const cache = join(gitDir, 'ticketflow-pr-wait.json')
+    const stale = Object.fromEntries(Object.keys(JSON.parse(readFileSync(cache, 'utf8'))).map((k) => [k, Date.now() + 40 * 60_000]))
+    writeFileSync(cache, JSON.stringify(stale))
+    const healed = wait(future, ['7', '--once'], {}, { dir })
+    assert.ok(until(healed) <= 15 * 60_000 + 1000, 'a future cache value no longer extends the window')
+    // a 16-minute-old start in the shared cache has ended the window (the clamp never lengthens it)
+    const old = Object.fromEntries(Object.keys(JSON.parse(readFileSync(cache, 'utf8'))).map((k) => [k, Date.now() - 16 * 60_000]))
+    writeFileSync(cache, JSON.stringify(old))
+    assert.match(wait(future, ['7', '--once'], {}, { dir }).stdout, /^Review rb\[bot\]: no result 15 min after its start/m)
+})
+
+test('timestamps on the local clock print no Clock note and keep the window of their own start', () => {
+    const r = wait({ ...green, 'issues/7/reactions': [react(2)] }, ['7', '--once'])
+    assert.doesNotMatch(r.stdout, /^Clock:/m)
+    const until = Date.parse(/at most until (\S+)\)/.exec(r.stdout)[1]) - Date.now()
+    assert.ok(until > 12 * 60_000 && until < 13.1 * 60_000, `started 2 min ago: ${until}`)
+})
+
+test('--more with GitHub timestamps ahead of the local clock: an old status note is not an answer; a change after the first look is', () => {
+    const CXB = 'cx[bot]'
+    // an unedited note has created_at = updated_at; `edit` is a later edit of the same note
+    const summary = (text, at, edit = at, over = {}) => note(at, `<!-- cx-pull-request-review-summary -->\n## Review Summary\n\n| Code Review | ${text} |`, { id: 31, user: app(CXB), updated_at: ago(edit), ...over })
+    const base = { ...green, 'issues/7/reactions': [react(14, 'eyes', CXB)], [`commits/${HEAD}`]: { commit: { committer: { date: ago(40) } } } }
+    const more = ['7', '--more', CXB, '--timeout-min', '0']
+    // the status note was last edited 30 minutes "in the future" by the clock: without --more it is shown as the first comment, with --more it is pending, not a result
+    const running = { ...base, 'issues/7/comments': [summary('Running', -30)] }
+    assert.match(wait(running).stdout, /^Review cx\[bot\]: result first comment /m)
+    const now = wait(running, more)
+    assert.match(now.stdout, /^Review: pending \(cx\[bot\]\)$/m)
+    assert.match(now.stdout, /^Clock: GitHub timestamps are ahead of this machine's clock by about 3\d min/m)
+    // two looks, one second apart: the second finds the note edited (to Completed), which is the answer, whatever the clocks say
+    const edited = { ...base, 'issues/7/comments': { __seq: [[summary('Running', -30)], [summary('Completed', -30, -31)]] } }
+    const answered = wait(edited, ['7', '--more', CXB, '--timeout-min', '1'], {}, { sleep: true })
+    assert.match(answered.stdout, /^Review cx\[bot\]: result comment https:\/\/x\/c /m, answered.stdout)
+    assert.doesNotMatch(answered.stdout, /^TIMEOUT/m)
+    // a review posted after the first look is the answer too
+    const reviewed = { ...base, 'issues/7/comments': [summary('Running', -30)], 'pulls/7/reviews': { __seq: [[], [rev('COMMENTED', { user: app(CXB), submitted_at: ago(-31) })]] } }
+    const r2 = wait(reviewed, ['7', '--more', CXB, '--timeout-min', '1'], {}, { sleep: true })
+    assert.match(r2.stdout, /^Review cx\[bot\]: result review COMMENTED /m, r2.stdout)
+})
+
+test('the windows are measured on GitHub\'s clock (its Date header), so a local clock that runs ahead does not end them early', () => {
+    const header = (offsetMin) => ({ rate_limit: { __raw: `HTTP/2 200\ndate: ${new Date(Date.now() + offsetMin * 60_000).toUTCString()}\ncontent-type: application/json\n\n{}` } })
+    const base = { ...green, 'issues/7/reactions': [react(70)], [`commits/${HEAD}`]: { commit: { committer: { date: ago(90) } } } }
+    // this machine is 60 minutes ahead of GitHub: the reaction GitHub stamped 70 minutes ago is 10 minutes old there
+    const aheadLocal = wait({ ...base, ...header(-60) }, ['7', '--once'])
+    assert.match(aheadLocal.stdout, /^Review: pending \(rb\[bot\]\)$/m, aheadLocal.stdout)
+    // the same data with no readable header is judged on the local clock (70 minutes old: the window is over)
+    assert.match(wait(base, ['7', '--once']).stdout, /^Review: none \(no result in time: rb\[bot\]\)$/m)
+    // a GitHub clock that reads LATER than the machine's is never applied (a bogus Date cannot end a window): the clamp handles the future stamp
+    const behind = wait({ ...green, 'issues/7/reactions': [react(-58)], ...header(60) }, ['7', '--once'])
+    assert.match(behind.stdout, /^Review: pending \(rb\[bot\]\)$/m)
+    assert.match(behind.stdout, /^Clock:/m)
+    assert.match(wait({ ...green, 'issues/7/reactions': [react(2)], ...header(24 * 60) }, ['7', '--once']).stdout, /^Review: pending \(rb\[bot\]\)$/m)
+    // --ci-only does not read the clock
+    assert.ok(!wait(green, ['7', '--ci-only', '--timeout-min', '0']).calls.some((c) => /rate_limit/.test(c)))
+})
+
+test('the shared cache keeps starts on the machine clock: a run whose offset differs cannot move them (three runs, no header, a header 60 minutes behind, no header)', () => {
+    const dir = tempDir('pr-wait-offset-')
+    spawnSync('git', ['init', '-q', dir])
+    const header = (offsetMin) => ({ rate_limit: { __raw: `HTTP/2 200\ndate: ${new Date(Date.now() + offsetMin * 60_000).toUTCString()}\n\n{}` } })
+    const fix = { ...green, 'issues/7/reactions': [react(2)], [`commits/${HEAD}`]: { commit: { committer: { date: ago(40) } } } }
+    assert.match(wait(fix, ['7', '--once'], {}, { dir }).stdout, /^Review: pending \(rb\[bot\]\)$/m)
+    assert.match(wait({ ...fix, ...header(-60) }, ['7', '--once'], {}, { dir }).stdout, /^Review: pending \(rb\[bot\]\)$/m)
+    assert.match(wait(fix, ['7', '--once'], {}, { dir }).stdout, /^Review: pending \(rb\[bot\]\)$/m, 'the earlier run with another offset did not shorten the window')
 })
