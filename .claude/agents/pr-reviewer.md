@@ -1,7 +1,7 @@
 ---
 name: "pr-reviewer"
 description: "Use when a pull request needs the internal review (no external result on its head and merge cannot accept a self-check, a critical ticket, a high one whose risky part that result did not cover, or the owner asks), or for a diff or plan task without a PR, or a repo audit."
-model: "opus"
+model: "sonnet"
 effort: "high"
 tools: Bash, Read, Grep, Glob, Skill
 ---

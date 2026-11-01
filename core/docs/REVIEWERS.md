@@ -6,7 +6,7 @@ with no setup. When each review happens: [WORKFLOW.md](WORKFLOW.md).
 
 ## pr-reviewer
 
-An independent review by the `pr-reviewer` role (strong model class, read-only). One pass produces separate specification-compliance and code-quality assessments. It checks, in order: acceptance criteria, security
+An independent review by the `pr-reviewer` role (read-only; standard model class unless the tier asks for strong, see [WORKFLOW.md](WORKFLOW.md)). One pass produces separate specification-compliance and code-quality assessments. It checks, in order: acceptance criteria, security
 and data, correctness and tests, money and legal logic, the repo's own rules, UI evidence, process (a `Planning:` skip without its four
 reasons, a plan claim without a committed plan file, a closing keyword, out-of-scope changes) and over-engineering. It posts exactly
 one review comment whose first line is `Reviewed head: <sha7>`, and reports its verdict, the head and one line per finding, each with

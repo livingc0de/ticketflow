@@ -41,7 +41,7 @@ const additions = {
   "W5": {
     "goal": "Implement a resilient event-sourced order transition flow with immutable state, deduplicated event IDs, legal transitions, deterministic replay and resumable snapshots. Delivery will be interrupted after work is pushed; recover from GitHub without duplicate PRs or lost progress.",
     "issues": [
-      "Implement legal immutable order transitions and replay, including duplicate/out-of-order events. Add checkpoint(state,events,count) and resume(checkpoint,events) APIs with stable cursor positions (checkpoint throws when count is not an integer from 0 to events.length) and tests. Ship through a reviewed PR, and after an interruption resume from remote state without creating a second PR."
+      "Implement legal immutable order transitions and replay, including duplicate event ids (ignored) and illegal transitions (returned unchanged; the legal order is created, paid, shipped). Add checkpoint(state,events,count) and resume(checkpoint,events) APIs with stable cursor positions (checkpoint throws when count is not an integer from 0 to events.length) and tests. Ship through a reviewed PR, and after an interruption resume from remote state without creating a second PR."
     ],
     "files": {
       "src/events.mjs": "import {transition} from './orders.mjs';\nexport function replay(initial,events){return events.reduce((s,e)=>transition(s,e),initial)}\n",
@@ -64,10 +64,10 @@ const additions = {
   "W7": {
     "goal": "Coordinate four independent existing issues. Each includes an integration boundary beyond a single utility: safe HTML rendering, tenant-filtered pagination, precise refund cents, and strict request-ID parsing. Deliver correct reviewed changes without duplicate effort or unnecessary cross-ticket coupling; parallelism is optional.",
     "issues": [
-      "Implement escapeHtml and renderMessage(value) in src/render.mjs; escape &, <, >, quotes and apostrophes once, never interpolate unescaped user text into HTML. Include XSS-shaped regression cases.",
-      "Implement validated page(items,offset,limit) and tenantPage(items,tenant,offset,limit) in src/tenant-pages.mjs; filter before paginating, enforce valid offsets/limits and return null at the end.",
-      "Implement toCents(value) with half-up rounding to integer cents and refundTotal(lines) in src/refunds.mjs; convert each unit price to cents (half-up) before multiplying by quantity, so quantities never re-round.",
-      "Implement parseRequestId(value) (exactly eight lowercase hex digits) and requestIdFromHeaders(headers) in src/requests.mjs; reject missing, malformed or wrong-case IDs without coercing nonstrings."
+      "Implement escapeHtml(value) in src/html.mjs (& -> &amp;, < -> &lt;, > -> &gt;, double quote -> &quot;, apostrophe -> &#39;; escape each character once) and make renderMessage(value) in src/render.mjs return '<p>' plus the escaped value plus '</p>'. Never interpolate unescaped user text into HTML.",
+      "Implement page(items,offset,limit) in src/paging.mjs returning {items,next} (next is null on the final page; throw for a noninteger or negative offset and a nonpositive limit) and tenantPage(items,tenant,offset,limit) in src/tenant-pages.mjs, which filters by tenant before paginating.",
+      "Implement toCents(value) in src/money.mjs with half-up rounding to integer cents (1.005 -> 101, 2.015 -> 202) and refundTotal(lines) in src/refunds.mjs: convert each unit price to cents (half-up) before multiplying by quantity, so quantities never re-round.",
+      "Implement parseRequestId(value) in src/ids.mjs (exactly eight lowercase hex digits, otherwise null, without coercing non-strings) and requestIdFromHeaders(headers) in src/requests.mjs, which reads the x-request-id header."
     ],
     "files": {
       "src/render.mjs": "import {escapeHtml} from './html.mjs';\nexport const renderMessage=value=>'<p>'+String(value)+'</p>';\n",

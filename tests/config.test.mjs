@@ -304,6 +304,7 @@ test('review limits: the template stores the current ones; sync refreshes them u
     const unflagged = refreshReview(withReview({ self_check_max_lines: 200, always_review: ['^x/'] }))   // a legacy edit is recognized and flagged
     assert.deepEqual([unflagged.review.self_check_max_lines, unflagged.review.custom_limits, unflagged.review.always_review], [200, true, ['^x/']])
     assert.equal(refreshReview(withReview({ self_check_untested_lines: null })).review.custom_limits, true)
+    assert.deepEqual(limits(refreshReview(withReview({ ...legacy, self_check_max_lines: 200, custom_limits: false }))), REVIEW_LIMITS)   // an explicit false is trusted, not inferred
     assert.equal(refreshReview(withReview({ ...legacy, custom_limits: false, self_check: false })).review.self_check, false)   // other review keys are the owner's
     validate(refreshReview(withReview(legacy)))
 })

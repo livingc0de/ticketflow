@@ -13,6 +13,9 @@
 - **The review limits are stored in the config with a flag.** New configs hold the limits and `review.custom_limits: false`. `sync` (through
   `config.mjs migrate --write`) moves them to each release's values while the flag is `false` and keeps them when it is `true`; a config from 0.6.3 without
   the flag counts as custom only when a limit is not the old or the current default.
+- **`pr-reviewer` defaults to the standard class.** The tier already said which class reviews (`normal` standard, `high` strong, `critical` strong at `xhigh`) and
+  `implement-ticket` dispatches at it; the role's own default is now standard too, so a dispatch that names no class (an orchestrator's, for instance) no longer pays
+  for the strong one. Audits and diff reviews ask for strong.
 - **The workflow benchmark probes harder scenarios.** W2 to W7 now cover money rounding and replay, tenant isolation, webhook recovery, interrupted
   state machines, subscription decomposition and four parallel tickets; W1 stays a cheap control. Delivery counts any review or done board column,
   dependency order is measured at merge, and every hidden requirement is stated in the issue text.
