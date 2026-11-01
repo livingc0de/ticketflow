@@ -52,7 +52,7 @@ import { gql } from '../lib/gh.mjs'
 
 const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
 const STUCK_MS = 20 * 60_000
-const POLL_SEC = process.env.TICKETFLOW_POLL_SEC ?? '60'   // the environment variable is a test seam
+const POLL_SEC = '60'
 
 const usage = 'usage: pr-wait.mjs <pr | 40-hex sha> [--once] [--ci-only] [--timeout-min N] [--more <login>]... [--config f]'
 let cfg, target, once, ciOnly, timeoutMin, more
@@ -210,12 +210,12 @@ const SKEW_MS = 60_000   // a timestamp this far ahead of the local clock is a c
 // What the reviewers had posted when this run first looked: with a clock difference, "new since this run started" is a change against it, never a clock comparison.
 const launchSeen = new Map()
 let launchTaken = false, clockSkewed = false
-// GitHub's clock minus this machine's, from the Date header of one cheap call (0 when unreadable): the reviewer windows are measured on GitHub's clock,
-// so a local clock that runs ahead of or behind it neither shortens nor lengthens them. Timers (the poll loop, the timeout) stay on the local clock.
+// GitHub's clock minus this machine's, from the Date header of one cheap call (0 when unreadable, or when GitHub's is the later one): the reviewer
+// windows are measured on GitHub's clock, so a machine clock that runs ahead of it does not shorten them. Timers (the poll loop, the timeout) stay on the local clock.
 const clockOffset = (() => {
     const r = ciOnly ? null : spawnSync('gh', ['api', '-i', 'rate_limit'], { encoding: 'utf8' })
     const t = Date.parse(/^date:\s*(.+)$/im.exec(r?.stdout ?? '')?.[1] ?? '')
-    return Number.isFinite(t) ? t - Date.now() : 0
+    return Number.isFinite(t) ? Math.min(0, t - Date.now()) : 0   // only a machine clock AHEAD of GitHub's is corrected: a bogus later Date cannot end a window, and a clock behind is covered by the clamp
 })()
 const gnow = () => Date.now() + clockOffset
 const launched = gnow()
@@ -317,13 +317,13 @@ function pollReviewers(S) {
         const own = [...comments.filter(mine), ...onHeadInline.filter(mine)]
         const signs0 = [...onHead.map((x) => ms(x.submitted_at)), ...[...own.map(at), ...reactions.filter(mine).map((x) => ms(x.created_at))].filter((t) => t > since)]   // a review of the head counts whatever its time
         if (!signs0.length) return null
-        // An event cannot lie in the future: a GitHub timestamp ahead of this clock counts from the moment it is first seen (the cache keeps that first value),
-        // so the 15 minutes end 15 minutes after first sight. A local clock AHEAD of GitHub still shortens the window; the clock alone cannot show that.
+        // An event cannot lie in the future: a timestamp ahead of GitHub's clock counts from the moment it is first seen (the cache keeps that first value,
+        // on the machine clock, so a changing offset between runs cannot move it), so the 15 minutes end 15 minutes after first sight.
         const now = gnow()
         const signs = signs0.map((t) => Math.min(t, now))
         const key = `${cfg.repo}#${target} ${S.head} ${since} ${login}`   // per repo and PR: the cache is shared by every run in the checkout
-        const start = Math.min(firstSeen.get(key) ?? Infinity, ...signs)
-        firstSeen.set(key, start)
+        const start = Math.min((firstSeen.get(key) ?? Infinity) + clockOffset, ...signs)
+        firstSeen.set(key, start - clockOffset)
         const last = onHead.at(-1)
         if (last?.state === 'CHANGES_REQUESTED') return { login, state: 'changes', text: `changes requested (${S.head.slice(0, 7)}) ${last.html_url}` }
         // a review of the head is the result; else its latest comment with visible text, at its last edit (the start above keeps the first

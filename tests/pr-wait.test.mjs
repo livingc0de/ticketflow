@@ -38,11 +38,12 @@ function threads(nodes, totalCount = nodes.length) {
     return { 'graphql ReviewThreads': { repository: { pullRequest: { reviewThreads: { totalCount, nodes } } } } }
 }
 // Fixture keys are relative to repos/o/r/ (except `user` and `graphql ...`); `pulls` is shorthand for 'pulls/7'.
-function wait(fix = {}, args = ['7', '--timeout-min', '0'], over = {}, { dir = tempDir('pr-wait-'), env = {} } = {}) {
+function wait(fix = {}, args = ['7', '--timeout-min', '0'], over = {}, { dir = tempDir('pr-wait-'), sleep = false } = {}) {
     const { pulls, ...rest } = fix
     const map = { ...baseFixtures(), ...rest, ...(pulls ? { 'pulls/7': pulls[7] } : {}) }
     const gh = fakeGh(dir, Object.fromEntries(Object.entries(map).map(([k, v]) => [k.startsWith('graphql ') || k === 'user' || k === 'rate_limit' ? k : `repos/o/r/${k}`, v])))
-    const r = spawnSync(process.execPath, [script, ...args, '--config', writeConfig(dir, over)], { encoding: 'utf8', env: { ...gh.env, ...env }, cwd: dir })
+    if (sleep) { writeFileSync(join(dir, 'bin', 'sleep'), '#!/bin/sh\n'); chmodSync(join(dir, 'bin', 'sleep'), 0o755) }   // the poll loop does not really wait
+    const r = spawnSync(process.execPath, [script, ...args, '--config', writeConfig(dir, over)], { encoding: 'utf8', env: gh.env, cwd: dir })
     return { ...r, calls: gh.calls().map((c) => c.join(' ')), dir }
 }
 const code = (fix, args, over) => wait(fix, args, over).status
@@ -743,12 +744,12 @@ test('--more with GitHub timestamps ahead of the local clock: an old status note
     assert.match(now.stdout, /^Clock: GitHub timestamps are ahead of this machine's clock by about 3\d min/m)
     // two looks, one second apart: the second finds the note edited (to Completed), which is the answer, whatever the clocks say
     const edited = { ...base, 'issues/7/comments': { __seq: [[summary('Running', -30)], [summary('Completed', -30, -31)]] } }
-    const answered = wait(edited, ['7', '--more', CXB, '--timeout-min', '1'], {}, { env: { TICKETFLOW_POLL_SEC: '1' } })
+    const answered = wait(edited, ['7', '--more', CXB, '--timeout-min', '1'], {}, { sleep: true })
     assert.match(answered.stdout, /^Review cx\[bot\]: result comment https:\/\/x\/c /m, answered.stdout)
     assert.doesNotMatch(answered.stdout, /^TIMEOUT/m)
     // a review posted after the first look is the answer too
     const reviewed = { ...base, 'issues/7/comments': [summary('Running', -30)], 'pulls/7/reviews': { __seq: [[], [rev('COMMENTED', { user: app(CXB), submitted_at: ago(-31) })]] } }
-    const r2 = wait(reviewed, ['7', '--more', CXB, '--timeout-min', '1'], {}, { env: { TICKETFLOW_POLL_SEC: '1' } })
+    const r2 = wait(reviewed, ['7', '--more', CXB, '--timeout-min', '1'], {}, { sleep: true })
     assert.match(r2.stdout, /^Review cx\[bot\]: result review COMMENTED /m, r2.stdout)
 })
 
@@ -760,10 +761,21 @@ test('the windows are measured on GitHub\'s clock (its Date header), so a local 
     assert.match(aheadLocal.stdout, /^Review: pending \(rb\[bot\]\)$/m, aheadLocal.stdout)
     // the same data with no readable header is judged on the local clock (70 minutes old: the window is over)
     assert.match(wait(base, ['7', '--once']).stdout, /^Review: none \(no result in time: rb\[bot\]\)$/m)
-    // this machine is 60 minutes behind GitHub: a reaction GitHub stamped 2 minutes ago is 58 minutes ahead of the local clock, and current, not "from the future"
+    // a GitHub clock that reads LATER than the machine's is never applied (a bogus Date cannot end a window): the clamp handles the future stamp
     const behind = wait({ ...green, 'issues/7/reactions': [react(-58)], ...header(60) }, ['7', '--once'])
     assert.match(behind.stdout, /^Review: pending \(rb\[bot\]\)$/m)
-    assert.doesNotMatch(behind.stdout, /^Clock:/m)
+    assert.match(behind.stdout, /^Clock:/m)
+    assert.match(wait({ ...green, 'issues/7/reactions': [react(2)], ...header(24 * 60) }, ['7', '--once']).stdout, /^Review: pending \(rb\[bot\]\)$/m)
     // --ci-only does not read the clock
     assert.ok(!wait(green, ['7', '--ci-only', '--timeout-min', '0']).calls.some((c) => /rate_limit/.test(c)))
+})
+
+test('the shared cache keeps starts on the machine clock: a run whose offset differs cannot move them (three runs, no header, a header 60 minutes behind, no header)', () => {
+    const dir = tempDir('pr-wait-offset-')
+    spawnSync('git', ['init', '-q', dir])
+    const header = (offsetMin) => ({ rate_limit: { __raw: `HTTP/2 200\ndate: ${new Date(Date.now() + offsetMin * 60_000).toUTCString()}\n\n{}` } })
+    const fix = { ...green, 'issues/7/reactions': [react(2)], [`commits/${HEAD}`]: { commit: { committer: { date: ago(40) } } } }
+    assert.match(wait(fix, ['7', '--once'], {}, { dir }).stdout, /^Review: pending \(rb\[bot\]\)$/m)
+    assert.match(wait({ ...fix, ...header(-60) }, ['7', '--once'], {}, { dir }).stdout, /^Review: pending \(rb\[bot\]\)$/m)
+    assert.match(wait(fix, ['7', '--once'], {}, { dir }).stdout, /^Review: pending \(rb\[bot\]\)$/m, 'the earlier run with another offset did not shorten the window')
 })
