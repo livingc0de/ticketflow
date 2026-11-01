@@ -29,7 +29,7 @@ test('size: too many code files, too many code lines, untested code', () => {
 })
 
 test('paths: the built-in floor, the default always_review list, and the config replacing the list', () => {
-    for (const path of ['.github/workflows/ci.yml', '.ticketflow/config.json', '.env.local', 'app/.env', '.claude/settings.json', '.codex/rules/x.rules', 'AGENTS.md', 'docs/CLAUDE.md']) {
+    for (const path of ['.github/workflows/ci.yml', '.ticketflow/config.json', '.env.local', 'app/.env', '.claude/settings.json', '.codex/rules/x.rules', 'AGENTS.md', 'docs/CLAUDE.md', '.github/copilot-instructions.md', '.github/agents/x.md', 'x/.claude-plugin/plugin.json', 'gemini-extension.json']) {
         const r = review([f(path), f('tests/a.test.mjs')])
         assert.equal(r.size, false)
         assert.match(r.reasons[0], /always needs a review/)
@@ -85,7 +85,10 @@ test('fail closed: unreadable entries, code renamed into tests, binary changes, 
     selfCheck([f('tests/b.test.js', 500, 500, { previous_filename: 'tests/a.test.js', status: 'renamed' }), f('src/b.js', 2)])
     const bin = review([f('assets/logo.png', 0, 0, { status: 'modified' }), f('tests/a.test.mjs')])
     assert.deepEqual([bin.size, bin.reasons.length], [false, 1])
+    review([f('assets/new.png', 0, 0, { status: 'added' }), f('tests/a.test.mjs')])
     selfCheck([f('assets/logo.png', 0, 0, { status: 'renamed', previous_filename: 'assets/old.png' }), f('tests/a.test.mjs')])
+    // code renamed into a test path is not a test that covers the change
+    assert.match(review([f('src/b.js', 20), f('tests/p.test.js', 1, 0, { previous_filename: 'src/p.js', status: 'renamed' })]).reasons.join(), /no test file touched/)
     assert.equal(alwaysReviewHit(f('x.js', 1, 0, { previous_filename: 'package.json' }), config()), 'package.json')
     assert.equal(alwaysReviewHit(f('src/a.js'), config()), undefined)
 })

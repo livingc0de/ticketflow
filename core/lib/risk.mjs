@@ -11,6 +11,9 @@ import { api } from './gh.mjs'
 const TEST = /(^|\/)(tests?|__tests__|spec)\/|[._-](test|spec)\.[^/]+$/
 const names = (f) => [f.filename, f.previous_filename].filter((n) => typeof n === 'string')
 
+/** A change with no readable line count (binary, mode-only, empty): its size is unknown, so it is never trusted. A pure rename is the exception. */
+export const noLines = (f) => f.additions + f.deletions === 0 && f.status !== 'renamed'
+
 /** The name of `f` (new or old path) that always needs a review, or undefined. Used by risk.mjs and merge.mjs alike. */
 export const alwaysReviewHit = (f, cfg) => names(f).find((n) => [...ALWAYS_REVIEW, ...cfg.review.always_review].some((re) => re.test(n)))
 
@@ -29,10 +32,10 @@ export function minimumLane(files, labels, cfg) {
         // a renamed file is test or docs only when both its names are: code renamed into tests keeps counting
         const code = files.filter((f) => names(f).some((n) => !TEST.test(n) && !docsOnly([n], cfg)))
         const lines = code.reduce((n, f) => n + f.additions + f.deletions, 0)
-        for (const f of code) if (f.additions + f.deletions === 0 && f.status === 'modified') reasons.push(`${f.filename} changed without a readable line count (binary?)`)
+        for (const f of code) if (noLines(f)) reasons.push(`${f.filename} changed without a readable line count (binary?)`)
         if (code.length > r.self_check_max_files) sizeReasons.push(`${code.length} code files (limit ${r.self_check_max_files})`)
         if (lines > r.self_check_max_lines) sizeReasons.push(`${lines} changed code lines (limit ${r.self_check_max_lines})`)
-        if (r.self_check_untested_lines !== null && lines > r.self_check_untested_lines && !files.some((f) => TEST.test(f.filename))) sizeReasons.push(`${lines} changed code lines and no test file touched (limit ${r.self_check_untested_lines})`)
+        if (r.self_check_untested_lines !== null && lines > r.self_check_untested_lines && !files.some((f) => names(f).every((n) => TEST.test(n)))) sizeReasons.push(`${lines} changed code lines and no test file touched (limit ${r.self_check_untested_lines})`)
     }
     const all = [...reasons, ...sizeReasons]
     return { lane: all.length ? 'review' : 'self-check', reasons: all, size: reasons.length === 0 && sizeReasons.length > 0 }

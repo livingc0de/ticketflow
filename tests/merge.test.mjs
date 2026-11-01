@@ -425,6 +425,7 @@ test('S7: a self-check never answers an earlier "changes needed" of pr-reviewer;
     const ready = review({ id: 71, commit_id: OLD, body: READY.replace(SHA7, OLD.slice(0, 7)) })
     assert.equal(selfChecked({ reviews: [needed, ready, review({ body: SELF })] }).status, 0)
     refused(selfChecked({ reviews: [{ ...needed, state: 'COMMENTED', body: `\n${needed.body}` }, review({ body: SELF })] }), /is not a ready verdict/)   // a blank first line does not hide it
+    refused(selfChecked({ reviews: [review({ id: 72, body: NEEDED }), review({ body: SELF })] }), /last pr-reviewer review \(abcdef1\) is not a ready verdict/)   // a changes-needed on this very head, answered without a push
 })
 
 test('S8: the fix-delta base is checked like a review of record: state, the commit its header names, an unreadable delta, a floor path in a rename, 300 files, a review of the head itself', () => {
@@ -434,6 +435,7 @@ test('S8: the fix-delta base is checked like a review of record: state, the comm
     refused(go(PRIOR, { [`${R}/compare/${ANCESTOR}...${HEAD}`]: { behind_by: 0 } }), /not a plain descendant/)   // no files at all
     refused(go(PRIOR, delta([{ filename: 'src/a.js' }])), /fix delta since 2222222 could not be read/)
     refused(go(PRIOR, delta([{ filename: 'src/new.js', previous_filename: 'package.json', additions: 1, deletions: 0 }])), /touches package\.json, which always needs a review/)
+    refused(go(PRIOR, delta([f('src/a.js', 0), f('assets/new.bin', 0)])), /could not be read/)   // a change with no line count in the delta
     refused(go(PRIOR, delta(Array.from({ length: 300 }, (_, i) => f(`src/x${i}.js`, 0)))), /too long to read/)
     // a ready pr-reviewer review of the head itself is no base: the self-check came after it, on the same head
     refused(selfChecked({ files: BIG, reviews: [review({ id: 70 }), review({ body: SELF })] }), /too big for a self-check.*no ready pr-reviewer review of an earlier head/)

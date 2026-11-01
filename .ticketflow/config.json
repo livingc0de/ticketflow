@@ -42,7 +42,7 @@
       "(^|/)(package(-lock)?\\.json|pnpm-lock\\.yaml|yarn\\.lock|requirements[^/]*\\.txt|pyproject\\.toml|go\\.(mod|sum)|Cargo\\.(toml|lock)|Gemfile(\\.lock)?|composer\\.(json|lock))$",
       "(^|/)migrations?/",
       "\\.sql$",
-      "^core/(lib|scripts)/"
+      "^core/"
     ]
   }
 }

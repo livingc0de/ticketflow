@@ -92,17 +92,17 @@ from the diff, not from the agent's word. `node core/scripts/risk.mjs <PR>` prin
 per rule that forces a review. `merge --self-checked` runs the same function (`core/lib/risk.mjs`). The lane is `review` when:
 
 - `review.self_check` is `false`, the PR names no `Ticket #N` (in its title or body; a named pull request is no ticket), or any named ticket has a `Security` or a `Needs: ...` label;
-- a changed path (or the old path of a rename) matches the built-in floor (`.github/workflows/`, `.ticketflow/`, `.env` files, the agents' rule and permission folders, `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`) or
-  `review.always_review` (by default dependency files and lockfiles, `migrations/`, `.sql`; add your auth and money paths, and the scripts of a runtime that is not `.ticketflow/`);
+- a changed path (or the old path of a rename) matches the built-in floor (`.github/workflows/`, `.ticketflow/`, `.env` files, the agents' rule, permission and plugin folders, `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`) or
+  `review.always_review` (by default dependency files and lockfiles, `migrations/`, `.sql`; add your auth and money paths, and the whole runtime of a repo where it is not `.ticketflow/`);
 - the non-test, non-docs files exceed `review.self_check_max_files` or `review.self_check_max_lines`, or changed more code lines than
   `review.self_check_untested_lines` with no test file touched. Tests and docs never count toward the size, deleted test lines included
   (a renamed file counts as test or docs only when both of its names are);
-- the file list is incomplete or a file has no readable line count (binary changes).
+- the file list is incomplete or a code file has no readable line count (binary, empty or mode-only changes; the same holds for the fix delta).
 
 **Fix delta.** If the only reasons are size ones, `merge` still accepts a self-check when the latest `pr-reviewer` review is a ready
 verdict on an earlier commit, the head descends from it, no changed path is in the floor or `always_review`, and the delta is at most
 `review.fix_check_max_lines` lines. The base review must be a ready verdict whose header names the commit it is attached to; a `changes needed` is never a base.
-A self-check also never answers an earlier `changes needed` of `pr-reviewer`: a ready review has to follow it. Known limit: a
+A self-check also never answers a `changes needed` of `pr-reviewer`, on this head or an earlier one: a ready review has to follow it. Known limit: a
 `gh pr update-branch` merge commit brings base changes into the delta, which usually exceeds the limit; that fails safe, a review is needed.
 
 The self-check is the agent's own review, posted on the exact head:

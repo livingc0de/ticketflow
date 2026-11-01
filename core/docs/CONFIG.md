@@ -74,7 +74,7 @@ See [UPGRADING.md](UPGRADING.md).
 The config can add to these, never remove them.
 
 - Never docs (always code): `^\.ticketflow/`, `^\.github/workflows/`.
-- Always needs a review (the self-check lane; `review.always_review` adds to it): `^\.github/workflows/`, `^\.ticketflow/`, `(^|/)\.env`, the agents' rule and permission folders (`.claude/`, `.codex/`, `.cursor/`, `.gemini/`, `.opencode/`, `.agents/`) and `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`. If your runtime is not `.ticketflow/` (this repo's is `core/`), add its scripts to `review.always_review`, or an agent could loosen the gate on a self-check.
+- Always needs a review (the self-check lane; `review.always_review` adds to it): `^\.github/workflows/`, `^\.ticketflow/`, `(^|/)\.env`, the agents' rule and permission folders (`.claude/`, `.codex/`, `.cursor/`, `.gemini/`, `.opencode/`, `.agents/`) and `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, the Copilot instruction folders under `.github/` and plugin folders (`.*-plugin/`). If your runtime is not `.ticketflow/` (this repo's is `core/`), add its whole runtime directory to `review.always_review`, or an agent could loosen the gate on a self-check.
 - CI files (a pull request that changes one never inherits a gate result): `^\.github/`, `^\.ticketflow/`, `^core/`.
 
 ## gen-stubs

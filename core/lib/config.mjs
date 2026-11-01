@@ -23,7 +23,7 @@ export const MIGRATIONS = {
 /** Built-in floors: the config can add to them, never remove them. */
 export const NEVER_DOCS = Object.freeze([/^\.ticketflow\//, /^\.github\/workflows\//])
 /** Built-in floor of the self-check lane (`risk.mjs`): paths that change the gate, what an agent may run, or secrets always need a review. */
-export const ALWAYS_REVIEW = Object.freeze([/^\.github\/workflows\//, /^\.ticketflow\//, /(^|\/)\.env/, /^\.(claude|codex|cursor|gemini|opencode|agents)\//, /(^|\/)(AGENTS|CLAUDE|GEMINI)\.md$/])
+export const ALWAYS_REVIEW = Object.freeze([/^\.github\/workflows\//, /^\.ticketflow\//, /(^|\/)\.env/, /^\.(claude|codex|cursor|gemini|opencode|agents)\//, /(^|\/)(AGENTS|CLAUDE|GEMINI)\.md$/, /^\.github\/(agents|instructions|hooks|prompts)\//, /^\.github\/copilot-instructions\.md$/, /(^|\/)\.[\w-]*-plugin\//, /(^|\/)gemini-extension\.json$/])
 /** Defaults of `review.always_review`: sensible for most repos, but the owner may edit or drop them (`[]`). */
 const DEFAULT_ALWAYS_REVIEW = [
     /(^|\/)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|requirements[^/]*\.txt|pyproject\.toml|go\.(mod|sum)|Cargo\.(toml|lock)|Gemfile(\.lock)?|composer\.(json|lock))$/,   // dependencies
