@@ -3,7 +3,7 @@
 ## Unreleased
 
 - **`pr-wait` measures the reviewer windows on GitHub's clock.** The clock is read from the `Date` header of one GitHub call, so a machine
-  clock that is off no longer shortens or lengthens the 15-minute window. A reviewer timestamp still ahead of it counts from the moment
+  clock that runs ahead of GitHub's no longer shortens the 15-minute window. A reviewer timestamp still ahead of it counts from the moment
   `pr-wait` first sees it, and `--more` then waits for a change against its first look instead of taking an old status note for the result
   (a `Clock:` line says when that happened).
 - **Tiny tickets can share a lead in `orchestrate-tickets`.** Up to 3 `ready` list or backlog tickets labelled `Effort: XS` without a
