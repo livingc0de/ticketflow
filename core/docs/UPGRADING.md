@@ -62,6 +62,12 @@ job, after it when the local fallback does): `protect.mjs --apply --replace-cont
 
 Per release, newest first:
 
+### From 0.6.1
+
+No config change. `sync` refreshes `pr-wait` (the reviewer windows are measured on GitHub's clock, so a machine clock that is off no longer
+misleads them), the `orchestrate-tickets` skill (tiny tickets may share a lead) and the `implement-ticket` skill. The full list is in the
+`## 0.6.2` section of `CHANGELOG.md`.
+
 ### From 0.6.0
 
 `review.always_review` now adds to the built-in defaults instead of replacing them, and the new `review.default_always_review` (default `true`)
