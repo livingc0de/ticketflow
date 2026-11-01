@@ -362,7 +362,6 @@ test('S1: a small PR with tests and a ready self-check of the head merges and sa
     assert.equal(r.merges.length, 1)
     assert.match(r.stdout, /^Merged on a self-check \(small diff\)$/m)
     assert.doesNotMatch(run().stdout, /self-check/)
-    // the real pr-wait ran in that merge: our own "Self-check head:" review (an OWNER account, not an app) is not an external reviewer, or Review: would not be none
 })
 
 test('S2: refused without the record, on the wrong head, or when the self-check is not exactly ready', () => {
@@ -380,7 +379,7 @@ test('S3: refused when the lane is review, there is no ticket, or the self-check
     const r = selfChecked({ files: [f('package.json'), ...SMALL] })
     refused(r, /needs a review, not a self-check \(path package\.json always needs a review\).*pr-reviewer/)
     refused(selfChecked({ labels: ['Security'] }), /needs a review.*label Security/)
-    refused(selfChecked({ body: 'no ticket' }), /no "Ticket #N" in the PR body/)
+    refused(selfChecked({ body: 'no ticket' }), /no "Ticket #N" in the PR title or body/)
     refused(selfChecked({ files: [f('.github/workflows/ci.yml'), ...SMALL] }), /needs a review/)
     refused(selfChecked({ cfgOver: { review: { self_check: false } } }), /self-check is off in this repo.*pr-reviewer/)
     assert.equal(selfChecked({ cfgOver: { review: { self_check_max_files: 1, self_check_max_lines: 1, self_check_untested_lines: null } }, files: [f('src/a.js', 1), f('tests/a.test.mjs', 50)] }).status, 0)   // thresholds come from the config
@@ -395,8 +394,8 @@ test('S4: fix delta: a ready pr-reviewer review of an ancestor plus a small delt
     refused(selfChecked({ files: BIG, reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js'), f('package.json')]) }), /touches package\.json, which always needs a review/)
     refused(selfChecked({ files: BIG, reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js')], 2) }), /not a plain descendant/)
     const needed = review({ id: 70, commit_id: ANCESTOR, body: NEEDED.replace(SHA7, ANCESTOR.slice(0, 7)) })
-    refused(selfChecked({ files: BIG, reviews: [needed, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /no ready pr-reviewer review of an earlier head/)
-    refused(selfChecked({ files: BIG, reviews: [PRIOR, { ...needed, id: 71 }, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /no ready pr-reviewer review/)   // the latest review decides
+    refused(selfChecked({ files: BIG, reviews: [needed, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /is not a ready verdict/)
+    refused(selfChecked({ files: BIG, reviews: [PRIOR, { ...needed, id: 71 }, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /is not a ready verdict/)   // the latest review decides
     refused(selfChecked({ files: BIG, reviews: [review({ body: SELF })] }), /too big for a self-check.*no ready pr-reviewer review/)
     // a path or label reason is never rescued by a small delta
     refused(selfChecked({ files: [f('package.json'), ...BIG], reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /needs a review, not a self-check/)
@@ -411,4 +410,39 @@ test('S5: --self-checked cannot be combined with --reviewed-by or --review-resul
     }
     refused(selfChecked({ extra: { [`${R}/pulls/5/files`]: { __status: 502, __stderr: 'boom' } } }), /cannot read/)
     refused(selfChecked({ files: SMALL, extra: { [`${R}/pulls/5/files`]: [] } }), /needs a review.*file list is incomplete/)
+})
+
+test('S6: pr-wait does not list our own self-check as an external reviewer', () => {
+    const p = pull({ body: 'Ticket #7', changed_files: 1 })
+    const r = run({ script: `${core}scripts/pr-wait.mjs`, args: ['5', '--once'], pulls: seq(p), reviews: [review({ body: SELF })], extra: { [`${R}/pulls/5/files`]: [f('src/a.js')] } })
+    assert.match(r.stdout, /^Review: none$/m, r.stdout + r.stderr)
+    assert.doesNotMatch(r.stdout, /Review me|\(me\)/)
+})
+
+test('S7: a self-check never answers an earlier "changes needed" of pr-reviewer; a later ready review does', () => {
+    const needed = review({ id: 70, commit_id: ANCESTOR, body: NEEDED.replace(SHA7, ANCESTOR.slice(0, 7)) })
+    refused(selfChecked({ reviews: [needed, review({ body: SELF })] }), /last pr-reviewer review \(2222222\) is not a ready verdict: a self-check does not answer it/)
+    const ready = review({ id: 71, commit_id: OLD, body: READY.replace(SHA7, OLD.slice(0, 7)) })
+    assert.equal(selfChecked({ reviews: [needed, ready, review({ body: SELF })] }).status, 0)
+    refused(selfChecked({ reviews: [{ ...needed, state: 'COMMENTED', body: `\n${needed.body}` }, review({ body: SELF })] }), /is not a ready verdict/)   // a blank first line does not hide it
+})
+
+test('S8: the fix-delta base is checked like a review of record: state, the commit its header names, an unreadable delta, a floor path in a rename, 300 files, a review of the head itself', () => {
+    const go = (prior, deltaFixture, over = {}) => selfChecked({ files: BIG, reviews: [prior, review({ body: SELF })], extra: deltaFixture, ...over })
+    refused(go({ ...PRIOR, state: 'CHANGES_REQUESTED' }, delta([f('src/a.js')])), /is not a ready verdict/)
+    refused(go({ ...PRIOR, body: READY.replace(SHA7, OLD.slice(0, 7)) }, delta([f('src/a.js')])), /is not a ready verdict/)   // the header names another commit than the one the review is attached to
+    refused(go(PRIOR, { [`${R}/compare/${ANCESTOR}...${HEAD}`]: { behind_by: 0 } }), /not a plain descendant/)   // no files at all
+    refused(go(PRIOR, delta([{ filename: 'src/a.js' }])), /fix delta since 2222222 could not be read/)
+    refused(go(PRIOR, delta([{ filename: 'src/new.js', previous_filename: 'package.json', additions: 1, deletions: 0 }])), /touches package\.json, which always needs a review/)
+    refused(go(PRIOR, delta(Array.from({ length: 300 }, (_, i) => f(`src/x${i}.js`, 0)))), /too long to read/)
+    // a ready pr-reviewer review of the head itself is no base: the self-check came after it, on the same head
+    refused(selfChecked({ files: BIG, reviews: [review({ id: 70 }), review({ body: SELF })] }), /too big for a self-check.*no ready pr-reviewer review of an earlier head/)
+})
+
+test('S9: the ticket labels are read from every named ticket; a named pull request or an unreadable ticket refuses', () => {
+    const issues = { [`${R}/issues/8`]: { labels: [{ name: 'Security' }] } }
+    refused(selfChecked({ body: 'Ticket #7\nTicket #8', extra: issues }), /needs a review.*label Security/)
+    refused(selfChecked({ extra: { [`${R}/issues/7`]: { labels: [], pull_request: {} } } }), /#7 is a pull request, not a ticket/)
+    refused(selfChecked({ extra: { [`${R}/issues/7`]: { __status: 404, __stderr: 'gone' } } }), /cannot read/)
+    refused(selfChecked({ files: [f('src/a.js'), { filename: 'tests/a.test.mjs' }] }), /file list is unreadable/)
 })

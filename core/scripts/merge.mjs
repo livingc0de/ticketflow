@@ -31,8 +31,7 @@ import { fileURLToPath } from 'node:url'
 import { cli } from '../lib/cli.mjs'
 import { configPath } from '../lib/config.mjs'
 import { GhError, api, gql, isNumber } from '../lib/gh.mjs'
-import { ALWAYS_REVIEW } from '../lib/config.mjs'
-import { laneOfPull } from '../lib/risk.mjs'
+import { alwaysReviewHit, laneOfPull } from '../lib/risk.mjs'
 
 const { values, positionals: [pr], cfg } = cli(import.meta.url, 'merge', '<pr> [--reviewed-by <login> [--review-result-url <url>] | --self-checked] [--config f]', { 'reviewed-by': { type: 'string' }, 'review-result-url': { type: 'string' }, 'self-checked': { type: 'boolean' } },
     (p, v) => p.length === 1 && isNumber(p[0]) && (v['reviewed-by'] === undefined || /^[\w.[\]-]+$/.test(v['reviewed-by'])) &&
@@ -63,6 +62,7 @@ const isReady = (body) => {
 const stop = (message) => { console.error(`merge: not merged: ${message}`); return 1 }
 
 const NEXT = (sha7) => `run pr-reviewer on the head (a delta review since ${sha7} is enough)`
+const readyReview = (x) => { const named = READ_HEAD.exec(x.body ?? '')?.[1]; return (x.state === 'COMMENTED' || x.state === 'APPROVED') && isReady(x.body) && named !== undefined && x.commit_id.startsWith(named) }   // the header names the commit the review is attached to
 /**
  * The review of record for --self-checked. Returns a refusal string, or { lane }. `own` is this account's last verdict review on the head
  * (the caller already checked that every account's last verdict is exactly ready).
@@ -72,20 +72,22 @@ function selfCheck(pull, head, own, reviews, me) {
     if (!cfg.review.self_check) return 'self-check is off in this repo (review.self_check): run pr-reviewer on the head'
     const checked = SELF_HEAD.exec(own?.body ?? '')?.[1]
     if (!own || !checked || !head.startsWith(checked)) return `no self-check of ${sha7}: post a review that starts "Self-check head: ${sha7}" with exactly one "**Verdict:** ready to merge" (template: core/docs/REVIEWERS.md), or ${NEXT('the last reviewed head')}`
+    // this account's latest pr-reviewer review: after a "changes needed" a self-check is not enough, and a ready one is the base of a fix delta
+    const prior = reviews.filter((x) => x.user?.login === me && TRUSTED.has(x.author_association) && x.state !== 'PENDING' && x.state !== 'DISMISSED' && verdictsOf(x.body).length > 0 && !SELF_HEAD.test(x.body ?? '')).at(-1)
+    if (prior && prior.commit_id !== head && !readyReview(prior)) return `the last pr-reviewer review (${prior.commit_id.slice(0, 7)}) is not a ready verdict: a self-check does not answer it, ${NEXT(prior.commit_id.slice(0, 7))}`
     const found = laneOfPull(cfg, pull, pr)
-    if (found.ticket === null) return 'no "Ticket #N" in the PR body: a self-check is for ticket work only'
+    if (found.ticket === null) return `no "Ticket #N" in the PR title or body: a self-check is for ticket work only (add it, or ${NEXT('the last reviewed head')})`
     if (found.lane === 'self-check') return { lane: 'small diff' }
-    const why = `${found.reasons.join('; ')}`
+    const why = found.reasons.join('; ')
     if (!found.size) return `this PR needs a review, not a self-check (${why}): ${NEXT('the last reviewed head')}`
     // mode B: the reasons are only size ones; a small fix delta after a ready pr-reviewer review is still a self-check
-    const mine = reviews.filter((x) => x.user?.login === me && TRUSTED.has(x.author_association) && x.state !== 'PENDING' && x.state !== 'DISMISSED' && READ_HEAD.test(x.body ?? ''))
-    const prior = mine.at(-1)
-    if (!prior || prior.commit_id === head || !isReady(prior.body)) return `this PR is too big for a self-check (${why}) and has no ready pr-reviewer review of an earlier head to build on: ${NEXT('the last reviewed head')}`
+    if (!prior || prior.commit_id === head) return `this PR is too big for a self-check (${why}) and has no ready pr-reviewer review of an earlier head to build on: ${NEXT('the last reviewed head')}`
     const since = prior.commit_id.slice(0, 7)
     const delta = api(`${R}/compare/${prior.commit_id}...${head}`)
-    if (delta.behind_by !== 0 || delta.files?.length >= 300) return `the head is not a plain descendant of the reviewed commit ${since} (or the delta is too long to read): ${NEXT(since)}`
-    const risky = delta.files.find((f) => [f.filename, f.previous_filename].some((n) => typeof n === 'string' && [...ALWAYS_REVIEW, ...cfg.review.always_review].some((re) => re.test(n))))
-    if (risky) return `the fix delta since ${since} touches ${risky.filename}, which always needs a review: ${NEXT(since)}`
+    if (delta.behind_by !== 0 || !Array.isArray(delta.files) || delta.files.length >= 300) return `the head is not a plain descendant of the reviewed commit ${since} (or the delta is too long to read): ${NEXT(since)}`
+    if (!delta.files.every((f) => typeof f?.filename === 'string' && Number.isInteger(f.additions) && Number.isInteger(f.deletions))) return `the fix delta since ${since} could not be read: ${NEXT(since)}`
+    const risky = delta.files.find((f) => alwaysReviewHit(f, cfg))
+    if (risky) return `the fix delta since ${since} touches ${alwaysReviewHit(risky, cfg)}, which always needs a review: ${NEXT(since)}`
     const lines = delta.files.reduce((n, f) => n + f.additions + f.deletions, 0)
     if (lines > cfg.review.fix_check_max_lines) return `the fix delta since ${since} is ${lines} lines (limit ${cfg.review.fix_check_max_lines}): ${NEXT(since)}`
     return { lane: `fix delta since ${since}` }
