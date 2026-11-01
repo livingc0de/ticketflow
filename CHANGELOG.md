@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.1
+
+### Highlights
+
+- **`review.always_review` adds to the defaults instead of replacing them.** In 0.6.0 a repo that listed only its own sensitive paths silently
+  lost the built-in ones (dependency files, lockfiles, migrations, `.sql`). The list now adds to them, and the new
+  `review.default_always_review: false` switches the defaults off. The change can only send more pull requests to review, never fewer.
+
+### What You Need To Do When Upgrading From 0.6.0
+
+Nothing is required. If your `always_review` was a copy of the defaults plus your own paths, delete the copy. If you used `[]` or your own
+list to drop the defaults, set `review.default_always_review` to `false`. Details: [UPGRADING.md](core/docs/UPGRADING.md).
+
 ## 0.6.0
 
 ### Highlights
@@ -23,7 +36,7 @@
 
 Nothing is required: a config without a `review` section parses to defaults, the schema stays at version 2, and `sync` refreshes the
 generated files. To keep the old behaviour of a review on every pull request, set `review.self_check` to `false`. Add the paths where
-a small change is still dangerous (auth, billing, permissions) to `review.always_review`; the default list covers dependency files and
+a small change is still dangerous (auth, billing, permissions) to `review.always_review` (0.6.0: this list replaced the defaults, since 0.6.1 it adds to them); the default list covers dependency files and
 lockfiles, migrations and `.sql`. Your PR template keeps its old Change Impact section until you re-render it. Details:
 [UPGRADING.md](core/docs/UPGRADING.md).
 

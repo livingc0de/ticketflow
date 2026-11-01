@@ -43,7 +43,8 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `review.self_check_max_lines` | integer 1..2000: most added plus deleted lines in those files | `80` | `merge`, `risk` |
 | `review.self_check_untested_lines` | integer 1..2000 or `null` (off): more changed code lines than this with no test file touched need a review | `10` | `merge`, `risk` |
 | `review.fix_check_max_lines` | integer 1..2000: most added plus deleted lines of the fix delta since a ready review | `30` | `merge` |
-| `review.always_review` | list of regexes: paths that always need a review. The default covers dependency manifests and lockfiles, `migrations/` directories and `.sql` files; `[]` removes it. Add your auth, billing or permission paths | the default list | `merge`, `risk` |
+| `review.always_review` | list of regexes: your paths that always need a review, added to the built-in defaults (dependency manifests and lockfiles, `migrations/` directories, `.sql` files). Add your auth, billing or permission paths, and the whole runtime of a repo where it is not `.ticketflow/` | `[]` | `merge`, `risk` |
+| `review.default_always_review` | boolean: `false` drops the built-in defaults above, so only `always_review` (and the built-in floor below) applies | `true` | `merge`, `risk` |
 
 `gate.context` and `gate.check` must differ: the verdict is the commit status, and the Actions workflow-runs/jobs APIs are
 only read to detect a refused Actions run.

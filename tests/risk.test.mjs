@@ -29,15 +29,17 @@ test('size: too many code files, too many code lines, untested code', () => {
     review([f('src/a.js', 81), f('tests/a.test.mjs')])
 })
 
-test('paths: the built-in floor, the default always_review list, and the config replacing the list', () => {
+test('paths: the built-in floor, the default always_review list, the config adding to it or switching it off', () => {
     for (const path of ['.github/workflows/ci.yml', '.ticketflow/config.json', '.env.local', 'app/.env', '.claude/settings.json', '.codex/rules/x.rules', 'AGENTS.md', 'docs/CLAUDE.md', '.github/copilot-instructions.md', '.github/agents/x.md', 'x/.claude-plugin/plugin.json', 'gemini-extension.json']) {
         const r = review([f(path), f('tests/a.test.mjs')])
         assert.equal(r.size, false)
         assert.match(r.reasons[0], /always needs a review/)
     }
     for (const path of ['package.json', 'web/package-lock.json', 'go.sum', 'db/migrations/1.sql', 'x/migration/2.ts', 'schema.sql']) review([f(path), f('tests/a.test.mjs')])
-    selfCheck([f('package.json'), f('tests/a.test.mjs')], [], { review: { always_review: [] } })   // the owner may drop the defaults
-    review([f('.github/workflows/ci.yml')], [], { review: { always_review: [] } })   // ... but never the floor
+    selfCheck([f('package.json'), f('tests/a.test.mjs')], [], { review: { default_always_review: false } })   // the owner may switch the defaults off
+    review([f('.github/workflows/ci.yml')], [], { review: { default_always_review: false } })   // ... but never the floor
+    review([f('package.json'), f('tests/a.test.mjs')], [], { review: { always_review: ['^src/auth/'] } })   // a configured list keeps the defaults
+    review([f('src/auth/login.js'), f('tests/a.test.mjs')], [], { review: { default_always_review: false, always_review: ['^src/auth/'] } })
     review([f('src/auth/login.js'), f('tests/a.test.mjs')], [], { review: { always_review: ['^src/auth/'] } })
     review([f('core/lib/config.mjs'), f('tests/a.test.mjs')], [], { review: { always_review: ['^core/(lib|scripts)/'] } })   // a repo whose runtime lives in core/
     review([f('src/new.js', 1, 0, { previous_filename: '.github/workflows/old.yml' })])   // a rename from a floor path
