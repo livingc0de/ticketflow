@@ -77,6 +77,8 @@ test('W2 preserves existing issue coverage independent of workflow-specific stat
   assert.equal(tracked.steps.issue_tracking,true);
   assert.equal(tracked.process.issues_closed_and_linked,0);
   assert.equal(tracked.process.issues_handed_off_or_closed,1);
+  assert.equal(tracked.process.issue_coverage,1);
+  assert.equal(tracked.process.issue_closed_coverage,0);
 });
 test('W3 reports dependent issue coverage without prescribing the workflow',()=>{
   const source=[issue(1),issue(2),issue(3)];
@@ -175,7 +177,12 @@ test('coordination is observed separately from delivery and allows one integrate
     ['2026-10-30T10:00:00Z','2026-10-30T10:05:00Z','2026-10-30T09:00:00Z'][i]}));
   const result=evidence('W3',{seeded:[1,2,3],issues:rows,prs:[pr(8,'Closes #1 #2 #3')]});
   assert.equal(result.pipeline,true);
-  assert.equal(result.process.coordination.dependency_order_violations,2);
+  assert.equal(result.process.coordination.dependency_order_violations,0); // one integrated merge has no observable order violation
+  const outOfOrder=[pr(11,'Closes #3'),pr(12,'Closes #1'),pr(13,'Closes #2')];
+  outOfOrder[0].mergedAt='2026-10-30T09:00:00Z';
+  outOfOrder[1].mergedAt='2026-10-30T10:00:00Z';
+  outOfOrder[2].mergedAt='2026-10-30T10:05:00Z';
+  assert.equal(evidence('W3',{seeded:[1,2,3],issues:rows,prs:outOfOrder}).process.coordination.dependency_order_violations,2);
   assert.equal(result.process.coordination.linked_seeded_per_merged_pr[0].count,3);
 });
 test('pipeline gates remain independent of hidden code correctness',()=>{

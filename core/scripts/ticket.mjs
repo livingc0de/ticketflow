@@ -2,7 +2,7 @@
 /**
  * The recurring ticket steps as one call each, safe to repeat.
  *
- * Usage: ticket.mjs claim <issue> [--config f]      body on stdin: assign @me, Status "In Progress" (when a project is set), then the claim comment
+ * Usage: ticket.mjs claim <issue> [--config f]      body on stdin with `Tier: low|normal|high|critical`: assign @me, add the review-floor label if high/critical, Status "In Progress" (when a project is set), then the claim comment
  *        ticket.mjs handoff <issue> --pr <pr> [--config f]   body on stdin: Status "In Review" (when a project is set), then the summary comment
  *
  * The comment starts with a hidden marker (`<!-- ticketflow:claim -->` / `<!-- ticketflow:summary pr=<pr> -->`) and is skipped when the current

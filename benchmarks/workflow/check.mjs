@@ -321,6 +321,11 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
   // Coordination is observed independently from code correctness and pipeline gates.
   // A single well-integrated PR is valid; PR count alone never earns orchestration points.
   const seededClosed=seeded.filter(i=>i.closed_at&&Number.isFinite(Date.parse(i.closed_at)));
+  // Dependency delivery is observed at merge, not at an issue-close click that may never happen.
+  const mergedAtForIssue=i=>{
+    const times=merged.filter(pr=>textLinks(i.number,pr.body??'')).map(pr=>Date.parse(pr.mergedAt)).filter(Number.isFinite);
+    return times.length?Math.min(...times):NaN;
+  };
   const dependencies=id==='W3'&&seededIssues.length===3 ? [
     {from:seededIssues[2],to:seededIssues[0]},
     {from:seededIssues[2],to:seededIssues[1]},
@@ -328,7 +333,7 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
   const seededByNumber=new Map(seeded.map(i=>[i.number,i]));
   const ordering=dependencies.map(({from,to})=>{
     const dependent=seededByNumber.get(from),prerequisite=seededByNumber.get(to);
-    const a=Date.parse(dependent?.closed_at??''),b=Date.parse(prerequisite?.closed_at??'');
+    const a=dependent?mergedAtForIssue(dependent):NaN,b=prerequisite?mergedAtForIssue(prerequisite):NaN;
     return {from,to,observed:Number.isFinite(a)&&Number.isFinite(b),
       violation:Number.isFinite(a)&&Number.isFinite(b)&&a<b};
   });
@@ -363,7 +368,8 @@ export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],
   const process={seeded_issues:seeded.length,agent_created_issues:created.length,
     created_linked:optionalNewIssuesLinked.length,issue_total:issues.length,
     issues_linked:linked.length,issues_closed:closed.length,issues_closed_and_linked:closedTracked.length,issues_handed_off_or_closed:deliveredTracked.length,
-    issue_coverage:seededIssues.length?seededIssues.filter(n=>linked.some(i=>i.number===n&&i.state==='closed')).length/seededIssues.length:null,
+    issue_coverage:seededIssues.length?seededIssues.filter(n=>deliveredTracked.some(i=>i.number===n)).length/seededIssues.length:null,
+     issue_closed_coverage:seededIssues.length?seededIssues.filter(n=>closedTracked.some(i=>i.number===n)).length/seededIssues.length:null,
     planning,review:reviewRelevant,pr_count:prs.length,merged_pr_count:merged.length,
     plan_artifacts:plans,tracking,issue_tracking:issueTracking,
     issue_breakdown:id==='W6'?issueBreakdown:null,
