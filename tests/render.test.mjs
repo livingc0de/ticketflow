@@ -243,7 +243,7 @@ test('the config skeleton lists every key explicitly and passes validate()', () 
     const cfg = validate(skeleton)
     assert.deepEqual(Object.keys(skeleton), Object.keys(cfg))
     for (const k of ['verify', 'gate', 'docs_only', 'ci']) assert.deepEqual(Object.keys(skeleton[k]), Object.keys(cfg[k]), k)
-    assert.deepEqual(Object.keys(skeleton.review), Object.keys(cfg.review).filter((k) => k !== 'always_review'))   // the default always_review list stays implicit: `[]` would remove it
+    assert.deepEqual(Object.keys(skeleton.review).sort(), Object.keys(cfg.review).sort())   // `always_review: []` adds nothing to the defaults
     assert.deepEqual(Object.keys(skeleton.models), ['default', 'claude', 'codex', 'cursor', 'gemini', 'opencode', 'antigravity', 'copilot'])
     assert.deepEqual(skeleton.models, {
         default: { strong: null, standard: null, light: null },

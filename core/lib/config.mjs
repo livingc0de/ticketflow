@@ -24,7 +24,7 @@ export const MIGRATIONS = {
 export const NEVER_DOCS = Object.freeze([/^\.ticketflow\//, /^\.github\/workflows\//])
 /** Built-in floor of the self-check lane (`risk.mjs`): paths that change the gate, what an agent may run, or secrets always need a review. */
 export const ALWAYS_REVIEW = Object.freeze([/^\.github\/workflows\//, /^\.ticketflow\//, /(^|\/)\.env/, /^\.(claude|codex|cursor|gemini|opencode|agents)\//, /(^|\/)(AGENTS|CLAUDE|GEMINI)\.md$/, /^\.github\/(agents|instructions|hooks|prompts)\//, /^\.github\/copilot-instructions\.md$/, /(^|\/)\.[\w-]*-plugin\//, /(^|\/)gemini-extension\.json$/])
-/** Defaults of `review.always_review`: sensible for most repos, but the owner may edit or drop them (`[]`). */
+/** Defaults of the effective `review.always_review`: sensible for most repos. A configured list adds to them; `review.default_always_review: false` drops them. */
 const DEFAULT_ALWAYS_REVIEW = [
     /(^|\/)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|requirements[^/]*\.txt|pyproject\.toml|go\.(mod|sum)|Cargo\.(toml|lock)|Gemfile(\.lock)?|composer\.(json|lock))$/,   // dependencies
     /(^|\/)migrations?\//, /\.sql$/,   // schema and data
@@ -137,7 +137,8 @@ const parse = section({
         self_check_max_lines: [int(1, 2000), 80],
         self_check_untested_lines: [orNull(int(1, 2000)), 10],
         fix_check_max_lines: [int(1, 2000), 30],
-        always_review: [list(regex()), DEFAULT_ALWAYS_REVIEW],   // already compiled: `section` only parses object defaults
+        default_always_review: [bool, true],
+        always_review: [list(regex()), []],   // added to the defaults in `validate`
     }), {}],
     ci: [section({ push_paths: [orNull(list(glob)), null] }), {}],
 })
@@ -154,6 +155,8 @@ export function validate(raw) {
         if (raw.schema_version > SCHEMA_VERSION) fail(`config schema_version ${raw.schema_version} is newer than this core's ${SCHEMA_VERSION}: core older than config: sync`)
     }
     const cfg = parse(raw, '')
+    // the effective list is computed once, here: every consumer reads `cfg.review.always_review` and gets the defaults plus the configured paths
+    cfg.review.always_review = [...(cfg.review.default_always_review ? DEFAULT_ALWAYS_REVIEW : []), ...cfg.review.always_review]
     if (cfg.deploy_branch === cfg.default_branch) fail('deploy_branch must differ from default_branch')
     if (cfg.project?.number === 0 && cfg.project.title === null) fail('project.title is required while project.number is 0')
     if (cfg.deploy_branch !== null && cfg.ci.push_paths?.length) fail('ci.push_paths must be null or [] while deploy_branch is set: the deploy signal needs every push')
