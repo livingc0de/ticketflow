@@ -20,6 +20,7 @@
   state machines, subscription decomposition and four parallel tickets; W1 stays a cheap control. Delivery counts any review or done board column,
   dependency order is measured at merge, and every hidden requirement is stated in the issue text.
 - **`UPGRADING.md` no longer repeats the changelog.** It describes how an upgrade works; what to do for a release is in that release's section here.
+- **OpenCode ask rules are no longer masked.** `render` treated a narrower existing ask (such as `git push ? main`) or an ask followed by an overlapping allow as already covering a guard pattern, so the guard ask was never added. It now counts only an exact ask that no later allow overlaps.
 
 ### What You Need To Do When Upgrading From 0.6.3
 

@@ -740,3 +740,118 @@ test('opencode: deciding a pattern is linear (a hostile many-star rule cannot ha
     const win = mergeOpencodeAsk(JSON.stringify({ permission: { bash: { 'GIT PUSH --force *': 'deny' } } }), ['git push * main', 'gh pr merge'], base)
     assert.deepEqual(Object.keys(JSON.parse(win.text).permission.bash), ['GIT PUSH --force *', 'gh pr merge'])
 })
+
+
+// A narrower ask (`?`) or a later overlapping allow must not count as covering the guard pattern.
+const ocBase = { $schema: 'https://opencode.ai/config.json' }
+const ocPatterns = ['git push * main']
+
+
+const ocGlob = (glob, text) => {
+  const run = (pattern, value) => {
+    let i = 0
+    let j = 0
+    let star = -1
+    let back = 0
+    while (j < value.length) {
+      if (pattern[i] === '*') {
+        star = i++
+        back = j
+      } else if (i < pattern.length && (pattern[i] === '?' || pattern[i] === value[j])) {
+        i++
+        j++
+      } else if (star >= 0) {
+        i = star + 1
+        j = ++back
+      } else return false
+    }
+    while (pattern[i] === '*') i++
+    return i === pattern.length
+  }
+  return run(glob, text) || (glob.endsWith(' *') && run(glob.slice(0, -2), text))
+}
+
+const decide = (rules, command) =>
+  rules.findLast(({ resource }) => ocGlob(resource, command))?.effect
+
+test('mergeOpencodeAsk: OpenCode V1 adds a guard when an existing ask is narrower', () => {
+  const first = mergeOpencodeAsk(
+    JSON.stringify({ permission: { bash: { 'git push ? main': 'ask' } } }),
+    ocPatterns,
+    ocBase,
+  )
+  const bash = JSON.parse(first.text).permission.bash
+  assert.equal(bash['git push * main'], 'ask')
+  assert.equal(
+    decide(
+      Object.entries(bash).map(([resource, effect]) => ({ resource, effect })),
+      'git push origin main',
+    ),
+    'ask',
+  )
+  assert.equal(mergeOpencodeAsk(first.text, ocPatterns, ocBase).text, first.text)
+})
+
+test('mergeOpencodeAsk: OpenCode V1 guards overlap later wildcard allows', () => {
+  const first = mergeOpencodeAsk(
+    JSON.stringify({
+      permission: {
+        bash: { '*': 'ask', 'git push ? main': 'allow', 'git push origin *': 'allow' },
+      },
+    }),
+    ocPatterns,
+    ocBase,
+  )
+  const bash = JSON.parse(first.text).permission.bash
+  assert.equal(bash['git push * main'], 'ask')
+  assert.equal(mergeOpencodeAsk(first.text, ocPatterns, ocBase).text, first.text)
+})
+
+test('mergeOpencodeAsk: OpenCode V2 adds a guard when an existing ask is narrower', () => {
+  const first = mergeOpencodeAsk(
+    JSON.stringify({
+      permissions: [{ action: 'shell', resource: 'git push ? main', effect: 'ask' }],
+    }),
+    ocPatterns,
+    ocBase,
+  )
+  const permissions = JSON.parse(first.text).permissions
+  assert.deepEqual(permissions.at(-1), {
+    action: 'shell',
+    resource: 'git push * main',
+    effect: 'ask',
+  })
+  assert.equal(decide(permissions, 'git push origin main'), 'ask')
+  assert.equal(mergeOpencodeAsk(first.text, ocPatterns, ocBase).text, first.text)
+})
+
+test('mergeOpencodeAsk: OpenCode V2 guards overlap later wildcard allows', () => {
+  const first = mergeOpencodeAsk(
+    JSON.stringify({
+      permissions: [
+        { action: 'shell', resource: '*', effect: 'ask' },
+        { action: 'shell', resource: 'git push ? main', effect: 'allow' },
+        { action: 'shell', resource: 'git push origin *', effect: 'allow' },
+      ],
+    }),
+    ocPatterns,
+    ocBase,
+  )
+  const permissions = JSON.parse(first.text).permissions
+  assert.deepEqual(permissions.at(-1), {
+    action: 'shell',
+    resource: 'git push * main',
+    effect: 'ask',
+  })
+  assert.equal(mergeOpencodeAsk(first.text, ocPatterns, ocBase).text, first.text)
+})
+
+test('overlapping explicit denies remain authoritative', () => {
+  const result = mergeOpencodeAsk(
+    JSON.stringify({ permission: { bash: { 'git push --force *': 'deny' } } }),
+    ocPatterns,
+    ocBase,
+  )
+  assert.equal(JSON.parse(result.text).permission.bash['git push * main'], undefined)
+  assert.match(result.notes[0], /kept your deny/)
+})

@@ -270,8 +270,12 @@ function globMatch(g, text) {
     return run(g, text) || (g.endsWith(' *') && run(g.slice(0, -2), text))
 }
 
-/** What decides `text` among ordered `[glob, effect]` rules (the last match wins, as in OpenCode): `[glob, effect]` or null. */
-const decider = (rules, text) => rules.findLast(([glob]) => globMatch(glob, text)) ?? null
+/** Whether a later allow overlaps an exact ask rule for the pattern. Broader asks are not assumed to contain it. */
+function laterAllowOverlaps(rules, text) {
+    let lastAsk = -1
+    rules.forEach(([glob, effect], i) => { if (effect === 'ask' && glob === text) lastAsk = i })
+    return lastAsk >= 0 && rules.some(([glob, effect], i) => i > lastAsk && effect === 'allow' && overlaps(glob, text))
+}
 
 /** Whether some string matches both OpenCode globs (`*` any run, `?` one character; a trailing ` *` is optional). Exact, by walking both globs together. */
 function overlaps(a, b) {
@@ -299,8 +303,9 @@ function overlaps(a, b) {
  * OpenCode asks before the bypass forms (it has no hook command): `patterns` become ask rules, in `permissions` when the file already
  * uses the V2 array, else in the V1 `permission.bash` map (V2 reads it too). OpenCode applies the last matching rule, so an ask added
  * after a deny would turn that deny into a prompt (and `opencode --auto` approves prompts): a pattern is skipped, with one note for the
- * render, when ANY deny of the owner's could match a command the pattern also matches (`overlaps`). Otherwise an ask that already
- * decides the pattern is left alone, and anything else gets the ask rule last (a V1 key moves to the end), so a later broader allow cannot win.
+ * render, when ANY deny of the owner's could match a command the pattern also matches (`overlaps`). Otherwise an exact ask already
+ * present for the pattern is left alone; broader asks are not assumed to contain it, and anything else gets the ask rule last (a V1
+ * key moves to the end), so a later broader allow cannot win.
  * V1 patterns match parsed commands, V2 each part of a compound command. A pattern the guard drops later stays an ask rule; remove it by hand.
  * shortcut: any overlapping deny skips the whole pattern (a `git push --force *` deny also skips `git push * main`; an ask is lost but a deny never is), place the ask rules before such denies if owners ask for it
  */
@@ -318,7 +323,8 @@ export function mergeOpencodeAsk(existing, patterns, base) {
         const add = []
         for (const p of patterns) {
             if (overlapping(p, denies)) continue
-            if (decider([...shellRules, ...add.map((r) => [r.resource, 'ask'])], p)?.[1] !== 'ask') add.push({ action: 'shell', resource: p, effect: 'ask' })
+            const rules = [...shellRules, ...add.map((r) => [r.resource, 'ask'])]
+            if (!rules.some(([glob, effect]) => glob === p && effect === 'ask') || laterAllowOverlaps(rules, p)) add.push({ action: 'shell', resource: p, effect: 'ask' })
         }
         next = add.length ? { ...obj, permissions: [...obj.permissions, ...add] } : obj
     } else {
@@ -330,7 +336,8 @@ export function mergeOpencodeAsk(existing, patterns, base) {
         const merged = { ...bash }
         for (const p of patterns) {
             if (overlapping(p, denies)) continue
-            if (decider([...general, ...Object.entries(merged)], p)?.[1] === 'ask') continue
+            const rules = [...general, ...Object.entries(merged)]
+            if (rules.some(([glob, effect]) => glob === p && effect === 'ask') && !laterAllowOverlaps(rules, p)) continue
             if (merged[p] !== undefined && merged[p] !== 'ask') notes.push(`permission.bash[${JSON.stringify(p)}] was ${JSON.stringify(merged[p])}, now "ask" (moved last)`)
             delete merged[p]
             merged[p] = 'ask'
