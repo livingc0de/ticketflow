@@ -3,7 +3,7 @@
  * The only way an agent merges: checks every gate on the exact head, then merges with a method the repo allows (squash, else rebase,
  * else a merge commit: the repo's settings and every rule on the base must allow it). Never `--admin`, never `--auto`.
  *
- * Usage: merge.mjs <pr> [--reviewed-by <login>] [--review-result-url <url>] [--config f]
+ * Usage: merge.mjs <pr> [--reviewed-by <login> [--review-result-url <url>] | --self-checked] [--config f]
  *
  * Gates (any doubt, including an unreadable one, is "not met"): the PR is open, not a draft, and based on the default branch;
  * `gate.context` is `success` on exactly the head; the head contains the default branch; `pr-wait --once` exits 0 and prints exactly
@@ -15,6 +15,9 @@
  * of the head is either this account's own pr-reviewer review (it starts `Reviewed head: <sha>` naming the head), or, with
  * `--reviewed-by <login>`, that reviewer's `result` on the head in the pr-wait summary, its unedited `first comment` only with --review-result-url naming the exact evidence the agent inspected (otherwise wait up to 15
  * minutes; it could be a status note): the agent judges completion and acts on findings; merge checks the evidence link and head, not its meaning.
+ * `--self-checked` replaces that review: the agent's own `Self-check head: <sha7>` review on the head (same verdict rules), and the diff itself must
+ * qualify (`core/lib/risk.mjs`: a ticket, no risky label or path, small code, tested code), or, after a ready `Reviewed head:` review, a small fix delta
+ * since it. The script verifies the facts of the diff; it cannot tell how careful the self-check was (core/docs/REVIEWERS.md).
  * Merge reads no repository permission: GitHub's own rules (a ruleset, branch protection, required reviews) are what enforce who may merge.
  * The merge passes `--match-head-commit`, so a push after the checks fails the merge; the base is read again right before it, so a base
  * that moved after the slow reads is refused.
@@ -28,10 +31,13 @@ import { fileURLToPath } from 'node:url'
 import { cli } from '../lib/cli.mjs'
 import { configPath } from '../lib/config.mjs'
 import { GhError, api, gql, isNumber } from '../lib/gh.mjs'
+import { ALWAYS_REVIEW } from '../lib/config.mjs'
+import { laneOfPull } from '../lib/risk.mjs'
 
-const { values, positionals: [pr], cfg } = cli(import.meta.url, 'merge', '<pr> [--reviewed-by <login>] [--review-result-url <url>] [--config f]', { 'reviewed-by': { type: 'string' }, 'review-result-url': { type: 'string' } },
+const { values, positionals: [pr], cfg } = cli(import.meta.url, 'merge', '<pr> [--reviewed-by <login> [--review-result-url <url>] | --self-checked] [--config f]', { 'reviewed-by': { type: 'string' }, 'review-result-url': { type: 'string' }, 'self-checked': { type: 'boolean' } },
     (p, v) => p.length === 1 && isNumber(p[0]) && (v['reviewed-by'] === undefined || /^[\w.[\]-]+$/.test(v['reviewed-by'])) &&
-        (v['review-result-url'] === undefined || (v['reviewed-by'] !== undefined && /^https:\/\/[^\s]+$/.test(v['review-result-url']))))
+        (v['review-result-url'] === undefined || (v['reviewed-by'] !== undefined && /^https:\/\/[^\s]+$/.test(v['review-result-url']))) &&
+        !(v['self-checked'] && (v['reviewed-by'] !== undefined || v['review-result-url'] !== undefined)))
 const here = dirname(fileURLToPath(import.meta.url))
 const R = `repos/${cfg.repo}`
 const base = cfg.default_branch
@@ -39,6 +45,7 @@ const base = cfg.default_branch
 const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])   // the pre-filter for a review of record: on a public repo anyone can comment
 const who = (login) => login || 'an unknown account'
 const READ_HEAD = /^Reviewed head: ([0-9a-f]{7,40})\b/
+const SELF_HEAD = /^Self-check head: ([0-9a-f]{7,40})\b/
 // Any spelling of the label counts as a verdict (so a "changes needed" is never missed); only the exact bold line below is ready.
 const verdictsOf = (body) => [...String(body ?? '').matchAll(/^[ \t]*(?:#{1,6}[ \t]+|[-*+][ \t]+)?(?:\*{1,2}|_{1,2})?[ \t]*verdict[ \t]*(?:\*{1,2}|_{1,2})?[ \t]*:[ \t]*(?:\*{1,2}|_{1,2})?[ \t]*(.*?)[ \t]*$/gim)].map((m) => m[1])
 const isReady = (body) => {
@@ -54,6 +61,35 @@ const isReady = (body) => {
 }
 
 const stop = (message) => { console.error(`merge: not merged: ${message}`); return 1 }
+
+const NEXT = (sha7) => `run pr-reviewer on the head (a delta review since ${sha7} is enough)`
+/**
+ * The review of record for --self-checked. Returns a refusal string, or { lane }. `own` is this account's last verdict review on the head
+ * (the caller already checked that every account's last verdict is exactly ready).
+ */
+function selfCheck(pull, head, own, reviews, me) {
+    const sha7 = head.slice(0, 7)
+    if (!cfg.review.self_check) return 'self-check is off in this repo (review.self_check): run pr-reviewer on the head'
+    const checked = SELF_HEAD.exec(own?.body ?? '')?.[1]
+    if (!own || !checked || !head.startsWith(checked)) return `no self-check of ${sha7}: post a review that starts "Self-check head: ${sha7}" with exactly one "**Verdict:** ready to merge" (template: core/docs/REVIEWERS.md), or ${NEXT('the last reviewed head')}`
+    const found = laneOfPull(cfg, pull, pr)
+    if (found.ticket === null) return 'no "Ticket #N" in the PR body: a self-check is for ticket work only'
+    if (found.lane === 'self-check') return { lane: 'small diff' }
+    const why = `${found.reasons.join('; ')}`
+    if (!found.size) return `this PR needs a review, not a self-check (${why}): ${NEXT('the last reviewed head')}`
+    // mode B: the reasons are only size ones; a small fix delta after a ready pr-reviewer review is still a self-check
+    const mine = reviews.filter((x) => x.user?.login === me && TRUSTED.has(x.author_association) && x.state !== 'PENDING' && x.state !== 'DISMISSED' && READ_HEAD.test(x.body ?? ''))
+    const prior = mine.at(-1)
+    if (!prior || prior.commit_id === head || !isReady(prior.body)) return `this PR is too big for a self-check (${why}) and has no ready pr-reviewer review of an earlier head to build on: ${NEXT('the last reviewed head')}`
+    const since = prior.commit_id.slice(0, 7)
+    const delta = api(`${R}/compare/${prior.commit_id}...${head}`)
+    if (delta.behind_by !== 0 || delta.files?.length >= 300) return `the head is not a plain descendant of the reviewed commit ${since} (or the delta is too long to read): ${NEXT(since)}`
+    const risky = delta.files.find((f) => [f.filename, f.previous_filename].some((n) => typeof n === 'string' && [...ALWAYS_REVIEW, ...cfg.review.always_review].some((re) => re.test(n))))
+    if (risky) return `the fix delta since ${since} touches ${risky.filename}, which always needs a review: ${NEXT(since)}`
+    const lines = delta.files.reduce((n, f) => n + f.additions + f.deletions, 0)
+    if (lines > cfg.review.fix_check_max_lines) return `the fix delta since ${since} is ${lines} lines (limit ${cfg.review.fix_check_max_lines}): ${NEXT(since)}`
+    return { lane: `fix delta since ${since}` }
+}
 
 function merge() {
     const pull = api(`${R}/pulls/${pr}`)
@@ -95,14 +131,20 @@ function merge() {
     // pr-reviewer reviews are the submitted reviews of a trusted account that carry a `**Verdict:**` line; the last one of each account on the head must be exactly "ready to merge"
     const me = api('user').login
     const last = new Map()
-    for (const x of api(`${R}/pulls/${pr}/reviews`, { paginate: true })) {
+    const reviews = api(`${R}/pulls/${pr}/reviews`, { paginate: true })
+    for (const x of reviews) {
         if (x.commit_id === head && TRUSTED.has(x.author_association) && x.state !== 'PENDING' && x.state !== 'DISMISSED' && verdictsOf(x.body).length > 0) last.set(x.user?.login, x)
     }
     for (const [login, x] of last) {
         if (!((x.state === 'COMMENTED' || x.state === 'APPROVED') && isReady(x.body))) return stop(`the last verdict of ${who(login)} on ${sha7} is "${verdictsOf(x.body).join(' / ')}", not exactly "ready to merge": fix, push and review again (only that account can lift it)`)
     }
     const named = values['reviewed-by']
-    if (named !== undefined) {
+    let lane = null   // the self-check lane that was used, for the final note
+    if (values['self-checked']) {
+        const refusal = selfCheck(pull, head, last.get(me), reviews, me)
+        if (typeof refusal === 'string') return stop(refusal)
+        lane = refusal.lane
+    } else if (named !== undefined) {
         const line = only(`Review ${named}: `)
         if (!line?.startsWith('result ')) return stop(`${named} has no result on ${sha7} (${line ?? 'no activity on this head'}): name a reviewer that pr-wait lists with a result, or run pr-reviewer on the head\n${summary}`)
         // A first comment can be a complete review or a progress note. The agent must cite the exact result it inspected to use it early;
@@ -134,6 +176,7 @@ function merge() {
     try { after = api(`${R}/pulls/${pr}`) } catch { return stop(`cannot tell whether #${pr} merged: check it before anything else`) }
     if (after.merged === true) {
         console.log(`Merged #${pr} (${method}) as ${after.merge_commit_sha}`)
+        if (lane !== null) console.log(`Merged on a self-check (${lane})`)
         if (named !== undefined) console.log(`Note: merged on the result of ${named} on ${sha7}; merge checked where and when it was posted, the agent read what it says${values['review-result-url'] ? ` (explicit result: ${values['review-result-url']})` : ''}`)
         return 0
     }

@@ -78,8 +78,46 @@ for changes, and a review of the head:
   verdict and lifts none. The label may be spelled `**Verdict:**`, `**Verdict**:`, `Verdict:`, indented or in any case, so a
   `changes needed` is never missed; only the exact bold line is ready.
 
+- **Or `--self-checked`** (the self-check lane): the merging account's own review that starts `Self-check head: <sha7>` and has exactly one
+  `**Verdict:** ready to merge` (template below), on a diff that `risk.mjs` finds small and low-risk, or, after a ready `pr-reviewer`
+  review, a small fix delta. It cannot be combined with `--reviewed-by`.
+
 `merge` reads no repository permission and posts no comment. GitHub's own rules (a ruleset, required approvals, branch protection)
 decide who may merge; to require the owner's approval, see the high-assurance mode in [SECURITY.md](SECURITY.md).
+
+## The self-check lane
+
+A small, low-risk change does not need a second pair of eyes; it needs proof that it is small and low-risk, and `merge` computes that
+from the diff, not from the agent's word. `node core/scripts/risk.mjs <PR>` prints `Lane: self-check` or `Lane: review`, with a `Reason:` line
+per rule that forces a review. `merge --self-checked` runs the same function (`core/lib/risk.mjs`). The lane is `review` when:
+
+- `review.self_check` is `false`, the PR names no `Ticket #N`, or its ticket has a `Security` or a `Needs: ...` label;
+- a changed path (or the old path of a rename) matches the built-in floor (`.github/workflows/`, `.ticketflow/`, `.env` files) or
+  `review.always_review` (by default dependency files and lockfiles, `migrations/`, `.sql`; add your auth and money paths);
+- the non-test, non-docs files exceed `review.self_check_max_files` or `review.self_check_max_lines`, or changed more code lines than
+  `review.self_check_untested_lines` with no test file touched. Tests and docs never count toward the size.
+
+**Fix delta.** If the only reasons are size ones, `merge` still accepts a self-check when the latest `pr-reviewer` review is a ready
+verdict on an earlier commit, the head descends from it, no changed path is in the floor or `always_review`, and the delta is at most
+`review.fix_check_max_lines` lines. A `changes needed` review is never a base. Known limit: a `gh pr update-branch` merge commit
+brings base changes into the delta, which usually exceeds the limit; that fails safe, a review is needed.
+
+The self-check is the agent's own review, posted on the exact head:
+
+```
+Self-check head: <sha7>
+**Verdict:** ready to merge
+**Acceptance criteria:** [x] each, with the evidence (command run and what it printed)
+**Invariant sweep:** each rule of the ticket and the guides, as a question, answered for the whole diff
+**Not checked:** what could not be verified, or none
+```
+
+What this is and is not: a floor from facts (code size, untested code, paths, labels). It does not judge subtle logic or design, it
+cannot tell which model wrote the review or how carefully, and it does not know the tier: whether `high` or `critical` work gets a
+strong `pr-reviewer` stays the skill's rule, and the agent can only go above the floor, never below it. It also does not check
+whether an earlier review asked for changes on an older head; after `changes needed`, the skill asks for a delta review. The thresholds
+and `always_review` are in `.ticketflow/config.json`; a PR that edits them touches `.ticketflow/`, so it always needs a review: an
+agent cannot loosen its own rules on a self-check. The rules bind agents only; the owner can still merge by hand.
 
 ## When merge says no
 
@@ -95,6 +133,8 @@ Every refusal names its reason and the next step.
 | `no review of <sha7>` | Neither an own `pr-reviewer` review of this head nor `--reviewed-by` | Run `pr-reviewer` on the head (a delta review is enough), or pass `--reviewed-by '<login>'` for the external result you acted on |
 | `<login> has no result on <sha7>` | `--reviewed-by` names an account `pr-wait` did not list with a result on this head (another head, no activity, this account or the author) | Name the right account, or run `pr-reviewer` |
 | `the last verdict of <login> ... not exactly "ready to merge"` | That account's newest verdict on the head is `changes needed`, misspelled or the unfilled template | Fix and push, then review again; only that account lifts its own verdict |
+| `self-check is off in this repo` / `no self-check of <sha7>` | `review.self_check` is `false`, or the own review of the head does not start `Self-check head: <sha7>` | Run `pr-reviewer`, or post the self-check (template above) |
+| `this PR needs a review, not a self-check (<reasons>)` / `too big for a self-check` / `fix delta ... lines` | `risk.mjs` found a rule that forces a review, or the fix delta is too big | Run `pr-reviewer` on the head (a delta review since the last one is enough) |
 | `review <id> does not start "Reviewed head: <sha>"` | The own review names another commit or has no first line | Review again |
 | `<base> moved (behind by n)` | The default branch has new commits (checked early and again right before the merge) | `gh pr update-branch <PR>`, wait for the new gate, review the new head, merge again |
 | `CI / Gate is ... on <sha7>` | The gate is not green on this exact commit | Wait for it or fix what failed ([CI-GATE.md](CI-GATE.md)) |
@@ -112,6 +152,7 @@ also dismiss an external reviewer's changes request on GitHub, or merge by hand.
 | No external reviewer pending or asking for changes on the head; a named reviewer's answer is not an unconfirmed first comment | enforced by `merge`, from `pr-wait` | Reviewers are found from their activity (any app, any wording); whether a comment is a review is the agent's reading |
 | A review of the head: the own `pr-reviewer` verdict, or a named `result` | enforced by `merge` | Every trusted account's last verdict must be ready |
 | A reviewer ran, was independent of the author, and an external result says what the agent says it does | **not verifiable** | The review is posted with the agent's own credentials in standard mode, and a result is read by the agent: `merge` proves where and when it was posted. High-assurance mode: [SECURITY.md](SECURITY.md#two-ways-to-run) |
+| A self-check is only used on a small, low-risk diff | enforced by `merge`, from the diff | Floor from facts only: size, untested code, paths, labels. It cannot judge design or the care of the self-check, and it does not read the tier |
 | A review was not edited afterwards by the account that wrote it | **not verifiable** | `merge` reads the body as it is now |
 | Findings are fixed and answered with a reason | convention | Only the threads are gated; a finding left in a review body is not. A finding rejected without a fix, about security, data or correctness, gets a `pr-reviewer` pass on the head |
 | The owner is asked before an inline (non-independent) review is the only one | convention | The skill and the action map say so |

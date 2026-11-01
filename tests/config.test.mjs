@@ -11,11 +11,14 @@ const bad = (over, re) => assert.throws(() => validate(rawConfig(over)), (e) => 
 test('a minimal config loads, with defaults applied and deeply frozen', () => {
     const dir = tempDir()
     const cfg = loadConfig(writeConfig(dir))
+    const { review, ...rest } = cfg
     assert.deepEqual(
-        cfg,
+        rest,
         { schema_version: 2, repo: 'o/r', default_branch: 'main', verify: { mode: 'ci', install: '', command: 'npm test', timeout_min: 45 },
             gate: { context: 'CI / Gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, deploy_branch: null, project: null, agents: [], models: {}, plans_dir: 'docs/plans', worktrees_dir: '.worktrees', live_verify_skill: null, deferred_checks_issue: null, areas: [], environments: [], practices: [], ci: { push_paths: null } })
     assert.ok(Object.isFrozen(cfg) && Object.isFrozen(cfg.verify) && Object.isFrozen(cfg.gate) && Object.isFrozen(cfg.gate.ci_files))
+    assert.deepEqual({ ...review, always_review: undefined }, { self_check: true, self_check_max_files: 4, self_check_max_lines: 80, self_check_untested_lines: 10, fix_check_max_lines: 30, always_review: undefined })
+    assert.ok(review.always_review.length > 0 && review.always_review.every((r) => r instanceof RegExp) && review.always_review.some((r) => r.test('package.json')))
     assert.throws(() => { 'use strict'; cfg.repo = 'x/y' }, TypeError)
 })
 
@@ -271,4 +274,19 @@ test('practices only accepts the shipped practice names', () => {
     assert.equal(PRACTICES.length, 10); assert.ok(Object.isFrozen(PRACTICES))
     assert.deepEqual(validate(rawConfig({ practices: [...PRACTICES] })).practices, [...PRACTICES])
     bad({ practices: ['nope'] }, /practices\[0\] must be one of live-verify/)
+})
+
+test('review: every key is validated, an empty always_review removes the defaults, a bad regex fails closed', () => {
+    assert.deepEqual(validate(rawConfig({ review: { self_check: false, self_check_untested_lines: null, always_review: [] } })).review,
+        { self_check: false, self_check_max_files: 4, self_check_max_lines: 80, self_check_untested_lines: null, fix_check_max_lines: 30, always_review: [] })
+    assert.ok(validate(rawConfig({ review: { always_review: ['^src/auth/'] } })).review.always_review[0].test('src/auth/x.js'))
+    bad({ review: [] }, /review must be an object/)
+    bad({ review: { self_check: 'yes' } }, /review\.self_check must be true or false/)
+    bad({ review: { self_check_max_files: 0 } }, /review\.self_check_max_files must be an integer from 1 to 50/)
+    bad({ review: { self_check_max_lines: 2001 } }, /review\.self_check_max_lines/)
+    bad({ review: { self_check_untested_lines: 0 } }, /review\.self_check_untested_lines/)
+    bad({ review: { fix_check_max_lines: 1.5 } }, /review\.fix_check_max_lines/)
+    bad({ review: { always_review: 'x' } }, /review\.always_review must be a list/)
+    bad({ review: { always_review: ['['] } }, /review\.always_review\[0\] is not a valid regex/)
+    bad({ review: { nope: 1 } }, /unknown key review\.nope/)
 })

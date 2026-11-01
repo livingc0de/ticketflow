@@ -22,6 +22,13 @@ export const MIGRATIONS = {
 
 /** Built-in floors: the config can add to them, never remove them. */
 export const NEVER_DOCS = Object.freeze([/^\.ticketflow\//, /^\.github\/workflows\//])
+/** Built-in floor of the self-check lane (`risk.mjs`): these paths can change the gate itself or leak secrets, so they always need a review. */
+export const ALWAYS_REVIEW = Object.freeze([/^\.github\/workflows\//, /^\.ticketflow\//, /(^|\/)\.env/])
+/** Defaults of `review.always_review`: sensible for most repos, but the owner may edit or drop them (`[]`). */
+const DEFAULT_ALWAYS_REVIEW = [
+    /(^|\/)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|requirements[^/]*\.txt|pyproject\.toml|go\.(mod|sum)|Cargo\.(toml|lock)|Gemfile(\.lock)?|composer\.(json|lock))$/,   // dependencies
+    /(^|\/)migrations?\//, /\.sql$/,   // schema and data
+]
 export const CI_FILE_FLOOR = Object.freeze([/^\.github\//, /^\.ticketflow\//, /^core\//])
 
 const REQUIRED = Symbol('required')
@@ -124,6 +131,14 @@ const parse = section({
     areas: [unique(list(area)), []],
     environments: [unique(list(environment)), []],
     practices: [unique(list(oneOf(...PRACTICES))), []],
+    review: [section({
+        self_check: [bool, true],
+        self_check_max_files: [int(1, 50), 4],
+        self_check_max_lines: [int(1, 2000), 80],
+        self_check_untested_lines: [orNull(int(1, 2000)), 10],
+        fix_check_max_lines: [int(1, 2000), 30],
+        always_review: [list(regex()), DEFAULT_ALWAYS_REVIEW],   // already compiled: `section` only parses object defaults
+    }), {}],
     ci: [section({ push_paths: [orNull(list(glob)), null] }), {}],
 })
 
