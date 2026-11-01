@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { fakeGh, tempDir, writeConfig, config } from './helpers.mjs'
 import { alwaysReviewHit, minimumLane } from '../core/lib/risk.mjs'
+import { loadConfig } from '../core/lib/config.mjs'
 
 const f = (filename, additions = 1, deletions = 0, extra = {}) => ({ filename, additions, deletions, ...extra })
 const lane = (files, labels = [], over = {}) => minimumLane(files, labels, config(over))
@@ -95,4 +96,12 @@ test('fail closed: unreadable entries, code renamed into tests, binary changes, 
 
 test('deleted test lines do not count toward the size (writing and trimming tests is free: documented in REVIEWERS.md)', () => {
     selfCheck([f('src/a.js', 2), f('tests/a.test.mjs', 0, 900)])
+})
+
+test('this repo\'s own config puts its whole runtime (core/) behind a review, defaults included', () => {
+    const own = loadConfig(new URL('../.ticketflow/config.json', import.meta.url).pathname)
+    for (const path of ['core/lib/config.mjs', 'core/scripts/merge.mjs', 'core/skills/implement-ticket/SKILL.md', 'core/agents/pr-reviewer.md', 'core/templates/config.json', 'package.json']) {
+        assert.equal(minimumLane([f(path), f('tests/a.test.mjs')], [], own).lane, 'review', path)
+    }
+    assert.equal(minimumLane([f('README.md', 3), f('tests/a.test.mjs')], [], own).lane, 'self-check')
 })
