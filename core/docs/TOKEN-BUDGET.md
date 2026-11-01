@@ -25,7 +25,7 @@ Every word an agent loads costs time and money, and crowds out the code it shoul
 - One home per rule: the protocol lives in the skills and these docs, not repeated in AGENTS.md.
 - Briefs to sub-agents are compact: a ticket number, the files and the report wanted, never a transcript.
 - Model and effort sit in the generated stubs, so a role runs at its class and effort without being told.
-- Plan by default, but not for easy work: a skipped plan needs its four reasons ([WORKFLOW.md](WORKFLOW.md)).
+- Plan in proportion to the tier: the strong planner only on a trigger, otherwise a short inline plan ([WORKFLOW.md](WORKFLOW.md)).
 
 ## What changed between releases
 
@@ -53,5 +53,5 @@ stubs for that tool only. No skill, role or action map is above the 20,000-byte 
 - The size of the always-loaded files: `wc -c` on the stubs, and `wc -l` between the AGENTS block markers.
 - In Claude Code, `/context` shows what a session loaded.
 - The **Run line** on every ticket's summary comment records tier, models, review rounds, CI runs and whether the fallback ran, so a
-  trend (more rounds, more reruns, skipped plans that grew) shows in the tickets themselves.
+  trend (more rounds, more reruns, inline plans that grew) shows in the tickets themselves.
 - Usage per ticket comes from your agent's own usage tooling; TicketFlow ships no counter. With an existing Claude Code or Codex session capture, `node .ticketflow/scripts/efficiency.mjs <capture> [--wait-log <pr-wait.log>]` generates an optional post-merge `Efficiency:` line from observed duration, input/output/cache tokens and cost. Delegated-agent coverage remains unknown. Unknown values must not become estimates. Compare review rounds, CI reruns and time waited before adding more review passes.

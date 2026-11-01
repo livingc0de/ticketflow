@@ -6,20 +6,14 @@ description: Use when writing, fixing, debugging, refactoring or reviewing code 
 # Engineering method
 
 - Read `.ticketflow/custom/engineering-method.md` first if it exists: it adds to and overrides this file. Actions (dispatch a role, ask the user) are done as the action map your stub names says; without one, use `.ticketflow/agents-map/generic.md`.
-- A request to ship a change (fix a bug, build, refactor) is ticket work: find or create its ticket (`create-ticket` searches first), then `implement-ticket`, which reads, plans and reports; apply the plan-or-skip tests of section 1 and sections 2 to 5 here. Without a ticket (the user says so, or nothing ships: an investigation, a diff review, an audit, a local experiment) all sections apply, and there is no branch, commit, PR or merge unless the user asks. No other plugin's planning, approval, branching, review or merge process runs on top of it; a technique may be borrowed if it adds no approval step and no second plan.
+- A request to ship a change (fix a bug, build, refactor) is ticket work: find or create its ticket (`create-ticket` searches first), then `implement-ticket`, which reads, plans and reports; apply the planner triggers of section 1 and sections 2 to 5 here. Without a ticket (the user says so, or nothing ships: an investigation, a diff review, an audit, a local experiment) all sections apply, and there is no branch, commit, PR or merge unless the user asks. No other plugin's planning, approval, branching, review or merge process runs on top of it; a technique may be borrowed if it adds no approval step and no second plan.
 - Ask the user only about material decisions (product, data shape, security, money); take the default for the rest and say which.
 
 ## 1. Understand and plan
 
 - Read the code and docs the request touches first, and never ask what they already answer.
 - A clear request: just do it. A vague or risky one: play it back in two sentences, then ask the one question that changes the most and say why. Offer 2-3 approaches with a recommendation only when a real choice is open. "Go" or "your call" proceeds on the defaults you stated.
-- **Plan or skip.** Plan by default: dispatch the `ticket-planner` role with a plain brief (the request, what you read, decisions made); no ticket is needed. Its Open decisions go to the user. Skip only when all four hold, judged from the code you read:
-  - (a) you understand the whole change end to end, no design choice left;
-  - (b) a small diff in one place, roughly under 4 files, nothing cross-cutting;
-  - (c) no boot, deploy or config change, auth, permission or admin grant, data or schema change, money, concurrency or startup gate, and no second subsystem;
-  - (d) verification is obvious and automated.
-
-  Effort and complexity decide, not the length of the request. Any doubt, or moderate or high effort: plan. When torn, plan.
+- **Plan in proportion.** Dispatch the `ticket-planner` role with a plain brief (the request, what you read, decisions made; no ticket is needed) when any planner trigger holds, judged from the code you read: (1) the work is `high` or `critical` (access, money, data migrations, concurrency, legal, production config, three or more subsystems); (2) a real design choice is still open (two or more defensible approaches with different consequences); (3) the change is cross-cutting: a second subsystem, or about 6 or more files; (4) a bug whose root cause is unclear after one reproduction and one trace; (5) two failed attempts at the same failure; (6) the user asks. Its Open decisions go to the user. Without a trigger, write a 3-8 line inline plan (files, approach, tests, risks) and build it; if the diff outgrows it, dispatch the planner for the rest. The length of the request does not decide. When torn on a `normal` change, plan inline and escalate if the diff outgrows it.
 - Record decisions where they last: the ticket's Decisions and acceptance criteria, else the final report.
 
 ## 2. The smallest complete change
@@ -44,7 +38,7 @@ Work in one context. Delegate only when it pays:
 | Broad read-only search | dispatch a light helper |
 | A hard, isolated piece (a lock order, a money state machine, a migration) | dispatch a strong helper with a compact brief; do not edit its files meanwhile |
 | Independent failures (different files, no shared state) | one helper each; inside a ticket one at a time (a lead has one specialist slot), several at once only on a plain request and within any limit the user set |
-| A plan task marked `review: task` | dispatch the `pr-reviewer` role in diff mode on that task's commits; fix its blockers before the next task |
+| A plan task marked `review: task` (only `high` and `critical` plans mark any) | dispatch the `pr-reviewer` role in diff mode on that task's commits; fix its blockers before the next task |
 
 Never delegate a deterministic command, a lookup, or one small task.
 

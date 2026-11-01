@@ -133,7 +133,7 @@ test('orchestrate-tickets: a coordinator with the Result contract, the budget fo
 test('engineering-method: the method has one home (implement-ticket and create-ticket point to it), and the roles carry the new modes', () => {
     const skill = text('skills/engineering-method/SKILL.md')
     for (const re of [/see a test fail for the right reason/, /root cause/, /shortcut: <limit>, <when to revisit>/, /diff mode/, /audit mode/, /debt\.mjs/, /Not checked/, /No other plugin's planning, approval, branching, review or merge process runs on top/]) assert.match(skill, re)
-    for (const re of [/\(b\) a small diff in one place/, /\(d\) verification is obvious and automated/]) { assert.match(skill, re); assert.doesNotMatch(text('skills/implement-ticket/SKILL.md'), re) }   // the plan-or-skip tests have one home
+    for (const re of [/\(3\) the change is cross-cutting/, /\(5\) two failed attempts at the same failure/]) { assert.match(skill, re); assert.doesNotMatch(text('skills/implement-ticket/SKILL.md'), re) }   // the planner triggers have one home
     assert.doesNotMatch(text('skills/implement-ticket/SKILL.md'), /see a test fail for the right reason|shortcut: <limit>|Never delegate a deterministic command/)
     for (const p of ['skills/implement-ticket/SKILL.md', 'skills/create-ticket/SKILL.md']) assert.match(text(p), /\.ticketflow\/skills\/engineering-method\/SKILL\.md|engineering-method skill/, p)
     const reviewer = text('agents/pr-reviewer.md')

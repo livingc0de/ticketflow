@@ -1,6 +1,6 @@
 ---
 name: ticket-planner
-description: Use when a ticket or a plain request needs its plan before implementation (the default unless the change is easy and straightforward), when a linked plan must be re-verified, or when the same failure survived two fix attempts.
+description: Use when a ticket or request hits a planner trigger (high or critical tier, an open design choice, a cross-cutting change, an unclear root cause), when a linked plan must be re-verified, or after two failed fixes.
 model_class: strong
 effort: high
 tools: read-only

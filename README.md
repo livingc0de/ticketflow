@@ -30,7 +30,7 @@ What you get:
 
 - **Predictability.** Every ticket goes through the same steps, so you always know where a piece of work stands and what comes next.
 - **Safety.** Branch protection requires a green gate before anything merges, and the merge script also checks that the review
-  findings were answered. Admin overrides stay yours: agents never use them on their own.
+  findings were answered. Review follows the risk: a small, low-risk change merges on the agent's own self-check (the script verifies from the diff that it qualifies), riskier work gets an independent reviewer. Admin overrides stay yours: agents never use them on their own.
 - **Honesty.** A check that could not run is reported as "not verified", never claimed.
 - **One method, with or without a ticket.** Understand first, the smallest complete change, test first where it pays, evidence before "done", and reviews, audits and a shortcut-debt list on demand. Asking for a fix or a feature starts its ticket; investigations, reviews, audits and local experiments need no ticket, branch or PR unless you ask.
 - **Your control.** Once every gate passes, the agent merges and hands the work back to you as **In Review**: merged, waiting for
@@ -46,7 +46,7 @@ What you get:
 ```
   you ──▶ ticket ──▶ plan ──▶ implement ──▶ verify ──▶ review ──▶ merge ──▶ handoff ──▶ you
           (issue)   (when    (branch +     (CI gate   (independent  (only via   (In Review +
-                    needed)   worktree)    on the     reviewer)     the merge   summary)
+                    needed)   worktree)    on the     the tier       the merge   summary)
                                            exact head)              script)
 ```
 
@@ -77,17 +77,18 @@ Under the hood there are three layers:
 Here is what happens when you say *"implement #42"*:
 
 1. **Read and claim.** The agent reads the ticket, assigns itself, moves it to **In Progress** and posts a short claim comment saying
-   how risky it thinks the change is and whether it will plan first.
-2. **Plan (by default).** Unless the change is small and obvious, a separate planner role studies the code and writes a technical
-   plan linked from the ticket, so the approach can be reviewed and reused.
+   how risky it thinks the change is and how it will plan.
+2. **Plan (in proportion to the risk).** Risky or cross-cutting work gets a separate planner role that studies the code and writes a
+   technical plan linked from the ticket, so the approach can be reviewed and reused. Smaller work gets a short plan in the claim comment.
 3. **Implement.** The agent works in its own git worktree on a branch like `feat/issue-42-export-csv`, one focused commit per task,
    following TicketFlow's built-in [engineering method](#building-the-engineering-method).
 4. **Verify.** CI runs your normal checks and posts `CI / Gate` on the exact commit. If GitHub Actions can't run (a billing hiccup,
    no runner), a careful local fallback runs the same checks and posts the result instead.
 5. **Review.** While CI runs, TicketFlow watches for a review bot or a person that starts on the pull request and uses its
-   result as soon as it arrives (at most 15 minutes after it started). If none does, or none gives a usable result, the
-   independent `pr-reviewer` role reviews the pull request against the ticket, security, correctness and your own rules;
-   `critical` pull requests get it either way. Findings are fixed in the same pull request.
+   result as soon as it arrives (at most 15 minutes after it started). If none does, or none gives a usable result, a small,
+   low-risk change that the `risk` script finds eligible merges on the agent's own self-check; anything else gets the
+   independent `pr-reviewer` role, which reviews the pull request against the ticket, security, correctness and your own rules
+   (`critical` pull requests get it either way). Findings are fixed in the same pull request.
 6. **Merge.** Only through the `merge` script. It checks the gate, that the branch is up to date and that the review was
    answered (no open review thread, no reviewer left waiting or on "changes requested", no "changes needed" verdict) and that the
    exact commit was reviewed, then merges exactly that commit.
@@ -111,14 +112,14 @@ Here is what happens when you say *"implement #42"*:
 
 ### Planning
 
-Planning is the default. A ticket skips it only when all four hold: the change is understood end to end, it is small and in one
-place, it touches nothing sensitive (deploys, auth, data, money, concurrency…), and verification is obvious. When in doubt, plan.
-A ticket only counts as *planned* when it links a plan file. [More in WORKFLOW.md](core/docs/WORKFLOW.md#planning)
+Planning is in proportion to the tier. The planner role is dispatched for `high` and `critical` work, an open design choice, a
+cross-cutting change (a second subsystem, about 6 or more files), an unclear bug root cause, two failed fixes, or on request. Anything
+else gets a 3-8 line plan in the claim comment. A ticket only counts as *planned by the planner* when it links a plan file. [More in WORKFLOW.md](core/docs/WORKFLOW.md#planning)
 
 ### Risk Tiers
 
-Every change is `low`, `normal`, `high` or `critical`. The tier decides how deep the review goes and how much effort the agent puts
-in, nothing else. Anything touching access, money, migrations, deploys or several subsystems is at least `high`.
+Every change is `low`, `normal`, `high` or `critical`. The tier sets the process: whether the planner runs, who reviews and at which
+model class, and what a fix round needs. Anything touching access, money, migrations, deploys or several subsystems is at least `high`.
 
 The agent that writes the code runs on the standard model at `high` effort: it is cheaper, and the strongest model stays with the
 planner and the reviewer, who catch mistakes. The implementer moves up only for genuinely hard reasoning, never because a ticket
@@ -166,8 +167,10 @@ review, or a comment, the first one too or the edit of a summary comment; a firs
 agent immediately, but only `merge --reviewed-by '<login>'` waits for more while its 15-minute window runs. Activity from older commits or
 humans who only commented is ignored. Any bot's comment is shown to the
 agent, which reads it, ignores what is not a review (a deploy or coverage note) and fixes what a review finds. With no external review, the built-in
-`pr-reviewer` role reviews the commit and reports its findings straight to the agent; a `critical` pull request gets it as well, and a `high` one
-where the external result missed the risky part.
+`pr-reviewer` role reviews the commit and reports its findings straight to the agent (standard class for `normal`, strong for `high` and `critical`); a
+`critical` pull request gets it as well, and a `high` one where the external result missed the risky part. A small, low-risk change (`low` or
+`normal`) can merge on the agent's own self-check instead, and so can a small fix after a ready review: `risk` and `merge` decide from the diff,
+not from the agent's word, and paths such as workflows, dependency files and migrations always need a review.
 
 A finished review is not enough to merge. Findings must be answered too: every open review thread (from anyone, bots included),
 a reviewer's "changes requested" and a "changes needed" verdict from `pr-reviewer` stop the merge until they are dealt
@@ -183,7 +186,7 @@ missing a real reviewer would be worse than waiting briefly for a noisy one.
 Merges happen only through the `merge` script. A standard branch ruleset requires `CI / Gate` and an up-to-date
 branch. The script adds what a ruleset cannot see: no unresolved review thread from anyone, no reviewer left waiting or on "changes
 requested", every trusted account's last verdict on this commit "ready to merge", and a review of this exact commit (the agent's own
-`pr-reviewer` review, or the external reviewer's result it names). When it refuses, it always prints the next step, and there is always a legitimate way through
+`pr-reviewer` review, the external reviewer's result it names, or, for a small low-risk diff, its own self-check). When it refuses, it always prints the next step, and there is always a legitimate way through
 ([the ways past a refusal](core/docs/REVIEWERS.md#when-merge-says-no)). Your merge methods and branch settings stay yours: the setup shows them and offers squash-only (one commit per ticket) and
 tidy-branch settings, which you can take or leave. You, as an admin, can still override it through a pull request when you choose to; agents never do that on their own.
 [More in SECURITY.md](core/docs/SECURITY.md)
