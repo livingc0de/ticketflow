@@ -1,8 +1,7 @@
 # Reviewers
 
-Every pull request gets a second pair of eyes before it merges. If you already use a review bot, or a teammate looks at your pull
-requests, TicketFlow notices and waits for them; you configure nothing. If nobody reviews, TicketFlow's own `pr-reviewer` role does,
-with no setup. When each review happens: [WORKFLOW.md](WORKFLOW.md).
+Small, low-risk pull requests may merge on a recorded self-check. Other PRs require independent review. If a review bot or
+teammate is available, TicketFlow observes their reviews automatically. Otherwise its own `pr-reviewer` role reviews, without setup. When each review happens: [WORKFLOW.md](WORKFLOW.md).
 
 ## pr-reviewer
 
@@ -91,7 +90,7 @@ A small, low-risk change does not need a second pair of eyes; it needs proof tha
 from the diff, not from the agent's word. `node core/scripts/risk.mjs <PR>` prints `Lane: self-check` or `Lane: review`, with a `Reason:` line
 per rule that forces a review. `merge --self-checked` runs the same function (`core/lib/risk.mjs`). The lane is `review` when:
 
-- `review.self_check` is `false`, the PR names no `Ticket #N` (in its title or body; a named pull request is no ticket), or any named ticket has a `Security`, `Review Required`, `Critical Review` or a `Needs: ...` label;
+- `review.self_check` is `false`, the PR names no `Ticket #N` (in its title or body; a named pull request is no ticket), or any named ticket has a `Security` or a `Needs: ...` label, or a missing/ambiguous Tier label or a `Tier: High` / `Tier: Critical` label;
 - a changed path (or the old path of a rename) matches the built-in floor (`.github/workflows/`, `.ticketflow/`, `.env` files, the agents' rule, permission and plugin folders, `AGENTS.md`/`CLAUDE.md`/`GEMINI.md`, `gemini-extension.json`, the Copilot instruction files and folders under `.github/`) or
   `review.always_review` (your paths, added to the defaults: dependency files and lockfiles, `migrations/`, `.sql`; add your auth and money paths, and the whole runtime of a repo where it is not `.ticketflow/`);
 - the non-test, non-docs files exceed `review.self_check_max_files` or `review.self_check_max_lines`, or changed more code lines than
@@ -116,9 +115,9 @@ Self-check head: <sha7>
 ```
 
 What this is and is not: a floor from facts (code size, untested code, paths, labels). It does not judge subtle logic or design or
-which model wrote the review. A declared `high` tier adds `Review Required` at claim time, and `critical` adds `Critical Review`.
+which model wrote the review. `Tier: High` and `Tier: Critical` are issue labels read directly by `risk` and `merge`.
 Both require an independent first review, even for a tiny diff. A ready independent review can be followed by a small self-checked fix
-delta on `high`, but never on `critical` (or sensitive paths and other blocking labels). The tier remains an agent judgement;
+delta on `high`, but never on `critical` (or sensitive paths and other blocking labels). Missing or conflicting tier labels also require independent review. The tier remains an agent judgement;
 add `review.always_review` for sensitive paths as a separate floor. The thresholds and `always_review` are in `.ticketflow/config.json`; a PR that edits them touches `.ticketflow/`, so it always needs a review: an
 agent cannot loosen its own rules on a self-check, as long as `merge` reads the repo's own config (`--config <file>` points it
 elsewhere, as it does for every gate). The rules bind agents only; the owner can still merge by hand.

@@ -15,18 +15,18 @@ description: Use when asked to implement, continue or fix a GitHub ticket ("impl
 - **Read** it with `node .ticketflow/scripts/issue.mjs <N>`, plus its linked plans and the docs it names. Later comments override the description. A statement about behaviour ("the job starts by itself") is checked in the code, never reinterpreted.
 - **Readiness gate:** scope, acceptance criteria and verification must be coherent and checkable against the code. A material gap (a decision, a criterion you cannot verify, an unmerged dependency): ask one targeted question; with a recommended default, set `Needs: Decision`, say so on the ticket and continue other unblocked work. A non-material gap: state your assumption in the claim comment.
 - **Already started:** `node .ticketflow/scripts/queue.mjs <N>` shows an open PR (a closed one is history), `merged`, `done`, or `in-progress` with no PR (a crash after the claim): read `.ticketflow/skills/implement-ticket/resume.md`, which replaces Claim and Workspace. Never a second claim comment, worktree add or PR.
-- **Claim:** one call, `node .ticketflow/scripts/ticket.mjs claim <N>` with the claim comment on stdin (heredoc): a standalone `Tier: low|normal|high|critical` line, the assumptions and exactly one `Planning:` line (step 2). The claim script adds `Review Required` for high and `Critical Review` for critical tickets. Never remove that label on a later downgrade. It assigns you, sets "In Progress" when `project` is set, and posts the comment once (a repeated call keeps the existing one).
+- **Claim:** assess risk against the code and ensure the issue has exactly one `Tier: Low|Normal|High|Critical` label before claiming. Add it to older tickets; if risk increases, replace the old Tier label (never downgrade a higher one already on the ticket). Then call `node .ticketflow/scripts/ticket.mjs claim <N>` with assumptions and exactly one `Planning:` line (step 2) on stdin, without repeating Tier in the comment. It assigns you, sets "In Progress" when `project` is set, and posts the comment once (a repeated call keeps the existing one).
 - **Workspace:** `git fetch origin` every time, then `git worktree add --no-track <worktrees_dir>/<branch> -b <type>/issue-<N>-<slug> origin/<default_branch>`, then `verify.install` there. Edit and test in the worktree; run `pr-wait`, `merge` and `local-verify` with the up-to-date primary checkout as the working directory (`git -C <primary> pull --ff-only` first), so a branch never gates itself.
 
 ## 2. Route
 
-**The tier sets the process** (`.ticketflow/docs/WORKFLOW.md` Risk tiers: planning, reviewer and class, fix rounds). Classify up when unsure; labels do not lower it. Classify by what a wrong change could break, not where the code lives:
+**The tier sets the process** (`.ticketflow/docs/WORKFLOW.md` Risk tiers: planning, reviewer and class, fix rounds). Classify up when unsure; the issue's `Tier:` label is the single source of truth and must only be raised. Classify by what a wrong change could break, not where the code lives:
 - `low`: copy, docs or config value in one file.
 - `normal`: logic in one subsystem, already tested.
 - `high`: auth, permissions, grants or row-level rules; billing or money; data deletion or migrations that rewrite rows; locks, queues, transactions, idempotency, webhooks or async jobs; legal, consent or kids' data; external write integrations; production boot, deploy scripts or config, admin grants or startup gates; scripts, config, deploy and docs together; three or more subsystems or about 8 files; an ambiguous or conflicting spec.
 - `critical`: high plus data exposure or loss, money movement, irreversible data operations, or production config.
 
-**Dispatch the `ticket-planner` role only on a planner trigger** (the list is in `.ticketflow/skills/engineering-method/SKILL.md` section 1; a `high` or `critical` tier, or the ticket asking for it, is one). The length of the description does not decide, and a ticket that reads like a plan is input to verify. Without a trigger, write the 3-8 line inline plan into the claim comment and build it. A plan whose diff grows past its stated scope is re-tiered up and gets the planner for the rest.
+**Dispatch the `ticket-planner` role only on a planner trigger** (the list is in `.ticketflow/skills/engineering-method/SKILL.md` section 1; a `high` or `critical` tier, or the ticket asking for it, is one). The length of the description does not decide, and a ticket that reads like a plan is input to verify. Without a trigger, write the 3-8 line inline plan into the claim comment and build it. A plan whose diff grows past its stated scope is re-tiered up (update its Tier label) and gets the planner for the rest.
 
 **State exactly one `Planning:` line** in the claim comment:
 - `Planning: planner (strong class, effort X)`, plus the plan's path once committed
@@ -34,7 +34,7 @@ description: Use when asked to implement, continue or fix a GitHub ticket ("impl
 - `Planning: inline: <the 3-8 line plan>` (`normal`, no trigger)
 - `Planning: none (low)`
 
-Every claim includes one standalone `Tier: <tier>` line; the claim script persists high risk as `Review Required` and critical risk as `Critical Review`. Classification is still a judgement, not a code-derived guarantee; configure sensitive paths in `review.always_review`.
+Read the Tier issue label, not claim text. If implementation reveals greater risk, update the label before continuing (e.g. `gh issue edit <N> --remove-label 'Tier: Normal' --add-label 'Tier: High'`). The risk and merge scripts read it automatically. Classification remains an agent judgement; protect sensitive paths through `review.always_review` too.
 
 **Implementer:** you, in this session, in the standard class at high by default; after a planner plan too. A strong helper only for an isolated hard piece (the engineering-method table); the strong class or xhigh only for genuinely hard reasoning, never because of the tier. Hidden complexity later: escalate that problem alone, do not re-plan the ticket.
 

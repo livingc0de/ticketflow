@@ -8,6 +8,12 @@ import { ALWAYS_REVIEW } from './config.mjs'
 import { docsOnly } from './docs-only.mjs'
 import { api } from './gh.mjs'
 
+const TIERS = ['Low', 'Normal', 'High', 'Critical']
+const tierOf = (labels) => {
+    const found = labels.filter((l) => l.startsWith('Tier: '))
+    return found.length === 1 && TIERS.includes(found[0].slice(6)) ? found[0].slice(6) : null
+}
+
 const TEST = /(^|\/)(tests?|__tests__|spec)\/|[._-](test|spec)\.[^/]+$/
 const names = (f) => [f.filename, f.previous_filename].filter((n) => typeof n === 'string')
 
@@ -22,7 +28,10 @@ export function minimumLane(files, labels, cfg) {
     const r = cfg.review
     const reasons = [], sizeReasons = []
     if (!r.self_check) reasons.push('review.self_check is false')
-    for (const l of labels) if (l === 'Security' || l === 'Review Required' || l === 'Critical Review' || l.startsWith('Needs:')) reasons.push(`label ${l}`)
+    const tier = tierOf(labels)
+    if (!tier) reasons.push('exactly one valid Tier: Low|Normal|High|Critical label is required')
+    else if (tier === 'High' || tier === 'Critical') reasons.push(`Tier: ${tier} requires independent review`)
+    for (const l of labels) if (l === 'Security' || l.startsWith('Needs:')) reasons.push(`label ${l}`)
     if (!files.every((f) => typeof f?.filename === 'string' && Number.isInteger(f.additions) && Number.isInteger(f.deletions))) reasons.push('the file list is unreadable')
     else {
         for (const f of files) {
@@ -39,23 +48,26 @@ export function minimumLane(files, labels, cfg) {
     }
     const all = [...reasons, ...sizeReasons]
     return { lane: all.length ? 'review' : 'self-check', reasons: all, size: reasons.length === 0 && sizeReasons.length > 0,
-        fixDelta: reasons.every((reason) => reason === 'label Review Required') }
+        fixDelta: reasons.length === 0 || (reasons.length === 1 && reasons[0] === 'Tier: High requires independent review') }
 }
 
 /** Every ticket number a PR names in its title and body ("Ticket #N"), first one first. */
 export const ticketsOf = (pull) => [...new Set([...`${pull.title ?? ''}\n${pull.body ?? ''}`.matchAll(/\bTicket #(\d+)\b/g)].map((m) => m[1]))]
 
 /**
- * Reads the files and the labels of every named ticket of a PR (throws GhError) and returns its minimum lane, plus the first ticket number.
+ * Reads every named ticket (throws GhError), validates each tier, and applies the highest tier across the PR.
  * No ticket, a named PR instead of a ticket, or a partial file list forces a review.
  */
 export function laneOfPull(cfg, pull, pr) {
     const files = api(`repos/${cfg.repo}/pulls/${pr}/files`, { paginate: true })
     const tickets = ticketsOf(pull)
     const issues = tickets.map((n) => [n, api(`repos/${cfg.repo}/issues/${n}`)])
-    const labels = issues.flatMap(([, i]) => i.labels.map((l) => l.name ?? l))
+    const tagged = issues.map(([n, i]) => [n, i.labels.map((l) => l.name ?? l)])
+    const missingTiers = tagged.filter(([, labels]) => !tierOf(labels)).map(([n]) => `ticket #${n} needs exactly one valid Tier label`)
+    const maxTier = Math.max(-1, ...tagged.map(([, labels]) => TIERS.indexOf(tierOf(labels))))
+    const labels = [...tagged.flatMap(([, labels]) => labels.filter((l) => !l.startsWith('Tier: '))), ...(missingTiers.length || maxTier < 0 ? [] : [`Tier: ${TIERS[maxTier]}`])]
     const lane = minimumLane(files, labels, cfg)
-    const extra = [...(tickets.length ? [] : ['no "Ticket #N" in the PR title or body']), ...issues.filter(([, i]) => i.pull_request).map(([n]) => `#${n} is a pull request, not a ticket`), ...(files.length === pull.changed_files ? [] : ['the file list is incomplete'])]
+    const extra = [...(tickets.length ? [] : ['no "Ticket #N" in the PR title or body']), ...missingTiers, ...issues.filter(([, i]) => i.pull_request).map(([n]) => `#${n} is a pull request, not a ticket`), ...(files.length === pull.changed_files ? [] : ['the file list is incomplete'])]
     return { lane: extra.length ? 'review' : lane.lane, reasons: [...extra, ...lane.reasons], size: extra.length === 0 && lane.size,
         fixDelta: extra.length === 0 && lane.fixDelta, ticket: tickets[0] ?? null }
 }

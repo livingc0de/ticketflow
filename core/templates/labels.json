@@ -8,6 +8,10 @@
   { "name": "Priority: P1 High", "color": "d93f0b", "description": "Next up" },
   { "name": "Priority: P2 Medium", "color": "fbca04", "description": "Planned" },
   { "name": "Priority: P3 Low", "color": "c2e0c6", "description": "When there is time" },
+  { "name": "Tier: Low", "color": "c2e0c6", "description": "Low-risk ticket" },
+  { "name": "Tier: Normal", "color": "bfdadc", "description": "Routine risk tier" },
+  { "name": "Tier: High", "color": "fbca04", "description": "Independent first review required" },
+  { "name": "Tier: Critical", "color": "b60205", "description": "Review every changed head" },
   { "name": "Effort: XS", "color": "bfdadc", "description": "Under an hour" },
   { "name": "Effort: S", "color": "bfdadc", "description": "Up to half a day" },
   { "name": "Effort: M", "color": "bfdadc", "description": "Up to a day or two" },
@@ -30,7 +34,5 @@
   { "name": "Security", "color": "c5def5", "description": "Security related" },
   { "name": "Testing", "color": "c5def5", "description": "Tests and verification" },
   { "name": "Documentation", "color": "c5def5", "description": "Docs" },
-  { "name": "Technical Debt", "color": "c5def5", "description": "Cleanup and refactoring" },
-  { "name": "Review Required", "color": "d93f0b", "description": "High-risk ticket: first independent PR review required" },
-  { "name": "Critical Review", "color": "b60205", "description": "Critical ticket: independent review after each changed head" }
+  { "name": "Technical Debt", "color": "c5def5", "description": "Cleanup and refactoring" }
 ]

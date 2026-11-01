@@ -39,9 +39,9 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `practices` | unique list of names from `live-verify`, `runtime-settings`, `i18n`, `database`, `provider-adapters`, `api-endpoints`, `ui-screens`, `domain-guides`, `deploy-gating`, `analytics-events`: the optional practices copied to `.ticketflow/practices/` and wired into the stubs, the AGENTS block and the PR template | `[]` | `runtime`, `gen-stubs`, `render`, `doctor` |
 | `ci.push_paths` | `null`: the CI workflow has no push run; `[]`: it runs on every push to the default branch; a list of globs: only when one of them changes. Must be `null` or `[]` while `deploy_branch` is set (the deploy signal needs every push) | `null` | `render` |
 | `review.self_check` | boolean: `false` makes every PR need a review, as before | `true` | `merge`, `risk` |
-| `review.self_check_max_files` | integer 1..50: most non-test, non-docs files a self-check may cover | `4` | `merge`, `risk` |
-| `review.self_check_max_lines` | integer 1..2000: most added plus deleted lines in those files | `80` | `merge`, `risk` |
-| `review.self_check_untested_lines` | integer 1..2000 or `null` (off): more changed code lines than this with no test file touched need a review | `10` | `merge`, `risk` |
+| `review.self_check_max_files` | integer 1..50: most non-test, non-docs files a self-check may cover | `5` | `merge`, `risk` |
+| `review.self_check_max_lines` | integer 1..2000: most added plus deleted lines in those files | `120` | `merge`, `risk` |
+| `review.self_check_untested_lines` | integer 1..2000 or `null` (off): more changed code lines than this with no test file touched need a review | `20` | `merge`, `risk` |
 | `review.fix_check_max_lines` | integer 1..2000: most added plus deleted lines of the fix delta since a ready review | `30` | `merge` |
 | `review.always_review` | list of regexes: your paths that always need a review, added to the built-in defaults (dependency manifests and lockfiles, `migrations/` directories, `.sql` files). Add your auth, billing or permission paths, and the whole runtime of a repo where it is not `.ticketflow/` | `[]` | `merge`, `risk` |
 | `review.default_always_review` | boolean: `false` drops the built-in defaults above, so only `always_review` (and the built-in floor below) applies | `true` | `merge`, `risk` |

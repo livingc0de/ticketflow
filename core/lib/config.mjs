@@ -133,9 +133,9 @@ const parse = section({
     practices: [unique(list(oneOf(...PRACTICES))), []],
     review: [section({
         self_check: [bool, true],
-        self_check_max_files: [int(1, 50), 4],
-        self_check_max_lines: [int(1, 2000), 80],
-        self_check_untested_lines: [orNull(int(1, 2000)), 10],
+        self_check_max_files: [int(1, 50), 5],
+        self_check_max_lines: [int(1, 2000), 120],
+        self_check_untested_lines: [orNull(int(1, 2000)), 20],
         fix_check_max_lines: [int(1, 2000), 30],
         default_always_review: [bool, true],
         always_review: [list(regex()), []],   // added to the defaults in `validate`
