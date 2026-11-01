@@ -1,172 +1,36 @@
 [
-  {
-    "name": "Type: Bug",
-    "color": "d73a4a",
-    "description": "Something is broken"
-  },
-  {
-    "name": "Type: Feature",
-    "color": "0e8a16",
-    "description": "New capability"
-  },
-  {
-    "name": "Type: Task",
-    "color": "1d76db",
-    "description": "A unit of work"
-  },
-  {
-    "name": "Type: Decision",
-    "color": "5319e7",
-    "description": "A decision that needs an owner"
-  },
-  {
-    "name": "Type: Initiative",
-    "color": "0052cc",
-    "description": "A tracker for a group of tickets"
-  },
-  {
-    "name": "Priority: P0 Critical",
-    "color": "b60205",
-    "description": "Drop everything"
-  },
-  {
-    "name": "Priority: P1 High",
-    "color": "d93f0b",
-    "description": "Next up"
-  },
-  {
-    "name": "Priority: P2 Medium",
-    "color": "fbca04",
-    "description": "Planned"
-  },
-  {
-    "name": "Priority: P3 Low",
-    "color": "c2e0c6",
-    "description": "When there is time"
-  },
-  {
-    "name": "Effort: XS",
-    "color": "bfdadc",
-    "description": "Under an hour"
-  },
-  {
-    "name": "Effort: S",
-    "color": "bfdadc",
-    "description": "Up to half a day"
-  },
-  {
-    "name": "Effort: M",
-    "color": "bfdadc",
-    "description": "Up to a day or two"
-  },
-  {
-    "name": "Effort: L",
-    "color": "bfdadc",
-    "description": "Several days"
-  },
-  {
-    "name": "Effort: XL",
-    "color": "bfdadc",
-    "description": "Split it"
-  },
-  {
-    "name": "AI Model: Strong",
-    "color": "5319e7",
-    "description": "Strong model class"
-  },
-  {
-    "name": "AI Model: Standard",
-    "color": "7057ff",
-    "description": "Standard model class"
-  },
-  {
-    "name": "AI Model: Light",
-    "color": "c5def5",
-    "description": "Light model class"
-  },
-  {
-    "name": "AI Effort: Low",
-    "color": "bfdadc",
-    "description": "Low reasoning effort"
-  },
-  {
-    "name": "AI Effort: Medium",
-    "color": "bfdadc",
-    "description": "Medium reasoning effort"
-  },
-  {
-    "name": "AI Effort: High",
-    "color": "bfdadc",
-    "description": "High reasoning effort"
-  },
-  {
-    "name": "AI Effort: XHigh",
-    "color": "bfdadc",
-    "description": "Extra-high reasoning effort"
-  },
-  {
-    "name": "Needs: Decision",
-    "color": "e99695",
-    "description": "Waiting on a decision"
-  },
-  {
-    "name": "Needs: Design",
-    "color": "e99695",
-    "description": "Waiting on a design"
-  },
-  {
-    "name": "Needs: Legal",
-    "color": "e99695",
-    "description": "Waiting on a legal review"
-  },
-  {
-    "name": "Needs: External",
-    "color": "e99695",
-    "description": "Waiting on a third party"
-  },
-  {
-    "name": "Needs: Reproduction",
-    "color": "e99695",
-    "description": "Needs steps to reproduce"
-  },
-  {
-    "name": "UX",
-    "color": "c5def5",
-    "description": "User experience"
-  },
-  {
-    "name": "Content",
-    "color": "c5def5",
-    "description": "Copy and content"
-  },
-  {
-    "name": "Security",
-    "color": "c5def5",
-    "description": "Security related"
-  },
-  {
-    "name": "Testing",
-    "color": "c5def5",
-    "description": "Tests and verification"
-  },
-  {
-    "name": "Documentation",
-    "color": "c5def5",
-    "description": "Docs"
-  },
-  {
-    "name": "Technical Debt",
-    "color": "c5def5",
-    "description": "Cleanup and refactoring"
-  },
-  {
-    "name": "Review Required",
-    "color": "d93f0b",
-    "description": "High-risk or critical ticket: independent PR review required"
-  },
-  {
-    "name": "Critical Review",
-    "color": "b60205",
-    "description": "Critical ticket: independent review after each changed head"
-  }
+  { "name": "Type: Bug", "color": "d73a4a", "description": "Something is broken" },
+  { "name": "Type: Feature", "color": "0e8a16", "description": "New capability" },
+  { "name": "Type: Task", "color": "1d76db", "description": "A unit of work" },
+  { "name": "Type: Decision", "color": "5319e7", "description": "A decision that needs an owner" },
+  { "name": "Type: Initiative", "color": "0052cc", "description": "A tracker for a group of tickets" },
+  { "name": "Priority: P0 Critical", "color": "b60205", "description": "Drop everything" },
+  { "name": "Priority: P1 High", "color": "d93f0b", "description": "Next up" },
+  { "name": "Priority: P2 Medium", "color": "fbca04", "description": "Planned" },
+  { "name": "Priority: P3 Low", "color": "c2e0c6", "description": "When there is time" },
+  { "name": "Effort: XS", "color": "bfdadc", "description": "Under an hour" },
+  { "name": "Effort: S", "color": "bfdadc", "description": "Up to half a day" },
+  { "name": "Effort: M", "color": "bfdadc", "description": "Up to a day or two" },
+  { "name": "Effort: L", "color": "bfdadc", "description": "Several days" },
+  { "name": "Effort: XL", "color": "bfdadc", "description": "Split it" },
+  { "name": "AI Model: Strong", "color": "5319e7", "description": "Strong model class" },
+  { "name": "AI Model: Standard", "color": "7057ff", "description": "Standard model class" },
+  { "name": "AI Model: Light", "color": "c5def5", "description": "Light model class" },
+  { "name": "AI Effort: Low", "color": "bfdadc", "description": "Low reasoning effort" },
+  { "name": "AI Effort: Medium", "color": "bfdadc", "description": "Medium reasoning effort" },
+  { "name": "AI Effort: High", "color": "bfdadc", "description": "High reasoning effort" },
+  { "name": "AI Effort: XHigh", "color": "bfdadc", "description": "Extra-high reasoning effort" },
+  { "name": "Needs: Decision", "color": "e99695", "description": "Waiting on a decision" },
+  { "name": "Needs: Design", "color": "e99695", "description": "Waiting on a design" },
+  { "name": "Needs: Legal", "color": "e99695", "description": "Waiting on a legal review" },
+  { "name": "Needs: External", "color": "e99695", "description": "Waiting on a third party" },
+  { "name": "Needs: Reproduction", "color": "e99695", "description": "Needs steps to reproduce" },
+  { "name": "UX", "color": "c5def5", "description": "User experience" },
+  { "name": "Content", "color": "c5def5", "description": "Copy and content" },
+  { "name": "Security", "color": "c5def5", "description": "Security related" },
+  { "name": "Testing", "color": "c5def5", "description": "Tests and verification" },
+  { "name": "Documentation", "color": "c5def5", "description": "Docs" },
+  { "name": "Technical Debt", "color": "c5def5", "description": "Cleanup and refactoring" },
+  { "name": "Review Required", "color": "d93f0b", "description": "High-risk ticket: first independent PR review required" },
+  { "name": "Critical Review", "color": "b60205", "description": "Critical ticket: independent review after each changed head" }
 ]
