@@ -14,7 +14,8 @@
       "Bash(node core/scripts/debt.mjs *)",
       "Bash(node core/scripts/ticket.mjs *)",
       "Bash(node core/scripts/gen-stubs.mjs *)",
-      "Bash(node core/scripts/doctor.mjs *)"
+      "Bash(node core/scripts/doctor.mjs *)",
+      "Bash(node core/scripts/verify-route.mjs *)"
     ],
     "ask": [
       "Bash(gh pr merge)",
@@ -36,7 +37,8 @@
       "Bash(gh api *branches/*/protection*)",
       "Bash(gh api graphql *Ruleset*)",
       "Bash(gh api graphql *BranchProtectionRule*)",
-      "Bash(*protect.mjs --apply*)"
+      "Bash(*protect.mjs --apply*)",
+      "Bash(npm test)"
     ]
   },
   "manifest_version": 1
