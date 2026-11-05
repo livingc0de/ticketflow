@@ -22,6 +22,16 @@ test('a minimal config loads, with defaults applied and deeply frozen', () => {
     assert.throws(() => { 'use strict'; cfg.repo = 'x/y' }, TypeError)
 })
 
+test('new installations default to tiered; local mode retains legacy local-first compatibility', () => {
+    const template = JSON.parse(readFileSync(new URL('../core/templates/config.json', import.meta.url), 'utf8'))
+    assert.equal(template.verify.mode, 'tiered')
+    assert.equal(validate(template).verify.mode, 'tiered')
+    assert.equal(validate(rawConfig({ verify: { mode: 'local' } })).verify.mode, 'local')
+    assert.equal(validate(rawConfig({ verify: { mode: 'local-first' } })).verify.mode, 'local')
+    assert.equal(validate(rawConfig({ verify: { mode: 'ci' } })).verify.mode, 'ci')
+    assert.equal(validate(rawConfig({ verify: { mode: 'tiered' } })).verify.mode, 'tiered')
+})
+
 test('a full config compiles its regexes', () => {
     const cfg = validate(rawConfig({
         gate: { ci_files: ['^scripts/'], inherit: true }, docs_only: { docs: ['\\.md$'], code: ['^x'] }, deploy_branch: 'deploy',
