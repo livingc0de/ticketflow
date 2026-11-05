@@ -49,6 +49,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { configPath, loadConfig } from '../lib/config.mjs'
 import { gql } from '../lib/gh.mjs'
+import { routeOfPull, validGateSource } from '../lib/verification.mjs'
 
 const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
 const STUCK_MS = 20 * 60_000
@@ -145,6 +146,13 @@ function pollCi(S) {
     S.why = 'the gate status is not final'
 
     if (g?.state === 'success') {
+        if (cfg.verify.mode === 'tiered' && pull) {
+            const { route } = routeOfPull(cfg, pull, target)
+            if (!validGateSource(route, g.description)) {
+                S.why = `the green gate source does not match the ${route} verification route; run verification for this tier`
+                return 'red'
+            }
+        }
         S.why = 'the gate is green'
         if (pull?.mergeable_state === 'behind') { S.notes.push(`${base} moved: gh pr update-branch ${target} (new head, new CI)`); return 'behind' }
         if (pull && (pull.mergeable == null || pull.mergeable_state === 'unknown')) return 'pending'   // not computed yet: it could still be behind
