@@ -8,9 +8,7 @@ with no setup. When each review happens: [WORKFLOW.md](WORKFLOW.md).
 
 An independent review by the `pr-reviewer` role (read-only; standard model class unless the tier asks for strong, see [WORKFLOW.md](WORKFLOW.md)). One pass produces separate specification-compliance and code-quality assessments. It checks, in order: acceptance criteria, security
 and data, correctness and tests, money and legal logic, the repo's own rules, UI evidence, process (a `Planning:` skip without its four
-reasons, a plan claim without a committed plan file, a closing keyword, out-of-scope changes) and over-engineering. It posts exactly
-one review comment whose first line is `Reviewed head: <sha7>`, and reports its verdict, the head and one line per finding, each with
-its fix, straight to the agent that asked, which acts on that report. When a later push needs a new review, it reviews the delta since
+reasons, a plan claim without a committed plan file, a closing keyword, out-of-scope changes) and over-engineering. It posts one submitted GitHub review on the exact head (format recommended, not required) and reports its conclusions and findings directly to the agent that asked, which acts on the report. When a later push needs a new review, it reviews the delta since
 its last one plus what the delta touches, so the repeat is cheap. It never pushes, commits, edits or approves. Add repo lenses in
 `.ticketflow/custom/pr-reviewer.md` and in the AGENTS.md "Review Guidelines" ([EXTENDING.md](EXTENDING.md)).
 
@@ -116,7 +114,6 @@ Every refusal names its reason and the next step.
 | `changes requested (<logins>)` | An external reviewer's last review of this commit asks for changes | Fix and push (the new head is reviewed again), or, as the owner, dismiss the review on GitHub |
 | `pending (<logins>)` ... `has not answered` | A reviewer started on this head and has not answered yet | Wait (`pr-wait`), at most 15 minutes from its start |
 | `pending (the review activity could not be read)` | A GitHub read failed | Run again |
-| `no review of <sha7>` | Neither an own `pr-reviewer` review of this head nor `--reviewed-by` | Run `pr-reviewer` on the head (a delta review is enough), or pass `--reviewed-by '<login>'` for the external result you acted on |
 | `<login> has no result on <sha7>` | `--reviewed-by` names an account `pr-wait` did not list with a result on this head (another head, no activity, this account or the author) | Name the right account, or run `pr-reviewer` |
 | `<login> requested changes` | GitHub's native review state is `CHANGES_REQUESTED` on this head | Address the findings; ask that reviewer to re-review, or the owner may dismiss the request |
 | `self-check is off in this repo` / `no submitted self-check` | Self-checks are disabled, or the account has no submitted nonempty review of this head | Run `pr-reviewer`, or submit a self-check review with evidence |
