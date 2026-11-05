@@ -19,7 +19,7 @@ The verdict is that status alone; `merge`, `pr-wait` and the branch ruleset all 
   `if: always()`, so a timeout or a cancel posts a failure too.
 - Every run, docs-only or not, first checks the agent stubs (`gen-stubs --check`, the checked-out copy): a stale or hand-edited stub
   fails the gate. The local fallback does the same before its inherited or docs-only result or its verify command.
-- Verify mode (`ci` or `local-first`) is described in [WORKFLOW.md](WORKFLOW.md).
+- Verify mode (`ci`, `tiered` or `local-first`) is described in [WORKFLOW.md](WORKFLOW.md).
 
 ## Description contract
 
@@ -27,13 +27,15 @@ Whatever posts the status writes one of these descriptions; `inherit` and `pr-wa
 
 - `Actions run #<run id>`: a full run by Actions. A failure with this description is final.
 - `Actions run #<run id>, docs only`: Actions, docs-only diff.
-- `Local run on <host> (<arch>, Node <version>)`: a full local run. A failure whose description starts with `Local ` can be re-run
+- `Local run on <host> (<arch>, Node <version>)`: a full local run (routine tiered Low/Normal or legacy fallback). A failure whose description starts with `Local ` can be re-run
   locally while Actions still refuses the job.
 - `Local check on <host>, docs only`: local, docs-only diff.
+- `Local fallback run on <host> (<arch>, Node <version>)`: an Actions-refusal fallback in tiered CI route.
+- `Local fallback check on <host>, docs only`: a docs-only tiered CI fallback.
 - `Inherited from <sha7>: only docs merged from <default_branch>`: the result of the full run at `<sha7>`.
 - `Local check on <host>, agent stubs out of date`: a failure the local fallback posts when `gen-stubs --check` fails; no verify command ran. Run `gen-stubs`, push, and the next run replaces it.
 
-Only the first and third forms (`Actions run` and `Local run`) count as a full run to inherit from. GitHub shows at most 140 characters. An unrecognized
+Only `Actions run` and `Local run` count as a full run to inherit from. Tiered CI-route runs do not inherit a local result. GitHub shows at most 140 characters. An unrecognized
 description is safe: `inherit` finds no full run (the pull request gets a normal one), and `pr-wait` reads a failure with it as final.
 
 ## Docs-only pull requests
@@ -55,6 +57,10 @@ must be docs-only. Never inherited: a pull request that changes a CI file (the b
 `gate.ci_files`), more than 20 incoming default-branch commits, or 300 or more files in a diff. Any failed read, or a head or base
 that moved while reading, is a normal run. The check reads only through `gh api`, as data, and nothing from the
 pull request is installed or run for it.
+
+## Tiered verification
+
+With `verify.mode: tiered`, the PR's ticket labels and changed paths choose the route: Low/Normal, safe paths and complete metadata use a clean local full verification; High/Critical, Security, always-review paths, missing tickets or unreadable metadata require Actions. A draft PR skips the Actions job until marked ready. For local routes, `local-verify <PR>` posts the existing status before the PR becomes ready; the later lightweight Actions job confirms it and skips expensive checks without replacing the locally posted gate. This still consumes a small amount of runner time, rather than zero Actions minutes. On every PR head, `pr-wait` and `merge` reject a green status from the wrong route (so changing a tier after a local green status cannot authorize a High/Critical merge). `verify-route <PR>` prints the route before verification.
 
 ## Local fallback
 
