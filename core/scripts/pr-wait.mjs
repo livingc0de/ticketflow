@@ -145,23 +145,26 @@ function pollCi(S) {
     const g = S.gate
     S.why = 'the gate status is not final'
 
+    let routeMismatch = false
     if (g?.state === 'success') {
         if (cfg.verify.mode === 'tiered' && pull) {
             const { route } = routeOfPull(cfg, pull, target)
             if (!validGateSource(route, g.description)) {
                 S.why = `the green gate source does not match the ${route} verification route; run verification for this tier`
-                return 'red'
+                routeMismatch = true
             }
         }
-        S.why = 'the gate is green'
-        if (pull?.mergeable_state === 'behind') { S.notes.push(`${base} moved: gh pr update-branch ${target} (new head, new CI)`); return 'behind' }
-        if (pull && (pull.mergeable == null || pull.mergeable_state === 'unknown')) return 'pending'   // not computed yet: it could still be behind
-        return 'green'
+        if (!routeMismatch) {
+            S.why = 'the gate is green'
+            if (pull?.mergeable_state === 'behind') { S.notes.push(`${base} moved: gh pr update-branch ${target} (new head, new CI)`); return 'behind' }
+            if (pull && (pull.mergeable == null || pull.mergeable_state === 'unknown')) return 'pending'   // not computed yet: it could still be behind
+            return 'green'
+        }
     }
     // A red job that got a runner or ran a step posted its own failure: a later refused re-run never makes it replaceable.
     if ((g?.state === 'failure' || g?.state === 'error') && !g.description?.startsWith('Local ')) { S.why = 'the gate failed'; return 'red' }
 
-    S.why = 'Actions has not refused the run'
+    if (!routeMismatch) S.why = 'Actions has not refused the run'
     const candidates = []
     for (const run of workflowRuns(S.head, pull)) {
         if (!workflowRunMatches(run, S.head, pull) || !Number.isSafeInteger(run.id) || run.id < 1) throw new Error('Actions workflow run response was malformed')
@@ -176,7 +179,7 @@ function pollCi(S) {
     }
     // the newest run decides; job ids only break ties inside a run
     const candidate = candidates.sort((a, b) => (b.run.id - a.run.id) || ((b.job?.id ?? 0) - (a.job?.id ?? 0)))[0]
-    if (!candidate) return 'pending'
+    if (!candidate) return routeMismatch ? 'red' : 'pending'
     const { run, job } = candidate
     const status = job?.status ?? run.status
     const conclusion = job?.conclusion ?? run.conclusion
