@@ -40,7 +40,7 @@ const base = cfg.default_branch
 
 const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])   // the pre-filter for a review of record: on a public repo anyone can comment
 const who = (login) => login || 'an unknown account'
-const SELF_HEAD = /^Self-check head: ([0-9a-f]{7,40})\\b/ // old self-check marker, recognized only to exclude these from prior independent reviews
+const SELF_HEAD = /^Self-check head: ([0-9a-f]{7,40})\b/ // old self-check marker, recognized only to exclude these from prior independent reviews
 const completedReview = (r) => r && (r.state === 'APPROVED' || (r.state === 'COMMENTED' && Boolean(String(r.body ?? '').trim())))
 
 const stop = (message) => { console.error(`merge: not merged: ${message}`); return 1 }
@@ -49,8 +49,7 @@ const NEXT = (sha7) => `run pr-reviewer on the head (a delta review since ${sha7
 const readyReview = (r) => Boolean(completedReview(r) && typeof r.commit_id === 'string')
 
 /**
- * The review of record for --self-checked. Returns a refusal string, or { lane }. `own` is this account's last verdict review on the head
- * (the caller already checked that every account's last verdict is exactly ready).
+ * The review of record for --self-checked. Returns a refusal string or { lane }. `own` is the merging account's latest submitted review on the head.
  */
 function selfCheck(pull, head, own, reviews, me) {
     const sha7 = head.slice(0, 7)
