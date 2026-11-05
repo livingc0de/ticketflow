@@ -19,7 +19,7 @@ The verdict is that status alone; `merge`, `pr-wait` and the branch ruleset all 
   `if: always()`, so a timeout or a cancel posts a failure too.
 - Every run, docs-only or not, first checks the agent stubs (`gen-stubs --check`, the checked-out copy): a stale or hand-edited stub
   fails the gate. The local fallback does the same before its inherited or docs-only result or its verify command.
-- Verify mode (`ci`, `tiered` or `local-first`) is described in [WORKFLOW.md](WORKFLOW.md).
+- Verify mode (`ci`, `tiered` or `local`) is described in [WORKFLOW.md](WORKFLOW.md).
 
 ## Description contract
 
