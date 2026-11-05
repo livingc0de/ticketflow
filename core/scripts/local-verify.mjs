@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * The local fallback for the merge gate: run the configured verify command on the exact, up-to-date head of a pull request (or on a
+ * The normal local gate in tiered mode (Low/Normal safe PRs), or the refused-Actions fallback: run the configured verify command on the exact, up-to-date head of a pull request (or on a
  * default-branch commit) in a clean worktree, then post the result as the commit status `gate.context` (and, for a PR, one comment).
- * Run by hand, never by a timer, and only when `pr-wait` printed `Fallback: allowed` (Actions refused the job).
+ * Run by the implementing agent, never by a timer: either the tiered route permits local or `pr-wait` reports `Fallback: allowed`.
  *
  * Usage: local-verify.mjs <pr | 40-hex sha>
  * Exit: 0 = success posted; 1 = failure posted, or nothing posted (timeout, head moved, behind, a doubt); 2 = usage or config error;
  *       3 = refused (the fallback is not allowed, a fork, another base, or this runtime differs from origin/<default_branch>).
  *
- * Fail-closed: nothing is posted unless `pr-wait <target> --once --ci-only` exits 3 both before and right after the run, on the same head.
+ * Fail-closed: the selected tiered local route or the refused-Actions fallback must still apply before and after running on the same head.
  * A failure is posted too (the status stays the last verdict, so a merge gate sees red at once); a `failure local ...` status
  * stays re-runnable while Actions still refuses the job. A red that got a runner or ran a step on Actions is never replaced.
  * The verify runs the code under test as you, with your HOME: only run branches you would run anyway, and run the default branch's copy of this script.
