@@ -20,21 +20,8 @@ OpenCode, Antigravity and GitHub Copilot a guard asks you before (or blocks) the
 - **The bypass** exists on purpose: the repository admin may merge past the checks when the owner explicitly asks. An agent that
   runs with the owner's admin token has that right too. The ruleset therefore cannot stop an agent that uses the admin token for
   an API merge or `gh pr merge --admin` (see the table). Only the rules above, the ask/prompt rules and the owner's attention do.
-- **The review gate** `merge` refuses unresolved review threads (any author), an external reviewer that started on the head and has not
-  answered (at most 15 minutes from its start) or asked for changes, a `pr-reviewer` verdict on the head that is not exactly `ready to
-  merge` (every trusted account's last one; only that account lifts it), and a head with no review of record: the merging account's own
-  `pr-reviewer` review of exactly that head, `--reviewed-by <login>` naming an external reviewer `pr-wait` shows with a result on it, or
-  `--self-checked`: the account's own `Self-check head:` review, accepted only where the diff itself qualifies (small, tested, no risky path or
-  label, or a small fix delta after a ready review; `core/lib/risk.mjs`). A self-check proves the diff's facts, not that anyone looked carefully;
-  the floor and its limits are in [REVIEWERS.md](REVIEWERS.md#the-self-check-lane).
-  Only reviews of an `OWNER`, `MEMBER` or `COLLABORATOR` set a verdict. `merge` reads no repository permission and takes no comment as a
-  basis: GitHub's own rules decide who may merge. The review is posted with the credentials the agent merges with, unless you run the
-  high-assurance mode below: `merge` proves which review the agent named, where and when it was posted, not that an independent
-  reviewer wrote it or what an external result concludes. What is enforced, convention and not verifiable: [REVIEWERS.md](REVIEWERS.md).
-- **Credentials.** With an admin token, `merge.mjs` and the guard are the only stop: the ruleset does not bind an admin, so an API merge
-  skips every check above. With a non-admin token the ruleset still binds the gate status and the up-to-date rule, but not the review
-  gate (`protect` requires no approvals and no thread resolution): the review checks live in `merge.mjs`, and a non-admin agent can
-  still run `gh pr merge` once the gate is green. The repository's approvals and thread-resolution settings stay the owner's choice.
+- **The review gate** checks unresolved threads, pending external reviews, and GitHub's native `CHANGES_REQUESTED` state on the exact head. A submitted GitHub review (or a named external result) provides evidence of review without relying on an exact phrase. `--self-checked` still requires a submitted review of the head and a risk-eligible diff. A comment's wording is interpreted by the agent, not verified by the script; a `COMMENTED` review does **not** prove approval. GitHub's branch rules can enforce independent human approvals.
+- **Review judgment is not independently verifiable.** The agent that has the review must read it, act on all findings and refuse to merge while a blocker remains, even if the structured gate is green. Format variants do not override explicit GitHub requests for changes.
 - **Known ceiling:** `merge` checks that the branch is up to date, reads that again right before `gh pr merge`, and passes
   `--match-head-commit`; a push to the base branch in the instant between the second read and GitHub's merge is still not caught.
 
