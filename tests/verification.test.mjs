@@ -18,7 +18,7 @@ test('high, critical, security and sensitive paths require CI', () => {
         assert.equal(verificationRoute(cfg, pull, files, [issue([label])]).route, 'ci')
     assert.equal(verificationRoute(cfg, pull, [{ ...files[0], filename: '.github/workflows/ci.yml' }], [issue()]).route, 'ci')
     assert.equal(verificationRoute(cfg, pull, [{ ...files[0], filename: '.ticketflow/config.json' }], [issue()]).route, 'ci')
-    assert.equal(verificationRoute({ ...cfg, review: { always_review: [/^src\\//] } }, pull, files, [issue()]).route, 'ci')
+    assert.equal(verificationRoute({ ...cfg, review: { always_review: [new RegExp('^src/')] } }, pull, files, [issue()]).route, 'ci')
 })
 test('missing ticket, incomplete files or labels fall back to CI', () => {
     assert.equal(verificationRoute(cfg, { ...pull, title: 'No ticket' }, files, []).route, 'ci')
