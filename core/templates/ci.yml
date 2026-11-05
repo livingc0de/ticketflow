@@ -64,9 +64,8 @@ jobs:
             printf 'skip=true\ndescription=Actions run #%s, docs only\n' "$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
 {{scope_inherit}}
           fi
-# ticketflow:end job
-
 {{tiered_local_gate}}
+# ticketflow:end job
 
       # Repo section: your own steps. Every step runs only when `steps.scope.outputs.skip != 'true'`; this is the contract
       # with the scope step above and the gate step below.
