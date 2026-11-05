@@ -78,7 +78,7 @@ test('submitted reviews on the exact head accept natural-language wording and fo
         '**Verdict:** ready to merge\n**Code quality:** acceptable',
     ]) assert.equal(run({ reviews: [review({ body })] }).status, 0, body)
     refused(run({ reviews: [review({ body: '  ' })] }), /no submitted review/)
-    refused(run({ reviews: [review({ state: 'CHANGES_REQUESTED', body: 'Ready' })] }), /requested changes/)
+    refused(run({ reviews: [review({ state: 'CHANGES_REQUESTED', body: 'Ready' })] }), /requested changes|changes requested/)
 })
 
 test('each unmet gate exits 1 and never calls pr merge', () => {
@@ -150,7 +150,7 @@ test('M1: a submitted review is associated by GitHub commit ID, not text in the 
     assert.equal(run({ reviews: [review({ body: 'Reviewed some older code; this review is on the current commit' })] }).status, 0)
     for (const state of ['DISMISSED', 'PENDING']) refused(run({ reviews: [review({ state })] }), /no submitted review/)
     assert.equal(run({ reviews: [review({ state: 'APPROVED', body: '' })] }).status, 0)
-    refused(run({ reviews: [review({ state: 'CHANGES_REQUESTED' })] }), /requested changes/)
+    refused(run({ reviews: [review({ state: 'CHANGES_REQUESTED' })] }), /requested changes|changes requested/)
     refused(run({ reviews: [other('someone-else')] }), /no submitted review/)
     refused(run({ reviews: [review(STRANGER)] }), /no submitted review/)
 })
@@ -203,9 +203,9 @@ test('M4: GitHub changes-requested state is authoritative; prose is not parsed',
     refused(run({ reviews: [bossNeeded, review()] }), /changes requested.*boss|boss requested changes/)
     for (const author_association of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
         assert.equal(run({ reviews: [other('boss', { id: 91, body: NEEDED, state: 'CHANGES_REQUESTED', author_association }), review(), other('boss', { id: 93, body: 'Reviewed the fixes, good to go', author_association })] }).status, 0, author_association)
-        refused(run({ reviews: [review(), other('boss', { id: 91, body: NEEDED, state: 'CHANGES_REQUESTED', author_association })] }), /requested changes/)
+        refused(run({ reviews: [review(), other('boss', { id: 91, body: NEEDED, state: 'CHANGES_REQUESTED', author_association })] }), /requested changes|changes requested/)
     }
-    refused(run({ reviews: [review(), other('boss', { body: 'Looks good' }), bossNeeded] }), /requested changes/)
+    refused(run({ reviews: [review(), other('boss', { body: 'Looks good' }), bossNeeded] }), /requested changes|changes requested/)
     assert.equal(run({ reviews: [review(), review({ id: 95, state: 'CHANGES_REQUESTED', ...STRANGER })] }).status, 0)
     assert.equal(run({ reviews: [review(), other('boss', { state: 'CHANGES_REQUESTED', commit_id: OLD })] }).status, 0)
     assert.equal(run({ reviews: [review(), other('boss', { state: 'DISMISSED' })] }).status, 0)
@@ -218,7 +218,7 @@ test('freeform reviewer comments never need a specific marker or verdict wording
     for (const body of ['I reviewed the code.', 'The implementation looks acceptable.', '**Verdict**: ready to merge', 'Ship it.']) {
         assert.equal(run({ reviews: [review({ body })] }).status, 0, body)
     }
-    refused(run({ reviews: [review({ state: 'CHANGES_REQUESTED', body: 'Please fix the race condition' })] }), /requested changes/)
+    refused(run({ reviews: [review({ state: 'CHANGES_REQUESTED', body: 'Please fix the race condition' })] }), /requested changes|changes requested/)
 })
 
 test('M2: --reviewed-by names the reviewer whose result on this head was acted on; no activity, another head, an unlisted account or this account is refused', () => {
