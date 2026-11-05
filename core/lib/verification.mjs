@@ -1,11 +1,12 @@
 /**
  * Where the one full verification runs in tiered mode.
- * Only a complete, trusted-by-policy PR (ticket, labels and file list) qualifies for local verification.
+ * Only a complete PR with safe labels and file metadata qualifies for local verification.
  * Unknown information and sensitive paths require Actions. The route is re-read before local status posting
  * and again at merge, so changing labels without changing the head cannot weaken a green gate.
  */
 import { api } from './gh.mjs'
-import { alwaysReviewHit, ticketsOf } from './risk.mjs'
+import { ticketsOf } from './risk.mjs'
+import { NEVER_DOCS } from './config.mjs'
 
 export const localGate = (description = '') =>
     /^Local run on |^Local check on |^Inherited from /.test(description)
@@ -17,7 +18,7 @@ export function validGateSource(route, description) {
     return route === 'local' ? localGate(description) : ciGate(description)
 }
 
-/** Pure decision, useful for tests and other providers. Tier: High/Critical or a sensitive path forces CI. */
+/** Pure decision. Tier labels are the policy; only changes to the verification machinery itself override them. */
 export function verificationRoute(cfg, pull, files, issues) {
     if (cfg.verify.mode !== 'tiered') return { route: 'ci', reason: 'configured CI mode' }
     // The normal local runner cannot safely execute fork heads; they must use Actions.
@@ -33,8 +34,10 @@ export function verificationRoute(cfg, pull, files, issues) {
     const labels = issues.flatMap((x) => x.labels.map((l) => typeof l === 'string' ? l : l?.name))
     if (labels.some((l) => typeof l !== 'string' || l === 'Security' || l.startsWith('Needs:') || (l.startsWith('Tier: ') && l !== 'Tier: Low' && l !== 'Tier: Normal')))
         return { route: 'ci', reason: 'high risk or unresolved decision' }
-    if (files.some((f) => alwaysReviewHit(f, cfg)))
-        return { route: 'ci', reason: 'sensitive paths require independent verification' }
+    // Repo/application-specific review paths must not silently change where full verification runs.
+    // Only the universal verification configuration/workflow paths override the ticket tier.
+    if (files.some((f) => [f.filename, f.previous_filename].filter((n) => typeof n === 'string').some((n) => NEVER_DOCS.some((re) => re.test(n)))))
+        return { route: 'ci', reason: 'verification configuration or workflow changed' }
     return { route: 'local', reason: 'Low/Normal ticket with no CI-only paths' }
 }
 
