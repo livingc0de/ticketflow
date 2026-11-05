@@ -37,8 +37,7 @@
       "Bash(gh api *branches/*/protection*)",
       "Bash(gh api graphql *Ruleset*)",
       "Bash(gh api graphql *BranchProtectionRule*)",
-      "Bash(*protect.mjs --apply*)",
-      "Bash(npm test)"
+      "Bash(*protect.mjs --apply*)"
     ]
   },
   "manifest_version": 1
