@@ -68,26 +68,19 @@ test('merges with the exact argv and reports the method and the merge commit', (
     assert.equal(r.stdout.trim(), `Merged #5 (squash) as ${'f'.repeat(40)}`)
     assert.ok(!r.merges[0].some((a) => /--admin|--auto/.test(a)))
 })
-test('a ready verdict cannot override explicitly failed specification or code-quality dimensions', () => {
-    const base = `Reviewed head: ${SHA7}\n**Verdict:** ready to merge`
-    const good = `${base}\n**Spec compliance:** met\n**Code quality:** acceptable`
-    assert.equal(run({ reviews: [review({ body: good })] }).status, 0)
-    refused(run({ reviews: [review({ body: `${base}\n**Spec compliance:** unmet\n**Code quality:** acceptable` })] }), /not exactly "ready to merge"/)
-    refused(run({ reviews: [review({ body: `${base}\n**Spec compliance:** met\n**Code quality:** changes needed` })] }), /not exactly "ready to merge"/)
+
+test('submitted reviews on the exact head accept natural-language wording and formatting', () => {
+    for (const body of [
+        'Looks good to merge.',
+        'All findings addressed. A minor suggestion remains.',
+        'Verdict: ready to merge',
+        `Reviewed head: ${OLD.slice(0, 7)}\nReady after checks`,
+        '**Verdict:** ready to merge\n**Code quality:** acceptable',
+    ]) assert.equal(run({ reviews: [review({ body })] }).status, 0, body)
+    refused(run({ reviews: [review({ body: '  ' })] }), /no submitted review/)
+    refused(run({ reviews: [review({ state: 'CHANGES_REQUESTED', body: 'Ready' })] }), /requested changes/)
 })
-test('alternate Markdown spelling and duplicate dimension verdicts cannot override ready to merge', () => {
-    const base = `Reviewed head: ${SHA7}\n**Verdict:** ready to merge`
-    const rejected = [
-        `${base}\n**Spec compliance**: unmet\n**Code quality:** acceptable`,
-        `${base}\nSpec compliance: unmet\nCode quality: acceptable`,
-        `${base}\n- **Spec compliance**: met\n- **Code quality**: changes needed`,
-        `${base}\n**Spec compliance:** met\n**Spec compliance**: unmet\n**Code quality:** acceptable`,
-        `${base}\n**Spec compliance:** met\n**Code quality:** acceptable\n**Code quality**: changes needed`,
-    ]
-    for (const body of rejected) refused(run({ reviews: [review({ body })] }), /not exactly "ready to merge"/)
-    const valid = `${base}\n- **Spec compliance**: met\n- **Code quality**: acceptable`
-    assert.equal(run({ reviews: [review({ body: valid })] }).status, 0)
-})
+
 test('each unmet gate exits 1 and never calls pr merge', () => {
     refused(run({ gate: status(null) }), /CI \/ Gate is missing/)
     refused(run({ gate: status('pending') }), /CI \/ Gate is pending/)
@@ -150,18 +143,16 @@ test('the base is read again right before the merge: a base that moved in betwee
     refused(run({ extra: { [`${R}/compare/main...${HEAD}`]: seq({ behind_by: 0 }, { __status: 500, __stderr: 'boom' }) } }), /cannot read/)
 })
 
-test('M1: the merging account\'s own ready verdict on the head is the review; none, an older head or another "Reviewed head" is not', () => {
-    refused(run({ reviews: [] }), /no review of abcdef1: run pr-reviewer on the head.*--reviewed-by/)
-    refused(run({ reviews: [review({ commit_id: OLD, body: READY.replace(SHA7, OLD.slice(0, 7)) })] }), /no review of abcdef1/)
-    refused(run({ reviews: [review({ body: READY.replace(SHA7, ANCESTOR.slice(0, 7)) })] }), /does not start "Reviewed head: <sha>" naming abcdef1/)
-    refused(run({ reviews: [review({ body: 'Reviewed head: zzz\n**Verdict:** ready to merge' })] }), /does not start "Reviewed head/)
-    for (const state of ['DISMISSED', 'PENDING']) refused(run({ reviews: [review({ state })] }), /no review of abcdef1/)
-    assert.equal(run({ reviews: [review({ state: 'APPROVED' })] }).status, 0)
-    assert.equal(run({ reviews: [review({ body: READY.replace(SHA7, HEAD) })] }).status, 0)   // a full sha prefixes too
-    refused(run({ reviews: [review({ state: 'CHANGES_REQUESTED' })] }), /changes requested|not exactly/)
-    // a review of another trusted account is not the merging account's own
-    refused(run({ reviews: [other('someone-else')] }), /no review of abcdef1/)
-    refused(run({ reviews: [review(STRANGER)] }), /no review of abcdef1/)   // M5: an outsider's ready review is nothing
+
+test('M1: a submitted review is associated by GitHub commit ID, not text in the comment', () => {
+    refused(run({ reviews: [] }), /no submitted review of abcdef1/)
+    refused(run({ reviews: [review({ commit_id: OLD })] }), /no submitted review of abcdef1/)
+    assert.equal(run({ reviews: [review({ body: 'Reviewed some older code; this review is on the current commit' })] }).status, 0)
+    for (const state of ['DISMISSED', 'PENDING']) refused(run({ reviews: [review({ state })] }), /no submitted review/)
+    assert.equal(run({ reviews: [review({ state: 'APPROVED', body: '' })] }).status, 0)
+    refused(run({ reviews: [review({ state: 'CHANGES_REQUESTED' })] }), /requested changes/)
+    refused(run({ reviews: [other('someone-else')] }), /no submitted review/)
+    refused(run({ reviews: [review(STRANGER)] }), /no submitted review/)
 })
 
 test('A1: a CHANGES_REQUESTED review of the head is refused with the way out; an external result does not replace the own review', () => {
@@ -205,51 +196,29 @@ test('B1: merge refuses a pr-wait output without exactly one Review: and one Unr
     assert.equal(results.status, 0, results.stderr)
 })
 
-test('M4: each trusted account\'s last verdict on the head must be ready; only that account lifts its own "changes needed"; no permission is read', () => {
-    const bossNeeded = other('boss', { id: 91, body: NEEDED })
-    refused(run({ reviews: [review(), bossNeeded] }), /boss.*"changes needed", not exactly "ready to merge".*only that account/)
-    refused(run({ reviews: [bossNeeded, review()] }), /boss.*changes needed/)   // my later ready verdict does not lift boss's
-    refused(run({ reviews: [bossNeeded, review(), other('stranger2', { id: 92, user: { login: 'stranger2' } })] }), /boss/)   // a ready review of someone else does not either
+
+test('M4: GitHub changes-requested state is authoritative; prose is not parsed', () => {
+    const bossNeeded = other('boss', { id: 91, body: NEEDED, state: 'CHANGES_REQUESTED' })
+    refused(run({ reviews: [review(), bossNeeded] }), /boss requested changes/)
+    refused(run({ reviews: [bossNeeded, review()] }), /boss requested changes/)
     for (const author_association of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
-        assert.equal(run({ reviews: [other('boss', { id: 91, body: NEEDED, author_association }), review(), other('boss', { id: 93, body: READY, author_association })] }).status, 0, author_association)   // boss lifts it
-        refused(run({ reviews: [review(), other('boss', { id: 91, body: NEEDED, author_association })] }), /changes needed/)
+        assert.equal(run({ reviews: [other('boss', { id: 91, body: NEEDED, state: 'CHANGES_REQUESTED', author_association }), review(), other('boss', { id: 93, body: 'Reviewed the fixes, good to go', author_association })] }).status, 0, author_association)
+        refused(run({ reviews: [review(), other('boss', { id: 91, body: NEEDED, state: 'CHANGES_REQUESTED', author_association })] }), /requested changes/)
     }
-    refused(run({ reviews: [review(), other('boss', { id: 91, body: READY, state: 'COMMENTED' }), other('boss', { id: 94, body: NEEDED })] }), /changes needed/)   // the newest of the account wins
-    // an outsider's "changes needed" is not a verdict of record: it cannot stop the merge, and neither can an older head's
-    assert.equal(run({ reviews: [review(), review({ id: 95, body: NEEDED, ...STRANGER })] }).status, 0)
-    assert.equal(run({ reviews: [review(), other('boss', { id: 96, body: NEEDED, commit_id: OLD })] }).status, 0)
-    assert.equal(run({ reviews: [review(), other('boss', { id: 97, body: NEEDED, state: 'DISMISSED' }), other('boss', { id: 98, body: NEEDED, state: 'PENDING' })] }).status, 0)
-    assert.equal(run({ reviews: [review(), other('boss', { id: 99, body: 'looks fine, no verdict line' })] }).status, 0)
-    const r = run({ reviews: [review(), other('boss', { id: 91, body: READY })] })
+    refused(run({ reviews: [review(), other('boss', { body: 'Looks good' }), bossNeeded] }), /requested changes/)
+    assert.equal(run({ reviews: [review(), review({ id: 95, state: 'CHANGES_REQUESTED', ...STRANGER })] }).status, 0)
+    assert.equal(run({ reviews: [review(), other('boss', { state: 'CHANGES_REQUESTED', commit_id: OLD })] }).status, 0)
+    assert.equal(run({ reviews: [review(), other('boss', { state: 'DISMISSED' })] }).status, 0)
+    assert.equal(run({ reviews: [review(), other('boss', { body: 'One minor naming suggestion' })] }).status, 0)
+    const r = run({ reviews: [review(), other('boss', { body: 'Approved with small remarks' })] })
     assert.equal(r.status, 0, r.stderr)
     assert.ok(!r.calls.some((c) => c.some((a) => String(a).includes('collaborators/'))), 'merge reads no repository permission')
 })
-
-test('B3: the verdict is exactly one "**Verdict:** ready to merge" line; the unfilled template, two verdicts or anything else is refused', () => {
-    const body = (verdict) => `Reviewed head: ${SHA7}\n${verdict}`
-    for (const verdict of ['**Verdict:** ready to merge | changes needed', '**Verdict:** ready to merge once X is fixed', '**Verdict:** ', '**Verdict:** changes needed\n**Verdict:** ready to merge', '**Verdict:** ready to merge\n**Verdict:** ready to merge', 'Verdict: ready to merge']) {
-        const r = run({ reviews: [review({ body: body(verdict) })] })
-        if (verdict.startsWith('**') || verdict.startsWith('Verdict')) refused(r, /not exactly "ready to merge"|no review of/)
+test('freeform reviewer comments never need a specific marker or verdict wording', () => {
+    for (const body of ['I reviewed the code.', 'The implementation looks acceptable.', '**Verdict**: ready to merge', 'Ship it.']) {
+        assert.equal(run({ reviews: [review({ body })] }).status, 0, body)
     }
-    assert.equal(run({ reviews: [review({ body: body('**Verdict:**   ready to merge  \n**Blockers:** none') })] }).status, 0)
-    refused(run({ reviews: [review({ body: body('**Verdict:** ready to merge') }), other('boss', { id: 91, body: body('**Verdict:** ready to merge | changes needed') })] }), /boss/)
-})
-
-test('a changes-needed verdict is seen in any common spelling of the label; only the exact bold line is ready', () => {
-    for (const line of ['**Verdict**: changes needed', 'Verdict: changes needed', '   **Verdict:** changes needed', '\t**VERDICT:** changes needed', '__Verdict:__ changes needed', '**Verdict:**changes needed', '## Verdict: changes needed', '- **Verdict:** changes needed', '* Verdict: changes needed', '*Verdict:* changes needed']) {
-        refused(run({ reviews: [review(), other('boss', { body: `Reviewed head: ${SHA7}\n${line}` })] }), /changes needed/)
-    }
-    // a looser spelling of "ready" is a recognised verdict but never an accepted one
-    for (const line of ['Verdict: ready to merge', '**Verdict**: ready to merge', '  **Verdict:** ready to merge']) {
-        refused(run({ reviews: [review({ body: `Reviewed head: ${SHA7}\n${line}` })] }), /not exactly "ready to merge"/)
-    }
-    refused(run({ reviews: [review({ body: `Reviewed head: ${SHA7}\n**Verdict:** ready to merge\nVerdict: changes needed` })] }), /not exactly "ready to merge"/)
-})
-
-test('should-fix: a changes-needed review is seen whatever its formatting (blank first line, backticks or bold around the sha)', () => {
-    for (const body of [`\nReviewed head: ${SHA7}\n**Verdict:** changes needed`, `Reviewed head: \`${SHA7}\`\n**Verdict:** changes needed`, `**Reviewed head:** ${SHA7}\n**Verdict:** changes needed`, '**Verdict:** changes needed']) {
-        refused(run({ reviews: [review({ body })] }), /changes needed/)
-    }
+    refused(run({ reviews: [review({ state: 'CHANGES_REQUESTED', body: 'Please fix the race condition' })] }), /requested changes/)
 })
 
 test('M2: --reviewed-by names the reviewer whose result on this head was acted on; no activity, another head, an unlisted account or this account is refused', () => {
@@ -364,15 +333,14 @@ test('S1: a small PR with tests and a ready self-check of the head merges and sa
     assert.doesNotMatch(run().stdout, /self-check/)
 })
 
-test('S2: refused without the record, on the wrong head, or when the self-check is not exactly ready', () => {
-    refused(selfChecked({ reviews: [] }), /no self-check of abcdef1/)
-    refused(selfChecked({ reviews: [review()] }), /no self-check of abcdef1/)   // a pr-reviewer review is not a self-check
-    refused(selfChecked({ reviews: [review({ commit_id: OLD, body: SELF.replace(SHA7, OLD.slice(0, 7)) })] }), /no self-check of abcdef1/)
-    refused(selfChecked({ reviews: [review({ body: SELF.replace(SHA7, ANCESTOR.slice(0, 7)) })] }), /no self-check of abcdef1/)
-    refused(selfChecked({ reviews: [review({ body: SELF.replace('ready to merge', 'changes needed') })] }), /not exactly "ready to merge"/)
-    refused(selfChecked({ reviews: [review({ body: SELF.replace('**Verdict:** ready', 'Verdict: ready') })] }), /not exactly "ready to merge"/)
-    refused(selfChecked({ reviews: [review(STRANGER), review({ id: 78, body: SELF, ...STRANGER })] }), /no self-check/)   // an outsider's self-check is nothing
-    refused(selfChecked({ reviews: [review({ body: SELF }), other('boss', { body: NEEDED })] }), /boss/)   // another account's changes-needed still blocks
+
+test('S2: self-check requires a submitted nonempty review on the right head, but no fixed wording', () => {
+    refused(selfChecked({ reviews: [] }), /no submitted self-check/)
+    refused(selfChecked({ reviews: [review({ commit_id: OLD })] }), /no submitted self-check/)
+    refused(selfChecked({ reviews: [review({ body: '   ' })] }), /no submitted self-check/)
+    assert.equal(selfChecked({ reviews: [review({ body: 'Reviewed all acceptance criteria and tests passed' })] }).status, 0)
+    refused(selfChecked({ reviews: [review(STRANGER)] }), /no submitted self-check/)
+    refused(selfChecked({ reviews: [review({ body: SELF }), other('boss', { state: 'CHANGES_REQUESTED', body: NEEDED })] }), /boss/)
 })
 
 test('S3: refused when the lane is review, there is no ticket, or the self-check is off', () => {
@@ -393,9 +361,9 @@ test('S4: fix delta: a ready pr-reviewer review of an ancestor plus a small delt
     refused(selfChecked({ files: BIG, reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js', 20, 11)]) }), /fix delta since 2222222 is 31 lines \(limit 30\)/)
     refused(selfChecked({ files: BIG, reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js'), f('package.json')]) }), /touches package\.json, which always needs a review/)
     refused(selfChecked({ files: BIG, reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js')], 2) }), /not a plain descendant/)
-    const needed = review({ id: 70, commit_id: ANCESTOR, body: NEEDED.replace(SHA7, ANCESTOR.slice(0, 7)) })
-    refused(selfChecked({ files: BIG, reviews: [needed, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /is not a ready verdict/)
-    refused(selfChecked({ files: BIG, reviews: [PRIOR, { ...needed, id: 71 }, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /is not a ready verdict/)   // the latest review decides
+    const needed = review({ id: 70, commit_id: ANCESTOR, state: 'CHANGES_REQUESTED', body: NEEDED.replace(SHA7, ANCESTOR.slice(0, 7)) })
+    refused(selfChecked({ files: BIG, reviews: [needed, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /not a completed non-blocking review/)
+    refused(selfChecked({ files: BIG, reviews: [PRIOR, { ...needed, id: 71 }, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /not a completed non-blocking review/)   // the latest review decides
     refused(selfChecked({ files: BIG, reviews: [review({ body: SELF })] }), /too big for a self-check.*no ready pr-reviewer review/)
     const high = selfChecked({ files: SMALL, labels: ['Tier: High'], reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js', 2)]) })
     assert.equal(high.status, 0, high.stderr)   // high: a ready review of an earlier head, then a small fix
@@ -423,19 +391,19 @@ test('S6: pr-wait does not list our own self-check as an external reviewer', () 
     assert.doesNotMatch(r.stdout, /Review me|\(me\)/)
 })
 
-test('S7: a self-check never answers an earlier "changes needed" of pr-reviewer; a later ready review does', () => {
-    const needed = review({ id: 70, commit_id: ANCESTOR, body: NEEDED.replace(SHA7, ANCESTOR.slice(0, 7)) })
-    refused(selfChecked({ reviews: [needed, review({ body: SELF })] }), /last pr-reviewer review \(2222222\) is not a ready verdict: a self-check does not answer it/)
-    const ready = review({ id: 71, commit_id: OLD, body: READY.replace(SHA7, OLD.slice(0, 7)) })
+
+test('S7: an earlier native changes request cannot be bypassed by a later self-check', () => {
+    const needed = review({ id: 70, commit_id: ANCESTOR, state: 'CHANGES_REQUESTED', body: NEEDED })
+    refused(selfChecked({ reviews: [needed, review({ body: SELF })] }), /last earlier review was not a completed non-blocking review/)
+    const ready = review({ id: 71, commit_id: OLD, body: 'Re-reviewed and all findings addressed' })
     assert.equal(selfChecked({ reviews: [needed, ready, review({ body: SELF })] }).status, 0)
-    refused(selfChecked({ reviews: [{ ...needed, state: 'COMMENTED', body: `\n${needed.body}` }, review({ body: SELF })] }), /is not a ready verdict/)   // a blank first line does not hide it
-    refused(selfChecked({ reviews: [review({ id: 72, body: NEEDED }), review({ body: SELF })] }), /last pr-reviewer review \(abcdef1\) is not a ready verdict/)   // a changes-needed on this very head, answered without a push
+    refused(selfChecked({ reviews: [review({ id: 70, state: 'CHANGES_REQUESTED', body: NEEDED }), review({ body: SELF })] }), /requested changes/)
 })
 
 test('S8: the fix-delta base is checked like a review of record: state, the commit its header names, an unreadable delta, a floor path in a rename, 300 files, a review of the head itself', () => {
     const go = (prior, deltaFixture, over = {}) => selfChecked({ files: BIG, reviews: [prior, review({ body: SELF })], extra: deltaFixture, ...over })
-    refused(go({ ...PRIOR, state: 'CHANGES_REQUESTED' }, delta([f('src/a.js')])), /is not a ready verdict/)
-    refused(go({ ...PRIOR, body: READY.replace(SHA7, OLD.slice(0, 7)) }, delta([f('src/a.js')])), /is not a ready verdict/)   // the header names another commit than the one the review is attached to
+    refused(go({ ...PRIOR, state: 'CHANGES_REQUESTED' }, delta([f('src/a.js')])), /not a completed non-blocking review/)
+    assert.equal(go({ ...PRIOR, body: 'Review evidence is the GitHub commit, not this comment text' }, delta([f('src/a.js')])).status, 0)
     refused(go(PRIOR, { [`${R}/compare/${ANCESTOR}...${HEAD}`]: { behind_by: 0 } }), /not a plain descendant/)   // no files at all
     refused(go(PRIOR, delta([{ filename: 'src/a.js' }])), /fix delta since 2222222 could not be read/)
     refused(go(PRIOR, delta([{ filename: 'src/new.js', previous_filename: 'package.json', additions: 1, deletions: 0 }])), /touches package\.json, which always needs a review/)
