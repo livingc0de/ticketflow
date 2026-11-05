@@ -142,7 +142,7 @@ Work that should be tracked is `create-ticket` and `implement-ticket`; say so an
 
 - **`ci`**: run focused checks while working; never run the full `verify.command` locally in normal operation. GitHub Actions provides the single full verification.
 - **`tiered`**: run focused checks while working, then open a draft PR. `verify-route <PR>` selects `local` for Low/Normal tickets with safe paths; `ci` for High/Critical, Security or sensitive paths, unknown labels or incomplete file lists. For `local`, `local-verify <PR>` checks the exact head in a clean worktree and posts the gate, then mark ready. For `ci`, mark ready without running the full suite locally. A lightweight Actions job checks the local status and skips its expensive test steps. The usual refused-Actions fallback remains available for the CI route.
-- **`local-first`**: deliberately run full verification locally before marking a draft PR ready, then repeat it in Actions (independent double verification).
+- **`local`**: deliberately run full verification locally before marking a draft PR ready, then repeat it in Actions (independent double verification).
 
 In both modes a UI, navigation or flow change is proven live (the `e2e-verifier` role, when `live_verify_skill` is set). A check that
 cannot run is never claimed: it goes in the `deferred_checks_issue` (when set) or the summary under "Not verified".
