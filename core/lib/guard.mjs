@@ -150,6 +150,11 @@ export function hookDecision(input, cfg, { cwd = process.cwd(), scriptsDir } = {
     let ask = null
     for (const raw of segments(stripHeredocs(command))) {
         const segment = raw.replace(/^(?:[A-Za-z_]\w*=\S*\s+)+/, '')
+        // An agent must not run the configured full suite in the working tree when CI or tiered routing owns it.
+        // Exact simple commands only: no guessed shell equivalence, and a user's own terminal is unaffected.
+        if ((cfg.verify?.mode === 'ci' || cfg.verify?.mode === 'tiered') &&
+            cfg.verify.command?.trim() === segment.trim())
+            return { block: true, reason: 'Full verify is reserved for the selected gate. Run focused checks here; in tiered local mode use local-verify.mjs on the PR head.', form: 'duplicate-verify' }
         const tokens = tokenize(segment)
         const subject = tokens[0] === 'gh' && tokens[1] === 'api' ? apiSubject(tokens, segment) : tokens.join(' ')   // quotes removed: `"main"` is main
         for (const f of guard.forms) {
