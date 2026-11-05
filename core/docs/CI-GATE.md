@@ -11,7 +11,7 @@ The verdict is that status alone; `merge`, `pr-wait` and the branch ruleset all 
 
 - The verdict is the **status** `gate.context`. The job that runs the work is a **check** named `gate.check` (default `Verify`).
   The two names must differ: a check and a status with one name would both be required.
-- A status can be posted by the CI job or, when Actions refuses to run the job, by `local-verify`. `pr-wait` reads the
+- A status can be posted by the CI job, by the normal local-only run, or, when Actions refuses to run the job, by `local-verify`. `pr-wait` reads the
   Actions workflow-runs and jobs APIs only to tell a run that never reached a runner or step from a real red one; for a
   pull request it also resolves workflows that ran on GitHub's temporary merge SHA through the exact PR head association.
   The commit status remains the verdict.
@@ -19,7 +19,7 @@ The verdict is that status alone; `merge`, `pr-wait` and the branch ruleset all 
   `if: always()`, so a timeout or a cancel posts a failure too.
 - Every run, docs-only or not, first checks the agent stubs (`gen-stubs --check`, the checked-out copy): a stale or hand-edited stub
   fails the gate. The local fallback does the same before its inherited or docs-only result or its verify command.
-- Verify mode (`ci`, `tiered` or `local-first`) is described in [WORKFLOW.md](WORKFLOW.md).
+- Verify mode (`ci`, `tiered` or `local`) is described in [WORKFLOW.md](WORKFLOW.md).
 
 ## Description contract
 
@@ -27,7 +27,7 @@ Whatever posts the status writes one of these descriptions; `inherit` and `pr-wa
 
 - `Actions run #<run id>`: a full run by Actions. A failure with this description is final.
 - `Actions run #<run id>, docs only`: Actions, docs-only diff.
-- `Local run on <host> (<arch>, Node <version>)`: a full local run (routine tiered Low/Normal or legacy fallback). A failure whose description starts with `Local ` can be re-run
+- `Local run on <host> (<arch>, Node <version>)`: a full local run (explicit `local` mode, routine tiered Low/Normal, or fallback). A failure whose description starts with `Local ` can be re-run
   locally while Actions still refuses the job.
 - `Local check on <host>, docs only`: local, docs-only diff.
 - `Local fallback run on <host> (<arch>, Node <version>)`: an Actions-refusal fallback in tiered CI route.
@@ -61,6 +61,8 @@ pull request is installed or run for it.
 ## Tiered verification
 
 With `verify.mode: tiered`, the PR's ticket labels and changed paths choose the route: Low/Normal, safe paths and complete metadata use a clean local full verification; High/Critical, Security, changes to verification infrastructure, missing tickets or unreadable metadata require Actions. Application-specific paths remain advisory for agent tier assessment, not implicit CI-routing rules. A draft PR skips the Actions job until marked ready. For local routes, `local-verify <PR>` posts the existing status before the PR becomes ready; the later lightweight Actions job confirms it and skips expensive checks without replacing the locally posted gate. This still consumes a small amount of runner time, rather than zero Actions minutes. On every PR head, `pr-wait` and `merge` reject a green status from the wrong route (so changing a tier after a local green status cannot authorize a High/Critical merge). `verify-route <PR>` prints the route before verification.
+
+With `verify.mode: local`, `local-verify <PR>` is the only full verification for the pull request. It posts the exact-head `Local run` or `Local check` status; the generated pull-request workflow skips the install and verify steps, so GitHub does not rerun the configured command. `pr-wait` and `merge` accept only that local source on the exact head.
 
 ## Local fallback
 

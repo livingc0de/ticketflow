@@ -16,7 +16,7 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `schema_version` | integer, must equal the core's (`2`) | required | `config`, `sync` |
 | `repo` | `owner/name` | required | all scripts |
 | `default_branch` | branch name | required | `inherit`, `local-verify`, `merge`, `pr-wait`, `render` |
-| `verify.mode` | `tiered` (default for new repos), `ci` or `local-first` | required | `pr-wait`, `local-verify`, `merge`, `render`; `tiered` chooses local Low/Normal or Actions High/Critical |
+| `verify.mode` | `tiered` (default for new repos), `ci` or `local` | required | `pr-wait`, `local-verify`, `merge`, `render`; `tiered` chooses local Low/Normal or Actions High/Critical, while `local` uses one local gate |
 | `verify.install` | string (shell) | `""` | `local-verify`, `render` |
 | `verify.command` | non-empty string (shell) | required | `local-verify`, `render` |
 | `verify.timeout_min` | integer 1..360 | `45` | `local-verify`, `render` |

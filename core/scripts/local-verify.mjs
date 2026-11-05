@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * The normal local gate in tiered mode (Low/Normal safe PRs), or the refused-Actions fallback: run the configured verify command on the exact, up-to-date head of a pull request (or on a
+ * The normal local gate in local mode or tiered mode (Low/Normal safe PRs), or the refused-Actions fallback: run the configured verify command on the exact, up-to-date head of a pull request (or on a
  * default-branch commit) in a clean worktree, then post the result as the commit status `gate.context` (and, for a PR, one comment).
  * Run by the implementing agent, never by a timer: either the tiered route permits local or `pr-wait` reports `Fallback: allowed`.
  *
@@ -57,10 +57,10 @@ const ghApi = (path) => {
     if (r.status !== 0) throw new Error(`gh api ${path} failed`)
     return JSON.parse(r.stdout)
 }
-// In tiered mode, a Low/Normal same-repo PR is a normal local gate, without an Actions refusal.
+// In local mode, or tiered mode for a Low/Normal same-repo PR, this is a normal local gate without an Actions refusal.
 // High/Critical and CI-only paths must still pass the unchanged refused-Actions guard.
 const localRoute = () => {
-    if (!isPr || cfg.verify.mode !== 'tiered') return false
+    if (!isPr || !['local', 'tiered'].includes(cfg.verify.mode)) return false
     try {
         return routeOfPull(cfg, ghApi(`repos/${cfg.repo}/pulls/${target}`), target).route === 'local'
     } catch { return false }
@@ -165,7 +165,7 @@ function main() {
     }
     if (!desc) {
         desc = `${method === 'fallback' && cfg.verify.mode === 'tiered' ? 'Local fallback run' : 'Local run'} on ${host} (${machine()}, Node ${process.versions.node})`
-        how = `${desc}, verify command on the exact head, ${method === 'fallback' ? 'Actions refused the job' : 'tiered local verification'}`
+        how = `${desc}, verify command on the exact head, ${method === 'fallback' ? 'Actions refused the job' : 'local verification'}`
         ;({ state, log, stale } = checkHead(sha))
     }
     if (stale) { desc = `Local check on ${host}, agent stubs out of date`; how = `${desc} (run gen-stubs), no verify run` }

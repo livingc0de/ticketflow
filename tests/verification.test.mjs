@@ -14,6 +14,18 @@ test('normal and low tier may verify locally', () => {
     assert.equal(verificationRoute(cfg, pull, files, [issue()]).route, 'local')
     assert.equal(verificationRoute(cfg, pull, files, [issue(['Tier: Low'])]).route, 'local')
 })
+test('explicit local mode always selects the local gate without reading ticket metadata', () => {
+    const local = { ...cfg, verify: { mode: 'local' } }
+    const reads = []
+    const read = (...args) => { reads.push(args); throw new Error('must not read route metadata') }
+    assert.equal(verificationRoute(local, pull, null, null).route, 'local')
+    assert.equal(routeOfPull(local, { ...pull, title: 'No ticket' }, 9, read).route, 'local')
+    assert.deepEqual(reads, [])
+})
+test('explicit local mode cannot authorize a fork head', () => {
+    const local = { ...cfg, verify: { mode: 'local' } }
+    assert.equal(verificationRoute(local, { ...pull, head: { repo: { full_name: 'someone/fork' } } }, null, null).route, 'ci')
+})
 test('high, critical, security and verification-control paths require CI', () => {
     for (const label of ['Tier: High', 'Tier: Critical', 'Security', 'Needs: Decision'])
         assert.equal(verificationRoute(cfg, pull, files, [issue([label])]).route, 'ci')

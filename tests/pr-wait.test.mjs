@@ -293,8 +293,8 @@ test('an API error is pending; a status-read error with a refused run is 2, neve
     assert.equal(code({ ...runs(run(1, 'completed', 'failure')), ...job(1, { runner_id: 0, steps: [] }) }), 3)
 })
 
-test('PR checks: a draft in local-first is exit 2 with the hint; a draft in ci mode is not short-circuited; conflict; behind; unknown; clean', () => {
-    const draft = wait({ ...pull({ draft: true }) }, undefined, { verify: { mode: 'local-first' } })
+test('PR checks: a draft in local is exit 2 with the hint; a draft in ci mode is not short-circuited; conflict; behind; unknown; clean', () => {
+    const draft = wait({ ...pull({ draft: true }) }, undefined, { verify: { mode: 'local' } })
     assert.equal(draft.status, 2)
     assert.match(draft.stdout, /^Draft: CI skips drafts; gh pr ready 7$/m)
     assert.match(draft.stdout, /draft=true/)

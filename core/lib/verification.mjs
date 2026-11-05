@@ -20,6 +20,12 @@ export function validGateSource(route, description) {
 
 /** Pure decision. Tier labels are the policy; only changes to the verification machinery itself override them. */
 export function verificationRoute(cfg, pull, files, issues) {
+    if (cfg.verify.mode === 'local') {
+        // Local verification is only safe for heads in the configured repository.
+        if (!pull?.head?.repo?.full_name || pull.head.repo.full_name !== pull.base?.repo?.full_name)
+            return { route: 'ci', reason: 'fork or unavailable head repository' }
+        return { route: 'local', reason: 'configured local mode' }
+    }
     if (cfg.verify.mode !== 'tiered') return { route: 'ci', reason: 'configured CI mode' }
     // The normal local runner cannot safely execute fork heads; they must use Actions.
     if (!pull?.head?.repo?.full_name || pull.head.repo.full_name !== pull.base?.repo?.full_name)
@@ -43,6 +49,7 @@ export function verificationRoute(cfg, pull, files, issues) {
 
 /** Read the exact PR, file list and named tickets; an unreadable input is never assumed safe for local. */
 export function routeOfPull(cfg, pull, pr, read = api) {
+    if (cfg.verify.mode === 'local') return verificationRoute(cfg, pull, null, null)
     if (cfg.verify.mode !== 'tiered') return { route: 'ci', reason: 'configured CI mode' }
     const tickets = ticketsOf(pull)
     if (!tickets.length) return { route: 'ci', reason: 'no named ticket' }

@@ -122,7 +122,7 @@ const parse = section({
     repo: [repo, REQUIRED],
     default_branch: [ref, REQUIRED],
     verify: [section({
-        mode: [oneOf('ci', 'tiered', 'local-first'), REQUIRED],
+        mode: [oneOf('ci', 'tiered', 'local'), REQUIRED],
         install: [shellText, ''],
         command: [(v, p) => (str(v, p).trim() === '' ? fail(`${p} must not be blank`) : shellText(v, p)), REQUIRED],
         timeout_min: [int(1, 360), 45],

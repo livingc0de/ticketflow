@@ -531,6 +531,18 @@ test('tiered Low/Normal runs the configured full verification once and posts the
     assert.equal(h.gh.comments().length, 1)
 })
 
+test('local mode runs the configured full verification once and posts the gate without an Actions wait', () => {
+    const h = tieredCase({ config: { verify: { mode: 'local', install: 'fake-install', command: 'fake-verify' } } })
+    const r = h.run()
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(h.statuses().length, 1)
+    assert.equal(h.statuses()[0].state, 'success')
+    assert.match(h.statuses()[0].description, /^Local run on /)
+    assert.equal(h.runlog().filter((x) => x.startsWith('fake-verify ')).length, 1)
+    assert.equal(h.gh.comments().length, 1)
+    assert.ok(!h.gh.calls().some((args) => args.includes('pr-wait.mjs')))
+})
+
 test('tiered local verification failures stay red and never silently satisfy the merge gate', () => {
     const h = tieredCase()
     h.set('rc-fake-verify', '1')

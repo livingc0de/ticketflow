@@ -20,15 +20,19 @@ test('tiered workflow defers drafts and checks local gate without duplicating fu
     assert.match(yml, /route=local/)
     assert.match(yml, /steps\.scope\.outputs\.route != 'local'/)
 })
-test('CI mode still runs normally and local-first remains available', () => {
+test('CI mode still runs normally and local mode skips the configured verification', () => {
     assert.doesNotMatch(render('ci'), /verify-route\.mjs|Validate Local Gate/)
-    assert.doesNotMatch(render('local-first'), /verify-route\.mjs|Validate Local Gate/)
-    assert.match(render('local-first'), /ready_for_review/)
+    const local = render('local')
+    assert.doesNotMatch(local, /verify-route\.mjs|Validate Local Gate/)
+    assert.match(local, /ready_for_review/)
+    assert.match(local, /route=local/)
+    assert.match(local, /steps\.scope\.outputs\.skip != 'true'/)
+    assert.match(local, /if: steps\.scope\.outputs\.skip != 'true'/)
 })
 test('verification guidance remains adapter-agnostic and does not police application commands', () => {
     for (const mode of ['ci', 'tiered']) {
         assert.equal(decision(mode, 'npm run verify').block, false)
         assert.equal(decision(mode, 'npm run test:domain').block, false)
     }
-    assert.equal(decision('local-first', 'npm run verify').block, false)
+    assert.equal(decision('local', 'npm run verify').block, false)
 })
