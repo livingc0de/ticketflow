@@ -506,3 +506,61 @@ test('a run first removes this repo\'s checkouts older than a day and logs older
     assert.ok(existsSync(`${root}/x__y/dddddddddddd`), 'another repo is not touched')
     assert.ok(!existsSync(`${root}/o__r/${h.head.slice(0, 12)}`), 'this run still removes its own checkout')
 })
+
+/** Normal tiered mode uses the same clean-checkout runner as the existing fallback, without a refused Actions run. */
+const tieredFixtures = ({ head }) => ({
+    'repos/o/r/pulls/7': { title: 'Ticket #14', body: '', changed_files: 1,
+        head: { sha: head, repo: { full_name: 'o/r' } }, base: { ref: 'main', repo: { full_name: 'o/r' } } },
+    'repos/o/r/pulls/7/files': [{ filename: 'src/a.js', additions: 1, deletions: 0, status: 'modified' }],
+    'repos/o/r/issues/14': { labels: [{ name: 'Tier: Normal' }] },
+})
+const tieredCase = (over = {}) => setup({
+    prWait: '2',
+    config: { verify: { mode: 'tiered', install: 'fake-install', command: 'fake-verify' } },
+    fixtures: tieredFixtures, ...over,
+})
+
+test('tiered Low/Normal runs the configured full verification once and posts the status without an Actions refusal', () => {
+    const h = tieredCase()
+    const r = h.run()
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(h.statuses().length, 1)
+    assert.equal(h.statuses()[0].state, 'success')
+    assert.match(h.statuses()[0].description, /^Local run on /)
+    assert.equal(h.runlog().filter((x) => x.startsWith('fake-verify ')).length, 1)
+    assert.equal(h.gh.comments().length, 1)
+})
+
+test('tiered local verification failures stay red and never silently satisfy the merge gate', () => {
+    const h = tieredCase()
+    h.set('rc-fake-verify', '1')
+    const r = h.run()
+    assert.equal(r.status, 1, r.stderr)
+    assert.equal(h.statuses().length, 1)
+    assert.equal(h.statuses()[0].state, 'failure')
+})
+
+test('tier upgraded to High during local verification invalidates the route before publishing', () => {
+    const h = tieredCase({
+        fixtures: ({ head }) => ({
+            ...tieredFixtures({ head }),
+            'repos/o/r/issues/14': seq({ labels: [{ name: 'Tier: Normal' }] }, { labels: [{ name: 'Tier: High' }] }),
+        }),
+    })
+    const r = h.run()
+    assert.equal(r.status, 1, r.stderr)
+    noPost(h)
+    assert.equal(h.runlog().filter((x) => x.startsWith('fake-verify ')).length, 1)
+})
+
+test('tiered High cannot run local verify without the existing Actions-refusal fallback', () => {
+    const h = tieredCase({
+        fixtures: ({ head }) => ({
+            ...tieredFixtures({ head }),
+            'repos/o/r/issues/14': { labels: [{ name: 'Tier: High' }] },
+        }),
+    })
+    assert.equal(h.run().status, 3)
+    noPost(h)
+    assert.deepEqual(h.runlog(), [])
+})
