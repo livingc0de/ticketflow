@@ -91,7 +91,7 @@ test('each unmet gate exits 1 and never calls pr merge', () => {
     refused(run({ pulls: pull({ state: 'closed' }) }), /closed/)
     refused(run({ pulls: pull({ base: { ref: 'develop' } }) }), /based on develop/)
     refused(run({ pulls: seq(pull(), pull({ mergeable: false })) }), /pr-wait exited 1/)   // the real pr-wait sees a conflict
-    refused(run({ reviews: [] }), /no review of abcdef1/)
+    refused(run({ reviews: [] }), /no submitted review of abcdef1/)
     refused(run({ pulls: seq(pull(), pull({ head: { sha: OLD } })), extra: { [`${R}/commits/${OLD}/status`]: status('success', OLD), ...suites(OLD) } }), /another head/)   // the head moved between the two reads
 })
 test('an unreadable status, compare or pull request counts as not met', () => {
@@ -159,7 +159,7 @@ test('A1: a CHANGES_REQUESTED review of the head is refused with the way out; an
     const r = run({ reviews: [ext({ state: 'CHANGES_REQUESTED' })] })
     refused(r, /changes requested \(rb\[bot\]\)/)
     assert.match(r.stderr, /dismiss/)
-    refused(run({ reviews: [ext()] }), /no review of abcdef1/)   // a result alone is not a review of record: name it with --reviewed-by
+    refused(run({ reviews: [ext()] }), /no submitted review of abcdef1/)   // a result alone is not a review of record: name it with --reviewed-by
 })
 
 test('A2: an unresolved inline finding is refused, whoever wrote the thread', () => {
@@ -238,7 +238,7 @@ test('M2: --reviewed-by names the reviewer whose result on this head was acted o
     refused(run({ args: by('rb[bot]'), reactions: [eyes()], reviews: [] }), /started on abcdef1 and has not answered/)
     // threads, the verdict of an account and the base still gate a merge on a named result
     refused(run({ args: by('rb[bot]'), reviews: [ext()], threads: [thread('PRRT_o')] }), /unresolved review thread/)
-    refused(run({ args: by('rb[bot]'), reviews: [ext(), other('boss', { body: NEEDED })] }), /boss/)
+    refused(run({ args: by('rb[bot]'), reviews: [ext(), other('boss', { body: NEEDED, state: 'CHANGES_REQUESTED' })] }), /boss/)
     // both an own review and a named result: fine
     assert.equal(run({ args: by('rb[bot]'), reviews: [ext(), review()] }).status, 0)
 })
