@@ -20,6 +20,9 @@ export function validGateSource(route, description) {
 /** Pure decision, useful for tests and other providers. Tier: High/Critical or a sensitive path forces CI. */
 export function verificationRoute(cfg, pull, files, issues) {
     if (cfg.verify.mode !== 'tiered') return { route: 'ci', reason: 'configured CI mode' }
+    // The normal local runner cannot safely execute fork heads; they must use Actions.
+    if (!pull?.head?.repo?.full_name || pull.head.repo.full_name !== pull.base?.repo?.full_name)
+        return { route: 'ci', reason: 'fork or unavailable head repository' }
     const tickets = ticketsOf(pull)
     if (!tickets.length || issues.length !== tickets.length || issues.some((x) => !x || x.pull_request || !Array.isArray(x.labels)))
         return { route: 'ci', reason: 'ticket or labels unavailable' }
