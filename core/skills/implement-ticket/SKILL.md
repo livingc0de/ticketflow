@@ -51,10 +51,10 @@ One context, one conventional commit per task, `Refs #<N>` in the body, never a 
 ## 4. Verify
 
 - `ci` mode: run focused checks while working. **Do not run the full `verify.command` locally**; GitHub Actions is the one full verification.
-- `tiered` mode: run focused checks while working, never the full `verify.command` in the working tree. After opening the PR as a draft, use `verify-route.mjs <PR>`: `local` means run `local-verify.mjs <PR>` from the primary checkout and mark ready only after a green local gate; `ci` means mark ready and let Actions run full verification, with no local duplicate. High/Critical labels, Security and sensitive changed files force CI. If local verification fails, fix, commit, push and run it on the new head.
+- `tiered` mode: run focused checks while working, never the full `verify.command` in the working tree. After opening the PR as a draft, use `verify-route.mjs <PR>`: `local` means run `local-verify.mjs <PR>` from the primary checkout and mark ready only after a green local gate; `ci` means mark ready and let Actions run full verification, with no local duplicate. High/Critical labels, Security and changes to TicketFlow verification machinery force CI. Assess application risk and raise Tier when appropriate. If local verification fails, fix, commit, push and run it on the new head.
 - `local-first` mode: run `verify.command` once after the last substantive change, then let CI independently repeat it (deliberate dual verification).
 - All modes: a UI, navigation or flow change is proven live (dispatch the `e2e-verifier` role when `live_verify_skill` is set; otherwise check it yourself).
-- A check that cannot run becomes a deferred row (post-merge.md), never a claim.
+- A check that cannot run becomes a deferred row (post-merge.md), never a claim. A review with unresolved blockers must not be merged: interpret reviewer content rather than assuming any particular verdict syntax.
 
 ## 5. Pull request and review
 
