@@ -97,7 +97,7 @@ export function templateVars(cfg, { runtimeRel, practices = [] }) {
         pr_types: draft ? '    types: [opened, synchronize, reopened, ready_for_review]' : '',
         push_trigger: push,
         job_if: draft ? `    if: \${{ !github.event.pull_request.draft && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/${cfg.default_branch}') }}` : '',
-        scope_inherit: cfg.gate.inherit
+        scope_inherit: cfg.gate.inherit && !tiered
             ? `          elif d=$(node ${runtimeRel}/lib/inherit.mjs "$PR" "$HEAD_SHA") && [[ $d =~ ^description=Inherited\\ from\\ [0-9a-f]{7}:\\  ]]; then\n            printf 'skip=true\\n%s\\n' "$d" >> "$GITHUB_OUTPUT"`
             : '',
         tiered_scope: tiered ? `          if [ "$(node ${runtimeRel}/scripts/verify-route.mjs "$PR" 2>/dev/null)" = local ]; then\n            printf 'skip=true\\nroute=local\\n' >> "$GITHUB_OUTPUT"\n            exit 0\n          fi` : '',
