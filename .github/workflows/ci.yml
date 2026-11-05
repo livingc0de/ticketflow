@@ -52,6 +52,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           PR: ${{ github.event.pull_request.number }}
         run: |
           [ "$(git rev-parse HEAD^2)" = "$HEAD_SHA" ]   # test merge commit: parent 1 = base, parent 2 = head
@@ -93,7 +94,7 @@ jobs:
 # ticketflow:begin post-gate
       # The head commit, never the test merge commit. always(): a timeout or a cancel posts a failure too.
       - name: Post Gate Status
-        if: always()
+        if: always() && steps.scope.outputs.route != 'local'
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}

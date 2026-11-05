@@ -14,9 +14,9 @@ const tpl = (src) => readFileSync(join(TEMPLATES, src), 'utf8')
 const MODELS = { claude: { strong: 'opus', standard: 'sonnet', light: 'haiku' } }
 const LEFT = /(?<!\$)\{\{[a-z][\w.]*\}\}/
 
-// two anonymized parameter sets: A (ci mode, inherit, a filtered push run) and B (local-first, deploy signal, every push)
+// two anonymized parameter sets: A (ci mode, inherit, a filtered push run) and B (tiered, deploy signal, every push)
 const A = { verify: { mode: 'ci', install: 'npm ci', command: 'npm run verify', timeout_min: 15 }, gate: { inherit: true }, ci: { push_paths: ['package-lock.json'] }, areas: ['Provider', 'Docs: "quoted" & more'], agents: ['claude'], models: MODELS }
-const B = { verify: { mode: 'local-first', install: 'pnpm install --frozen-lockfile', command: 'pnpm verify\npnpm test:extra', timeout_min: 30 }, gate: { inherit: false }, ci: { push_paths: [] }, deploy_branch: 'ci-green', areas: [], agents: ['claude'], models: MODELS }
+const B = { verify: { mode: 'tiered', install: 'pnpm install --frozen-lockfile', command: 'pnpm verify\npnpm test:extra', timeout_min: 30 }, gate: { inherit: false }, ci: { push_paths: [] }, deploy_branch: 'ci-green', areas: [], agents: ['claude'], models: MODELS }
 
 /** All files rendered fresh for a config: Map dest -> text. */
 function renderAll(over, runtimeRel = '.ticketflow') {
@@ -78,7 +78,7 @@ test('ci.yml: job name = gate.check, status context = gate.context, no job named
     }
 })
 
-test('ci.yml: the draft if and ready_for_review only in local-first; the deploy job only with deploy_branch; push by ci.push_paths', () => {
+test('ci.yml: the draft if and ready_for_review only in local; the deploy job only with deploy_branch; push by ci.push_paths', () => {
     const [a, b] = [renderAll(A).get('.github/workflows/ci.yml'), renderAll(B).get('.github/workflows/ci.yml')]
     assert.doesNotMatch(a, /ready_for_review|pull_request\.draft|deploy:/)
     assert.match(b, /types: \[opened, synchronize, reopened, ready_for_review\]/); assert.match(b, /pull_request\.draft/); assert.match(b, /^ {2}deploy:$/m)
@@ -191,7 +191,7 @@ test('claude settings: union with existing first, foreign entries and deny untou
 
 test('the Claude allow rules are relative to the working directory: no pattern that a path prefix can slip a command into', () => {
     const allow = JSON.parse(renderAll(A).get('.claude/settings.json')).permissions.allow
-    assert.equal(allow.length, 14)
+    assert.equal(allow.length, 15)
     assert.ok(allow.every((r) => r.startsWith('Bash(node .ticketflow/scripts/')))
 })
 
@@ -364,7 +364,7 @@ test('render.mjs records the settings entries it owns in the manifest, keeps the
     assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /wrote \.ticketflow\/manifest\.json/)
     const m = JSON.parse(t.read('.ticketflow/manifest.json'))
     assert.deepEqual([m.version, m.held], ['1.2.3', ['x/y']])
-    assert.equal(m.claude_settings.allow.length, 14); assert.deepEqual(m.claude_settings.ask, JSON.parse(t.read('.claude/settings.json')).permissions.ask)
+    assert.equal(m.claude_settings.allow.length, 15); assert.deepEqual(m.claude_settings.ask, JSON.parse(t.read('.claude/settings.json')).permissions.ask)
     const bytes = t.read('.ticketflow/manifest.json')
     assert.equal(t.run('--check').status, 0)
     assert.doesNotMatch(t.run().stdout, /manifest/); assert.equal(t.read('.ticketflow/manifest.json'), bytes)

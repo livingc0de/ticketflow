@@ -36,7 +36,7 @@
  *
  * Exit: 0 = CI green and no started reviewer pending (results, changes requested, late or none); 1 = CI red (after the started
  * reviewers answered or ran out of time), or the PR conflicts with / is behind the default branch; 2 = timed out, still pending, a draft
- * in local-first mode, (sha) superseded, or, at once, the account running this cannot be read (`gh api user`, e.g. an app token;
+ * in local mode, (sha) superseded, or, at once, the account running this cannot be read (`gh api user`, e.g. an app token;
  * `--ci-only` skips that read); 3 = Actions refused the run, so `local-verify` may take over ("Fallback: allowed" in the summary),
  * never for a pull request that changes `.github/workflows/` (exit 1, or 2 while the run is only queued).
  * Usage and config errors exit 2 before any call.
@@ -49,6 +49,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { configPath, loadConfig } from '../lib/config.mjs'
 import { gql } from '../lib/gh.mjs'
+import { routeOfPull, validGateSource } from '../lib/verification.mjs'
 
 const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
 const STUCK_MS = 20 * 60_000
@@ -137,23 +138,33 @@ function pollCi(S) {
         S.pull = pull
         S.draft = pull.draft === true
         S.author = pull.user?.login
-        if (cfg.verify.mode === 'local-first' && S.draft) { S.notes.push(`Draft: CI skips drafts; gh pr ready ${target}`); return 'draft' }
+        if (['local', 'tiered'].includes(cfg.verify.mode) && S.draft) { S.notes.push(`Draft: CI skips drafts; gh pr ready ${target}`); return 'draft' }
         if (pull.mergeable === false) { S.notes.push(`PR #${target} conflicts with ${base}: merge ${base} into the branch`); return 'conflict' }
     }
     S.gate = api(`${R}/commits/${S.head}/status?per_page=100`).statuses.find((s) => s.context === cfg.gate.context) ?? null
     const g = S.gate
     S.why = 'the gate status is not final'
 
+    let routeMismatch = false
     if (g?.state === 'success') {
-        S.why = 'the gate is green'
-        if (pull?.mergeable_state === 'behind') { S.notes.push(`${base} moved: gh pr update-branch ${target} (new head, new CI)`); return 'behind' }
-        if (pull && (pull.mergeable == null || pull.mergeable_state === 'unknown')) return 'pending'   // not computed yet: it could still be behind
-        return 'green'
+        if (['local', 'tiered'].includes(cfg.verify.mode) && pull) {
+            const { route } = routeOfPull(cfg, pull, target)
+            if (!validGateSource(route, g.description)) {
+                S.why = `the green gate source does not match the ${route} verification route; run verification for this tier`
+                routeMismatch = true
+            }
+        }
+        if (!routeMismatch) {
+            S.why = 'the gate is green'
+            if (pull?.mergeable_state === 'behind') { S.notes.push(`${base} moved: gh pr update-branch ${target} (new head, new CI)`); return 'behind' }
+            if (pull && (pull.mergeable == null || pull.mergeable_state === 'unknown')) return 'pending'   // not computed yet: it could still be behind
+            return 'green'
+        }
     }
     // A red job that got a runner or ran a step posted its own failure: a later refused re-run never makes it replaceable.
     if ((g?.state === 'failure' || g?.state === 'error') && !g.description?.startsWith('Local ')) { S.why = 'the gate failed'; return 'red' }
 
-    S.why = 'Actions has not refused the run'
+    if (!routeMismatch) S.why = 'Actions has not refused the run'
     const candidates = []
     for (const run of workflowRuns(S.head, pull)) {
         if (!workflowRunMatches(run, S.head, pull) || !Number.isSafeInteger(run.id) || run.id < 1) throw new Error('Actions workflow run response was malformed')
@@ -168,7 +179,7 @@ function pollCi(S) {
     }
     // the newest run decides; job ids only break ties inside a run
     const candidate = candidates.sort((a, b) => (b.run.id - a.run.id) || ((b.job?.id ?? 0) - (a.job?.id ?? 0)))[0]
-    if (!candidate) return 'pending'
+    if (!candidate) return routeMismatch ? 'red' : 'pending'
     const { run, job } = candidate
     const status = job?.status ?? run.status
     const conclusion = job?.conclusion ?? run.conclusion

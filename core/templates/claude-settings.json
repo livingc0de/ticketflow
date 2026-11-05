@@ -8,6 +8,7 @@
       "Bash(node {{runtime}}/scripts/queue.mjs *)",
       "Bash(node {{runtime}}/scripts/pr-wait.mjs *)",
       "Bash(node {{runtime}}/scripts/local-verify.mjs *)",
+      "Bash(node {{runtime}}/scripts/verify-route.mjs *)",
       "Bash(node {{runtime}}/scripts/merge.mjs *)",
       "Bash(node {{runtime}}/scripts/risk.mjs *)",
       "Bash(node {{runtime}}/scripts/thread.mjs *)",

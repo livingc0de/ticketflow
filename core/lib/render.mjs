@@ -77,7 +77,9 @@ function snippet(text, prefix, at) {
 export function templateVars(cfg, { runtimeRel, practices = [] }) {
     const rules = practices.flatMap((p) => snippet(p.rules, '- ', `practice ${p.name} agents-rules.md`))
     const checks = practices.flatMap((p) => (p.checks === null ? [] : snippet(p.checks, '- [ ] ', `practice ${p.name} pr-checklist.md`)))
-    const local = cfg.verify.mode === 'local-first'
+    const local = cfg.verify.mode === 'local'
+    const tiered = cfg.verify.mode === 'tiered'
+    const draft = local || tiered
     const unfiltered = cfg.ci.push_paths !== null && cfg.ci.push_paths.length === 0 || cfg.deploy_branch !== null
     const push = cfg.ci.push_paths === null && cfg.deploy_branch === null ? ''
         : `  push:\n    branches: [${q(cfg.default_branch)}]${unfiltered ? '' : `\n    paths: [${cfg.ci.push_paths.map(q).join(', ')}]`}`
@@ -92,12 +94,16 @@ export function templateVars(cfg, { runtimeRel, practices = [] }) {
         gate_context_json: q(cfg.gate.context),
         gate_check_json: q(cfg.gate.check),
         timeout_min: String(cfg.verify.timeout_min),
-        pr_types: local ? '    types: [opened, synchronize, reopened, ready_for_review]' : '',
+        pr_types: draft ? '    types: [opened, synchronize, reopened, ready_for_review]' : '',
         push_trigger: push,
-        job_if: local ? `    if: \${{ !github.event.pull_request.draft && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/${cfg.default_branch}') }}` : '',
-        scope_inherit: cfg.gate.inherit
+        job_if: draft ? `    if: \${{ !github.event.pull_request.draft && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/${cfg.default_branch}') }}` : '',
+        scope_inherit: cfg.gate.inherit && !tiered
             ? `          elif d=$(node ${runtimeRel}/lib/inherit.mjs "$PR" "$HEAD_SHA") && [[ $d =~ ^description=Inherited\\ from\\ [0-9a-f]{7}:\\  ]]; then\n            printf 'skip=true\\n%s\\n' "$d" >> "$GITHUB_OUTPUT"`
             : '',
+        tiered_issues_permission: tiered ? '      issues: read' : '',
+        local_scope: local ? `          if [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then\n            printf 'skip=true\\nroute=local\\n' >> "$GITHUB_OUTPUT"\n            exit 0\n          fi` : '',
+        tiered_scope: tiered ? `          if [ "$(node ${runtimeRel}/scripts/verify-route.mjs "$PR" 2>/dev/null)" = local ]; then\n            printf 'skip=true\\nroute=local\\n' >> "$GITHUB_OUTPUT"\n            exit 0\n          fi` : '',
+        tiered_local_gate: tiered ? `      - name: Validate Local Gate\n        if: github.event_name == 'pull_request' && steps.scope.outputs.route == 'local'\n        env:\n          GH_TOKEN: \${{ github.token }}\n          HEAD_SHA: \${{ github.event.pull_request.head.sha }}\n        run: |\n          result=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status" --jq '.statuses | map(select(.context == ${q(cfg.gate.context)})) | .[0] | [.state, .description] | @tsv') || exit 1\n          case "$result" in\n            $'success\\tLocal run on '*|$'success\\tLocal check on '*|$'success\\tInherited from '*) echo 'Local gate verified; full CI skipped' ;;\n            *) echo 'Local gate missing or not green: run local-verify on the exact head before marking the PR ready' >&2; exit 1 ;;\n          esac` : '',
         verify_steps: steps,
         practice_agents: rules.length ? `\nEnabled practices (procedures in \`${runtimeRel}/practices/\`):\n\n${rules.join('\n')}` : '',
         practice_pr: checks.length ? `\n### Practice checks\n\n${checks.join('\n')}` : '',

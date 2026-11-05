@@ -250,6 +250,22 @@ test('a verdict beats a refused run; a red that got a runner is never replaceabl
     assert.equal(code({ ...status('pending', 'Actions run #3'), ...refused() }), 3)
 })
 
+test('a route mismatch does not hide a refused Actions run', () => {
+    const high = pull({
+        title: 'Ticket #7', changed_files: 1,
+        head: { sha: HEAD, ref: 'feature', repo: { full_name: 'o/r' } },
+        base: { ref: 'main', repo: { full_name: 'o/r' } },
+    }).pulls[7]
+    const r = wait({
+        ...refused(), ...status('success', 'Local run on host1 (x86_64, Node 24.0.0)'),
+        pulls: { 7: high },
+        'pulls/7/files': [{ filename: 'src/a.js', additions: 1, deletions: 0 }],
+        'issues/7': { labels: [{ name: 'Tier: High' }] },
+    }, ['7', '--once'], { verify: { mode: 'tiered' } })
+    assert.equal(r.status, 3, r.stderr)
+    assert.match(r.stdout, /^Fallback: allowed \(Actions ended before a runner or step;/m)
+})
+
 test('runner_id null counts as no runner; the newest run wins over an older refusal', () => {
     assert.equal(code({ ...runs(run(5, 'completed', 'failure')), ...job(5, { runner_id: null, steps: [] }) }), 3)
     const older = refused(1)
@@ -277,8 +293,8 @@ test('an API error is pending; a status-read error with a refused run is 2, neve
     assert.equal(code({ ...runs(run(1, 'completed', 'failure')), ...job(1, { runner_id: 0, steps: [] }) }), 3)
 })
 
-test('PR checks: a draft in local-first is exit 2 with the hint; a draft in ci mode is not short-circuited; conflict; behind; unknown; clean', () => {
-    const draft = wait({ ...pull({ draft: true }) }, undefined, { verify: { mode: 'local-first' } })
+test('PR checks: a draft in local is exit 2 with the hint; a draft in ci mode is not short-circuited; conflict; behind; unknown; clean', () => {
+    const draft = wait({ ...pull({ draft: true }) }, undefined, { verify: { mode: 'local' } })
     assert.equal(draft.status, 2)
     assert.match(draft.stdout, /^Draft: CI skips drafts; gh pr ready 7$/m)
     assert.match(draft.stdout, /draft=true/)
