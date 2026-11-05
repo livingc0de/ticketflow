@@ -24,6 +24,7 @@ import { parseArgs } from 'node:util'
 import { configPath, loadConfig } from '../lib/config.mjs'
 import { docsOnly } from '../lib/docs-only.mjs'
 import { description as inheritedDescription, inherit } from '../lib/inherit.mjs'
+import { routeOfPull } from '../lib/verification.mjs'
 
 class Exit extends Error {
     constructor(code, message) { super(message); this.code = code }
@@ -56,7 +57,18 @@ const ghApi = (path) => {
     if (r.status !== 0) throw new Error(`gh api ${path} failed`)
     return JSON.parse(r.stdout)
 }
-const allowed = () => run(process.execPath, [join(here, 'pr-wait.mjs'), target, '--once', '--ci-only']).status === 3
+// In tiered mode, a Low/Normal same-repo PR is a normal local gate, without an Actions refusal.
+// High/Critical and CI-only paths must still pass the unchanged refused-Actions guard.
+const localRoute = () => {
+    if (!isPr || cfg.verify.mode !== 'tiered') return false
+    try {
+        return routeOfPull(cfg, ghApi(`repos/${cfg.repo}/pulls/${target}`), target).route === 'local'
+    } catch { return false }
+}
+const allowed = () => {
+    if (localRoute()) return 'routine'
+    return run(process.execPath, [join(here, 'pr-wait.mjs'), target, '--once', '--ci-only']).status === 3 ? 'fallback' : null
+}
 
 /** Checks the agent stubs and (unless `stubsOnly`) verifies in a clean worktree of `sha`; returns { state, log, stale }. A timeout or a signal posts nothing. */
 function checkHead(sha, stubsOnly = false) {
@@ -110,7 +122,8 @@ function main() {
     if (diff.status !== 0) stop(1, 'cannot compare the runtime with origin; nothing posted')
 
     // 4. Guard.
-    if (!allowed()) stop(3, `pr-wait ${target} --once --ci-only does not allow the fallback; nothing posted`)
+    const method = allowed()
+    if (!method) stop(3, `neither tiered local verification nor the refused-Actions fallback is allowed; nothing posted`)
 
     // 5. The target is runnable and up to date.
     let sha = target
@@ -136,7 +149,7 @@ function main() {
 
     // 6. Decide the result: inherit, docs-only, or a full run (always, for a sha).
     let desc, how, state = 'success', log = '', stale = false
-    if (isPr && cfg.gate.inherit) {
+    if (isPr && cfg.gate.inherit && (method === 'routine' || cfg.verify.mode !== 'tiered')) {
         try {
             const r = inherit(ghApi, cfg, target, sha)
             if (r.root) { desc = inheritedDescription(cfg, r.root); how = `${desc}; inherited, agent stubs checked, no verify run` }
@@ -146,20 +159,20 @@ function main() {
     if (!desc && isPr) {
         const d = git('diff', '-z', '--no-renames', '--name-only', origin, sha)
         if (d.status === 0 && docsOnly(d.stdout.split('\0').filter(Boolean), cfg)) {
-            desc = `Local check on ${host}, docs only`; how = `${desc}; agent stubs checked, no verify run`
+            desc = `${method === 'fallback' && cfg.verify.mode === 'tiered' ? 'Local fallback check' : 'Local check'} on ${host}, docs only`; how = `${desc}; agent stubs checked, no verify run`
             ;({ state, log, stale } = checkHead(sha, true))
         }
     }
     if (!desc) {
-        desc = `Local run on ${host} (${machine()}, Node ${process.versions.node})`
-        how = `${desc}, verify command on the exact head, Actions refused the job`
+        desc = `${method === 'fallback' && cfg.verify.mode === 'tiered' ? 'Local fallback run' : 'Local run'} on ${host} (${machine()}, Node ${process.versions.node})`
+        how = `${desc}, verify command on the exact head, ${method === 'fallback' ? 'Actions refused the job' : 'tiered local verification'}`
         ;({ state, log, stale } = checkHead(sha))
     }
     if (stale) { desc = `Local check on ${host}, agent stubs out of date`; how = `${desc} (run gen-stubs), no verify run` }
 
     // 7. Recheck right before posting: the head is unchanged and the guard still says so.
     const where = log && ` (log: ${log})`
-    if (!allowed()) stop(1, `Actions started or the fallback is no longer allowed; nothing posted${where}`)
+    if (allowed() !== method) stop(1, `the verification route or fallback eligibility changed; nothing posted${where}`)
     if (isPr) {   // after the guard, so the guard cannot have judged a newer head than the one confirmed here
         let now
         try { now = readHead() } catch { stop(1, `cannot re-read the head; nothing posted${where}`) }
