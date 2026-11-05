@@ -32,6 +32,7 @@ import { cli } from '../lib/cli.mjs'
 import { configPath } from '../lib/config.mjs'
 import { GhError, api, gql, isNumber } from '../lib/gh.mjs'
 import { alwaysReviewHit, laneOfPull, noLines } from '../lib/risk.mjs'
+import { routeOfPull, validGateSource } from '../lib/verification.mjs'
 
 const { values, positionals: [pr], cfg } = cli(import.meta.url, 'merge', '<pr> [--reviewed-by <login> [--review-result-url <url>] | --self-checked] [--config f]', { 'reviewed-by': { type: 'string' }, 'review-result-url': { type: 'string' }, 'self-checked': { type: 'boolean' } },
     (p, v) => p.length === 1 && isNumber(p[0]) && (v['reviewed-by'] === undefined || /^[\w.[\]-]+$/.test(v['reviewed-by'])) &&
@@ -103,6 +104,10 @@ function merge() {
     const status = api(`${R}/commits/${head}/status?per_page=100`)
     const gate = status.sha === head ? status.statuses.find((s) => s.context === cfg.gate.context) : undefined
     if (gate?.state !== 'success') return stop(`${cfg.gate.context} is ${gate?.state ?? 'missing'} on ${head.slice(0, 7)} (it must be success on the exact head)`)
+    if (cfg.verify.mode === 'tiered') {
+        const { route } = routeOfPull(cfg, pull, pr)
+        if (!validGateSource(route, gate.description)) return stop(`the ${route} verification route is not covered by the gate status on ${head.slice(0, 7)}; verify again for this tier`)
+    }
 
     const behind = () => api(`${R}/compare/${base}...${head}`).behind_by
     const stale = (n) => stop(`${base} moved (behind by ${n}): gh pr update-branch ${pr} --repo ${cfg.repo}, then wait for the new head`)
