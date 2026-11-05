@@ -14,9 +14,9 @@ const tpl = (src) => readFileSync(join(TEMPLATES, src), 'utf8')
 const MODELS = { claude: { strong: 'opus', standard: 'sonnet', light: 'haiku' } }
 const LEFT = /(?<!\$)\{\{[a-z][\w.]*\}\}/
 
-// two anonymized parameter sets: A (ci mode, inherit, a filtered push run) and B (local, deploy signal, every push)
+// two anonymized parameter sets: A (ci mode, inherit, a filtered push run) and B (local-first, deploy signal, every push)
 const A = { verify: { mode: 'ci', install: 'npm ci', command: 'npm run verify', timeout_min: 15 }, gate: { inherit: true }, ci: { push_paths: ['package-lock.json'] }, areas: ['Provider', 'Docs: "quoted" & more'], agents: ['claude'], models: MODELS }
-const B = { verify: { mode: 'local', install: 'pnpm install --frozen-lockfile', command: 'pnpm verify\npnpm test:extra', timeout_min: 30 }, gate: { inherit: false }, ci: { push_paths: [] }, deploy_branch: 'ci-green', areas: [], agents: ['claude'], models: MODELS }
+const B = { verify: { mode: 'local-first', install: 'pnpm install --frozen-lockfile', command: 'pnpm verify\npnpm test:extra', timeout_min: 30 }, gate: { inherit: false }, ci: { push_paths: [] }, deploy_branch: 'ci-green', areas: [], agents: ['claude'], models: MODELS }
 
 /** All files rendered fresh for a config: Map dest -> text. */
 function renderAll(over, runtimeRel = '.ticketflow') {
