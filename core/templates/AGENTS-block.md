@@ -5,6 +5,7 @@
 - Read issues with `node {{runtime}}/scripts/issue.mjs <N>`, never `gh issue view`. The Project is Projects v2 only, through `project.mjs`.
 - Plan in proportion to the tier (the strong planner only when needed; its plans are committed under `{{plans_dir}}`). Never claim a check that did not run.
 - Any code change, review or audit, with or without a ticket, follows the `engineering-method` skill.
+- Review the *meaning* of findings and address blockers; the suggested review format is not a required string. An unblocked GitHub gate is not permission to ignore semantic defects.
 - Verification follows `verify.mode`: in `ci` or `tiered`, use focused checks while building, never run the configured full `verify.command` directly in the working tree. In `tiered`, use `verify-route` after opening a draft PR, then the one selected local or Actions gate.
 - Write `Ticket #N` in PRs and commits, never a closing keyword (Closes, Fixes, Resolves).
 - **Merge only with `node {{runtime}}/scripts/merge.mjs <PR>`**.
