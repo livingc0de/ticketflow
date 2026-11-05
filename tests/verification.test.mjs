@@ -14,12 +14,13 @@ test('normal and low tier may verify locally', () => {
     assert.equal(verificationRoute(cfg, pull, files, [issue()]).route, 'local')
     assert.equal(verificationRoute(cfg, pull, files, [issue(['Tier: Low'])]).route, 'local')
 })
-test('high, critical, security and sensitive paths require CI', () => {
+test('high, critical, security and verification-control paths require CI', () => {
     for (const label of ['Tier: High', 'Tier: Critical', 'Security', 'Needs: Decision'])
         assert.equal(verificationRoute(cfg, pull, files, [issue([label])]).route, 'ci')
     assert.equal(verificationRoute(cfg, pull, [{ ...files[0], filename: '.github/workflows/ci.yml' }], [issue()]).route, 'ci')
     assert.equal(verificationRoute(cfg, pull, [{ ...files[0], filename: '.ticketflow/config.json' }], [issue()]).route, 'ci')
-    assert.equal(verificationRoute({ ...cfg, review: { always_review: [new RegExp('^src/')] } }, pull, files, [issue()]).route, 'ci')
+    assert.equal(verificationRoute(cfg, pull, [{ ...files[0], filename: 'migrations/001_init.sql' }], [issue()]).route, 'local')  // repo-specific concern: agent should raise the Tier
+    assert.equal(verificationRoute({ ...cfg, review: { always_review: [new RegExp('^src/')] } }, pull, files, [issue()]).route, 'local')  // app-specific review rules do not silently change CI routing
 })
 test('missing ticket, incomplete files, fork heads or labels fall back to CI', () => {
     assert.equal(verificationRoute(cfg, { ...pull, head: { repo: { full_name: 'someone/fork' } } }, files, [issue()]).route, 'ci')
