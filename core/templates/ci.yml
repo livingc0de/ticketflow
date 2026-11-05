@@ -31,6 +31,7 @@ jobs:
       contents: read
       pull-requests: read
       statuses: write
+{{tiered_issues_permission}}
     steps:
       # No token in .git/config: only the scope step and the last step get one, so no install script or test can post the gate itself.
       # A pull request that edits the workflow or the runtime runs its own copy of the scope step with that token: review is the control.
