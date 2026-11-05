@@ -28,7 +28,7 @@ export function verificationRoute(cfg, pull, files, issues) {
         files.some((f) => typeof f?.filename !== 'string' || !Number.isInteger(f.additions) || !Number.isInteger(f.deletions)))
         return { route: 'ci', reason: 'incomplete or invalid changed files' }
     const labels = issues.flatMap((x) => x.labels.map((l) => typeof l === 'string' ? l : l?.name))
-    if (labels.some((l) => typeof l !== 'string' || l === 'Security' || l.startsWith('Needs:') || l === 'Tier: High' || l === 'Tier: Critical'))
+    if (labels.some((l) => typeof l !== 'string' || l === 'Security' || l.startsWith('Needs:') || (l.startsWith('Tier: ') && l !== 'Tier: Low' && l !== 'Tier: Normal')))
         return { route: 'ci', reason: 'high risk or unresolved decision' }
     if (files.some((f) => alwaysReviewHit(f, cfg)))
         return { route: 'ci', reason: 'sensitive paths require independent verification' }
