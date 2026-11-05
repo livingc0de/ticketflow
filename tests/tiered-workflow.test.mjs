@@ -6,7 +6,7 @@ import { hookDecision } from '../core/lib/guard.mjs'
 import { config } from './helpers.mjs'
 
 const workflow = readFileSync(new URL('../core/templates/ci.yml', import.meta.url), 'utf8')
-const render = (mode) => fill(workflow, templateVars(config({ verify: { mode, command: 'npm run verify' } }), { runtimeRel: '.ticketflow' }))
+const render = (mode) => fill(workflow, { ...templateVars(config({ verify: { mode, command: 'npm run verify' } }), { runtimeRel: '.ticketflow' }), runs_on_job: '    runs-on: ubuntu-latest', runs_on_deploy: '    runs-on: ubuntu-latest' })
 const decision = (mode, command) => hookDecision({ tool_name: 'Bash', tool_input: { command } },
     config({ verify: { mode, command: 'npm run verify' } }), { cwd: '/tmp' })
 
