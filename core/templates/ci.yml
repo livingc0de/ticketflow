@@ -56,6 +56,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           PR: ${{ github.event.pull_request.number }}
         run: |
           [ "$(git rev-parse HEAD^2)" = "$HEAD_SHA" ]   # test merge commit: parent 1 = base, parent 2 = head

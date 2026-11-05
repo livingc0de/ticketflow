@@ -26,6 +26,7 @@ test('CI mode still runs normally and local mode skips the configured verificati
     assert.doesNotMatch(local, /verify-route\.mjs|Validate Local Gate/)
     assert.match(local, /ready_for_review/)
     assert.match(local, /route=local/)
+    assert.match(local, /if \[ "\$HEAD_REPO" = "\$GITHUB_REPOSITORY" \]/)
     assert.match(local, /steps\.scope\.outputs\.skip != 'true'/)
     assert.match(local, /if: steps\.scope\.outputs\.skip != 'true'/)
 })
