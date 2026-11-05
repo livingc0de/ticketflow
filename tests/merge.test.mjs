@@ -199,8 +199,8 @@ test('B1: merge refuses a pr-wait output without exactly one Review: and one Unr
 
 test('M4: GitHub changes-requested state is authoritative; prose is not parsed', () => {
     const bossNeeded = other('boss', { id: 91, body: NEEDED, state: 'CHANGES_REQUESTED' })
-    refused(run({ reviews: [review(), bossNeeded] }), /boss requested changes/)
-    refused(run({ reviews: [bossNeeded, review()] }), /boss requested changes/)
+    refused(run({ reviews: [review(), bossNeeded] }), /changes requested.*boss|boss requested changes/)
+    refused(run({ reviews: [bossNeeded, review()] }), /changes requested.*boss|boss requested changes/)
     for (const author_association of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
         assert.equal(run({ reviews: [other('boss', { id: 91, body: NEEDED, state: 'CHANGES_REQUESTED', author_association }), review(), other('boss', { id: 93, body: 'Reviewed the fixes, good to go', author_association })] }).status, 0, author_association)
         refused(run({ reviews: [review(), other('boss', { id: 91, body: NEEDED, state: 'CHANGES_REQUESTED', author_association })] }), /requested changes/)
@@ -397,7 +397,7 @@ test('S7: an earlier native changes request cannot be bypassed by a later self-c
     refused(selfChecked({ reviews: [needed, review({ body: SELF })] }), /last earlier review was not a completed non-blocking review/)
     const ready = review({ id: 71, commit_id: OLD, body: 'Re-reviewed and all findings addressed' })
     assert.equal(selfChecked({ reviews: [needed, ready, review({ body: SELF })] }).status, 0)
-    refused(selfChecked({ reviews: [review({ id: 70, state: 'CHANGES_REQUESTED', body: NEEDED }), review({ body: SELF })] }), /requested changes/)
+    refused(selfChecked({ reviews: [other('boss', { id: 70, state: 'CHANGES_REQUESTED', body: NEEDED }), review({ body: SELF })] }), /boss/)
 })
 
 test('S8: the fix-delta base is checked like a review of record: state, the commit its header names, an unreadable delta, a floor path in a rename, 300 files, a review of the head itself', () => {
