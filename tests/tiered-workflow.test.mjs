@@ -25,9 +25,9 @@ test('CI mode still runs normally and local-first remains available', () => {
     assert.doesNotMatch(render('local-first'), /verify-route\.mjs|Validate Local Gate/)
     assert.match(render('local-first'), /ready_for_review/)
 })
-test('agent guard blocks exact full verify in CI or tiered, but not targeted tests', () => {
+test('verification guidance remains adapter-agnostic and does not police application commands', () => {
     for (const mode of ['ci', 'tiered']) {
-        assert.equal(decision(mode, 'npm run verify').block, true)
+        assert.equal(decision(mode, 'npm run verify').block, false)
         assert.equal(decision(mode, 'npm run test:domain').block, false)
     }
     assert.equal(decision('local-first', 'npm run verify').block, false)
