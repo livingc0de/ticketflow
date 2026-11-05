@@ -16,6 +16,7 @@ test('tiered workflow defers drafts and checks local gate without duplicating fu
     assert.match(yml, /!github\.event\.pull_request\.draft/)
     assert.match(yml, /verify-route\.mjs/)
     assert.match(yml, /Validate Local Gate/)
+    assert.match(yml, /issues: read/)
     assert.match(yml, /route=local/)
     assert.match(yml, /steps\.scope\.outputs\.route != 'local'/)
 })
