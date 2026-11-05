@@ -7,6 +7,7 @@
       "Bash(node core/scripts/tracker-next.mjs *)",
       "Bash(node core/scripts/pr-wait.mjs *)",
       "Bash(node core/scripts/local-verify.mjs *)",
+      "Bash(node core/scripts/verify-route.mjs *)",
       "Bash(node core/scripts/merge.mjs *)",
       "Bash(node core/scripts/gen-stubs.mjs *)",
       "Bash(node core/scripts/doctor.mjs *)",
@@ -36,7 +37,8 @@
       "Bash(gh api *branches/*/protection*)",
       "Bash(gh api graphql *Ruleset*)",
       "Bash(gh api graphql *BranchProtectionRule*)",
-      "Bash(*protect.mjs --apply*)"
+      "Bash(*protect.mjs --apply*)",
+      "Bash(npm test)"
     ]
   }
 }
