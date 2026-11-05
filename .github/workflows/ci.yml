@@ -93,7 +93,7 @@ jobs:
 # ticketflow:begin post-gate
       # The head commit, never the test merge commit. always(): a timeout or a cancel posts a failure too.
       - name: Post Gate Status
-        if: always()
+        if: always() && steps.scope.outputs.route != 'local'
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
