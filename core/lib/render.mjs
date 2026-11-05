@@ -77,7 +77,7 @@ function snippet(text, prefix, at) {
 export function templateVars(cfg, { runtimeRel, practices = [] }) {
     const rules = practices.flatMap((p) => snippet(p.rules, '- ', `practice ${p.name} agents-rules.md`))
     const checks = practices.flatMap((p) => (p.checks === null ? [] : snippet(p.checks, '- [ ] ', `practice ${p.name} pr-checklist.md`)))
-    const local = cfg.verify.mode === 'local-first'
+    const local = cfg.verify.mode === 'local'
     const tiered = cfg.verify.mode === 'tiered'
     const draft = local || tiered
     const unfiltered = cfg.ci.push_paths !== null && cfg.ci.push_paths.length === 0 || cfg.deploy_branch !== null
