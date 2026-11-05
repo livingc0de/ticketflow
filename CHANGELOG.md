@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.5
+
+### Highlights
+
+- **Verification can be local-only.** Set `verify.mode: local` to run the configured verification once with `local-verify` and publish the exact-head gate status; same-repository pull-request Actions skips the configured install and verify steps instead of repeating them.
+- **Tiered verification is risk-aware.** New installations keep `tiered` as the default: Low/Normal same-repository pull requests use the local gate, while High/Critical, verification-control changes, incomplete metadata and fork pull requests use Actions.
+- **`local-first` is replaced by `local`.** There is no compatibility alias or automatic migration; change existing `local-first` configurations to `local` before syncing to this release.
+
+### What You Need To Do When Upgrading From 0.6.4
+
+If you use `verify.mode: local-first`, change it to `local` before running `sync`. Other existing `ci` and `tiered` configurations retain their behavior. Same-repository local pull requests need no GitHub verification rerun; fork pull requests continue through Actions because local verification refuses fork heads.
+
 ## 0.6.4
 
 ### Highlights
