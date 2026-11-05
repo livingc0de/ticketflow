@@ -52,16 +52,7 @@ export function loadGuard(cfg, { scriptsDir = '.ticketflow/scripts', file = GUAR
 export const askPatterns = (cfg, opts) => loadGuard(cfg, opts).forms.flatMap((f) => f.claude_ask)
 
 /** The Claude Code permission rules that make the bypass forms ask. */
-export const claudeAsk = (cfg, opts) => {
-    const existing = askPatterns(cfg, opts).map((p) => `Bash(${p})`)
-    const command = cfg.verify?.command?.trim()
-    // Claude's permission rules can ask before a direct simple full-verify command. Complex shell
-    // commands are handled by skill instructions, not an unsafe guessed permission pattern.
-    if ((cfg.verify?.mode === 'ci' || cfg.verify?.mode === 'tiered') &&
-        command && /^[\\w./:@=-]+(?:\\s+[\\w./:@=-]+)*$/.test(command))
-        existing.push(`Bash(${command})`)
-    return existing
-}
+export const claudeAsk = (cfg, opts) => askPatterns(cfg, opts).map((p) => `Bash(${p})`)
 
 /** Words of a command, with quotes removed. */
 export function tokenize(s) {
@@ -159,11 +150,6 @@ export function hookDecision(input, cfg, { cwd = process.cwd(), scriptsDir } = {
     let ask = null
     for (const raw of segments(stripHeredocs(command))) {
         const segment = raw.replace(/^(?:[A-Za-z_]\w*=\S*\s+)+/, '')
-        // An agent must not run the configured full suite in the working tree when CI or tiered routing owns it.
-        // Exact simple commands only: no guessed shell equivalence, and a user's own terminal is unaffected.
-        if ((cfg.verify?.mode === 'ci' || cfg.verify?.mode === 'tiered') &&
-            cfg.verify.command?.trim() === segment.trim())
-            return { block: true, reason: 'Full verify is reserved for the selected gate. Run focused checks here; in tiered local mode use local-verify.mjs on the PR head.', form: 'duplicate-verify' }
         const tokens = tokenize(segment)
         const subject = tokens[0] === 'gh' && tokens[1] === 'api' ? apiSubject(tokens, segment) : tokens.join(' ')   // quotes removed: `"main"` is main
         for (const f of guard.forms) {
