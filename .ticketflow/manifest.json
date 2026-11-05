@@ -8,14 +8,14 @@
       "Bash(node core/scripts/queue.mjs *)",
       "Bash(node core/scripts/pr-wait.mjs *)",
       "Bash(node core/scripts/local-verify.mjs *)",
+      "Bash(node core/scripts/verify-route.mjs *)",
       "Bash(node core/scripts/merge.mjs *)",
       "Bash(node core/scripts/risk.mjs *)",
       "Bash(node core/scripts/thread.mjs *)",
       "Bash(node core/scripts/debt.mjs *)",
       "Bash(node core/scripts/ticket.mjs *)",
       "Bash(node core/scripts/gen-stubs.mjs *)",
-      "Bash(node core/scripts/doctor.mjs *)",
-      "Bash(node core/scripts/verify-route.mjs *)"
+      "Bash(node core/scripts/doctor.mjs *)"
     ],
     "ask": [
       "Bash(gh pr merge)",
