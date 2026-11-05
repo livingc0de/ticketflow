@@ -20,7 +20,7 @@ Fix and push once, then wait again (never review a red head). When it prints a b
 
 ## Exit 2
 
-A draft (`local` or `tiered`): in tiered mode, run `verify-route <PR>` first, complete `local-verify <PR>` if it prints `local`, then `gh pr ready <PR>`; for a CI route simply mark ready. In local mode finish its local checks first. Otherwise a timeout: `pr-wait.mjs <PR> --once`, then report. Otherwise a timeout: `pr-wait.mjs <PR> --once`, then report.
+A draft (`local-first` or `tiered`): in tiered mode, run `verify-route <PR>` first, complete `local-verify <PR>` if it prints `local`, then `gh pr ready <PR>`; for a CI route simply mark ready. In local-first mode finish its local checks first. Otherwise a timeout: `pr-wait.mjs <PR> --once`, then report.
 
 ## Exit 3 (Actions refused the run)
 
