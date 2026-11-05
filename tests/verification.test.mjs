@@ -6,7 +6,8 @@ const cfg = {
     repo: 'example/repo', verify: { mode: 'tiered' },
     review: { always_review: [] },
 }
-const pull = { title: 'Ticket #14', body: '', changed_files: 1 }
+const pull = { title: 'Ticket #14', body: '', changed_files: 1,
+    head: { repo: { full_name: 'example/repo' } }, base: { repo: { full_name: 'example/repo' } } }
 const files = [{ filename: 'src/widgets.js', additions: 20, deletions: 10 }]
 const issue = (labels = []) => ({ labels: labels.map((name) => ({ name })) })
 test('normal and low tier may verify locally', () => {
@@ -20,7 +21,8 @@ test('high, critical, security and sensitive paths require CI', () => {
     assert.equal(verificationRoute(cfg, pull, [{ ...files[0], filename: '.ticketflow/config.json' }], [issue()]).route, 'ci')
     assert.equal(verificationRoute({ ...cfg, review: { always_review: [new RegExp('^src/')] } }, pull, files, [issue()]).route, 'ci')
 })
-test('missing ticket, incomplete files or labels fall back to CI', () => {
+test('missing ticket, incomplete files, fork heads or labels fall back to CI', () => {
+    assert.equal(verificationRoute(cfg, { ...pull, head: { repo: { full_name: 'someone/fork' } } }, files, [issue()]).route, 'ci')
     assert.equal(verificationRoute(cfg, { ...pull, title: 'No ticket' }, files, []).route, 'ci')
     assert.equal(verificationRoute(cfg, { ...pull, changed_files: 2 }, files, [issue()]).route, 'ci')
     assert.equal(verificationRoute(cfg, pull, files, [{ ...issue(), labels: null }]).route, 'ci')
