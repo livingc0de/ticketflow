@@ -59,11 +59,14 @@ jobs:
         run: |
           [ "$(git rev-parse HEAD^2)" = "$HEAD_SHA" ]   # test merge commit: parent 1 = base, parent 2 = head
           git diff -z --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+{{tiered_scope}}
           if [ "$(node {{runtime}}/lib/docs-only.mjs < "$RUNNER_TEMP/changed")" = docs=true ]; then
             printf 'skip=true\ndescription=Actions run #%s, docs only\n' "$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
 {{scope_inherit}}
           fi
 # ticketflow:end job
+
+{{tiered_local_gate}}
 
       # Repo section: your own steps. Every step runs only when `steps.scope.outputs.skip != 'true'`; this is the contract
       # with the scope step above and the gate step below.
@@ -72,7 +75,7 @@ jobs:
 # ticketflow:begin post-gate
       # The head commit, never the test merge commit. always(): a timeout or a cancel posts a failure too.
       - name: Post Gate Status
-        if: always()
+        if: always() && steps.scope.outputs.route != 'local'
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
