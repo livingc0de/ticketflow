@@ -52,7 +52,16 @@ export function loadGuard(cfg, { scriptsDir = '.ticketflow/scripts', file = GUAR
 export const askPatterns = (cfg, opts) => loadGuard(cfg, opts).forms.flatMap((f) => f.claude_ask)
 
 /** The Claude Code permission rules that make the bypass forms ask. */
-export const claudeAsk = (cfg, opts) => askPatterns(cfg, opts).map((p) => `Bash(${p})`)
+export const claudeAsk = (cfg, opts) => {
+    const existing = askPatterns(cfg, opts).map((p) => `Bash(${p})`)
+    const command = cfg.verify?.command?.trim()
+    // Claude's permission rules can ask before a direct simple full-verify command. Complex shell
+    // commands are handled by skill instructions, not an unsafe guessed permission pattern.
+    if ((cfg.verify?.mode === 'ci' || cfg.verify?.mode === 'tiered') &&
+        command && /^[\\w./:@=-]+(?:\\s+[\\w./:@=-]+)*$/.test(command))
+        existing.push(`Bash(${command})`)
+    return existing
+}
 
 /** Words of a command, with quotes removed. */
 export function tokenize(s) {
