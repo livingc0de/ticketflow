@@ -18,7 +18,7 @@ const OTHER = sha('9')
  * `fake-install` / `fake-verify` on PATH. refs/pull/7/head is pushed.
  */
 function setup(o = {}) {
-    const { branch = 'main', config = {}, prFiles = { 'src/a.js': 'x' }, behind = false, later = { 'later.txt': 'y' }, pushRuntime = true, prWait = '3', heads, headRepo = 'o/r', baseRepo = 'o/r', baseRef = branch, fixtures = () => ({}), install = 'fake-install', command = 'fake-verify' } = o
+    const { branch = 'main', config = {}, prFiles = { 'src/a.js': 'x' }, behind = false, later = { 'later.txt': 'y' }, pushRuntime = true, prWait = '3', prWaitOutput = '', heads, headRepo = 'o/r', baseRepo = 'o/r', baseRef = branch, fixtures = () => ({}), install = 'fake-install', command = 'fake-verify' } = o
     const dir = tempDir('lv-')
     const origin = join(dir, 'origin.git'), repo = join(dir, 'repo'), home = join(dir, 'home'), state = join(dir, 'state')
     for (const d of [home, state, join(dir, 'bin')]) mkdirSync(d, { recursive: true })
@@ -38,6 +38,7 @@ const s = process.env.STATE
 appendFileSync(s + '/prwait.log', process.argv.slice(2).join(' ') + '\\n')
 const f = s + '/prwait.n', n = existsSync(f) ? Number(readFileSync(f, 'utf8')) : 0
 writeFileSync(f, String(n + 1))
+process.stdout.write(process.env.PRWAIT_OUTPUT ?? '')
 const seq = process.env.PRWAIT_SEQ.split(',')
 process.exit(Number(seq[Math.min(n, seq.length - 1)]))
 `)
@@ -84,7 +85,7 @@ exit $(cat ${state}/rc-${name} 2>/dev/null || echo 0)`)
         set: (file, text) => writeFileSync(join(state, file), String(text)),
         slow: (rc) => script('timeout', `exit ${rc}`),
         run: (target = '7', over = {}) => spawnSync(process.execPath, [join(repo, '.ticketflow/scripts/local-verify.mjs'), target], {
-            encoding: 'utf8', env: { ...gh.env, HOME: home, STATE: state, PRWAIT_SEQ: prWait, AGENT_SECRET: 'must-not-reach-the-verify', ...over },
+            encoding: 'utf8', env: { ...gh.env, HOME: home, STATE: state, PRWAIT_SEQ: prWait, PRWAIT_OUTPUT: prWaitOutput, AGENT_SECRET: 'must-not-reach-the-verify', ...over },
         }),
         file: (f) => (existsSync(join(state, f)) ? readFileSync(join(state, f), 'utf8').trim().split('\n') : []),
         statuses: () => gh.calls().filter((c) => c[0] === 'api' && /\/statuses\//.test(c[1])).map((c) => ({ path: c[1], ...Object.fromEntries(c.filter((a) => /^(state|context|description|target_url)=/.test(a)).map((a) => [a.split('=')[0], a.slice(a.indexOf('=') + 1)])) })),
@@ -531,6 +532,48 @@ test('tiered Low/Normal runs the configured full verification once and posts the
     assert.equal(h.gh.comments().length, 1)
 })
 
+test('tiered Low/Normal refuses local verification when the exact-head Actions gate is red', () => {
+    const h = tieredCase({ prWait: '1' })
+    const r = h.run()
+    assert.equal(r.status, 3, r.stderr)
+    noPost(h)
+    assert.deepEqual(h.runlog(), [])
+    assert.deepEqual(h.file('prwait.log'), ['7 --once --ci-only'])
+})
+
+test('tiered local verification preserves behind-branch recovery', () => {
+    const h = tieredCase({
+        behind: true,
+        prWait: '1',
+        prWaitOutput: 'PR #7 head 4444444 draft=false\nCI / Gate: success Local run on host\nmain moved: gh pr update-branch 7 (new head, new CI)\n',
+    })
+    const r = h.run()
+    assert.equal(r.status, 1, r.stderr)
+    noPost(h)
+    assert.ok(h.gh.calls().some((c) => c.join(' ') === 'pr update-branch 7 -R o/r'))
+    assert.deepEqual(h.runlog(), [])
+})
+
+test('tiered local verification does not trust behind text inside an Actions result', () => {
+    const h = tieredCase({
+        prWait: '1',
+        prWaitOutput: 'PR #7 head 4444444 draft=false\nCI / Gate: failure https://example.invalid/main moved: gh pr update-branch 7 (new head, new CI)\n',
+    })
+    const r = h.run()
+    assert.equal(r.status, 3, r.stderr)
+    noPost(h)
+    assert.deepEqual(h.runlog(), [])
+})
+
+test('tiered local verification posts nothing if Actions turns red during the run', () => {
+    const h = tieredCase({ prWait: '2,1' })
+    const r = h.run()
+    assert.equal(r.status, 1, r.stderr)
+    noPost(h)
+    assert.equal(h.runlog().filter((x) => x.startsWith('fake-verify ')).length, 1)
+    assert.deepEqual(h.file('prwait.log'), ['7 --once --ci-only', '7 --once --ci-only'])
+})
+
 test('local mode runs the configured full verification once and posts the gate without an Actions wait', () => {
     const h = tieredCase({ config: { verify: { mode: 'local', install: 'fake-install', command: 'fake-verify' } } })
     const r = h.run()
@@ -541,6 +584,7 @@ test('local mode runs the configured full verification once and posts the gate w
     assert.equal(h.runlog().filter((x) => x.startsWith('fake-verify ')).length, 1)
     assert.equal(h.gh.comments().length, 1)
     assert.ok(!h.gh.calls().some((args) => args.includes('pr-wait.mjs')))
+    assert.deepEqual(h.file('prwait.log'), [])
 })
 
 test('tiered local verification failures stay red and never silently satisfy the merge gate', () => {
@@ -575,4 +619,20 @@ test('tiered High cannot run local verify without the existing Actions-refusal f
     assert.equal(h.run().status, 3)
     noPost(h)
     assert.deepEqual(h.runlog(), [])
+})
+
+test('tiered High uses the documented local fallback when Actions refused before running', () => {
+    const h = tieredCase({
+        prWait: '3',
+        fixtures: ({ head }) => ({
+            ...tieredFixtures({ head }),
+            'repos/o/r/issues/14': { labels: [{ name: 'Tier: High' }] },
+        }),
+    })
+    const r = h.run()
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(h.statuses()[0].state, 'success')
+    assert.match(h.statuses()[0].description, /^Local fallback run on /)
+    assert.equal(h.runlog().filter((x) => x.startsWith('fake-verify ')).length, 1)
+    assert.deepEqual(h.file('prwait.log'), ['7 --once --ci-only', '7 --once --ci-only'])
 })

@@ -65,9 +65,21 @@ const localRoute = () => {
         return routeOfPull(cfg, ghApi(`repos/${cfg.repo}/pulls/${target}`), target).route === 'local'
     } catch { return false }
 }
+const waitCi = () => {
+    const r = run(process.execPath, [join(here, 'pr-wait.mjs'), target, '--once', '--ci-only'])
+    const behindNote = `${base} moved: gh pr update-branch ${target} (new head, new CI)`
+    return { status: r.status, behind: r.status === 1 && (r.stdout ?? '').split(/\r?\n/).includes(behindNote) }
+}
 const allowed = () => {
-    if (localRoute()) return 'routine'
-    return run(process.execPath, [join(here, 'pr-wait.mjs'), target, '--once', '--ci-only']).status === 3 ? 'fallback' : null
+    if (localRoute()) {
+        // Tiered local verification may not replace a runner-backed Actions failure. Pending, green and refused-before-run results remain valid local paths.
+        if (cfg.verify.mode === 'tiered') {
+            const ci = waitCi()
+            if (ci.status === 1 && !ci.behind) return null
+        }
+        return 'routine'
+    }
+    return waitCi().status === 3 ? 'fallback' : null
 }
 
 /** Checks the agent stubs and (unless `stubsOnly`) verifies in a clean worktree of `sha`; returns { state, log, stale }. A timeout or a signal posts nothing. */
