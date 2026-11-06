@@ -88,7 +88,7 @@ test('high needs a first review but a later small fix delta may follow; critical
 })
 
 test('fail closed: unreadable entries, code renamed into tests, binary changes, several tickets', () => {
-    for (const bad of [{ filename: 'src/a.js' }, { filename: 7, additions: 1, deletions: 0 }, { filename: 'src/a.js', additions: '1', deletions: 0 }]) {
+    for (const bad of [{ filename: 'src/a.js' }, { filename: '', additions: 1, deletions: 0 }, { filename: 7, additions: 1, deletions: 0 }, { filename: 'src/a.js', additions: '1', deletions: 0 }]) {
         const r = review([bad, f('tests/a.test.mjs')])
         assert.deepEqual([r.reasons, r.size], [['the file list is unreadable'], false])
     }

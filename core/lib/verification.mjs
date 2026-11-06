@@ -35,7 +35,7 @@ export function verificationRoute(cfg, pull, files, issues) {
         return { route: 'ci', reason: 'ticket or labels unavailable' }
     if (!Number.isSafeInteger(pull.changed_files) || pull.changed_files < 1 ||
         !Array.isArray(files) || files.length !== pull.changed_files ||
-        files.some((f) => typeof f?.filename !== 'string' || !Number.isInteger(f.additions) || !Number.isInteger(f.deletions)))
+        files.some((f) => typeof f?.filename !== 'string' || f.filename.length === 0 || !Number.isInteger(f.additions) || !Number.isInteger(f.deletions)))
         return { route: 'ci', reason: 'incomplete or invalid changed files' }
     const labels = issues.flatMap((x) => x.labels.map((l) => typeof l === 'string' ? l : l?.name))
     if (labels.some((l) => typeof l !== 'string' || l === 'Security' || l.startsWith('Needs:') || (l.startsWith('Tier: ') && l !== 'Tier: Low' && l !== 'Tier: Normal')))

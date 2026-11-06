@@ -123,7 +123,7 @@ const NEEDS_ACTIONS = 'this pull request changes .github/workflows/: it needs a 
 function changesWorkflow(pull) {
     const files = api(`${R}/pulls/${target}/files?per_page=100`, true)
     // the list API caps at 3000 files: a bigger or moving PR mismatches the count and fails closed
-    if (!Number.isSafeInteger(pull.changed_files) || files.length !== pull.changed_files || files.some((f) => typeof f?.filename !== 'string'))
+    if (!Number.isSafeInteger(pull.changed_files) || files.length !== pull.changed_files || files.some((f) => typeof f?.filename !== 'string' || f.filename.length === 0))
         throw new Error('the pull request file list is incomplete')
     return files.some((f) => [f.filename, f.previous_filename].some((n) => typeof n === 'string' && WORKFLOW_FILE.test(n)))
 }
@@ -138,7 +138,7 @@ function pollCi(S) {
         S.pull = pull
         S.draft = pull.draft === true
         S.author = pull.user?.login
-        if (['local', 'tiered'].includes(cfg.verify.mode) && S.draft) { S.notes.push(`Draft: CI skips drafts; gh pr ready ${target}`); return 'draft' }
+        if (!ciOnly && ['local', 'tiered'].includes(cfg.verify.mode) && S.draft) { S.notes.push(`Draft: CI skips drafts; gh pr ready ${target}`); return 'draft' }
         if (pull.mergeable === false) { S.notes.push(`PR #${target} conflicts with ${base}: merge ${base} into the branch`); return 'conflict' }
     }
     S.gate = api(`${R}/commits/${S.head}/status?per_page=100`).statuses.find((s) => s.context === cfg.gate.context) ?? null

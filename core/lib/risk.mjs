@@ -33,7 +33,7 @@ export function minimumLane(files, labels, cfg) {
     if (tier === 'Critical') reasons.push('Tier: Critical needs a review of every head')
     else if (tier === 'High') sizeReasons.push('Tier: High needs a first review')   // a ready review plus a small fix delta clears it, like size
     for (const l of labels) if (l === 'Security' || l.startsWith('Needs:')) reasons.push(`label ${l}`)
-    if (!files.every((f) => typeof f?.filename === 'string' && Number.isInteger(f.additions) && Number.isInteger(f.deletions))) reasons.push('the file list is unreadable')
+    if (!files.every((f) => typeof f?.filename === 'string' && f.filename.length > 0 && Number.isInteger(f.additions) && Number.isInteger(f.deletions))) reasons.push('the file list is unreadable')
     else {
         for (const f of files) {
             const hit = alwaysReviewHit(f, cfg)
