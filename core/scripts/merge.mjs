@@ -69,7 +69,7 @@ function selfCheck(pull, head, own, reviews, me) {
     const since = prior.commit_id.slice(0, 7)
     const delta = api(`${R}/compare/${prior.commit_id}...${head}`)
     if (delta.behind_by !== 0 || !Array.isArray(delta.files) || delta.files.length >= 300) return `the head is not a plain descendant of the reviewed commit ${since} (or the delta is too long to read): ${NEXT(since)}`
-    if (!delta.files.every((f) => typeof f?.filename === 'string' && Number.isInteger(f.additions) && Number.isInteger(f.deletions) && !noLines(f))) return `the fix delta since ${since} could not be read: ${NEXT(since)}`
+    if (!delta.files.every((f) => typeof f?.filename === 'string' && f.filename.length > 0 && Number.isInteger(f.additions) && Number.isInteger(f.deletions) && !noLines(f))) return `the fix delta since ${since} could not be read: ${NEXT(since)}`
     const risky = delta.files.find((f) => alwaysReviewHit(f, cfg))
     if (risky) return `the fix delta since ${since} touches ${alwaysReviewHit(risky, cfg)}, which always needs a review: ${NEXT(since)}`
     const lines = delta.files.reduce((n, f) => n + f.additions + f.deletions, 0)

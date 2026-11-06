@@ -98,6 +98,18 @@ test('empty and capped lists are a normal run', () => {
     no({ [`compare/${M}...${H2}`]: { files: many(300) } }, /CI files/)
 })
 
+test('empty and non-string filenames never inherit a docs-only gate', () => {
+    const permissive = config({ ...OPTS, docs_only: { ...OPTS.docs_only, docs: [...OPTS.docs_only.docs, '^$'] } })
+    const bad = { filename: '' }
+    assert.equal(run({ [`compare/${R}...${H2}`]: { status: 'ahead', behind_by: 0, files: files(bad) } }, permissive).root, undefined)
+    assert.equal(run({ [`commits/${C}`]: { files: files(bad) } }, permissive).root, undefined)
+    assert.equal(run({ [`compare/${M}...${H2}`]: { files: files(bad) } }, permissive).root, undefined)
+    const nonString = { filename: 7 }
+    assert.equal(run({ [`compare/${R}...${H2}`]: { status: 'ahead', behind_by: 0, files: files(nonString) } }, permissive).root, undefined)
+    assert.equal(run({ [`commits/${C}`]: { files: files(nonString) } }, permissive).root, undefined)
+    assert.equal(run({ [`compare/${M}...${H2}`]: { files: files(nonString) } }, permissive).root, undefined)
+})
+
 test('a pull request that changes CI files never inherits: the floor, plus the configured list', () => {
     for (const name of ['.github/workflows/ci.yml', '.ticketflow/config.json', 'core/lib/inherit.mjs']) no({ [`compare/${M}...${H2}`]: { files: files(name) } }, /CI files/)
     no({ [`compare/${M}...${H2}`]: { files: files({ filename: 'docs/x.md', previous_filename: '.github/workflows/ci.yml' }) } }, /CI files/)

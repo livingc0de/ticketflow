@@ -35,7 +35,8 @@ export function inherit(api, cfg, pr, head) {
     const prHead = () => { const p = get(`pulls/${pr}`); return p.base.ref === base ? p.head.sha : '' }
     const baseHead = () => get(`git/ref/heads/${base}`).object.sha
     const gate = (sha) => get(`commits/${sha}/status?per_page=100`).statuses.find((s) => s.context === cfg.gate.context)
-    const docs = (files) => files.length < CAP && docsOnly(names(files), cfg)
+    const validFiles = (files) => Array.isArray(files) && files.length < CAP && files.every((f) => typeof f?.filename === 'string' && f.filename.length > 0)
+    const docs = (files) => validFiles(files) && docsOnly(names(files), cfg)
     const ciFiles = [...CI_FILE_FLOOR, ...cfg.gate.ci_files]
 
     if (prHead() !== head) return { no: `not the head of a pull request into ${base}` }
@@ -54,7 +55,7 @@ export function inherit(api, cfg, pr, head) {
     if (incoming.ahead_by > MAX_MAIN || incoming.commits.length !== incoming.ahead_by) return { no: `too many ${base} commits to judge` }
     for (const c of incoming.commits) if (!docs(get(`commits/${c.sha}`).files)) return { no: `${base} commit ${c.sha.slice(0, 7)} is not docs-only` }
     const own = get(`compare/${main}...${head}`).files
-    if (own.length >= CAP || names(own).some((n) => ciFiles.some((r) => r.test(n)))) return { no: 'the pull request changes CI files' }
+    if (!validFiles(own) || names(own).some((n) => ciFiles.some((r) => r.test(n)))) return { no: 'the pull request changes CI files' }
     if (prHead() !== head || baseHead() !== main) return { no: `the head or ${base} moved while reading` }
     return { root }
 }

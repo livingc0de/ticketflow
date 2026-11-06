@@ -38,6 +38,8 @@ test('missing ticket, incomplete files, fork heads or labels fall back to CI', (
     assert.equal(verificationRoute(cfg, { ...pull, head: { repo: { full_name: 'someone/fork' } } }, files, [issue()]).route, 'ci')
     assert.equal(verificationRoute(cfg, { ...pull, title: 'No ticket' }, files, []).route, 'ci')
     assert.equal(verificationRoute(cfg, { ...pull, changed_files: 2 }, files, [issue()]).route, 'ci')
+    assert.equal(verificationRoute(cfg, pull, [{ ...files[0], filename: '' }], [issue()]).route, 'ci')
+    assert.equal(verificationRoute(cfg, pull, [{ ...files[0], filename: 7 }], [issue()]).route, 'ci')
     assert.equal(verificationRoute(cfg, pull, files, [{ ...issue(), labels: null }]).route, 'ci')
 })
 test('status source follows route, including explicit CI fallback', () => {

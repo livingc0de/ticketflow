@@ -405,6 +405,8 @@ test('S8: the fix-delta base is checked like a review of record: state, the comm
     refused(go({ ...PRIOR, state: 'CHANGES_REQUESTED' }, delta([f('src/a.js')])), /not a completed non-blocking review/)
     assert.equal(go({ ...PRIOR, body: 'Review evidence is the GitHub commit, not this comment text' }, delta([f('src/a.js')])).status, 0)
     refused(go(PRIOR, { [`${R}/compare/${ANCESTOR}...${HEAD}`]: { behind_by: 0 } }), /not a plain descendant/)   // no files at all
+    refused(go(PRIOR, delta([{ filename: '', additions: 1, deletions: 0 }])), /fix delta since 2222222 could not be read/)
+    refused(go(PRIOR, delta([{ filename: 7, additions: 1, deletions: 0 }])), /fix delta since 2222222 could not be read/)
     refused(go(PRIOR, delta([{ filename: 'src/a.js' }])), /fix delta since 2222222 could not be read/)
     refused(go(PRIOR, delta([{ filename: 'src/new.js', previous_filename: 'package.json', additions: 1, deletions: 0 }])), /touches package\.json, which always needs a review/)
     refused(go(PRIOR, delta([f('src/a.js', 0), f('assets/new.bin', 0)])), /could not be read/)   // a change with no line count in the delta

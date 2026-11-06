@@ -179,7 +179,7 @@ test('a pull request that changes the CI workflow never gets the fallback', () =
     assert.equal(code({ ...refused(), ...files('.github/dependabot.yml') }), 3)
     assert.equal(code({ ...refused(), ...files('src/a.js') }), 3)
     // an incomplete or unreadable file list allows nothing
-    for (const bad of [{ ...pull({ changed_files: 1 }), 'pulls/7/files': [] }, { ...pull({ changed_files: 1 }), 'pulls/7/files': { __status: 502, __stderr: 'unavailable' } }]) {
+    for (const bad of [{ ...pull({ changed_files: 1 }), 'pulls/7/files': [] }, { ...pull({ changed_files: 1 }), 'pulls/7/files': [{ filename: '' }] }, { ...pull({ changed_files: 1 }), 'pulls/7/files': [{ filename: 7 }] }, { ...pull({ changed_files: 1 }), 'pulls/7/files': { __status: 502, __stderr: 'unavailable' } }]) {
         const r = wait({ ...refused(), ...bad })
         assert.equal(r.status, 2); notAllowed(r)
     }
@@ -291,6 +291,13 @@ test('an API error is pending; a status-read error with a refused run is 2, neve
     assert.equal(code({ ...refused(), ...status('failure', 'Actions run #8') }), 1)
     assert.equal(code({ ...runs(run(1, 'completed', 'failure')), 'actions/runs/1/jobs': FAIL }), 2)
     assert.equal(code({ ...runs(run(1, 'completed', 'failure')), ...job(1, { runner_id: 0, steps: [] }) }), 3)
+})
+
+test('a draft in tiered mode with --ci-only still reads a red Actions gate', () => {
+    const r = wait({ ...pull({ draft: true }), ...status('failure', 'Actions run #1') }, ['7', '--ci-only', '--once'], { verify: { mode: 'tiered' } })
+    assert.equal(r.status, 1, r.stderr)
+    assert.ok(r.calls.some((c) => c.includes(`commits/${HEAD}/status?per_page=100`)), r.calls.join('\n'))
+    assert.match(r.stdout, /^CI \/ Gate: failure Actions run #1 u$/m)
 })
 
 test('PR checks: a draft in local is exit 2 with the hint; a draft in ci mode is not short-circuited; conflict; behind; unknown; clean', () => {
