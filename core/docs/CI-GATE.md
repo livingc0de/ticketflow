@@ -16,7 +16,8 @@ The verdict is that status alone; `merge`, `pr-wait` and the branch ruleset all 
   pull request it also resolves workflows that ran on GitHub's temporary merge SHA through the exact PR head association.
   The commit status remains the verdict.
 - The rendered workflow posts the status in the last step of the job, on the head commit (never the test merge commit), with
-  `if: always()`, so a timeout or a cancel posts a failure too.
+  `if: always()`, so a timeout or a cancel posts a failure too. That step is skipped when the scope step selects the local route
+  (`route=local`: a tiered Low/Normal run, or a same-repository pull request in `verify.mode: local`); there `local-verify` posts the gate instead.
 - Every run, docs-only or not, first checks the agent stubs (`gen-stubs --check`, the checked-out copy): a stale or hand-edited stub
   fails the gate. The local fallback does the same before its inherited or docs-only result or its verify command.
 - Verify mode (`ci`, `tiered` or `local`) is described in [WORKFLOW.md](WORKFLOW.md).

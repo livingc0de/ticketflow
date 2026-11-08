@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { dependsOn } from '../core/lib/tracker.mjs'
 import { FAIL, fakeGh, seq, tempDir, writeConfig } from './helpers.mjs'
 
 const script = new URL('../core/scripts/queue.mjs', import.meta.url).pathname
@@ -216,6 +217,22 @@ test('Depends on: a list after the sentence counts, a ref of another repository 
     assert.match(line(r, 13), /^#13 waiting T13 \[after: #11\]$/)
     r = run(['11', '12', '13'], body('Depends on o/r#12 and X/Y#4.'))
     assert.match(line(r, 13), /\[after: #12, X\/Y#4\]$/)
+})
+
+test('dependsOn reads only the Depends on part: stops at ·, Blocks and Related; "none" ignores the bullets after it', () => {
+    const d = (body) => dependsOn(body, 'o/r')
+    assert.deepEqual(d('Depends on: #87 · Blocks: #184, #186 · Related: #90'), [87])
+    assert.deepEqual(d('Depends on: #87 Related: #90'), [87])
+    assert.deepEqual(d('Depends on: none\n\n- #5 is a note\n- #6'), [])
+    assert.deepEqual(d('Depends on: none · Blocks: #184'), [])
+    assert.deepEqual(d('Blocks: #184, #186 · Related: #90 · Depends on: #87'), [87])
+    assert.deepEqual(d('Blocks: #184\nRelated: #90\nDepends on: #87'), [87])
+    assert.deepEqual(d('Depends on: **none**\n- #5'), [])
+    assert.deepEqual(d('Depends on the related-work ticket #7'), [7])   // the words in prose are not labels
+    assert.deepEqual(d('Depends on the Blocks field work #8'), [8])
+    assert.deepEqual(d('Depends on the block-level refactor #7'), [7])
+    assert.deepEqual(d('Depends on #11, #20 and o/x#3.'), [11, 20, 'o/x#3'])
+    assert.deepEqual(d('Depends on:\n- #11\n- #12'), [11, 12])
 })
 
 test('--ready: a ticket with more than 20 labels exits 2 (its Needs: label could be missed)', () => {
