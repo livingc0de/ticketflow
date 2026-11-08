@@ -70,7 +70,7 @@ test('everything fine: preflight, local and full all exit 0 and end with the sum
         assert.equal(r.lines.filter(Boolean).at(-1), 'doctor: 0 failed, 0 warnings', flag.join())
     }
     has(t.run(), /^ok runtime: \d+ files match the manifest/m)
-    assert.deepEqual(t.calls().filter(([n]) => n === 'gen-stubs').at(-1), ['gen-stubs', '.ticketflow', '.', '--check'])
+    assert.deepEqual(t.calls().filter(([n]) => n === 'gen-stubs').at(-1), ['gen-stubs', '--check'])
     assert.deepEqual(t.calls().filter(([n]) => n === 'render').at(-1), ['render', '.ticketflow/templates', '.', '--check'])
     assert.deepEqual(t.calls().filter(([n]) => n === 'labels').at(-1), ['labels', 'sync', '.ticketflow/templates/labels.json', '--dry-run'])
     assert.deepEqual(t.calls().filter(([n]) => n === 'project').at(-1), ['project', 'setup', '--dry-run'])
@@ -189,7 +189,7 @@ test('repo mode: runtime is skipped, gen-stubs is called with core . --check, re
     const r = t.run('--local')
     assert.equal(r.status, 0, r.out)
     has(r, /^skip runtime: ticketflow repo: the runtime is core\/$/m); has(r, /^warn templates: files without ticketflow markers/m)
-    assert.deepEqual(t.calls().filter(([n]) => n === 'gen-stubs').at(-1), ['gen-stubs', 'core', '.', '--check'])
+    assert.deepEqual(t.calls().filter(([n]) => n === 'gen-stubs').at(-1), ['gen-stubs', '--check'])
     assert.deepEqual(t.calls().filter(([n]) => n === 'render').at(-1), ['render', 'core/templates', '.', '--check'])
     t.child('render', 1, { out: 'out of date: AGENTS.md\n' })
     assert.equal(t.run('--local').status, 1, 'drift in repo mode still fails')

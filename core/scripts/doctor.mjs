@@ -140,7 +140,7 @@ if (!values.preflight) {
         else if (cfg.practices.includes('live-verify') && cfg.live_verify_skill === null) say('warn', 'practices', 'live-verify is enabled but live_verify_skill is null: the e2e-verifier role gets no stub (set it to "live-verify")')
         else say('ok', 'practices', cfg.practices.join(', '))
     })
-    need('stubs', () => child('stubs', 'gen-stubs.mjs', [rtRel, '.', '--check'], plain('in sync', 'out of date or in conflict: run gen-stubs')))
+    need('stubs', () => child('stubs', 'gen-stubs.mjs', ['--check'], plain('in sync', 'out of date or in conflict: run gen-stubs')))
     need('templates', () => {
         let held = []
         try { held = (readManifest(root)?.held ?? []).filter((p) => FILES.some((f) => f.dest === p)) } catch { /* the runtime check reports an unreadable manifest */ }

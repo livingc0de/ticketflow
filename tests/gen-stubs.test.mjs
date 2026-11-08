@@ -521,3 +521,34 @@ test('a bad shipped adapter exits 2 with zero writes, and a configured agent wit
     r = gen()
     assert.equal(r.status, 2); assert.match(r.stderr, /cursor/); assert.deepEqual(files(t), [])
 })
+
+// ---- no arguments: the repo it runs in
+const git = (cwd, ...a) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd, encoding: 'utf8' })
+const bare = (cwd, ...args) => spawnSync(process.execPath, [script, ...args], { cwd, encoding: 'utf8' })
+
+test('with no arguments --check uses the installed .ticketflow of the repo it runs in, from any directory of it', () => {
+    const t = setup()
+    git(t.dir, 'init', '-q', '-b', 'main')
+    assert.equal(run(t).status, 0)
+    mkdirSync(join(t.dir, 'sub/deep'), { recursive: true })
+    for (const cwd of [t.dir, join(t.dir, 'sub/deep')]) { const r = bare(cwd, '--check'); assert.equal(r.status, 0, r.stdout + r.stderr) }
+    t.put('.claude/skills/demo/SKILL.md', t.read('.claude/skills/demo/SKILL.md') + 'hand edit\n')
+    const drift = bare(t.dir, '--check')
+    assert.equal(drift.status, 1); assert.match(drift.stdout, /out of date: \.claude\/skills\/demo\/SKILL\.md/)
+    assert.equal(bare(t.dir).status, 0)               // without --check it writes, as with arguments
+    assert.equal(bare(t.dir, '--check').status, 0)
+})
+
+test('with no arguments in the ticketflow repo the canonical dir is core; outside git, or with one argument, it exits 2', () => {
+    const root = new URL('..', import.meta.url).pathname
+    const here = bare(root, '--check')
+    assert.equal(here.status, 0, here.stdout + here.stderr)
+    const t = setup({ repo: true })
+    git(t.dir, 'init', '-q', '-b', 'main')
+    assert.equal(run(t).status, 0)
+    assert.equal(bare(t.dir, '--check').status, 0)
+    const outside = bare(tempDir('nogit-'), '--check')
+    assert.equal(outside.status, 2); assert.match(outside.stderr, /pass <canonical-dir> <target-repo>/)
+    const one = bare(t.dir, '--check', t.dir)
+    assert.equal(one.status, 2); assert.match(one.stderr, /usage: gen-stubs/)
+})

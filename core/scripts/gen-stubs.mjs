@@ -2,12 +2,14 @@
 /**
  * Writes the agent stubs (and, in the ticketflow repo itself, the plugin manifests) for a repo from its canonical skills and roles.
  *
- * Usage: gen-stubs.mjs <canonical-dir> <target-repo> [--check]
+ * Usage: gen-stubs.mjs [<canonical-dir> <target-repo>] [--check]
  *   <canonical-dir> is inside the target: `core` in the ticketflow repo, `.ticketflow` in a user repo.
+ *   With no directories the repo it runs in is the target (from any of its directories, a worktree included) and its installed canonical dir is used.
  * Exit: 0 = in sync (or written), 1 = a conflict (an unmarked file, or a symlink, at a stub path; nothing is written) or, with --check, drift,
  *       2 = usage, config or canonical error, before any write.
  */
 
+import { execFileSync } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
@@ -15,11 +17,16 @@ import { loadConfig } from '../lib/config.mjs'
 import { main } from '../lib/cli.mjs'
 import { checkAdapter, parseCanonical, parseGuide, planWrites, renderStubs } from '../lib/stubs.mjs'
 
-const usage = 'usage: gen-stubs <canonical-dir> <target-repo> [--check]'
+const usage = 'usage: gen-stubs [<canonical-dir> <target-repo>] [--check]'
 
 main('gen-stubs', () => {
     const { values, positionals } = parseArgs({ options: { check: { type: 'boolean' } }, allowPositionals: true })
-    if (positionals.length !== 2) throw new Error(usage)
+    if (positionals.length !== 0 && positionals.length !== 2) throw new Error(usage)
+    if (positionals.length === 0) {
+        let top
+        try { top = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: 'pipe' }).trim() } catch { throw new Error('not inside a git repository: pass <canonical-dir> <target-repo>') }
+        positionals.push(join(top, existsSync(join(top, 'core')) && existsSync(join(top, 'skills', 'init', 'SKILL.md')) ? 'core' : '.ticketflow'), top)
+    }
     const target = resolve(positionals[1])
     const rel = relative(target, resolve(positionals[0])).split(sep).join('/')
     if (!rel || rel.startsWith('..') || rel.startsWith('/')) throw new Error(`${usage}: the canonical dir must be inside the target repo`)
