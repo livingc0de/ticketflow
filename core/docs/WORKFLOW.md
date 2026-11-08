@@ -160,7 +160,7 @@ head and reports its findings straight to the agent; its posted review is what `
 the `Reviewer:` line of `risk.mjs` (strong for a Critical tier, a Security label, an always-review path, an unknown size or a very large diff; standard otherwise); the lead may raise it, never lower it. It never approves or edits. A red CI is fixed first, with no review of a red head. Diff and audit mode review without a
 pull request (above) and post nothing. What is and is not proven: [REVIEWERS.md](REVIEWERS.md).
 
-Wait once, in the background (`pr-wait`), batch every finding into one push, and fix or reject each with a reason; reply to and resolve
+Wait once (`pr-wait`, in the foreground), batch every finding into one push, and fix or reject each with a reason; reply to and resolve
 each review thread with `thread.mjs`. **A fix round:** after a `ready to merge` review, fixes to its should-fix and nit findings merge on a
 self-check when `merge --self-checked` accepts the delta (small, no risky path); a `critical` pull request always gets a new review. After `changes needed`, a delta
 `pr-reviewer` review of the head (standard class, strong if the finding was security or data). A security, data or correctness finding rejected without a fix gets a `pr-reviewer` pass on the head. A related small problem found along the way is fixed in the same pull request and listed as "Also fixed"; only a big or unrelated one gets its own issue.

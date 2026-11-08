@@ -9,7 +9,7 @@ Treat versionless `provider/model` values as model-family hints. Before passing 
 | Dispatch the `<role>` role | V2: the `subagent` tool with agent `<role>`. V1: the `task` tool with `subagent_type: "<role>"`. The repo's agents are in `.opencode/agents/`; resolve a frontmatter model hint if OpenCode requires a full id. When the skill asks for a class override, name the model from `(config.models.opencode ?? config.models.default)[<class>]` as the helper row does where the tool lets the parent name it; otherwise the role runs at its frontmatter class, and say so in the report |
 | Dispatch a helper of a class | Agent `general` for work, `explore` for broad read-only search; the model comes from the agent, or the parent can name it |
 | Dispatch a fresh ticket lead | V2 `subagent` with agent `general`, V1 `task`; brief it fully, it has no context |
-| Run in the background and wait once | V2: `shell` with `background: true`, then wait for the result. V1: the `bash` tool with a long `timeout` (the default is 2 minutes) |
+| Wait for a script | The `bash` or `shell` tool in the foreground with a long `timeout` (the default is 2 minutes) and `--timeout-min 9`; on exit 2 with a timeout run it again |
 | Ask the user | The `question` tool, one targeted question, then wait |
 | Track tasks | V1 `todowrite`; V2 a checklist in your reply |
 | Load a skill | The `skill` tool with the skill's name (skills are in `.agents/skills/`) |

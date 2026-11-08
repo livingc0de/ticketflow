@@ -9,7 +9,7 @@ Treat versionless values such as `astra`, `sol` and `luna` as model-family hints
 | Dispatch the `<role>` role | VS Code: `runSubagent` with the agent `<role>` (the repo's `.github/agents/<role>.agent.md`; the user enables the Run Subagent tool). Copilot CLI: the `task` tool. Cloud agent: its custom-agent tool. The model is the agent's `model`, or the session's, so a class override from the skill cannot be honoured: the role runs at its frontmatter class, and say so in the report |
 | Dispatch a helper of a class | `runSubagent` or `task` with a task brief; the model is the agent's `model`, or the session's |
 | Dispatch a fresh ticket lead | VS Code `runSubagent`, Copilot CLI `task`; brief it fully. The cloud agent: not possible (see Rules) |
-| Run in the background and wait once | Run it in the foreground; on a timeout run the stateless script again |
+| Wait for a script | Run it in the foreground with `--timeout-min 9`; on a timeout run the stateless script again |
 | Ask the user | Ask one targeted question in the reply and wait. The cloud agent: ask in the pull request, then stop |
 | Track tasks | The `todo` tool, one item per plan task |
 | Load a skill | The stub is the whole skill; use it as loaded |

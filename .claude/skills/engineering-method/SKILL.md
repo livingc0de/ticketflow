@@ -8,21 +8,20 @@ In this repository the runtime lives in `core/`: read every `.ticketflow/<path>`
 
 # Engineering method
 
-- Read `.ticketflow/custom/engineering-method.md` first if it exists: it adds to and overrides this file. Actions (dispatch a role, ask the user) are done as the action map your stub names says; without one, use `.ticketflow/agents-map/generic.md`.
+- `.ticketflow/custom/engineering-method.md` adds to and overrides this file: read it if it exists (inside a ticket only when the step 1 call listed it). Dispatching a role and asking the user are done as your agent's own map in `.ticketflow/agents-map/` says (`implement-ticket` loads it; `generic.md` for any other agent).
 - A request to ship a change (fix a bug, build, refactor) is ticket work: find or create its ticket (`create-ticket` searches first), then `implement-ticket`, which reads, plans and reports; apply the planner triggers of section 1 and sections 2 to 5 here. Without a ticket (the user says so, or nothing ships: an investigation, a diff review, an audit, a local experiment) all sections apply, and there is no branch, commit, PR or merge unless the user asks. No other plugin's planning, approval, branching, review or merge process runs on top of it; a technique may be borrowed if it adds no approval step and no second plan.
 - Ask the user only about material decisions (product, data shape, security, money); take the default for the rest and say which.
 
 ## 1. Understand and plan
 
-- Read the code and docs the request touches first, and never ask what they already answer.
-- A clear request: just do it. A vague or risky one: play it back in two sentences, then ask the one question that changes the most and say why. Offer 2-3 approaches with a recommendation only when a real choice is open. "Go" or "your call" proceeds on the defaults you stated.
-- **Plan in proportion.** Dispatch the `ticket-planner` role with a plain brief (the request, what you read, decisions made; no ticket is needed) when any planner trigger holds, judged from the code you read: (1) the work is `high` or `critical` (access, money, data migrations, concurrency, legal, production config, three or more subsystems); (2) a real design choice is still open (two or more defensible approaches with different consequences); (3) the change is cross-cutting: a second subsystem, or about 6 or more files; (4) a bug whose root cause is unclear after one reproduction and one trace; (5) two failed attempts at the same failure; (6) the user asks. Its Open decisions go to the user. Without a trigger, write a 3-8 line inline plan (files, approach, tests, risks) and build it; if the diff outgrows it, dispatch the planner for the rest. The length of the request does not decide. When torn on a `normal` change, plan inline and escalate if the diff outgrows it.
+- Read the code and docs the request touches first; never ask what they already answer.
+- A clear request: just do it. A vague or risky one: play it back in two sentences, then ask the one question that changes the most and say why. Offer 2-3 approaches with a recommendation only when a real choice is open. "Go" or "your call" proceeds on the stated defaults.
+- **Plan in proportion.** Dispatch the `ticket-planner` role with a plain brief of facts (the request, what you read and verified, decisions made; no ticket needed) when any planner trigger holds, judged from the code you read: (1) the work is `high` or `critical` (access, money, data migrations, concurrency, legal, production config, three or more subsystems); (2) a real design choice is open (two or more defensible approaches with different consequences); (3) the change is cross-cutting: a second subsystem, or about 6 or more files; (4) a bug whose root cause is unclear after one reproduction and one trace; (5) two failed attempts at the same failure; (6) the user asks. Its Open decisions go to the user. Without a trigger, write a 3-8 line inline plan (files, approach, tests, risks) and build it; if the diff outgrows it, dispatch the planner for the rest. The length of the request does not decide. When torn on a `normal` change, plan inline and escalate if the diff outgrows it.
 - Record decisions where they last: the ticket's Decisions and acceptance criteria, else the final report.
 
 ## 2. The smallest complete change
 
 Stop at the first rung that holds: it does not need to exist (a speculative need is skipped, in one line) -> the codebase already has it (reuse) -> the standard library -> a native platform feature -> an installed dependency -> one line -> only then the least new code. Judge the cost of owning the change (code, options, dependencies, config, docs to maintain), not lines alone.
-
 - Complete means callers, tests, config and validation are covered. Moved code keeps its checks. Never cut security, validation, data-loss protection, accessibility or a needed test to be smaller.
 - At equal size take the option that is right on the edge cases.
 - A deliberate limit gets a comment `shortcut: <limit>, <when to revisit>`, never over a security, data-loss or required-behaviour gap.
@@ -34,16 +33,11 @@ Stop at the first rung that holds: it does not need to exist (a speculative need
 - Tests assert behaviour, not wiring; a trust boundary gets a negative case.
 - Two failed attempts at the same failure: dispatch the `ticket-planner` role for a diagnosis (the failing output, not a transcript). A third: question the design, not the patch.
 
-Work in one context. Delegate only when it pays:
-
-| Need | Action |
-|---|---|
-| Broad read-only search | dispatch a light helper |
-| A hard, isolated piece (a lock order, a money state machine, a migration) | dispatch a strong helper with a compact brief; do not edit its files meanwhile |
-| Independent failures (different files, no shared state) | one helper each; inside a ticket one at a time (a lead has one specialist slot), several at once only on a plain request and within any limit the user set |
-| A plan task marked `review: task` (only `high` and `critical` plans mark any) | dispatch the `pr-reviewer` role in diff mode on that task's commits; fix its blockers before the next task |
-
-Never delegate a deterministic command, a lookup, or one small task.
+Work in one context. Delegate only when it pays, never a deterministic command, a lookup or one small task:
+- Broad read-only search: a light helper.
+- A hard, isolated piece (a lock order, a money state machine, a migration): a strong helper with a compact brief; do not edit its files meanwhile.
+- Independent failures (different files, no shared state): one helper each; inside a ticket one at a time (a lead has one specialist slot), several at once only on a plain request and within any limit the user set.
+- A plan task marked `review: task` (only `high` and `critical` plans mark any): the `pr-reviewer` role in diff mode on that task's commits; fix its blockers before the next task.
 
 ## 4. Verify
 
@@ -61,30 +55,5 @@ Never delegate a deterministic command, a lookup, or one small task.
 ## 6. Report
 
 - What changed, the evidence, "Not checked", the shortcuts added with their triggers. Short; no tour of the diff.
-- Without a ticket, finishing is the report. Commit, push or open a PR only when asked. A PR opened that way is reviewed and merged as `implement-ticket` steps 5 and 6 say, minus the ticket references; a request to merge is not a review, and neither is a diff or audit report. The rules of AGENTS.md (no admin bypass) stand.
+- Without a ticket, finishing is the report. Commit, push or open a PR only when asked; a PR opened that way is reviewed and merged as `implement-ticket` steps 5 and 6 say, minus the ticket references (a request to merge is not a review, and neither is a diff or audit report). The rules of AGENTS.md (no admin bypass) stand.
 - "Why did this run go wrong, or cost so much?": read the ticket's Run line, the PR timeline and commits, and whatever usage or transcript record your tool keeps (TicketFlow has no counter; if the tool keeps none, say so rather than guess). Cite what was repeated, ignored or skipped, with evidence. Change nothing.
-
-# Action map: Claude Code
-
-The canonical skills and roles name actions. In Claude Code, do them like this. `config.models.claude ?? config.models.default` maps a model class (`strong`, `standard`, `light`) to a model id; a `null` id means: leave `model` out.
-
-Treat versionless values as model-family hints. Before passing a configured model to Claude, keep a Claude-native alias such as `opus`, `sonnet` or `haiku` when Claude accepts it; otherwise resolve it to the current full model id. This applies to role frontmatter and helper or lead dispatches. Do not invent a version when the tool cannot resolve the hint; use the current session model instead.
-
-| Action | How |
-|---|---|
-| Dispatch the `<role>` role | Agent tool with `subagent_type: "<role>"` (the repo's agent in `.claude/agents/`). Its model and effort come from its frontmatter; resolve the model hint if Claude requires a full id; when the skill asks for a class or effort override, also pass `model` from `(config.models.claude ?? config.models.default)[<class>]` (a Claude-native alias) and `effort`; otherwise the frontmatter applies |
-| Dispatch a helper of a class | `Explore` for broad read-only search, `general-purpose` for work; `model` from `(config.models.claude ?? config.models.default)[<class>]`, and an explicit `effort` |
-| Dispatch a fresh ticket lead | `general-purpose`, `model` of the standard class, an explicit `effort`, never a fork; brief it fully, it has no context |
-| Run in the background and wait once | Bash with `run_in_background: true`; you are notified when it exits. Do not poll and do not sleep-loop |
-| Ask the user | Ask one targeted question in the reply (the question tool if it is available) and wait |
-| Track tasks | `TaskCreate` / `TaskUpdate` (or `TodoWrite`), one task per plan task |
-| Load a skill | Skill tool with the skill's name |
-| Switch model or effort | You cannot change your own: say what the user should run (`/model`, `/effort`), or hand the hard part to a dispatched agent with its own `model` and `effort` |
-
-## Rules
-
-- Never use Plan Mode for ticket work: planning is a dispatched role, and it needs no approval step.
-- Subagents do not see this conversation. Brief them with the ticket number, the files, the rule on scope, and the exact report you want; never a transcript.
-- Nesting: a dispatched `general-purpose` agent can dispatch further agents (nesting since Claude Code 2.1.219); the read-only role agents cannot. A refused dispatch: do the step inline and say so.
-- Limits: suggest to the user, never write, `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2` and `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=<B-1>`. Defaults: depth 3, 20 running (whether nested agents count toward the cap is unverified).
-- Loaded by another tool (Cursor, Copilot and OpenCode also read `.claude/`; Cursor reads `.codex/agents`)? Use `.ticketflow/agents-map/<your tool>.md`, or `generic.md`.

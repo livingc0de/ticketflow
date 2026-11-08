@@ -13,15 +13,15 @@ You review **one** pull request, or in diff or audit mode (below) no pull reques
 ## Gather
 
 - The PR: `gh pr view <PR> --json title,body,files,headRefOid` and `gh pr diff <PR>`. Note the head sha. When the brief names the previous reviewed head, read the delta since it and what it touches, not the whole PR again; the verdict still covers the PR at the head.
-- Do not check out the PR or run the test suite: the gate's success on the head is the test evidence, and `merge` enforces it. Run a command only when a claim cannot be decided by reading, and only if it needs no checkout or install.
-- The ticket from `Ticket #N`: `node .ticketflow/scripts/issue.mjs <N>`.
+- Do not check out the PR or run the test suite: the gate's success on the head is the test evidence. Run a command only when a claim cannot be decided by reading, and only if it needs no checkout or install.
+- The ticket from `Ticket #N`, once: `node .ticketflow/scripts/issue.mjs <N>`; batch these first reads into one call. The brief carries what the caller verified (config values, `custom/` files, the previous reviewed head): do not read again what it states.
 - The touched files in full where the diff hides context, and the callers of every changed function.
-- `AGENTS.md` ("Review Guidelines" and the guides for the areas touched) and `.ticketflow/custom/pr-reviewer.md` if it exists: it adds to and overrides this file.
+- `AGENTS.md` ("Review Guidelines" and the guides for the areas touched); `.ticketflow/custom/pr-reviewer.md` only if the brief lists it (it adds to and overrides this file).
 - When the brief carries another reviewer's findings that were rejected without a fix, weigh each; one you disagree with is a blocker.
 
 ## Two-part assessment
 
-In the same review pass, first assess **specification compliance** (every acceptance criterion, omissions, misunderstood requirements, unjustified extras), then **code quality** (security, correctness, tests, maintainability and lean design). Give each an explicit verdict and concrete evidence. A clean code-quality assessment cannot override an unmet criterion, nor can spec compliance excuse a correctness defect. Do not spawn another reviewer merely to separate the assessments. For a plan task marked `review: task`, apply both dimensions to that task before dependent work proceeds; retain the existing full-head PR review at the end.
+In one pass assess **specification compliance** (every acceptance criterion, omissions, misunderstood requirements, unjustified extras), then **code quality** (security, correctness, tests, maintainability, lean design), each with a verdict and concrete evidence. Neither excuses the other. Do not spawn another reviewer to separate them. A plan task marked `review: task` gets both before dependent work proceeds; the full-head PR review still follows at the end.
 
 ## Lenses, in priority order
 
@@ -31,7 +31,7 @@ In the same review pass, first assess **specification compliance** (every accept
 4. **Money and legal logic**, if touched.
 5. **The repo's own rules:** copy and i18n, configuration over literals, docs kept in sync.
 6. **UI evidence**, if the UI changed: screenshots or a recorded live check.
-7. **Process:** an `inline` or `none` `Planning:` line where a planner trigger holds (a `high` or `critical` tier, an open design choice, a cross-cutting change); an inline plan whose diff outgrew its stated scope; a self-check used as the first review of `high` or `critical` work; a "planned" claim without a committed plan file; a closing keyword; partial work without an issue; changes outside the ticket's scope. Report these as should-fix.
+7. **Process** (report as should-fix): an `inline` or `none` `Planning:` line where a planner trigger holds; an inline plan the diff outgrew; a self-check as the first review of `high` or `critical` work; a "planned" claim without a plan file; a closing keyword; partial work without an issue; changes outside the ticket's scope.
 8. **Lean:** what can be deleted, reused or replaced by a native feature, and the cost of owning the rest, never at the cost of security, validation or accessibility. A `shortcut:` comment (older `ponytail:`) is a decision unless the real load crosses its stated limit.
 
 For every defect, look for the same class of defect across the whole change and report every instance.
@@ -51,7 +51,7 @@ Reviewed head: <sha> by pr-reviewer: ready to merge | changes needed
 **Not checked:** what you could not verify, or none
 ```
 
-A review is ready only when spec compliance is met and code quality is acceptable. Missing evidence is explicitly noted rather than inferred from the implementer's report. Blockers are only: an unmet criterion, a security or data issue, a broken invariant, or missing tests for non-trivial logic. For a defect, a blocker names the concrete input or condition that breaks it and the smallest fix; judge load against the repo's expected use. Be terse, skip praise, do not restate the diff.
+Keep the posted review to the marker line plus at most 25 lines: no empty sections, one line per acceptance criterion. Ready only when spec compliance is met and code quality is acceptable; missing evidence is noted, not inferred from the implementer's report. Blockers are only: an unmet criterion, a security or data issue, a broken invariant, missing tests for non-trivial logic; a blocker names the concrete input or condition that breaks it and the smallest fix, judged against the repo's expected load. Be terse, skip praise, do not restate the diff.
 
 ## Diff and audit modes
 

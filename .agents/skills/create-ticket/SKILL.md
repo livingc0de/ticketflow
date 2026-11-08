@@ -8,7 +8,7 @@ In this repository the runtime lives in `core/`: read every `.ticketflow/<path>`
 
 # Create a ticket
 
-Read `.ticketflow/custom/create-ticket.md` first if it exists: it adds to and overrides this file. Read `.ticketflow/config.json` once. Actions follow the action map your stub names (`.ticketflow/agents-map/generic.md` without one). Descriptions stay short and stable, with no emojis; Markdown goes through a heredoc; nothing ever uses a closing keyword.
+`.ticketflow/custom/create-ticket.md` adds to and overrides this file: read it if it exists. Read `.ticketflow/config.json` once. Dispatching and asking the user follow your agent's map in `.ticketflow/agents-map/`. Descriptions stay short and stable (a body at most 40 lines), no emojis; Markdown goes through a heredoc; nothing ever uses a closing keyword.
 
 **A vague request** (an idea, not yet a ticket): understand it as `.ticketflow/skills/engineering-method/SKILL.md` section 1 says (read the code first, one question at a time, 2-3 approaches when a choice is open), until the scope and the acceptance criteria are clear. Then write the ticket, or a tracker with children (step 2), with every decision in Decisions and the acceptance criteria. There is no design document or approval step.
 
@@ -18,7 +18,7 @@ Read `.ticketflow/custom/create-ticket.md` first if it exists: it adds to and ov
    - Goal (the outcome), Today (verified behaviour with `path:line` and how it was verified, only if you saw it);
    - Scope (In / Out, with `-> #M` for the out-of-scope part);
    - Acceptance criteria (a task list of checkable items; non-trivial logic names its test);
-   - Verification (focused checks, live checks), Implementation notes (the laziest correct approach, code to reuse);
+   - Verification (focused checks, live checks), Implementation notes (the laziest correct approach, code to reuse), ending with a `Planning:` recommendation that matches the Tier label: `planner` for `high` or `critical` (and for another planner trigger), `inline` for `normal` without one, `none (low)` for `low`;
    - Decisions (recorded as decisions, never as open questions; a money rule has its who-pays-whom example), Dependencies (`Depends on` / `Blocks`, real `#N` only).
    - A `low`-tier ticket has only Goal and Acceptance criteria; model, AI effort, tier and planning are labels or claim-time decisions.
 4. **Technical plan:** a ticket is planned only when its `Planning:` line links a plan file written by the `ticket-planner` role and committed under `plans_dir` (`YYYY-MM-DD-issue-<N>-<slug>-technical.md`). Model or effort labels, a plan-like description or "plan ready" never counts. A plan made before the claim goes into the repo through a docs-only PR in the normal flow. It has at least: files and functions to change, callers checked, fail-closed behaviour, tests, rollout and ops, risks and open decisions, and the line `Verified against <sha> on <date>`. A linked plan is re-verified at claim, never copied.
@@ -30,32 +30,4 @@ Read `.ticketflow/custom/create-ticket.md` first if it exists: it adds to and ov
 9. **A bug found during other work** follows the scope rule of implement-ticket: small and related is fixed in the running PR and listed as "Also fixed", with no issue. A big or unrelated one gets an issue (search open issues first; link an existing one instead), with evidence and `path:line`, an honest priority, and a comment `Found #M while working on this.` on the running ticket. It stays out of the PR unless it blocks that ticket's criteria; say so in both.
 10. **Decisions:** a question that blocks or materially changes delivery gets a `Type: Decision` + `Needs: Decision` issue: the options, the trade-offs and a **recommended default** implementers can assume. Link it from the blocked issues, which get `Needs: Decision` (or Status Blocked when no default is safe). When it is decided: fill in the Recorded Outcome, comment the rationale, remove `Needs: Decision` here and on the dependents, update the docs, close it.
 11. **Hygiene:** close a duplicate with a link: `gh issue close <M> --reason "not planned" --comment "Duplicate of #<N>"`.
-12. **Report** the issue link and, in one line, its labels and recommended tier and planning route (`planner`, `inline` or `none`, by the planner triggers in `implement-ticket`).
-
-# Action map: Codex
-
-The canonical skills and roles name actions. In Codex, do them like this. `config.models.codex ?? config.models.default` maps a model class (`strong`, `standard`, `light`) to a model-family hint; a `null` hint means: do not pass `model`.
-
-Treat versionless values such as `astra`, `sol` and `luna` as semantic hints. Before passing a configured model to Codex, pass the
-hint unchanged if Codex accepts it; otherwise resolve it to the currently available full model id (for example, the current
-Astra, Sol or Luna id). This applies to role frontmatter and helper or lead dispatches. Preserve an explicitly versioned or
-provider-specific value, and do not invent a version when the tool cannot resolve the hint; use the current session model instead.
-
-| Action | How |
-|---|---|
-| Dispatch the `<role>` role | `spawn_agent` with `agent_type: "<role>"` (the repo's agent in `.codex/agents/`) without forking (`fork_context` false; V2 `fork_turns: "none"`), resolving its frontmatter model hint if needed; when the skill asks for a class or effort override, pass the resolved model from `(config.models.codex ?? config.models.default)[<class>]` (when non-null) and `reasoning_effort`, as the helper row does. Then wait for it. If you cannot dispatch, follow the generic map (inline) |
-| Dispatch a helper of a class | `spawn_agent` without forking (`fork_context` false; V2 `fork_turns: "none"`) with the resolved model from `(config.models.codex ?? config.models.default)[<class>]` when non-null, and `reasoning_effort` set |
-| Dispatch a fresh ticket lead | `spawn_agent` without forking (`fork_context` false; V2 `fork_turns: "none"`), `model` and `reasoning_effort` of the standard class; brief it fully, it has no context |
-| Run in the background and wait once | Run it in the foreground: the ticketflow scripts are bounded by their own timeouts |
-| Ask the user | Ask one targeted question in the reply and wait |
-| Track tasks | `update_plan` |
-| Load a skill | The stub is the whole skill; use it as loaded |
-| Switch model or effort | You cannot change your own: say what the user should set, or hand the hard part to a dispatched agent |
-
-## Rules
-
-- Codex asks before the forms in `.codex/rules` (a merge, a push to the default branch, a protection change); a hook blocks the rest. Do not look for a way around either: when a step needs one, stop and ask the user. After the hook file changes, the user must trust it again with `/hooks`.
-- Nesting: `agents.enabled` is on by default. V1 allows depth 1 (a lead cannot dispatch) unless `agents.max_depth = 2`; V2 ignores `max_depth`. A refused dispatch: do the step inline and say so; a lead that cannot dispatch reports `needs-review` and the orchestrator dispatches the reviewer.
-- Limits: suggest to the user, never write, `agents.max_depth = 2` and `agents.max_concurrent_threads_per_session = <B-1>`. Defaults: 6 threads in V1, 4 in V2; V2 has no depth cap, so `max_depth` does not limit it.
-- Loaded by another tool (Cursor, Copilot and OpenCode also read `.claude/`; Cursor reads `.codex/agents`)? Use `.ticketflow/agents-map/<your tool>.md`, or `generic.md`.
-- A spawned agent does not see this conversation. Brief it with the ticket number, the files, the rule on scope, and the exact report you want.
+12. **Report** the issue link and, in one line, its labels, tier and planning route (the `Planning:` recommendation; the Tier label and the route must agree).

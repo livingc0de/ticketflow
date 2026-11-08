@@ -12,7 +12,7 @@ provider-specific value, and do not invent a version when the tool cannot resolv
 | Dispatch the `<role>` role | `spawn_agent` with `agent_type: "<role>"` (the repo's agent in `.codex/agents/`) without forking (`fork_context` false; V2 `fork_turns: "none"`), resolving its frontmatter model hint if needed; when the skill asks for a class or effort override, pass the resolved model from `(config.models.codex ?? config.models.default)[<class>]` (when non-null) and `reasoning_effort`, as the helper row does. Then wait for it. If you cannot dispatch, follow the generic map (inline) |
 | Dispatch a helper of a class | `spawn_agent` without forking (`fork_context` false; V2 `fork_turns: "none"`) with the resolved model from `(config.models.codex ?? config.models.default)[<class>]` when non-null, and `reasoning_effort` set |
 | Dispatch a fresh ticket lead | `spawn_agent` without forking (`fork_context` false; V2 `fork_turns: "none"`), `model` and `reasoning_effort` of the standard class; brief it fully, it has no context |
-| Run in the background and wait once | Run it in the foreground: the ticketflow scripts are bounded by their own timeouts |
+| Wait for a script | Run it in the foreground (`--timeout-min 9`); the ticketflow scripts are bounded by their own timeouts |
 | Ask the user | Ask one targeted question in the reply and wait |
 | Track tasks | `update_plan` |
 | Load a skill | The stub is the whole skill; use it as loaded |

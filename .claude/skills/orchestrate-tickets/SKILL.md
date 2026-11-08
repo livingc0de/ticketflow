@@ -8,7 +8,7 @@ In this repository the runtime lives in `core/`: read every `.ticketflow/<path>`
 
 # Orchestrate several tickets
 
-- Read `.ticketflow/custom/orchestrate-tickets.md` first if it exists: it adds to and overrides this file. Actions are done as the action map your stub names says; without one, use `.ticketflow/agents-map/generic.md`.
+- `.ticketflow/custom/orchestrate-tickets.md` adds to and overrides this file: read it if it exists. Actions are done as the action map below says (`.ticketflow/agents-map/generic.md` without one).
 - Optional. One ticket is `implement-ticket`, unchanged. You are the coordinator: each ticket is delivered by a fresh ticket lead that follows `implement-ticket`.
 - You never edit files, run git, read diffs, code or logs, review, merge or set a status. You hold only the queue output and each lead's result. The answer to "what is done" is GitHub, never your memory or a lead's report.
 
@@ -25,7 +25,7 @@ In this repository the runtime lives in `core/`: read every `.ticketflow/<path>`
 2. States: `merged`, finish the handoff (a lead continues from step 7 of `implement-ticket`); `in-progress`, only on a resume, a lead continues from its PR; `conflict`, stop and report both PRs; `blocked` and `waiting`, skip and list them; `ready`, start the line's `next:` ticket.
 3. Dispatch one fresh ticket lead of the standard class at high effort with the brief below. Never a copy of this conversation. **Batch:** only for a list or the ready backlog, never for a tracker's children (a later child may depend on an earlier one, and a tracker stops when one fails or needs a decision): up to 3 `ready` tickets that are each labelled `Effort: XS` with no `Security`, `Needs:`, `Tier: High` or `Tier: Critical` label (`node .ticketflow/scripts/issue.mjs <N>` prints the labels; a ticket without `Effort: XS`, or with one of those labels, gets its own lead) may share one fresh lead, in the queue's order and with the batch brief below; a batch uses one lead slot. Anything else, and every `in-progress` or `merged` ticket, gets its own fresh lead: that stays the default.
 4. When it returns, run the queue again. GitHub wins over the report; a disagreement is reported, never trusted. A ticket whose queue line is the same as before its lead was dispatched is not dispatched again in this run: handle it as in step 5, except a batch ticket reported `not started`, which stays `ready` and goes again, alone or in a new batch. Without a project a merged ticket shows `done`: its handoff cannot be seen.
-5. `Result #N: needs-review` (the lead could not dispatch a reviewer and the change needs one: its lane is `review`, or it is `high` or `critical`): dispatch the `pr-reviewer` role yourself for that PR, at the class and effort of its tier (as `implement-ticket` step 3 says), then a fresh lead "continue #N". A `failed` or `blocked` result, or a second failed lead: skip the ticket for the rest of the run, write nothing to GitHub, list it as blocked in the report, then take the next `ready` row (a list or the backlog) or stop (a tracker).
+5. `Result #N: needs-review` (the lead could not dispatch a reviewer and the change needs one: its lane is `review`, or it is `high` or `critical`): dispatch the `pr-reviewer` role yourself for that PR, at the class of the `Reviewer:` line of `node .ticketflow/scripts/risk.mjs <PR>` and the effort of its tier (as `implement-ticket` step 5.3 says), briefed with facts as it says, then a fresh lead "continue #N". A `failed` or `blocked` result, or a second failed lead: skip the ticket for the rest of the run, write nothing to GitHub, list it as blocked in the report, then take the next `ready` row (a list or the backlog) or stop (a tracker).
 6. Stop at: nothing ready, a `conflict`, the user's stop, `needs-decision` on a tracker (a list continues), or a host limit: session timeout, usage or rate limit, a depth or concurrency cap, a refused dispatch that cannot be worked around. Interrupted run: start at step 1, state is rebuilt from GitHub. The announcement, every stop and the final report end with `Resume: continue #a #b` (the tickets not merged yet, or `continue the children of #T`). One coordinator per scope: a second one on the same tickets duplicates work.
 
 ## 3. Lead brief, verbatim with the number filled in
@@ -42,25 +42,20 @@ A table: merged, In Review, blocked, needs decision, not started, no-op. Per tic
 
 # Action map: Claude Code
 
-The canonical skills and roles name actions. In Claude Code, do them like this. `config.models.claude ?? config.models.default` maps a model class (`strong`, `standard`, `light`) to a model id; a `null` id means: leave `model` out.
-
-Treat versionless values as model-family hints. Before passing a configured model to Claude, keep a Claude-native alias such as `opus`, `sonnet` or `haiku` when Claude accepts it; otherwise resolve it to the current full model id. This applies to role frontmatter and helper or lead dispatches. Do not invent a version when the tool cannot resolve the hint; use the current session model instead.
+`config.models.claude ?? config.models.default` maps a class (`strong`, `standard`, `light`) to a model id; `null` means leave `model` out. Pass a Claude-native alias (`opus`, `sonnet`, `haiku`) when it is accepted, else the current full id; never invent a version, use the session model instead.
 
 | Action | How |
 |---|---|
-| Dispatch the `<role>` role | Agent tool with `subagent_type: "<role>"` (the repo's agent in `.claude/agents/`). Its model and effort come from its frontmatter; resolve the model hint if Claude requires a full id; when the skill asks for a class or effort override, also pass `model` from `(config.models.claude ?? config.models.default)[<class>]` (a Claude-native alias) and `effort`; otherwise the frontmatter applies |
-| Dispatch a helper of a class | `Explore` for broad read-only search, `general-purpose` for work; `model` from `(config.models.claude ?? config.models.default)[<class>]`, and an explicit `effort` |
+| Dispatch the `<role>` role | Agent tool, `subagent_type: "<role>"` (`.claude/agents/`); model and effort come from its frontmatter. To override a class or effort pass `model` (the alias of `(config.models.claude ?? config.models.default)[<class>]`) and `effort` |
+| Dispatch a helper of a class | `Explore` for broad read-only search, `general-purpose` for work, with `model` of the class and an explicit `effort` |
 | Dispatch a fresh ticket lead | `general-purpose`, `model` of the standard class, an explicit `effort`, never a fork; brief it fully, it has no context |
-| Run in the background and wait once | Bash with `run_in_background: true`; you are notified when it exits. Do not poll and do not sleep-loop |
-| Ask the user | Ask one targeted question in the reply (the question tool if it is available) and wait |
-| Track tasks | `TaskCreate` / `TaskUpdate` (or `TodoWrite`), one task per plan task |
+| Wait for a script | Bash in the foreground with `timeout: 600000` and the script's `--timeout-min 9`; on exit 2 with a timeout run it again. Never sleep or poll |
+| Ask the user | One targeted question in the reply (the question tool if available); wait |
+| Track tasks | `TaskCreate` / `TaskUpdate` (or `TodoWrite`), one per plan task |
 | Load a skill | Skill tool with the skill's name |
-| Switch model or effort | You cannot change your own: say what the user should run (`/model`, `/effort`), or hand the hard part to a dispatched agent with its own `model` and `effort` |
+| Switch model or effort | You cannot; say what the user should run (`/model`, `/effort`) or hand the hard part to a dispatched agent with its own `model` and `effort` |
 
-## Rules
-
-- Never use Plan Mode for ticket work: planning is a dispatched role, and it needs no approval step.
-- Subagents do not see this conversation. Brief them with the ticket number, the files, the rule on scope, and the exact report you want; never a transcript.
-- Nesting: a dispatched `general-purpose` agent can dispatch further agents (nesting since Claude Code 2.1.219); the read-only role agents cannot. A refused dispatch: do the step inline and say so.
-- Limits: suggest to the user, never write, `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2` and `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=<B-1>`. Defaults: depth 3, 20 running (whether nested agents count toward the cap is unverified).
+- Never use Plan Mode for ticket work: planning is a dispatched role and needs no approval step.
+- Subagents do not see this conversation: brief them with facts (ticket number, files, the scope rule, the exact report wanted), never a transcript.
+- A dispatched `general-purpose` agent can dispatch further agents; the read-only role agents cannot. A refused dispatch: do the step inline and say so. Suggest to the user, never write, `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=2` and `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=<B-1>`.
 - Loaded by another tool (Cursor, Copilot and OpenCode also read `.claude/`; Cursor reads `.codex/agents`)? Use `.ticketflow/agents-map/<your tool>.md`, or `generic.md`.
