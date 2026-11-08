@@ -8,7 +8,7 @@ In this repository the runtime lives in `core/`: read every `.ticketflow/<path>`
 
 # Implement a ticket
 
-- Actions (dispatch a role, ask the user, wait for a script) are done as your action map says (`.ticketflow/agents-map/generic.md` without one). How the work is done (planner triggers, test first, debugging, the smallest change, delegation, evidence before claims, no other plugin's flow on top) is `.ticketflow/skills/engineering-method/SKILL.md`; read it before step 2.
+- This skill is the whole flow for ticket work. Actions (dispatch a role, ask the user, wait for a script) are done as your action map says (`.ticketflow/agents-map/generic.md` without one). How the work is done (planner triggers, test first, debugging, the smallest change, delegation, evidence before claims, no other plugin's flow on top) is `.ticketflow/skills/engineering-method/SKILL.md`; read it before step 2.
 - `.ticketflow/custom/implement-ticket.md` adds to and overrides this skill, and `.ticketflow/custom/<name>.md` the part, role or doc of that name; read one only when the step 1 call listed it.
 
 ## 1. Read and claim
