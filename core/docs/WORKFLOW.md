@@ -169,8 +169,8 @@ self-check when `merge --self-checked` accepts the delta (small, no risky path);
 
 `merge <PR>` is the only way. It requires, on the exact head: the pull request open, not a draft, based on the default branch; the
 gate status `success`; the head contains the default branch; no unresolved review thread (any author); no external reviewer that
-started and has not answered (at most 15 minutes from its start) or requested changes; every trusted account's last `pr-reviewer`
-verdict on the head exactly `ready to merge`; and a review of the head: the merging account's own `pr-reviewer` review, or, with
+started and has not answered (at most 15 minutes from its start) or requested changes; every trusted account's last marked `pr-reviewer`
+review on the head names it and says `ready to merge` (first line `Reviewed head: <sha> by pr-reviewer: ready to merge`); and a review of the head: the merging account's own marked `pr-reviewer` review, or, with
 `--reviewed-by <login>`, that external reviewer's result on the head, which the agent read and acted on, or, with `--self-checked`, the
 agent's own `Self-check head:` review where the diff itself qualifies (small, low-risk, tested; or a small fix delta after a ready review). What that proves: [REVIEWERS.md](REVIEWERS.md). It merges (squash, else rebase, else a
 merge commit, as the repo allows) with `--match-head-commit`. When the gates pass, merge without asking, except when the only review

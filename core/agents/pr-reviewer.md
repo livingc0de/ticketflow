@@ -38,10 +38,10 @@ For every defect, look for the same class of defect across the whole change and 
 
 ## Post one review
 
-Post a GitHub review attached to the exact head: `gh pr review <PR> --comment --body-file -` with a heredoc. An author cannot approve their own PR, so the internal reviewer uses `--comment`. The format below is a **suggested** structure, not a merge protocol. A slight wording or Markdown variation does not invalidate the review: `merge` uses GitHub's review state and commit ID. Tell the implementing agent clearly when blockers remain; it must address them before merging. Do not use a positive verdict while blockers remain. Suggested format:
+Post a GitHub review attached to the exact head: `gh pr review <PR> --comment --body-file -` with a heredoc (an author cannot approve their own PR). The first line is the marker `merge` checks, exactly: `Reviewed head: <the head sha, 7 to 40 hex> by pr-reviewer: ready to merge` or `... changes needed`. Everything after it is free text; keep it short, no empty sections. A lead that relays this report posts it word for word, marker line first. Never use `ready to merge` while blockers remain. Suggested rest:
 
 ```
-**Verdict:** ready to merge | changes needed
+Reviewed head: <sha> by pr-reviewer: ready to merge | changes needed
 **Spec compliance:** met | unmet
 **Code quality:** acceptable | changes needed
 **Blockers:** `file:line`: problem -> fix

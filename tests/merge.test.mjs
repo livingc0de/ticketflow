@@ -21,8 +21,11 @@ const ANCESTOR = '2'.repeat(40)
 /** The head was pushed 30 minutes ago (its first Actions run). */
 const suites = (sha = HEAD, min = 30) => ({ [`${R}/actions/runs`]: { total_count: 1, workflow_runs: [{ id: 1, head_sha: sha, name: 'CI', path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'success', ...stamp(min) }] } })
 
-const READY = `Reviewed head: ${SHA7}\n**Verdict:** ready to merge\n**Blockers:** none`
-const NEEDED = `Reviewed head: ${SHA7}\n**Verdict:** changes needed\n**Blockers:** \`a.js:1\`: bug -> fix`
+const READY = `Reviewed head: ${HEAD} by pr-reviewer: ready to merge\n**Blockers:** none`
+const NEEDED = `Reviewed head: ${HEAD} by pr-reviewer: changes needed\n**Blockers:** \`a.js:1\`: bug -> fix`
+const marked = (sha, verdict = 'ready to merge') => `Reviewed head: ${sha} by pr-reviewer: ${verdict}\nFindings follow.`
+const SELF_TEXT = 'Self-check head: abcdef1\nI looked at it and it is fine.'
+const LINE = `Reviewed head: ${HEAD} by pr-reviewer: ready to merge`
 /** The pr-reviewer review of this account (`me`, the account the fake gh runs as): the review of record by default. */
 const review = (over = {}) => ({ id: 77, user: { login: 'me' }, author_association: 'OWNER', commit_id: HEAD, state: 'COMMENTED', body: READY, submitted_at: ago(5), html_url: 'https://x/r77', ...over })
 const other = (login, over = {}) => review({ id: 90, user: { login }, author_association: 'COLLABORATOR', ...over })
@@ -69,16 +72,35 @@ test('merges with the exact argv and reports the method and the merge commit', (
     assert.ok(!r.merges[0].some((a) => /--admin|--auto/.test(a)))
 })
 
-test('submitted reviews on the exact head accept natural-language wording and formatting', () => {
-    for (const body of [
-        'Looks good to merge.',
-        'All findings addressed. A minor suggestion remains.',
-        'Verdict: ready to merge',
-        `Reviewed head: ${OLD.slice(0, 7)}\nReady after checks`,
-        '**Verdict:** ready to merge\n**Code quality:** acceptable',
-    ]) assert.equal(run({ reviews: [review({ body })] }).status, 0, body)
-    refused(run({ reviews: [review({ body: '  ' })] }), /no submitted review/)
-    refused(run({ reviews: [review({ state: 'CHANGES_REQUESTED', body: 'Ready' })] }), /requested changes|changes requested/)
+test('the plain lane needs the account\'s marked pr-reviewer review on the head; any other text, the old two-line form and a misplaced marker are refused', () => {
+    for (const sha of [SHA7, HEAD]) assert.equal(run({ reviews: [review({ body: marked(sha) })] }).status, 0, sha)
+    assert.equal(run({ reviews: [review({ body: `${LINE}\r\n**Blockers:** none\r\n` })] }).status, 0, 'CRLF')
+    assert.equal(run({ reviews: [review({ body: `\n  ${LINE}  \nrest` })] }).status, 0, 'leading blank line and trailing spaces')
+    for (const body of ['Looks good to merge.', 'Verdict: ready to merge', `Reviewed head: ${SHA7}\n**Verdict:** ready to merge`, `Intro\n${LINE}`, `${LINE} (extra)`,
+        `reviewed head: ${HEAD} by pr-reviewer: ready to merge`, `Reviewed head: ${HEAD} by lead: ready to merge`, '  ']) {
+        const r = run({ reviews: [review({ body })] })
+        refused(r, /no pr-reviewer review marked for abcdef1/)
+        assert.ok(r.stderr.includes(`  ${LINE}`), 'the refusal prints the exact first line with the full head sha')
+        assert.ok(r.stderr.includes('gh pr review 5 --repo o/r --comment --body-file -'))
+    }
+    refused(run({ reviews: [review({ state: 'CHANGES_REQUESTED', body: LINE })] }), /requested changes|changes requested/)
+})
+
+test('a marker names the head it covers: another commit, or changes needed, blocks every lane; a later ready replaces an earlier changes needed on the same head', () => {
+    refused(run({ reviews: [review({ body: marked(OLD) })] }), /pr-reviewer review on abcdef1 names 1111111/)
+    refused(run({ reviews: [review({ body: NEEDED })] }), /pr-reviewer review of abcdef1 says changes needed/)
+    assert.equal(run({ reviews: [review({ id: 1, body: NEEDED }), review({ id: 2, body: READY })] }).status, 0)
+    refused(run({ reviews: [review({ id: 1, body: READY }), review({ id: 2, body: NEEDED })] }), /says changes needed/)
+    // the account's own free-text self-check never satisfies a plain merge
+    refused(run({ reviews: [review({ body: SELF_TEXT })] }), /no pr-reviewer review marked/)
+    // another trusted account's marker counts in every lane; an untrusted account's does not
+    for (const args of [by('rb[bot]')]) {
+        refused(run({ args, reviews: [ext({ state: 'APPROVED' }), other('boss', { body: NEEDED })] }), /boss's pr-reviewer review of abcdef1 says changes needed/)
+        refused(run({ args, reviews: [ext({ state: 'APPROVED' }), other('boss', { body: marked(OLD) })] }), /boss's pr-reviewer review on abcdef1 names 1111111/)
+        assert.equal(run({ args, reviews: [ext({ state: 'APPROVED' }), review({ ...STRANGER, body: NEEDED })] }).status, 0)
+    }
+    assert.equal(run({ reviews: [review(), review({ id: 96, ...STRANGER, body: NEEDED })] }).status, 0)
+    refused(selfChecked({ reviews: [review({ body: SELF }), other('boss', { body: NEEDED })] }), /boss's pr-reviewer review of abcdef1 says changes needed/)
 })
 
 test('each unmet gate exits 1 and never calls pr merge', () => {
@@ -91,7 +113,7 @@ test('each unmet gate exits 1 and never calls pr merge', () => {
     refused(run({ pulls: pull({ state: 'closed' }) }), /closed/)
     refused(run({ pulls: pull({ base: { ref: 'develop' } }) }), /based on develop/)
     refused(run({ pulls: seq(pull(), pull({ mergeable: false })) }), /pr-wait exited 1/)   // the real pr-wait sees a conflict
-    refused(run({ reviews: [] }), /no submitted review of abcdef1/)
+    refused(run({ reviews: [] }), /no pr-reviewer review marked for abcdef1/)
     refused(run({ pulls: seq(pull(), pull({ head: { sha: OLD } })), extra: { [`${R}/commits/${OLD}/status`]: status('success', OLD), ...suites(OLD) } }), /another head/)   // the head moved between the two reads
 })
 test('an unreadable status, compare or pull request counts as not met', () => {
@@ -144,22 +166,23 @@ test('the base is read again right before the merge: a base that moved in betwee
 })
 
 
-test('M1: a submitted review is associated by GitHub commit ID, not text in the comment', () => {
-    refused(run({ reviews: [] }), /no submitted review of abcdef1/)
-    refused(run({ reviews: [review({ commit_id: OLD })] }), /no submitted review of abcdef1/)
-    assert.equal(run({ reviews: [review({ body: 'Reviewed some older code; this review is on the current commit' })] }).status, 0)
-    for (const state of ['DISMISSED', 'PENDING']) refused(run({ reviews: [review({ state })] }), /no submitted review/)
-    assert.equal(run({ reviews: [review({ state: 'APPROVED', body: '' })] }).status, 0)
+test('M1: a review is associated by GitHub commit ID and the marker, not by other text in the comment', () => {
+    refused(run({ reviews: [] }), /no pr-reviewer review marked for abcdef1/)
+    refused(run({ reviews: [review({ commit_id: OLD })] }), /no pr-reviewer review marked for abcdef1/)
+    refused(run({ reviews: [review({ body: 'Reviewed some older code; this review is on the current commit' })] }), /no pr-reviewer review marked/)
+    for (const state of ['DISMISSED', 'PENDING']) refused(run({ reviews: [review({ state })] }), /no pr-reviewer review marked/)
+    refused(run({ reviews: [review({ state: 'APPROVED', body: '' })] }), /no pr-reviewer review marked/)
+    assert.equal(run({ reviews: [review({ state: 'APPROVED', body: READY })] }).status, 0)
     refused(run({ reviews: [review({ state: 'CHANGES_REQUESTED' })] }), /requested changes|changes requested/)
-    refused(run({ reviews: [other('someone-else')] }), /no submitted review/)
-    refused(run({ reviews: [review(STRANGER)] }), /no submitted review/)
+    refused(run({ reviews: [other('someone-else')] }), /no pr-reviewer review marked/)
+    refused(run({ reviews: [review(STRANGER)] }), /no pr-reviewer review marked/)
 })
 
 test('A1: a CHANGES_REQUESTED review of the head is refused with the way out; an external result does not replace the own review', () => {
     const r = run({ reviews: [ext({ state: 'CHANGES_REQUESTED' })] })
     refused(r, /changes requested \(rb\[bot\]\)/)
     assert.match(r.stderr, /dismiss/)
-    refused(run({ reviews: [ext()] }), /no submitted review of abcdef1/)   // a result alone is not a review of record: name it with --reviewed-by
+    refused(run({ reviews: [ext()] }), /no pr-reviewer review marked for abcdef1/)   // a result alone is not a review of record: name it with --reviewed-by
 })
 
 test('A2: an unresolved inline finding is refused, whoever wrote the thread', () => {
@@ -202,7 +225,7 @@ test('M4: GitHub changes-requested state is authoritative; prose is not parsed',
     refused(run({ reviews: [review(), bossNeeded] }), /changes requested.*boss|boss requested changes/)
     refused(run({ reviews: [bossNeeded, review()] }), /changes requested.*boss|boss requested changes/)
     for (const author_association of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
-        assert.equal(run({ reviews: [other('boss', { id: 91, body: NEEDED, state: 'CHANGES_REQUESTED', author_association }), review(), other('boss', { id: 93, body: 'Reviewed the fixes, good to go', author_association })] }).status, 0, author_association)
+        assert.equal(run({ reviews: [other('boss', { id: 91, body: NEEDED, state: 'CHANGES_REQUESTED', author_association }), review(), other('boss', { id: 93, body: READY, author_association })] }).status, 0, author_association)
         refused(run({ reviews: [review(), other('boss', { id: 91, body: NEEDED, state: 'CHANGES_REQUESTED', author_association })] }), /requested changes|changes requested/)
     }
     refused(run({ reviews: [review(), other('boss', { body: 'Looks good' }), bossNeeded] }), /requested changes|changes requested/)
@@ -214,13 +237,12 @@ test('M4: GitHub changes-requested state is authoritative; prose is not parsed',
     assert.equal(r.status, 0, r.stderr)
     assert.ok(!r.calls.some((c) => c.some((a) => String(a).includes('collaborators/'))), 'merge reads no repository permission')
 })
-test('freeform reviewer comments never need a specific marker or verdict wording', () => {
-    for (const body of ['I reviewed the code.', 'The implementation looks acceptable.', '**Verdict**: ready to merge', 'Ship it.']) {
-        assert.equal(run({ reviews: [review({ body })] }).status, 0, body)
+test('the rest of a marked review is free text and never parsed', () => {
+    for (const rest of ['I reviewed the code.', '**Verdict**: changes needed', 'Blockers: none\nShould fix: x', 'Ship it.', '']) {
+        assert.equal(run({ reviews: [review({ body: `${LINE}\n${rest}` })] }).status, 0, rest)
     }
     refused(run({ reviews: [review({ state: 'CHANGES_REQUESTED', body: 'Please fix the race condition' })] }), /requested changes|changes requested/)
 })
-
 test('M2: --reviewed-by names the reviewer whose result on this head was acted on; no activity, another head, an unlisted account or this account is refused', () => {
     const named = run({ args: by('rb[bot]'), reviews: [ext()] })
     assert.equal(named.status, 0, named.stderr)
@@ -318,7 +340,7 @@ const SELF = `Self-check head: ${SHA7}\n**Verdict:** ready to merge\n**Acceptanc
 const f = (filename, additions = 1, deletions = 0) => ({ filename, additions, deletions })
 const SMALL = [f('src/a.js', 5, 1), f('tests/a.test.mjs', 20)]
 const BIG = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => f(`src/${n}.js`, 5)).concat(f('tests/a.test.mjs', 20))   // 6 code files: over the limit of 5
-const PRIOR = review({ id: 70, commit_id: ANCESTOR, body: READY.replace(SHA7, ANCESTOR.slice(0, 7)) })
+const PRIOR = review({ id: 70, commit_id: ANCESTOR, body: marked(ANCESTOR.slice(0, 7)) })
 const delta = (files, behind_by = 0) => ({ [`${R}/compare/${ANCESTOR}...${HEAD}`]: { behind_by, files } })
 function selfChecked({ files = SMALL, labels = [], body = 'Ticket #7', reviews = [review({ body: SELF })], extra = {}, ...rest } = {}) {
     const p = pull({ body, changed_files: files.length })
@@ -335,7 +357,10 @@ test('S1: a small PR with tests and a ready self-check of the head merges and sa
 
 
 test('S2: self-check requires a submitted nonempty review on the right head, but no fixed wording', () => {
-    refused(selfChecked({ reviews: [] }), /no submitted self-check/)
+    const none = selfChecked({ reviews: [] })
+    refused(none, /no submitted self-check/)
+    assert.match(none.stderr, /starts "Self-check head: abcdef1", then Acceptance criteria:, Invariant sweep: and Not checked:/)
+    assert.match(none.stderr, /gh pr review 5 --repo o\/r --comment --body-file -/)
     refused(selfChecked({ reviews: [review({ commit_id: OLD })] }), /no submitted self-check/)
     refused(selfChecked({ reviews: [review({ body: '   ' })] }), /no submitted self-check/)
     assert.equal(selfChecked({ reviews: [review({ body: 'Reviewed all acceptance criteria and tests passed' })] }).status, 0)
@@ -361,9 +386,9 @@ test('S4: fix delta: a ready pr-reviewer review of an ancestor plus a small delt
     refused(selfChecked({ files: BIG, reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js', 20, 11)]) }), /fix delta since 2222222 is 31 lines \(limit 30\)/)
     refused(selfChecked({ files: BIG, reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js'), f('package.json')]) }), /touches package\.json, which always needs a review/)
     refused(selfChecked({ files: BIG, reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js')], 2) }), /not a plain descendant/)
-    const needed = review({ id: 70, commit_id: ANCESTOR, state: 'CHANGES_REQUESTED', body: NEEDED.replace(SHA7, ANCESTOR.slice(0, 7)) })
-    refused(selfChecked({ files: BIG, reviews: [needed, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /not a completed non-blocking review/)
-    refused(selfChecked({ files: BIG, reviews: [PRIOR, { ...needed, id: 71 }, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /not a completed non-blocking review/)   // the latest review decides
+    const needed = review({ id: 70, commit_id: ANCESTOR, state: 'CHANGES_REQUESTED', body: marked(ANCESTOR.slice(0, 7), 'changes needed') })
+    refused(selfChecked({ files: BIG, reviews: [needed, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /not a ready review of its own head/)
+    refused(selfChecked({ files: BIG, reviews: [PRIOR, { ...needed, id: 71 }, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /not a ready review of its own head/)   // the latest review decides
     refused(selfChecked({ files: BIG, reviews: [review({ body: SELF })] }), /too big for a self-check.*no ready pr-reviewer review/)
     const high = selfChecked({ files: SMALL, labels: ['Tier: High'], reviews: [PRIOR, review({ body: SELF })], extra: delta([f('src/a.js', 2)]) })
     assert.equal(high.status, 0, high.stderr)   // high: a ready review of an earlier head, then a small fix
@@ -393,17 +418,19 @@ test('S6: pr-wait does not list our own self-check as an external reviewer', () 
 
 
 test('S7: an earlier native changes request cannot be bypassed by a later self-check', () => {
-    const needed = review({ id: 70, commit_id: ANCESTOR, state: 'CHANGES_REQUESTED', body: NEEDED })
-    refused(selfChecked({ reviews: [needed, review({ body: SELF })] }), /last earlier review was not a completed non-blocking review/)
-    const ready = review({ id: 71, commit_id: OLD, body: 'Re-reviewed and all findings addressed' })
+    const needed = review({ id: 70, commit_id: ANCESTOR, state: 'CHANGES_REQUESTED', body: marked(ANCESTOR.slice(0, 7), 'changes needed') })
+    refused(selfChecked({ reviews: [needed, review({ body: SELF })] }), /last earlier pr-reviewer review was not a ready review of its own head/)
+    const ready = review({ id: 71, commit_id: OLD, body: marked(OLD.slice(0, 7)) })
     assert.equal(selfChecked({ reviews: [needed, ready, review({ body: SELF })] }).status, 0)
     refused(selfChecked({ reviews: [other('boss', { id: 70, state: 'CHANGES_REQUESTED', body: NEEDED }), review({ body: SELF })] }), /boss/)
 })
 
 test('S8: the fix-delta base is checked like a review of record: state, the commit its header names, an unreadable delta, a floor path in a rename, 300 files, a review of the head itself', () => {
     const go = (prior, deltaFixture, over = {}) => selfChecked({ files: BIG, reviews: [prior, review({ body: SELF })], extra: deltaFixture, ...over })
-    refused(go({ ...PRIOR, state: 'CHANGES_REQUESTED' }, delta([f('src/a.js')])), /not a completed non-blocking review/)
-    assert.equal(go({ ...PRIOR, body: 'Review evidence is the GitHub commit, not this comment text' }, delta([f('src/a.js')])).status, 0)
+    refused(go({ ...PRIOR, state: 'CHANGES_REQUESTED' }, delta([f('src/a.js')])), /not a ready review of its own head/)
+    refused(go({ ...PRIOR, body: 'Review evidence is the GitHub commit, not this comment text' }, delta([f('src/a.js')])), /too big for a self-check.*no ready pr-reviewer review of an earlier head/)   // unmarked text is no base
+    refused(go({ ...PRIOR, body: marked('3333333') }, delta([f('src/a.js')])), /not a ready review of its own head/)   // the marker names another commit than the review sits on
+    refused(go({ ...PRIOR, body: marked(ANCESTOR.slice(0, 7), 'changes needed') }, delta([f('src/a.js')])), /not a ready review of its own head/)
     refused(go(PRIOR, { [`${R}/compare/${ANCESTOR}...${HEAD}`]: { behind_by: 0 } }), /not a plain descendant/)   // no files at all
     refused(go(PRIOR, delta([{ filename: '', additions: 1, deletions: 0 }])), /fix delta since 2222222 could not be read/)
     refused(go(PRIOR, delta([{ filename: 7, additions: 1, deletions: 0 }])), /fix delta since 2222222 could not be read/)
