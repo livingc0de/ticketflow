@@ -227,6 +227,10 @@ test('dependsOn reads only the Depends on part: stops at ·, Blocks and Related;
     assert.deepEqual(d('Depends on: none · Blocks: #184'), [])
     assert.deepEqual(d('Blocks: #184, #186 · Related: #90 · Depends on: #87'), [87])
     assert.deepEqual(d('Blocks: #184\nRelated: #90\nDepends on: #87'), [87])
+    assert.deepEqual(d('Depends on: **none**\n- #5'), [])
+    assert.deepEqual(d('Depends on the related-work ticket #7'), [7])   // the words in prose are not labels
+    assert.deepEqual(d('Depends on the Blocks field work #8'), [8])
+    assert.deepEqual(d('Depends on the block-level refactor #7'), [7])
     assert.deepEqual(d('Depends on #11, #20 and o/x#3.'), [11, 20, 'o/x#3'])
     assert.deepEqual(d('Depends on:\n- #11\n- #12'), [11, 12])
 })
