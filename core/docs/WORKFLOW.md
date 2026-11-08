@@ -44,7 +44,7 @@ ticket's recommendation can raise a tier, never lower it. The `implement-ticket`
 | Plan record | none | inline plan in the claim comment | committed plan file | committed plan file |
 | Implementer | the lead | the lead | the lead; a strong helper only for an isolated hard piece | same as `high` |
 | Pull request and CI gate | yes | yes | yes | yes |
-| Review of record | self-check (`merge --self-checked`) | an external result, else a self-check when `merge` accepts it, else `pr-reviewer` at standard class | an external result covering the risky part, else `pr-reviewer` at strong/`high` | `pr-reviewer` at strong/`xhigh`, plus any external result |
+| Review of record | self-check (`merge --self-checked`) | an external result, else a self-check when `merge` accepts it, else `pr-reviewer` at standard class | an external result covering the risky part, else `pr-reviewer` (class from `risk.mjs`)/`high` | `pr-reviewer` at strong/`xhigh`, plus any external result |
 | After fixes to a "ready" review | self-check (fix delta) | self-check (fix delta) | self-check (fix delta) | a new review |
 | After fixes to "changes needed" | n/a | delta `pr-reviewer`, standard | delta `pr-reviewer`, standard (strong if the finding was security or data) | delta `pr-reviewer`, strong |
 | Per-task diff reviews (`review: task`) | no | no | only where the planner marks them | only where the planner marks them |
@@ -156,8 +156,8 @@ it lands (a review, a comment or its edit); the agent reads and fixes what it fi
 `self-check` allows a self-check for `low` and `normal` work (the lead then posts it on the head), `review` requires a review whatever the tier.
 When a review is needed and no external reviewer started by the time CI settles, or none gave a usable result, the built-in `pr-reviewer` role reviews the
 head and reports its findings straight to the agent; its posted review is what `merge` reads. A `critical` pull request gets
-`pr-reviewer` (strong, `xhigh`) after an external result as well; a `high` one only where that result does not cover the risky part. Its class and effort follow
-the tier (`normal` standard/`high`, `high` strong/`high`, `critical` strong/`xhigh`). It never approves or edits. A red CI is fixed first, with no review of a red head. Diff and audit mode review without a
+`pr-reviewer` (strong, `xhigh`) after an external result as well; a `high` one only where that result does not cover the risky part. Its effort follows the tier (`normal` and `high` `high`, `critical` `xhigh`) and its class
+the `Reviewer:` line of `risk.mjs` (strong for a Critical tier, a Security label, an always-review path, an unknown size or a very large diff; standard otherwise); the lead may raise it, never lower it. It never approves or edits. A red CI is fixed first, with no review of a red head. Diff and audit mode review without a
 pull request (above) and post nothing. What is and is not proven: [REVIEWERS.md](REVIEWERS.md).
 
 Wait once, in the background (`pr-wait`), batch every finding into one push, and fix or reject each with a reason; reply to and resolve
