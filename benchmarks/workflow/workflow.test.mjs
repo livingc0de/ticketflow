@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {scenarios,ids,fixture,prompt,fillIssue} from './scenarios.mjs';
 import {reference} from './reference.mjs';
-import {cfg,seedIssues,seedPR,setupEnv,ancestorGuidance,newWork} from './sandbox.mjs';
+import {cfg,MODELS,seedIssues,seedPR,setupEnv,ancestorGuidance,newWork} from './sandbox.mjs';
 import {validate} from '../../core/lib/config.mjs';
 
 const seededCtx=(id)=>({issues:scenarios[id].issues.map((_,i)=>100+i+1),pr:scenarios[id].seedPR?200:null});
@@ -121,6 +121,13 @@ test('fixtures are self-contained: neutral CI file, tests present, no hidden mat
 test('TicketFlow config supplied to the fixture is valid without requiring competitors to use it',()=>{
   assert.doesNotThrow(()=>validate(cfg('bench/repo','bench',3,'claude')));
   assert.doesNotThrow(()=>validate(cfg('bench/repo','bench',3,'codex')));
+});
+test('the fixture config maps the model classes a default install maps, for Claude and Codex',()=>{
+  const template=JSON.parse(readFileSync(new URL('../../core/templates/config.json',import.meta.url),'utf8')).models;
+  for(const agent of ['claude','codex']){
+    assert.deepEqual(MODELS[agent],template[agent],agent+' differs from core/templates/config.json');
+    assert.deepEqual(cfg('bench/repo','bench',3,agent).models,{[agent]:template[agent]});
+  }
 });
 
 /* ---- sandbox seeding against a fake gh and a local origin (no network) ---- */

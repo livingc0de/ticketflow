@@ -38,10 +38,15 @@ export function validateOrg(org,{env=setupEnv()}={}) {
   if(response.login.toLowerCase()!==org) throw Error('organization '+org+' not found');
   return org;
 }
+// The model classes a default install maps (core/templates/config.json), so a benchmark run dispatches planner and reviewer on the same models a real repo does.
+export const MODELS={
+  claude:{strong:'opus',standard:'sonnet',light:'haiku'},
+  codex:{strong:'astra',standard:'sol',light:'luna'}
+};
 export const cfg=(repo,owner,number,agent='claude',title='Workflow benchmark')=>({
   schema_version:2,repo,default_branch:'main',verify:{mode:'ci',command:'npm test'},
   project:{owner,number,title},agents:[agent],
-  models:{[agent]:{strong:null,standard:null,light:null}}
+  models:{[agent]:MODELS[agent]??{strong:null,standard:null,light:null}}
 });
 const gitPush=(dir,env,ref)=>{
   git(dir,['-c','credential.helper=!gh auth git-credential','push','origin',ref],env);
