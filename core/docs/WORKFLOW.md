@@ -46,7 +46,7 @@ ticket's recommendation can raise a tier, never lower it. The `implement-ticket`
 | Pull request and CI gate | yes | yes | yes | yes |
 | Review of record | self-check (`merge --self-checked`) | an external result, else a self-check when `merge` accepts it, else `pr-reviewer` at standard class | an external result covering the risky part, else `pr-reviewer` (class from `risk.mjs`)/`high` | `pr-reviewer` at strong/`xhigh`, plus any external result |
 | After fixes to a "ready" review | self-check (fix delta) | self-check (fix delta) | self-check (fix delta) | a new review |
-| After fixes to "changes needed" | n/a | delta `pr-reviewer`, standard | delta `pr-reviewer`, standard (strong if the finding was security or data) | delta `pr-reviewer`, strong |
+| After fixes to "changes needed" | n/a | delta `pr-reviewer`, class from `risk.mjs` | delta `pr-reviewer`, class from `risk.mjs` (strong if the finding was security or data) | delta `pr-reviewer`, strong |
 | Per-task diff reviews (`review: task`) | no | no | only where the planner marks them | only where the planner marks them |
 
 A self-check is only possible where `risk.mjs` finds the whole pull request small and low-risk (or a small fix delta): [REVIEWERS.md](REVIEWERS.md).

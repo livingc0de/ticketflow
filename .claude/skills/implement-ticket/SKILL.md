@@ -8,7 +8,7 @@ In this repository the runtime lives in `core/`: read every `.ticketflow/<path>`
 
 # Implement a ticket
 
-- Actions (dispatch a role, ask the user, wait for a script) are done as your action map says (`.ticketflow/agents-map/generic.md` without one). How the work is done (planner triggers, test first, debugging, the smallest change, delegation, evidence before claims, no other plugin's flow on top) is `.ticketflow/skills/engineering-method/SKILL.md`; read it before step 3.
+- Actions (dispatch a role, ask the user, wait for a script) are done as your action map says (`.ticketflow/agents-map/generic.md` without one). How the work is done (planner triggers, test first, debugging, the smallest change, delegation, evidence before claims, no other plugin's flow on top) is `.ticketflow/skills/engineering-method/SKILL.md`; read it before step 2.
 - `.ticketflow/custom/implement-ticket.md` adds to and overrides this skill, and `.ticketflow/custom/<name>.md` the part, role or doc of that name; read one only when the step 1 call listed it.
 
 ## 1. Read and claim
@@ -47,8 +47,8 @@ One context, one conventional commit per task, `Refs #<N>` in the body, never a 
 ## 4. Verify
 
 - `ci` mode: focused checks while working; **never the full `verify.command` locally**, GitHub Actions is the one full verification.
-- `tiered` mode: focused checks while working, never the full command in the working tree. With the PR open as a draft run `verify-route.mjs <PR>` from the primary checkout: `local` means `local-verify.mjs <PR>` there (it marks the PR ready after the green gate; no separate `verify.command`); `ci` means `gh pr ready <PR>` and Actions runs the full verification. High/Critical labels, Security and changes to TicketFlow verification machinery force CI; a routing failure is CI-only. A failed local verification: fix, commit, push, run it on the new head.
-- `local` mode: `local-verify.mjs <PR>` once after the last substantive change (it marks the draft ready on green); the PR workflow skips the configured verification.
+- `tiered` mode: focused checks while working, never the full command in the working tree. With the PR open as a draft run `verify-route.mjs <PR>` from the primary checkout: `local` means `local-verify.mjs <PR>` there, run in the background (the action "Run in the background and wait once": a verification can outlast one tool call; it marks the PR ready after the green gate; no separate `verify.command`); `ci` means `gh pr ready <PR>` and Actions runs the full verification. High/Critical labels, Security and changes to TicketFlow verification machinery force CI; a routing failure is CI-only. A failed local verification: fix, commit, push, run it on the new head.
+- `local` mode: `local-verify.mjs <PR>` once after the last substantive change, in the background as above (it marks the draft ready on green); the PR workflow skips the configured verification.
 - All modes: a UI, navigation or flow change is proven live (dispatch the `e2e-verifier` role when `live_verify_skill` is set, otherwise check it yourself).
 - A check that cannot run becomes a deferred row (post-merge.md), never a claim.
 
@@ -90,6 +90,7 @@ From the primary checkout (`git -C <primary> pull --ff-only`):
 | Dispatch a helper of a class | `Explore` for broad read-only search, `general-purpose` for work, with `model` of the class and an explicit `effort` |
 | Dispatch a fresh ticket lead | `general-purpose`, `model` of the standard class, an explicit `effort`, never a fork; brief it fully, it has no context |
 | Wait for a script | Bash in the foreground with `timeout: 600000` and the script's `--timeout-min 9`; on exit 2 with a timeout run it again. Never sleep or poll |
+| Run in the background and wait once (a long verification) | Bash with `run_in_background: true`; you are notified when it exits. Do not poll and do not sleep-loop |
 | Ask the user | One targeted question in the reply (the question tool if available); wait |
 | Track tasks | `TaskCreate` / `TaskUpdate` (or `TodoWrite`), one per plan task |
 | Load a skill | Skill tool with the skill's name |

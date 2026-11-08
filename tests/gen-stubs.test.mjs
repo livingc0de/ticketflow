@@ -265,6 +265,9 @@ test('the committed stubs and manifests are in sync with core/ (the CI drift che
     const r = spawnSync(process.execPath, [script, join(root, 'core'), root, '--check'], { encoding: 'utf8' })
     assert.equal(r.status, 0, r.stdout + r.stderr)
     assert.ok(readdirSync(join(root, '.claude-plugin')).includes('plugin.json'))
+    // every committed stub carries a whole skill or role and must stay under the strictest agent prompt limit (Copilot's 30,000 characters)
+    for (const dir of ['.claude/skills', '.agents/skills']) for (const n of readdirSync(join(root, dir))) assert.ok(readFileSync(join(root, dir, n, 'SKILL.md'), 'utf8').length <= 30000, `${dir}/${n}`)
+    for (const dir of ['.claude/agents', '.codex/agents']) for (const f of readdirSync(join(root, dir))) assert.ok(readFileSync(join(root, dir, f), 'utf8').length <= 30000, `${dir}/${f}`)
 })
 
 // ---- optional practices

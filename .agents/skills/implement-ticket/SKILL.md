@@ -8,7 +8,7 @@ In this repository the runtime lives in `core/`: read every `.ticketflow/<path>`
 
 # Implement a ticket
 
-- Actions (dispatch a role, ask the user, wait for a script) are done as your action map says (`.ticketflow/agents-map/generic.md` without one). How the work is done (planner triggers, test first, debugging, the smallest change, delegation, evidence before claims, no other plugin's flow on top) is `.ticketflow/skills/engineering-method/SKILL.md`; read it before step 3.
+- Actions (dispatch a role, ask the user, wait for a script) are done as your action map says (`.ticketflow/agents-map/generic.md` without one). How the work is done (planner triggers, test first, debugging, the smallest change, delegation, evidence before claims, no other plugin's flow on top) is `.ticketflow/skills/engineering-method/SKILL.md`; read it before step 2.
 - `.ticketflow/custom/implement-ticket.md` adds to and overrides this skill, and `.ticketflow/custom/<name>.md` the part, role or doc of that name; read one only when the step 1 call listed it.
 
 ## 1. Read and claim
@@ -47,8 +47,8 @@ One context, one conventional commit per task, `Refs #<N>` in the body, never a 
 ## 4. Verify
 
 - `ci` mode: focused checks while working; **never the full `verify.command` locally**, GitHub Actions is the one full verification.
-- `tiered` mode: focused checks while working, never the full command in the working tree. With the PR open as a draft run `verify-route.mjs <PR>` from the primary checkout: `local` means `local-verify.mjs <PR>` there (it marks the PR ready after the green gate; no separate `verify.command`); `ci` means `gh pr ready <PR>` and Actions runs the full verification. High/Critical labels, Security and changes to TicketFlow verification machinery force CI; a routing failure is CI-only. A failed local verification: fix, commit, push, run it on the new head.
-- `local` mode: `local-verify.mjs <PR>` once after the last substantive change (it marks the draft ready on green); the PR workflow skips the configured verification.
+- `tiered` mode: focused checks while working, never the full command in the working tree. With the PR open as a draft run `verify-route.mjs <PR>` from the primary checkout: `local` means `local-verify.mjs <PR>` there, run in the background (the action "Run in the background and wait once": a verification can outlast one tool call; it marks the PR ready after the green gate; no separate `verify.command`); `ci` means `gh pr ready <PR>` and Actions runs the full verification. High/Critical labels, Security and changes to TicketFlow verification machinery force CI; a routing failure is CI-only. A failed local verification: fix, commit, push, run it on the new head.
+- `local` mode: `local-verify.mjs <PR>` once after the last substantive change, in the background as above (it marks the draft ready on green); the PR workflow skips the configured verification.
 - All modes: a UI, navigation or flow change is proven live (dispatch the `e2e-verifier` role when `live_verify_skill` is set, otherwise check it yourself).
 - A check that cannot run becomes a deferred row (post-merge.md), never a claim.
 
@@ -95,6 +95,7 @@ provider-specific value, and do not invent a version when the tool cannot resolv
 | Dispatch a helper of a class | `spawn_agent` without forking (`fork_context` false; V2 `fork_turns: "none"`) with the resolved model from `(config.models.codex ?? config.models.default)[<class>]` when non-null, and `reasoning_effort` set |
 | Dispatch a fresh ticket lead | `spawn_agent` without forking (`fork_context` false; V2 `fork_turns: "none"`), `model` and `reasoning_effort` of the standard class; brief it fully, it has no context |
 | Wait for a script | Run it in the foreground (`--timeout-min 9`); the ticketflow scripts are bounded by their own timeouts |
+| Run in the background and wait once (a long verification) | Run it in the foreground: the ticketflow scripts are bounded by their own timeouts |
 | Ask the user | Ask one targeted question in the reply and wait |
 | Track tasks | `update_plan` |
 | Load a skill | The stub is the whole skill; use it as loaded |

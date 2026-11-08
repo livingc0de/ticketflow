@@ -808,11 +808,9 @@ const localRoutePull = pull({ title: 'Ticket #7', changed_files: 1, head: { sha:
 const localRoute = { pulls: { 7: localRoutePull }, 'pulls/7/files': [{ filename: 'src/a.js', additions: 1, deletions: 0 }], 'issues/7': { labels: [{ name: 'Tier: Normal' }] } }
 
 test('a ready local-route PR with no local gate says so at once, instead of waiting for a run that cannot start', () => {
-    for (const mode of ['local', 'tiered']) {
-        const r = wait(localRoute, ['7', '--timeout-min', '1'], { verify: { mode } }, { sleep: true })
-        assert.equal(r.status, 2, `${mode}: ${r.stdout}${r.stderr}`)
-        assert.match(r.stdout, /Local gate: none on aaaaaaa: run local-verify\.mjs 7 from the primary checkout \(it marks the PR ready\)/)
-    }
+    const r = wait(localRoute, ['7', '--timeout-min', '1'], { verify: { mode: 'local' } }, { sleep: true })   // local mode: no Actions run will ever start
+    assert.equal(r.status, 2, `${r.stdout}${r.stderr}`)
+    assert.match(r.stdout, /Local gate: none on aaaaaaa: run local-verify\.mjs 7 from the primary checkout \(it marks the PR ready\)/)
 })
 
 test('an Actions failure on a ready local-route PR stays red and names the way out', () => {
@@ -826,4 +824,27 @@ test('the note is not printed with --ci-only, with a posted gate, or on a CI rou
     assert.doesNotMatch(wait({ ...localRoute, ...status('success', 'Local run on host1 (x86_64, Node 24.0.0)') }, ['7', '--once'], { verify: { mode: 'local' } }).stdout, /Local gate/)
     assert.doesNotMatch(wait({ ...localRoute, 'issues/7': { labels: [{ name: 'Tier: High' }] } }, ['7', '--once'], { verify: { mode: 'tiered' } }).stdout, /Local gate/)
     assert.doesNotMatch(wait(localRoute, ['7', '--once'], {}).stdout, /Local gate/)   // verify.mode ci
+})
+
+test('the poll sleep never runs past the deadline, so a wait sized for a tool timeout stays inside it', async () => {
+    const { nextSleepSec } = await import('../core/lib/wait.mjs')
+    assert.equal(nextSleepSec(1_000_000, 0), 60)
+    assert.equal(nextSleepSec(100_000, 70_000), 30)
+    assert.equal(nextSleepSec(100_000, 99_400), 1)
+    assert.equal(nextSleepSec(100_000, 100_000), 1)   // at the deadline: a last short sleep, the loop then times out
+    assert.equal(nextSleepSec(100_000, 120_000), 1)
+    assert.equal(nextSleepSec(1_000_000, 0, 30), 30)
+})
+
+test('the local-gate note needs a status that was read, and in tiered mode a pending run is told it will fail', () => {
+    // an unreadable status says nothing about the gate
+    const unread = wait({ ...localRoute, [`commits/${HEAD}/status`]: { __status: 500, __stderr: 'boom' } }, ['7', '--once'], { verify: { mode: 'local' } })
+    assert.doesNotMatch(unread.stdout, /Local gate/)
+    // tiered, a Validate run still queued: it will fail this head, so do not run a full local verification into it
+    const queued = wait({ ...localRoute, ...runs(run(5, 'queued')), ...job(5, { status: 'queued', created_at: ago(1) }) }, ['7', '--timeout-min', '1'], { verify: { mode: 'tiered' } }, { sleep: true })
+    assert.equal(queued.status, 2, queued.stdout)
+    assert.match(queued.stdout, /Local gate: none on aaaaaaa and Actions will fail this head: gh pr ready 7 --undo.*local-verify\.mjs 7/)
+    assert.doesNotMatch(queued.stdout, /it marks the PR ready/)
+    // local mode stays as it was: nothing runs, so local-verify is the next step
+    assert.match(wait(localRoute, ['7', '--timeout-min', '1'], { verify: { mode: 'local' } }, { sleep: true }).stdout, /run local-verify\.mjs 7 from the primary checkout \(it marks the PR ready\)/)
 })

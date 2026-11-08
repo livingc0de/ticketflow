@@ -50,6 +50,7 @@ import { parseArgs } from 'node:util'
 import { configPath, loadConfig } from '../lib/config.mjs'
 import { gql } from '../lib/gh.mjs'
 import { routeOfPull, validGateSource } from '../lib/verification.mjs'
+import { nextSleepSec } from '../lib/wait.mjs'
 
 const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
 const STUCK_MS = 20 * 60_000
@@ -90,7 +91,7 @@ function api(path, paginate = false) {
 /** Text from GitHub that is printed in the summary: control characters and line separators become one space, so it can never forge a summary line. */
 const flat = (v) => String(v ?? '').replace(/[\p{Cc}\u2028\u2029]+/gu, ' ')
 const ms = (iso) => Date.parse(iso)
-const fresh = () => ({ head: '', pull: null, draft: false, gate: null, verify: null, fallback: null, why: 'Actions has not refused the run', notes: [], reviewers: null, threads: null, author: null })
+const fresh = () => ({ head: '', pull: null, draft: false, gate: null, statusRead: false, verify: null, fallback: null, why: 'Actions has not refused the run', notes: [], reviewers: null, threads: null, author: null })
 const workflowRunMatches = (run, head, pull) => run?.head_sha === head ||
     (pull?.head?.ref && run?.event === 'pull_request' && Array.isArray(run.pull_requests) &&
         run.pull_requests.some(x => Number(x.number) === Number(target) && x.head?.sha === head))
@@ -142,6 +143,7 @@ function pollCi(S) {
         if (pull.mergeable === false) { S.notes.push(`PR #${target} conflicts with ${base}: merge ${base} into the branch`); return 'conflict' }
     }
     S.gate = api(`${R}/commits/${S.head}/status?per_page=100`).statuses.find((s) => s.context === cfg.gate.context) ?? null
+    S.statusRead = true
     const g = S.gate
     S.why = 'the gate status is not final'
 
@@ -415,12 +417,15 @@ for (;;) {
     let kind = 'pending'
     try { kind = pollCi(S) } catch { S.why = 'a read failed' }
     // A ready PR on the local route has no passing Actions run without its local gate: say so now, not after a 45-minute wait or a red nobody can replace.
-    if (!ciOnly && S.pull && !S.gate && ['local', 'tiered'].includes(cfg.verify.mode) && (kind === 'pending' || kind === 'red')) {
+    if (!ciOnly && S.pull && S.statusRead && !S.gate && ['local', 'tiered'].includes(cfg.verify.mode) && (kind === 'pending' || kind === 'red')) {
         try {
             if (routeOfPull(cfg, S.pull, target).route === 'local') {
                 const sha7 = S.head.slice(0, 7)
-                if (kind === 'pending') { S.notes.push(`Local gate: none on ${sha7}: run local-verify.mjs ${target} from the primary checkout (it marks the PR ready)`); kind = 'draft' }
-                else S.notes.push(`Local gate: none on ${sha7} and Actions failed this head: gh pr ready ${target} --undo, push a new head, then local-verify.mjs ${target}`)
+                // tiered: Actions runs on a ready PR and fails it without a local gate, so a pending run is about to be a red nobody can replace
+                const failing = `Local gate: none on ${sha7} and Actions ${kind === 'red' ? 'failed' : 'will fail'} this head: gh pr ready ${target} --undo, push a new head, then local-verify.mjs ${target}`
+                if (kind === 'pending' && cfg.verify.mode === 'local') { S.notes.push(`Local gate: none on ${sha7}: run local-verify.mjs ${target} from the primary checkout (it marks the PR ready)`); kind = 'draft' }
+                else if (kind === 'pending') { S.notes.push(failing); kind = 'draft' }
+                else S.notes.push(failing)
             }
         } catch { /* the CI result stands as read */ }
     }
@@ -440,5 +445,5 @@ for (;;) {
         print(S, timedOut)
         process.exit(kind === 'green' && !once && !reviewed ? 2 : CODE[kind])
     }
-    spawnSync('sleep', [POLL_SEC])
+    spawnSync('sleep', [String(nextSleepSec(deadline, Date.now(), Number(POLL_SEC)))])
 }

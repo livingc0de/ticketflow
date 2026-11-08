@@ -13,6 +13,7 @@ provider-specific value, and do not invent a version when the tool cannot resolv
 | Dispatch a helper of a class | `spawn_agent` without forking (`fork_context` false; V2 `fork_turns: "none"`) with the resolved model from `(config.models.codex ?? config.models.default)[<class>]` when non-null, and `reasoning_effort` set |
 | Dispatch a fresh ticket lead | `spawn_agent` without forking (`fork_context` false; V2 `fork_turns: "none"`), `model` and `reasoning_effort` of the standard class; brief it fully, it has no context |
 | Wait for a script | Run it in the foreground (`--timeout-min 9`); the ticketflow scripts are bounded by their own timeouts |
+| Run in the background and wait once (a long verification) | Run it in the foreground: the ticketflow scripts are bounded by their own timeouts |
 | Ask the user | Ask one targeted question in the reply and wait |
 | Track tasks | `update_plan` |
 | Load a skill | The stub is the whole skill; use it as loaded |

@@ -17,7 +17,7 @@ In this repository the runtime lives in `core/`: read every `.ticketflow/<path>`
 - **Scope:** the tickets the user listed, or a tracker's children. With neither, the scope is the ready backlog: before the first dispatch, show the user a warning that you will work the Ready backlog, the bound (at most the 10 highest-priority ready tickets, in Priority then number order) and the ticket list, then proceed without waiting for an answer. From then on the scope is exactly those ticket numbers: every loop and every resume runs the queue with them, never the ready backlog again (tickets leave Ready once claimed, so the list would drift). To resume a backlog run, restate the numbers, or the user asks for the ready backlog afresh. No project configured: ask for a list.
 - **Budget B** = agents active at once, including you; default 3, or the user's number. **Parallelism P** = tickets at once; default 1, at most floor((B-1)/2), because each lead keeps one slot for its own specialist. Depth: you, then leads, then specialists; nothing deeper. Specialists never dispatch.
 - Announce B, P, the stop conditions and the resume line (step 6) once. Raise P only on request, judging from the tickets' scope and plans (you read no code; a fresh helper may look) that they are independent: disjoint files, migrations, config, generated files, CI, deploy and lockfiles, and no order or dependency between them.
-- Dispatch is the action map's "Dispatch a fresh ticket lead". A refused dispatch or a missing nesting follows the map's Nesting and Limits rules. Never pretend a dispatch happened. No fresh lead at all: deliver one ticket yourself with `implement-ticket`, then stop and say so.
+- Dispatch is the action map's "Dispatch a fresh ticket lead". A refused dispatch or a missing nesting follows the map's notes on nesting and limits. Never pretend a dispatch happened. No fresh lead at all: deliver one ticket yourself with `implement-ticket`, then stop and say so.
 
 ## 2. Loop
 
@@ -55,6 +55,7 @@ provider-specific value, and do not invent a version when the tool cannot resolv
 | Dispatch a helper of a class | `spawn_agent` without forking (`fork_context` false; V2 `fork_turns: "none"`) with the resolved model from `(config.models.codex ?? config.models.default)[<class>]` when non-null, and `reasoning_effort` set |
 | Dispatch a fresh ticket lead | `spawn_agent` without forking (`fork_context` false; V2 `fork_turns: "none"`), `model` and `reasoning_effort` of the standard class; brief it fully, it has no context |
 | Wait for a script | Run it in the foreground (`--timeout-min 9`); the ticketflow scripts are bounded by their own timeouts |
+| Run in the background and wait once (a long verification) | Run it in the foreground: the ticketflow scripts are bounded by their own timeouts |
 | Ask the user | Ask one targeted question in the reply and wait |
 | Track tasks | `update_plan` |
 | Load a skill | The stub is the whole skill; use it as loaded |

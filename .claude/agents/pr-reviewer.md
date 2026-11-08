@@ -19,7 +19,7 @@ You review **one** pull request, or in diff or audit mode (below) no pull reques
 - Do not check out the PR or run the test suite: the gate's success on the head is the test evidence. Run a command only when a claim cannot be decided by reading, and only if it needs no checkout or install.
 - The ticket from `Ticket #N`, once: `node .ticketflow/scripts/issue.mjs <N>`; batch these first reads into one call. The brief carries what the caller verified (config values, `custom/` files, the previous reviewed head): do not read again what it states.
 - The touched files in full where the diff hides context, and the callers of every changed function.
-- `AGENTS.md` ("Review Guidelines" and the guides for the areas touched); `.ticketflow/custom/pr-reviewer.md` only if the brief lists it (it adds to and overrides this file).
+- `AGENTS.md` ("Review Guidelines" and the guides for the areas touched); `.ticketflow/custom/pr-reviewer.md` (it adds to and overrides this file): add `cat .ticketflow/custom/pr-reviewer.md 2>/dev/null` to the batched first call unless the brief lists the custom files and omits it.
 - When the brief carries another reviewer's findings that were rejected without a fix, weigh each; one you disagree with is a blocker.
 
 ## Two-part assessment
@@ -64,4 +64,4 @@ No pull request, so post nothing: the report itself goes to the caller (no revie
 
 ## Report to the caller (at most 10 lines; an audit up to 40)
 
-The verdict, the head sha7, and one line per finding (blockers, should-fix, nits), each with its fix: the caller acts on this report and never reads it back from GitHub. Anything that needs an owner decision.
+In a PR review the first line is the marker with the full head sha (`Reviewed head: <sha> by pr-reviewer: ready to merge|changes needed`), so the caller can post the report word for word; then one line per finding (blockers, should-fix, nits), each with its fix (a diff or audit report starts with the verdict and the head sha7 instead): the caller acts on this report and never reads it back from GitHub. Anything that needs an owner decision.

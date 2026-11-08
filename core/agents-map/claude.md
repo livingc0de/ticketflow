@@ -8,6 +8,7 @@
 | Dispatch a helper of a class | `Explore` for broad read-only search, `general-purpose` for work, with `model` of the class and an explicit `effort` |
 | Dispatch a fresh ticket lead | `general-purpose`, `model` of the standard class, an explicit `effort`, never a fork; brief it fully, it has no context |
 | Wait for a script | Bash in the foreground with `timeout: 600000` and the script's `--timeout-min 9`; on exit 2 with a timeout run it again. Never sleep or poll |
+| Run in the background and wait once (a long verification) | Bash with `run_in_background: true`; you are notified when it exits. Do not poll and do not sleep-loop |
 | Ask the user | One targeted question in the reply (the question tool if available); wait |
 | Track tasks | `TaskCreate` / `TaskUpdate` (or `TodoWrite`), one per plan task |
 | Load a skill | Skill tool with the skill's name |

@@ -19,11 +19,11 @@ Fix and push once, then wait again (never review a red head). With a behind-the-
 
 ## Exit 2
 
-A `Local gate: none` or `Draft:` note: run `verify-route <PR>` (`tiered`), then `local-verify <PR>` from the primary checkout when the route is local (it marks the PR ready), or `gh pr ready <PR>` for a CI route. Otherwise a timeout: wait again, and report after two.
+A `Local gate: none` or `Draft:` note: run `verify-route <PR>` (`tiered`), then `local-verify <PR>` from the primary checkout (in the background) when the route is local (it marks the PR ready), or `gh pr ready <PR>` for a CI route. Otherwise a timeout: wait again, and report after two.
 
 ## Exit 3 (Actions refused the run)
 
-`git -C <primary checkout> pull --ff-only`, then from the primary checkout `node .ticketflow/scripts/local-verify.mjs <PR>`. Its exit 0: wait again. 1: a failure was posted, or nothing was (head moved, behind, timeout): read the output, fix or update, push, wait again. 2 or 3: report it.
+`git -C <primary checkout> pull --ff-only`, then from the primary checkout `node .ticketflow/scripts/local-verify.mjs <PR>` (in the background, as in step 4). Its exit 0: wait again. 1: a failure was posted, or nothing was (head moved, behind, timeout): read the output, fix or update, push, wait again. 2 or 3: report it.
 
 ## The `pr-reviewer` report
 

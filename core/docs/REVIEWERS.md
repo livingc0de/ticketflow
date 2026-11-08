@@ -72,7 +72,7 @@ reason for rejecting it). `pr-wait` flattens all GitHub text to one line, so it 
 
 **Agent responsibility:** read the complete review, fix or explicitly reject each finding, and do not merge while blockers remain. GitHub's structured `CHANGES_REQUESTED` state is a hard block; a review posted with `COMMENTED` is evidence of a review, **not proof of approval**. The merge script cannot reliably infer semantic approval from prose, and does not try. Repository-required approvals remain enforceable through GitHub's branch protection.
 
-The review layout below is helpful for readability but is **not a parsing contract**. `merge` reads no repository permission: GitHub's own branch rules decide who may merge.
+Only the first line of a review (the marker) is parsed; the layout below is helpful for readability and is **not a parsing contract** beyond that. `merge` reads no repository permission: GitHub's own branch rules decide who may merge.
 
 ## The self-check lane
 
@@ -103,7 +103,7 @@ Not checked: what could not be verified, if anything
 
 No exact wording is required. The agent passes `merge --self-checked` as its explicit attestation, and TicketFlow independently verifies the diff's low-risk criteria. The script cannot determine how carefully the review was performed; meaningful review and judgment remain the agent's responsibility.
 
-A High tier requires an earlier review before a small fix delta can be self-checked. Critical tier always requires a review. These floors are still enforced, but changing a review's natural-language formatting cannot make it ineligible.
+A High tier requires an earlier review before a small fix delta can be self-checked. Critical tier always requires a review. These floors are still enforced; the body of a review after its marker line is free text.
 
 ## When merge says no
 

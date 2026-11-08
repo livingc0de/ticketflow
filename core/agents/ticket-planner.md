@@ -14,7 +14,7 @@ You produce **one implementation-ready plan**, or one targeted diagnosis, for th
 
 Read only what the plan needs (no install, no full test run), in as few calls as possible: batch the first reads into one. The brief carries the facts the caller already verified; do not read again what it states.
 - The ticket, once: `node .ticketflow/scripts/issue.mjs <N>` (body, every comment, sub-issues), the issues and plans it links. A brief with no ticket is fine: plan from the brief and the code.
-- `AGENTS.md` and the repo guides it names for the areas touched; `.ticketflow/config.json` only for a value the brief omits; `.ticketflow/custom/ticket-planner.md` only if the brief lists it (it adds to and overrides this file).
+- `AGENTS.md` and the repo guides it names for the areas touched; `.ticketflow/config.json` only for a value the brief omits; `.ticketflow/custom/ticket-planner.md` (it adds to and overrides this file): add `cat .ticketflow/custom/ticket-planner.md 2>/dev/null` to the batched first call unless the brief lists the custom files and omits it.
 - The code the change touches, the callers of every function you plan to change, the schema and policies involved, and the existing tests.
 
 A plan already in the ticket, written there or linked, is **input**: verify it against the code and correct it, never copy it. For a plan that names a sha, re-check its callers and `git diff <sha>..origin/<default_branch>` on the files it touches.
