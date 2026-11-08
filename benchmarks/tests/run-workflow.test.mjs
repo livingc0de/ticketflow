@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {spawn,spawnSync} from 'node:child_process';
 import {once} from 'node:events';
 import {createHash} from 'node:crypto';
-import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,existsSync,rmSync,chmodSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,readdirSync,existsSync,rmSync,chmodSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -14,6 +14,7 @@ import {findProject,linkProject,projectUrl,probeCommitStatusWrite} from '../work
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const runner=fileURLToPath(new URL('../run-workflow.mjs',import.meta.url));
 const env=Object.fromEntries(Object.entries(process.env).filter(([k])=>!/^WORKFLOW_BENCH_/.test(k)));
+env.BENCHMARK_ALLOW_ANCESTOR_GUIDANCE='1'; // fake-CLI tests: the developer's own parent directories may hold instruction files
 const withTemp=(run)=>{
   const dir=mkdtempSync(join(tmpdir(),'workflow-dryrun-'));
   try{return run(dir)}finally{rmSync(dir,{recursive:true,force:true})}
@@ -55,7 +56,7 @@ if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
   case "$*" in
     *deleteProjectV2*) id=$(printf '%s\\n' "$@" | sed -n 's/^id=//p'); printf '{"data":{"deleteProjectV2":{"projectV2":{"id":"%s"}}}}\\n' "$id" ;;
     *createProjectV2*) printf '{"data":{"createProjectV2":{"projectV2":{"id":"PVT_456","number":7}}}}\\n' ;;
-    *) if [ "$FIND_PROJECT" = "1" ]; then if [ "$FIND_PROJECT_WRONG_REPO" = "1" ]; then printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[{"id":"PVT_777","number":9,"title":"Workflow cleanup-run W1 bare 1","repositories":{"nodes":[{"nameWithOwner":"example-benchmark-org/other-repo"}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":${projectPage}}}},"user":null}}\\n'; else printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[{"id":"PVT_777","number":9,"title":"Workflow cleanup-run W1 bare 1","repositories":{"nodes":[{"nameWithOwner":"example-benchmark-org/tfwf-cleanup-w1-bare-1"}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":${projectPage}}}},"user":null}}\\n'; fi; else printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[],"pageInfo":{"hasNextPage":false}}},"user":null,"repository":{"id":"R_123"}}}\\n'; fi ;;
+    *) if [ "$FIND_PROJECT" = "1" ]; then if [ "$FIND_PROJECT_WRONG_REPO" = "1" ]; then printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[{"id":"PVT_777","number":9,"title":"Workflow cleanup-run W1 bare 1","repositories":{"nodes":[{"nameWithOwner":"example-benchmark-org/other-repo"}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":${projectPage}}}},"user":null}}\\n'; else printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[{"id":"PVT_777","number":9,"title":"Workflow cleanup-run W1 bare 1","repositories":{"nodes":[{"nameWithOwner":"example-benchmark-org/app-cleanup-w1-bare-1"}],"pageInfo":{"hasNextPage":false}}}],"pageInfo":{"hasNextPage":${projectPage}}}},"user":null}}\\n'; fi; else printf '{"data":{"organization":{"id":"O_123","projectsV2":{"nodes":[],"pageInfo":{"hasNextPage":false}}},"user":null,"repository":{"id":"R_123"}}}\\n'; fi ;;
   esac
   exit 0
 fi
@@ -86,7 +87,7 @@ exit 1
 const cleanupFixture=(dir,{mode='organization',owner='example-benchmark-org',missingCell=false,project=true,phase='completed'}={})=>{
   const file=join(dir,'cleanup.jsonl'),cell={id:'W1',arm:'bare',repeat:1,key:'W1|bare|1'};
   const second={id:'W2',arm:'bare',repeat:1,key:'W2|bare|1'};
-  const record={repo:owner+'/'+(mode==='personal'?'ticketflow-benchmark-':'tfwf-')+'cleanup-w1-bare-1',phase,
+  const record={repo:owner+'/'+'app-'+'cleanup-w1-bare-1',phase,
     projectTitle:'Workflow cleanup-run W1 bare 1',cleanup:{project:project?'pending':'not-created',repo:'pending'}};
   if(!project)record.project_creation={status:'pending',title:record.projectTitle,repo:record.repo};
   if(project)record.project={id:'PVT_123',number:1,owner,owner_type:mode==='personal'?'user':'organization'};
@@ -152,7 +153,7 @@ test('cleanup-only deletes exact recorded resources without starting an agent',(
     WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token'},timeout:30000});
   assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/"resources_cleaned": 1/);
   const state=JSON.parse(readFileSync(file+'.state.json','utf8'));assert.equal(state.cleanup.status,'completed');
-  const log=readFileSync(ghLog,'utf8');assert.match(log,/api graphql/);assert.match(log,/repo delete example-benchmark-org\/tfwf-cleanup-w1-bare-1/);assert.doesNotMatch(log,/orgs\/.*delete|organization.*delete/);
+  const log=readFileSync(ghLog,'utf8');assert.match(log,/api graphql/);assert.match(log,/repo delete example-benchmark-org\/app-cleanup-w1-bare-1/);assert.doesNotMatch(log,/orgs\/.*delete|organization.*delete/);
 }));
 test('cleanup-only resumes after a repository deletion failure',()=>withTemp(dir=>{
   const file=cleanupFixture(dir),bin=fakeGh(dir),baseEnv={...env,PATH:bin+':'+process.env.PATH,GH_LOG:join(dir,'gh.log'),
@@ -191,7 +192,7 @@ test('cleanup-only requires personal acknowledgment and deletes personal-prefix 
   assert.equal(rejected.status,2);assert.match(rejected.stderr,/acknowledge-personal-account/);assert.ok(!existsSync(ghLog));
   const accepted=spawnSync(process.execPath,[runner,'--lifecycle','cleanup-only','--out',file,'--allow-github-writes','--acknowledge-personal-account'],
     {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog},timeout:30000});
-  assert.equal(accepted.status,0,accepted.stderr);assert.match(readFileSync(ghLog,'utf8'),/repo delete bench-user\/ticketflow-benchmark-cleanup-w1-bare-1/);
+  assert.equal(accepted.status,0,accepted.stderr);assert.match(readFileSync(ghLog,'utf8'),/repo delete bench-user\/app-cleanup-w1-bare-1/);
 }));
 test('cleanup-only rejects a sidecar missing a scheduled cell before deletion',()=>withTemp(dir=>{
   const file=cleanupFixture(dir,{missingCell:true}),bin=fakeGh(dir),ghLog=join(dir,'gh.log');
@@ -205,7 +206,7 @@ test('cleanup-only recovers a Project created before its identity was persisted'
     {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog,FIND_PROJECT:'1',WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token'},timeout:30000});
   assert.equal(result.status,0,result.stderr);const state=JSON.parse(readFileSync(file+'.state.json','utf8'));
   assert.equal(state.cells['W1|bare|1'].project.id,'PVT_777');assert.equal(state.cells['W1|bare|1'].cleanup.project,'deleted');
-  assert.match(readFileSync(ghLog,'utf8'),/repo delete example-benchmark-org\/tfwf-cleanup-w1-bare-1/);
+  assert.match(readFileSync(ghLog,'utf8'),/repo delete example-benchmark-org\/app-cleanup-w1-bare-1/);
 }));
 test('cleanup-only removes a repository recorded before the phase advanced without guessing a Project',()=>withTemp(dir=>{
   const file=cleanupFixture(dir,{phase:'creating',project:false}),bin=fakeGh(dir),ghLog=join(dir,'gh.log');
@@ -216,7 +217,7 @@ test('cleanup-only removes a repository recorded before the phase advanced witho
     {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog,WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token'},timeout:30000});
   assert.equal(result.status,0,result.stderr);
   const log=readFileSync(ghLog,'utf8');
-  assert.match(log,/repo delete example-benchmark-org\/tfwf-cleanup-w1-bare-1/);
+  assert.match(log,/repo delete example-benchmark-org\/app-cleanup-w1-bare-1/);
   assert.doesNotMatch(log,/deleteProjectV2/);
 }));
 test('cleanup-only removes a repository recorded at repository-created without a Project marker',()=>withTemp(dir=>{
@@ -228,13 +229,13 @@ test('cleanup-only removes a repository recorded at repository-created without a
     {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog,WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token'},timeout:30000});
   assert.equal(result.status,0,result.stderr);
   const log=readFileSync(ghLog,'utf8');
-  assert.match(log,/repo delete example-benchmark-org\/tfwf-cleanup-w1-bare-1/);
+  assert.match(log,/repo delete example-benchmark-org\/app-cleanup-w1-bare-1/);
   assert.doesNotMatch(log,/deleteProjectV2/);
 }));
 test('cleanup-only also deletes exact resources from retired invalid attempts',()=>withTemp(dir=>{
   const file=cleanupFixture(dir),bin=fakeGh(dir),ghLog=join(dir,'gh.log');
   const state=JSON.parse(readFileSync(file+'.state.json','utf8')),key='W1|bare|1';
-  state.retired_cells=[{...state.cells[key],key,repo:'example-benchmark-org/tfwf-cleanup-run-w1-bare-1-retry2',
+  state.retired_cells=[{...state.cells[key],key,repo:'example-benchmark-org/app-cleanup-run-w1-bare-1-retry2',
     projectTitle:'Workflow cleanup-run W1 bare 1 retry 2',project:{id:'PVT_456',number:2,owner:'example-benchmark-org',owner_type:'organization'},
     cleanup:{project:'pending',repo:'pending'}}];
   writeFileSync(file+'.state.json',JSON.stringify(state,null,2));
@@ -242,14 +243,14 @@ test('cleanup-only also deletes exact resources from retired invalid attempts',(
     {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog,WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token'},timeout:30000});
   assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/"resources_cleaned": 2/);
   const log=readFileSync(ghLog,'utf8');
-  assert.match(log,/repo delete example-benchmark-org\/tfwf-cleanup-w1-bare-1/);
-  assert.match(log,/repo delete example-benchmark-org\/tfwf-cleanup-run-w1-bare-1-retry2/);
+  assert.match(log,/repo delete example-benchmark-org\/app-cleanup-w1-bare-1/);
+  assert.match(log,/repo delete example-benchmark-org\/app-cleanup-run-w1-bare-1-retry2/);
   assert.equal(JSON.parse(readFileSync(file+'.state.json','utf8')).retired_cells[0].cleanup.repo,'deleted');
 }));
 test('cleanup-only does not recount already-cleaned retired cells',()=>withTemp(dir=>{
   const file=cleanupFixture(dir),bin=fakeGh(dir),ghLog=join(dir,'gh.log');
   const state=JSON.parse(readFileSync(file+'.state.json','utf8')),key='W1|bare|1';
-  state.retired_cells=[{...state.cells[key],key,repo:'example-benchmark-org/tfwf-cleanup-run-w1-bare-1-retry2',
+  state.retired_cells=[{...state.cells[key],key,repo:'example-benchmark-org/app-cleanup-run-w1-bare-1-retry2',
     projectTitle:'Workflow cleanup-run W1 bare 1 retry 2',project:{id:'PVT_456',number:2,owner:'example-benchmark-org',owner_type:'organization'},
     cleanup:{project:'deleted',repo:'deleted'}}];
   writeFileSync(file+'.state.json',JSON.stringify(state,null,2));
@@ -257,7 +258,7 @@ test('cleanup-only does not recount already-cleaned retired cells',()=>withTemp(
     {cwd:root,encoding:'utf8',env:{...env,PATH:bin+':'+process.env.PATH,GH_LOG:ghLog,WORKFLOW_BENCH_SETUP_TOKEN:'setup-token',WORKFLOW_BENCH_AGENT_TOKEN:'agent-token'},timeout:30000});
   assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/"resources_cleaned": 1/);
   const log=readFileSync(ghLog,'utf8');
-  assert.match(log,/repo delete example-benchmark-org\/tfwf-cleanup-w1-bare-1/);
+  assert.match(log,/repo delete example-benchmark-org\/app-cleanup-w1-bare-1/);
   assert.doesNotMatch(log,/retry2/);
 }));
 test('cleanup-only fails closed when a recovered Project is linked to another repository',()=>withTemp(dir=>{
@@ -268,19 +269,19 @@ test('cleanup-only fails closed when a recovered Project is linked to another re
 }));
 test('Project recovery fails closed when the owner Project list is paginated',()=>withTemp(dir=>{
   const bin=fakeGh(dir,{paginated:true}),envWithGh={...env,PATH:bin+':'+process.env.PATH,FIND_PROJECT:'1',GH_LOG:join(dir,'gh.log')};
-  assert.throws(()=>findProject({owner:'example-benchmark-org',title:'Workflow cleanup-run W1 bare 1',repo:'example-benchmark-org/tfwf-cleanup-w1-bare-1',env:envWithGh}),/ambiguous/);
+  assert.throws(()=>findProject({owner:'example-benchmark-org',title:'Workflow cleanup-run W1 bare 1',repo:'example-benchmark-org/app-cleanup-w1-bare-1',env:envWithGh}),/ambiguous/);
 }));
 test('Project identity matches the recorded repository whatever the case of the owner login',()=>withTemp(dir=>{
   const bin=fakeGh(dir),envWithGh={...env,PATH:bin+':'+process.env.PATH,FIND_PROJECT:'1',GH_LOG:join(dir,'gh.log')};
-  const project=findProject({owner:'example-benchmark-org',title:'Workflow cleanup-run W1 bare 1',repo:'Example-Benchmark-Org/tfwf-cleanup-w1-bare-1',env:envWithGh});
+  const project=findProject({owner:'example-benchmark-org',title:'Workflow cleanup-run W1 bare 1',repo:'Example-Benchmark-Org/app-cleanup-w1-bare-1',env:envWithGh});
   assert.equal(project.id,'PVT_777');
 }));
 test('TicketFlow status preflight uses the agent credential to post a disposable status',()=>withTemp(dir=>{
   const bin=join(dir,'status-bin'),log=join(dir,'status.log');mkdirSync(bin);
   writeFileSync(join(bin,'gh'),'#!/bin/sh\nprintf "%s\\n" "$*" >> "$STATUS_LOG"\nprintf \'{}\\n\'\n');chmodSync(join(bin,'gh'),0o755);
   const result=probeCommitStatusWrite({repo:'bench/ticketflow-benchmark-demo',sha:'a'.repeat(40),env:{...env,PATH:bin+':'+process.env.PATH,STATUS_LOG:log}});
-  assert.equal(result,'ticketflow-benchmark/preflight');
-  assert.match(readFileSync(log,'utf8'),/api repos\/bench\/ticketflow-benchmark-demo\/statuses\/[a]{40} -f state=pending -f context=ticketflow-benchmark\/preflight/);
+  assert.equal(result,'preflight/status-write');
+  assert.match(readFileSync(log,'utf8'),/api repos\/bench\/ticketflow-benchmark-demo\/statuses\/[a]{40} -f state=success -f context=preflight\/status-write/);
 }));
 test('cleanup-only fails closed when Project recovery finds no matching Project',()=>withTemp(dir=>{
   const file=cleanupFixture(dir,{phase:'repository-created',project:false}),bin=fakeGh(dir),ghLog=join(dir,'gh.log');
@@ -358,9 +359,8 @@ test('Codex Ponytail workflow preflight rejects missing hook trust bypass before
 }));
 const evaluatorFingerprint=()=>{
   const hash=createHash('sha256');
-  for(const path of ['run-workflow.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs',
-    'workflow/profile.mjs','workflow/check.mjs','workflow/outcome.mjs','workflow/interrupt.mjs','lib/integrity.mjs',
-    'lib/profile-auth.mjs','lib/process.mjs','lib/transcripts.mjs']){
+  const modules=dir=>readdirSync(join(root,'benchmarks',dir)).filter(f=>f.endsWith('.mjs')&&!f.endsWith('.test.mjs')).sort().map(f=>dir+'/'+f);
+  for(const path of ['run-workflow.mjs',...modules('workflow'),...modules('lib')]){
     hash.update(path);hash.update('\0');hash.update(readFileSync(join(root,'benchmarks',path)));
   }
   return hash.digest('hex');
@@ -374,7 +374,7 @@ const resumeFixture=(dir,outcome,invalid_reasons=[])=>{
     agent:'claude',agent_version:'fake',eval_fingerprint:fingerprint,result_row_id:'previous-row',
     requested_model:'benchmark-test-model',requested_effort:null,source_sha:null})+'\n');
   writeFileSync(file+'.state.json',JSON.stringify({signature,runId:'testrun',cells:{
-    [cell.key]:{repo:'example-benchmark-org/tfwf-testrun-w1-bare-1',phase:'completed',
+    [cell.key]:{repo:'example-benchmark-org/app-testrun-w1-bare-1',phase:'completed',
       result_row_id:'previous-row'}}}));
   return file;
 };

@@ -1,21 +1,22 @@
 #!/usr/bin/env node
 /** Paid opt-in, remote GitHub workflow benchmark with explicit resource lifecycle. */
 import { spawn,spawnSync,execFileSync } from 'node:child_process';
-import { existsSync,readFileSync,writeFileSync,appendFileSync,mkdirSync,renameSync,unlinkSync } from 'node:fs';
-import { dirname,join,resolve } from 'node:path';
+import { existsSync,readFileSync,readdirSync,writeFileSync,appendFileSync,mkdirSync,renameSync,unlinkSync } from 'node:fs';
+import { dirname,join,relative,resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createHash } from 'node:crypto';
 import { scenarios,ids,prompt } from './workflow/scenarios.mjs';
-import { validateOrg,authenticatedUser,authenticatedToken,newRepository,seedIssues,seedBrokenPull,
-  cloneRepository,installTicketFlow,linkProject,findProject,projectUrl,deleteProject,deleteRepository,setupEnv,sh,gh,newWork,probeCommitStatusWrite } from './workflow/sandbox.mjs';
+import { validateOrg,authenticatedUser,authenticatedToken,newRepository,seedIssues,seedPR,
+  cloneRepository,installTicketFlow,linkProject,findProject,deleteProject,deleteRepository,setupEnv,sh,gh,newWork,cleanupLocal,probeCommitStatusWrite } from './workflow/sandbox.mjs';
 import { makeProfile,destroyProfile } from './workflow/profile.mjs';
-import { scoreDelivery, projectSnapshot, meaningfulCheckpoint } from './workflow/check.mjs';
+import { scoreCell, localProgress } from './workflow/check.mjs';
 import { selectProfileMode,approveDangerFullAccess } from './lib/profile-auth.mjs';
 import { validatePluginSource,validateSourceCheckout } from './lib/integrity.mjs';
 import { archiveSession,readOrCreateAnswer,transcriptSessionId } from './lib/transcripts.mjs';
 import { terminateProcess } from './lib/process.mjs';
-import { classifyOutcome, outcomeOf } from './workflow/outcome.mjs';
+import { streamCostLowerBound } from './workflow/cost.mjs';
+import { classifyOutcome, outcomeOf, asksToContinue } from './workflow/outcome.mjs';
 import { signalState, WorkflowInterrupted } from './workflow/interrupt.mjs';
 
 const HERE=dirname(fileURLToPath(import.meta.url)),ROOT=resolve(HERE,'..');
@@ -23,7 +24,7 @@ const ARMS=new Set(['bare','ticketflow','superpowers','ponytail']);
 const EFFORTS=new Set(['low','medium','high','xhigh','max']);
 const MODES=new Set(['organization','personal']);
 const LIFECYCLES=new Set(['run-with-auto-cleanup','run-without-cleanup','cleanup-only']);
-const help='run-workflow --agent claude|codex --model ID --mode organization|personal [--org DISPOSABLE_ORG] --out FILE [--lifecycle run-with-auto-cleanup|run-without-cleanup|cleanup-only] [--acknowledge-personal-account] [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5,W6,W7] [--repeats 3] [--effort high] [--superpowers-source DIR --superpowers-sha SHA] [--ponytail-source DIR --ponytail-sha SHA] [--ticketflow-source DIR --ticketflow-sha SHA] [--resume] [--acknowledge-plugin-cleanup] [--execute --allow-github-writes] [--allow-danger-full-access]';
+const help='run-workflow --agent claude|codex --model ID --mode organization|personal [--org DISPOSABLE_ORG] --out FILE [--lifecycle run-with-auto-cleanup|run-without-cleanup|cleanup-only] [--acknowledge-personal-account] [--arms bare,ticketflow,superpowers,ponytail] [--scenarios W1,W2,W3,W4,W5,W6,W7] [--repeats 3] [--effort high] [--budget-usd N] [--max-sessions N] [--judge-model ID [--judge-agent claude|codex]] [--superpowers-source DIR --superpowers-sha SHA] [--ponytail-source DIR --ponytail-sha SHA] [--ticketflow-source DIR --ticketflow-sha SHA] [--resume] [--acknowledge-plugin-cleanup] [--execute --allow-github-writes] [--allow-danger-full-access]';
 const readJson=(file)=>JSON.parse(readFileSync(file,'utf8'));
 const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
 const cellKey=(cell)=>cell.id+'|'+cell.arm+'|'+cell.repeat;
@@ -84,11 +85,17 @@ const planFor=(selected,arms,repeats)=>{
 };
 function fingerprint() {
   const hash=createHash('sha256');
-  for(const path of ['run-workflow.mjs','workflow/scenarios.mjs','workflow/scenarios-extra.mjs','workflow/sandbox.mjs','workflow/profile.mjs','workflow/check.mjs','workflow/outcome.mjs','workflow/interrupt.mjs','lib/integrity.mjs','lib/profile-auth.mjs','lib/process.mjs','lib/transcripts.mjs']) {
+  const modules=dir=>readdirSync(join(HERE,dir)).filter(f=>f.endsWith('.mjs')&&!f.endsWith('.test.mjs')).sort().map(f=>dir+'/'+f);
+  for(const path of ['run-workflow.mjs',...modules('workflow'),...modules('lib')]) {
     hash.update(path);hash.update('\0');hash.update(readFileSync(join(HERE,path)));
   }
   return hash.digest('hex');
 }
+// Paid invocations a cell can need: every session plus at most CONTINUATIONS "go on" replies each.
+// Repository names carry no benchmark, scenario or tool wording; the exact recorded names are what cleanup deletes.
+const REPO_PREFIX='app-';
+const CONTINUATIONS=2,CONTINUE_REPLY='go on with whatever is left',INTERRUPT_GRACE_MS=10_000;
+const ceilingFor=id=>scenarios[id].sessions.length*(1+CONTINUATIONS);
 const safeOut=(file,data)=>{
   mkdirSync(dirname(file),{recursive:true});
   const temp=`${file}.${process.pid}.tmp`;
@@ -98,7 +105,7 @@ const safeOut=(file,data)=>{
 function parse() {
   const {values:v}=parseArgs({options:{
     agent:{type:'string'},model:{type:'string'},mode:{type:'string'},org:{type:'string'},out:{type:'string'},lifecycle:{type:'string'},arms:{type:'string'},scenarios:{type:'string'},
-    repeats:{type:'string'},effort:{type:'string'},'max-sessions':{type:'string'},'ticketflow-source':{type:'string'},
+    repeats:{type:'string'},effort:{type:'string'},'max-sessions':{type:'string'},'budget-usd':{type:'string'},'judge-model':{type:'string'},'judge-agent':{type:'string'},'ticketflow-source':{type:'string'},
     'superpowers-source':{type:'string'},'ponytail-source':{type:'string'},'ticketflow-sha':{type:'string'},
     'superpowers-sha':{type:'string'},'ponytail-sha':{type:'string'},'allow-github-writes':{type:'boolean'},
     'allow-danger-full-access':{type:'boolean'},'acknowledge-plugin-cleanup':{type:'boolean'},'acknowledge-personal-account':{type:'boolean'},execute:{type:'boolean'},resume:{type:'boolean'},
@@ -120,7 +127,8 @@ function parse() {
   if(new Set(arms).size!==arms.length || arms.some(x=>!ARMS.has(x)) || !arms.length ||
     new Set(selected).size!==selected.length || selected.some(x=>!ids.includes(x)) || !selected.length ||
     !Number.isSafeInteger(repeats)||repeats<1 || !Number.isSafeInteger(max)||max<1 ||
-    (v.effort&&!EFFORTS.has(v.effort))) throw Error(help);
+    (v.effort&&!EFFORTS.has(v.effort))||(v['budget-usd']!==undefined&&!(Number(v['budget-usd'])>0))||
+    (v['judge-agent']!==undefined&&!['claude','codex'].includes(v['judge-agent']))||(v['judge-agent']!==undefined&&!v['judge-model']?.trim())) throw Error(help);
   const sources={};
   if(arms.includes('ticketflow')) sources.ticketflow=resolve(v['ticketflow-source']??ROOT);
   for(const arm of ['superpowers','ponytail']) if(arms.includes(arm)) {
@@ -172,7 +180,7 @@ function cleanupTargets(state) {
     throw Error('cleanup state is missing a complete mode, owner, schedule, or cells');
   if(state.retired_cells!==undefined&&!Array.isArray(state.retired_cells))
     throw Error('cleanup state has invalid retired cells');
-  const prefix=mode==='personal'?'ticketflow-benchmark-':'tfwf-';
+  const prefix=REPO_PREFIX;
   const scheduled=new Set(state.schedule.map(cell=>cell.key));
   const recorded=new Set(Object.keys(state.cells));
   for(const key of scheduled)if(!recorded.has(key))throw Error('cleanup state is missing scheduled cell '+key);
@@ -287,18 +295,18 @@ async function cleanupState({state,statePath,auth,signalState=null}) {
     throw e;
   }
 }
-function runAgent({agent,model,effort,arm,dir,work,source,mode,message,githubToken,timeoutMs=35*60_000,interrupt=null,archiveRoot=null,archiveMeta={},signalState=null}) {
+function runAgent({agent,model,effort,arm,dir,work,profile,message,githubToken,timeoutMs=35*60_000,interrupt=null,archiveRoot=null,archiveMeta={},signalState=null,resumeId=null,budgetUsd=null}) {
   return new Promise((done,reject)=>{
-    let profile;
-    try {profile=makeProfile(agent,arm,work,source,mode,{githubToken});}
-    catch(e){reject(e);return;}
     const outfile=join(work,'agent-answer-'+Date.now()+'.txt');
-    const args=agent==='claude'?['-p',message,'--output-format','json','--no-session-persistence',
+    const common=['-m',model,...(effort?['--config','model_reasoning_effort='+effort]:[])];
+    const args=agent==='claude'?['-p',message,'--output-format','stream-json','--verbose',...(resumeId?['--resume',resumeId]:[]),
       '--setting-sources','project,local',
-      '--allowedTools','Read,Edit,Write,Glob,Grep,Task,Agent,Bash(git *),Bash(gh *),Bash(node *),Bash(npm *),Bash(npx *),Bash(ls *),Bash(cat *),Bash(rg *),Bash(find *),Bash(pwd),Bash(mkdir *),Bash(sed *),Bash(jq *),Bash(cp *),Bash(mv *),Bash(printf *),Bash(chmod *)',
-      '--model',model,...(effort?['--effort',effort]:[]),...profile.pluginArgs]:
+      '--permission-mode','bypassPermissions', // unattended: no per-command prompts, so no arm is slowed by an allowlist; run on a disposable machine
+      '--model',model,...(effort?['--effort',effort]:[]),...(budgetUsd?['--max-budget-usd',String(budgetUsd)]:[]),...profile.pluginArgs]:
+      resumeId?['exec','resume','--json',...(arm==='ponytail'?['--dangerously-bypass-hook-trust']:[]),...(arm==='bare'||arm==='ticketflow'?['--ignore-user-config']:[]),
+        '--config','sandbox_mode="danger-full-access"','-o',outfile,...common,resumeId,'-']:
       ['exec','--json',...(arm==='ponytail'?['--dangerously-bypass-hook-trust']:[]),...(arm==='bare'||arm==='ticketflow'?['--ignore-user-config']:[]),'--sandbox','danger-full-access',
-        '-C',dir,'-o',outfile,'-m',model,...(effort?['--config','model_reasoning_effort='+effort]:[]),'-'];
+        '-C',dir,'-o',outfile,...common,'-'];
     const env={...profile.env,GH_TOKEN:githubToken,GITHUB_TOKEN:githubToken,GIT_TERMINAL_PROMPT:'0'};
     const start=Date.now();let stdout='',stderr='',interrupted=false,reason=null,closed=false,probing=false;
     let childError=null,stdinError=null;
@@ -313,17 +321,17 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,githubTok
       const requested=signalState?.signal;
       if(requested){interrupted=true;reason??=`signal ${requested}`;}
       signalState?.clearStop(externalStop);
-      let cleanupError=null;
-      try{profile.cleanup()}catch(e){cleanupError=e.message;}
-      if(mode==='isolated')destroyProfile(work,mode);
       const path=join(work,'agent.out.'+start);writeFileSync(path,stdout+'\nSTDERR:\n'+stderr,{mode:0o600});
       const events=stdout.split(/\r?\n/).filter(Boolean).map(x=>{try{return JSON.parse(x)}catch{return null}}).filter(Boolean);
-      let result=null,turns=null,reportedModel=null,cost=null,tokens=null;
+      let result=null,turns=null,reportedModel=null,cost=null,tokens=null,sessionId=null,lowerBound=null;
       if(agent==='claude'){
         result=events.findLast(e=>e.type==='result')??( ()=>{try{return JSON.parse(stdout)}catch{return null}})();
         turns=result?.num_turns??null;reportedModel=Object.keys(result?.modelUsage??{}).join(',')||null;
         cost=typeof result?.total_cost_usd==='number'?result.total_cost_usd:null;tokens=result?.usage??null;
+        sessionId=result?.session_id??events.find(e=>e.session_id)?.session_id??null;
+        if(!result)lowerBound=streamCostLowerBound(events,model);
       } else {
+        sessionId=events.find(e=>e.type==='thread.started')?.thread_id??null;
         const ends=events.filter(e=>e.type==='turn.completed');
         tokens=ends.length?ends.reduce((a,e)=>{for(const [k,v] of Object.entries(e.usage??{}))a[k]=(a[k]??0)+v;return a},{}):null;
       }
@@ -343,8 +351,8 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,githubTok
       }
       const errorInfo=e=>e?{code:e.code??null,message:e.message}:null;
       done({exit:code,signal,interrupted,reason,seconds:(Date.now()-start)/1000,
-        cost_usd:cost,tokens,turns,observed_model:reportedModel,transcript:path,answer:answer,
-        archive,archive_error,plugin_bootstrap,cleanup_error:cleanupError,
+        cost_usd:cost,cost_lower_bound_usd:lowerBound,tokens,turns,observed_model:reportedModel,transcript:path,answer:answer,
+        archive,archive_error,plugin_bootstrap,cleanup_error:null,session_id:sessionId,stdout,
         error:childError?.message??null,stdin_error:errorInfo(stdinError)});
     };
     try {
@@ -364,21 +372,21 @@ function runAgent({agent,model,effort,arm,dir,work,source,mode,message,githubTok
         try{
           const ready=await interrupt();
           if(!closed&&ready) {
-            interrupted=true;reason='remote checkpoint reached';stop();
+            interrupted=true;reason='interruption point reached';stop();
           }
-        }catch(e){stderr+='\ncheckpoint probe: '+e.message}
+        }catch(e){stderr+='\ninterruption probe: '+e.message}
         finally{probing=false}
       },2000);
     } catch(e) {
       signalState?.clearStop(externalStop);
-      try{profile.cleanup()}catch{}
       reject(e);
     }
   });
 }
 const mergeUsage=parts=>{
-  const cost=parts.every(p=>typeof p.cost_usd==='number')?parts.reduce((x,p)=>x+p.cost_usd,0):null;
-  return {cost_usd:cost,wall_s:parts.reduce((x,p)=>x+p.seconds,0),tokens:parts.map(p=>p.tokens),
+  const priced=parts.map(p=>p.cost_usd??p.cost_lower_bound_usd);
+  const cost=priced.every(c=>typeof c==='number')?priced.reduce((x,c)=>x+c,0):null;
+  return {cost_usd:cost,cost_complete:parts.every(p=>typeof p.cost_usd==='number'),wall_s:parts.reduce((x,p)=>x+p.seconds,0),tokens:parts.map(p=>p.tokens),
     turns:parts.every(p=>typeof p.turns==='number')?parts.reduce((x,p)=>x+p.turns,0):null,
     model:parts.map(p=>p.observed_model).filter(Boolean).join(',')||null};
 };
@@ -399,10 +407,11 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   const rowId=cell.result_row_id??`workflow:${x.key}:attempt-${cell.attempt??1}:${Date.now().toString(36)}`;
   if(!cell.result_row_id){cell.result_row_id=rowId;safeOut(statePath,state);}
   const archiveRoot=resolve(process.env.BENCHMARK_TRANSCRIPTS_DIR??join(ROOT,'benchmarks/results/transcripts'));
-  const prefix=auth.mode==='personal'?'ticketflow-benchmark-':'tfwf-';
-  const work=cell.work??newWork(),repo=cell.repo??auth.owner+'/'+prefix+state.runId+'-'+x.id.toLowerCase()+'-'+x.arm+'-'+x.repeat+(cell.attempt>1?'-retry'+cell.attempt:'');
+  const prefix=REPO_PREFIX;
+  const tag=state.runId+'-'+createHash('sha256').update(x.key+'|'+(cell.attempt??1)).digest('hex').slice(0,8);
+  const work=cell.work??newWork(),repo=cell.repo??auth.owner+'/'+prefix+tag;
   if(!cell.repo) {
-    state.cells[x.key]={...cell,repo,work,phase:'creating',cleanup:{project:'not-created',repo:'pending'},result_row_id:rowId,projectTitle:'Workflow '+state.runId+' '+x.id+' '+x.arm+' '+x.repeat+(cell.attempt>1?' retry '+cell.attempt:'')};
+    state.cells[x.key]={...cell,repo,work,phase:'creating',cleanup:{project:'not-created',repo:'pending'},result_row_id:rowId,projectTitle:'Board '+tag};
     safeOut(statePath,state);
     newRepository({repo,id:x.id,work,env:auth.setupEnv});
     state.cells[x.key].phase='repository-created';safeOut(statePath,state);
@@ -440,8 +449,9 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
     current.installed=true;safeOut(statePath,state);
     abort();
   }
-  if(x.id==='W4'&&!current.initialPR) {
-    current.initialPR=seedBrokenPull({repo,id:x.id,work,issue:current.issues[0],env:auth.setupEnv});
+  if(scenarios[x.id].seedPR&&!current.initialPR) {
+    const seeded=seedPR({repo,id:x.id,work,env:auth.setupEnv});
+    current.initialPR=seeded.number;current.seededCommentId=seeded.commentId??null;
     const initial=JSON.parse(sh('gh',['api','repos/'+repo+'/pulls/'+current.initialPR],{env:auth.setupEnv}));
     current.initialHead=initial.head?.sha??null;
     safeOut(statePath,state);
@@ -456,16 +466,14 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   try {sh('gh',['project','view',String(current.project.number),'--owner',auth.owner,'--format','json'],{env:agentEnv});}
   catch(e){throw Error('agent token cannot read benchmark Project '+current.project.number+'; no paid agent invoked: '+e.message);}
 
-  // Capture post-bootstrap, pre-agent Project state. Setup itself must never count as agent work.
-  if(!current.baselineProjects) {
-    current.baselineProjects=current.issues.map(n=>({number:n,project:projectSnapshot(repo,n,auth.setupEnv)}));
-    safeOut(statePath,state);
-    abort();
-  }
   // Initial branch and issue state is prepared before the paid agent run.
   if(current.phase==='agent-running')throw Error('previous paid session may still be active; inspect remote state before resume for '+repo);
+  if(!current.baseSha) {
+    current.baseSha=JSON.parse(sh('gh',['api','repos/'+repo+'/commits/main'],{env:auth.setupEnv})).sha;
+    safeOut(statePath,state);
+  }
   if(x.arm==='ticketflow'){
-    const base=JSON.parse(sh('gh',['api','repos/'+repo+'/commits/main'],{env:auth.setupEnv})).sha;
+    const base=current.baseSha;
     try { probeCommitStatusWrite({repo,sha:base,env:agentEnv}); }
     catch(e){ throw Error('agent token cannot write commit statuses; TicketFlow local fallback requires Commit statuses: Read and write: '+e.message); }
   }
@@ -475,78 +483,78 @@ async function runCell(x,opts,state,mode,version,evalFingerprint) {
   try { dir=cloneRepository(repo,join(work,'attempt-'+Date.now()),auth.setupEnv);abort(); }
   catch(e) { if(e?.code==='WORKFLOW_INTERRUPTED')markInterrupted(); throw e; }
   abort();
-  const initial=prompt(x.id,repo,current.issues,current.initialPR??null,
-    projectUrl({owner:auth.owner,ownerType:auth.ownerType,number:current.project.number}));
-  // All arms receive the same early remote-checkpoint instruction in W5.
-  const stagedPrompt=x.id==='W5'?initial+
-    '\n\nFor the deliberate interruption test, push meaningful src/ or test/ changes to a remote feature branch early. Keep working on verification but do not merge during this first session; recovery and merging belong to the fresh resumed session.':initial;
-  const source=sources[x.arm]??null,parts=[];
-  let interrupted=false,candidateDir=dir;
-  if(x.id==='W5') {
-    const first=runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,githubToken:auth.agentToken,message:stagedPrompt,archiveRoot,
-      archiveMeta:{scenario:x.id,repeat:x.repeat,result_row_id:rowId,eval_fingerprint:evalFingerprint,source_sha:opts.sourceShas[x.arm]??null,
-        ticketflow_sha:x.arm==='ticketflow'?opts.sourceShas.ticketflow:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null},
-      timeoutMs:15*60_000,interrupt:async()=>{
-        const branches=JSON.parse(gh(['api','repos/'+repo+'/branches?per_page=100'],{env:auth.setupEnv}));
-        const prs=JSON.parse(gh(['pr','list','-R',repo,'--state','all','--json','mergedAt,number','--limit','100'],{env:auth.setupEnv}));
-        if(prs.some(p=>p.mergedAt))return false;
-        const compares={};
-        for(const branch of branches.filter(b=>b.name!=='main')){
-          compares[branch.name]=JSON.parse(gh(['api','repos/'+repo+'/compare/main...'+encodeURIComponent(branch.name)],{env:auth.setupEnv}));
-        }
-        return meaningfulCheckpoint({branches,prs,compares});
-        },signalState:opts.signalState});
-    parts.push(await first);
-    markInterrupted();
-    interrupted=parts[0].interrupted;
-    if(interrupted) {
-      // A clean, separately cloned context proves recovery from remote GitHub state.
-      abort();
-      let fresh;
-      try { fresh=cloneRepository(repo,join(work,'resumed-'+Date.now()),auth.setupEnv);abort(); }
-      catch(e) { if(e?.code==='WORKFLOW_INTERRUPTED')markInterrupted(); throw e; }
-      candidateDir=fresh;
-      parts.push(await runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir:fresh,work,source,mode,githubToken:auth.agentToken,archiveRoot,
-        archiveMeta:{scenario:x.id,repeat:x.repeat,result_row_id:rowId,eval_fingerprint:evalFingerprint,source_sha:opts.sourceShas[x.arm]??null,
-          ticketflow_sha:x.arm==='ticketflow'?opts.sourceShas.ticketflow:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null},
-        message:'The previous session was interrupted. Recover the state from GitHub and resume without duplicating issues or pull requests.\n\n'+initial,signalState:opts.signalState}));
+  // One profile for the whole cell: a continuation reply resumes the very conversation that stopped.
+  const source=sources[x.arm]??null,parts=[],sessions=[],scenario=scenarios[x.id];
+  let profile=null,profileError=null,interventions=0,fired=false;const answers=[];
+  const meta={scenario:x.id,repeat:x.repeat,result_row_id:rowId,eval_fingerprint:evalFingerprint,source_sha:opts.sourceShas[x.arm]??null,
+    ticketflow_sha:x.arm==='ticketflow'?opts.sourceShas.ticketflow:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null};
+  // The wall-clock cap belongs to the session: continuation replies share what is left of it.
+  const invoke=(session,message,deadline,extra={})=>runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,profile,githubToken:auth.agentToken,
+    message,archiveRoot,archiveMeta:{...meta,session:sessions.length+1},timeoutMs:Math.max(1000,deadline-Date.now()),signalState:opts.signalState,budgetUsd:v['budget-usd']??null,...extra});
+  try {
+    profile=makeProfile(v.agent,x.arm,work,source,mode,{githubToken:auth.agentToken});
+    for(const [index,session] of scenario.sessions.entries()) {
+      // A session after an interruption point exists only when that interruption happened.
+      if(index>0&&scenario.sessions[index-1].interrupt&&!fired)break;
+      const record={start:new Date().toISOString(),end:null,exit:null,continuations:0,interrupt:session.interrupt?'not-reached':null};
+      sessions.push(record);
+      let firstProgress=null;
+      const trigger=session.interrupt?async()=>{
+        if(!localProgress(dir,current.baseSha).progressed)return false;
+        firstProgress??=Date.now();
+        return Date.now()-firstProgress>=INTERRUPT_GRACE_MS;
+      }:null;
+      const deadline=Date.now()+session.timeoutMin*60_000;
+      const note=r=>{parts.push(r);markInterrupted();if(session.interrupt&&r.interrupted){record.interrupt='fired';fired=true;}};
+      let run=await invoke(session,prompt(x.id,{issues:current.issues,pr:current.initialPR??null},index),deadline,{interrupt:trigger});
+      note(run);
+      // A person replies "go on" when the tool stops to ask permission; each reply is a counted intervention. The interruption
+      // point applies to the whole session, so a tool that asks first and works after the reply is still interrupted.
+      while(!run.interrupted&&run.exit===0&&run.session_id&&record.continuations<CONTINUATIONS&&deadline-Date.now()>60_000&&asksToContinue(run.answer)) {
+        record.continuations++;interventions++;
+        run=await invoke(session,CONTINUE_REPLY,deadline,{resumeId:run.session_id,interrupt:trigger});
+        note(run);
+      }
+      record.end=new Date().toISOString();record.exit=run.exit;answers.push(run.answer);
     }
-  } else parts.push(await runAgent({agent:v.agent,model:v.model,effort:v.effort,arm:x.arm,dir,work,source,mode,githubToken:auth.agentToken,message:initial,archiveRoot,
-    archiveMeta:{scenario:x.id,repeat:x.repeat,result_row_id:rowId,eval_fingerprint:evalFingerprint,source_sha:opts.sourceShas[x.arm]??null,
-      ticketflow_sha:x.arm==='ticketflow'?opts.sourceShas.ticketflow:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null},signalState:opts.signalState}));
+  } finally {
+    try{profile?.cleanup()}catch(e){profileError=e.message}
+    try{destroyProfile(work,mode)}catch(e){profileError??=e.message}
+  }
+  const evidenceDir=join(archiveRoot,'evidence-'+rowId.replace(/[^A-Za-z0-9._-]/g,'-'));
+  const scored=scoreCell({repo,remote:'https://github.com/'+repo+'.git',env:auth.setupEnv,scenario,base:current.baseSha,
+    startSha:current.initialHead??null,sessions,seeded:{issues:current.issues,pr:current.initialPR??null,commentId:current.seededCommentId??null},
+    checkout:dir,installSha:x.arm==='ticketflow'?current.baseSha:null,transcripts:parts.map(p=>p.stdout),
+    answers,
+    evidenceDir});
+  try{cleanupLocal(work)}catch{} // the evidence bundle holds what is needed; the clone and scratch files are not kept
   markInterrupted();
-  const result=scoreDelivery({repo,id:x.id,issues:current.issues,interrupted,resumed:interrupted&&parts.length===2&&parts[1].exit===0,
-    candidateDir,env:auth.setupEnv,
-    initialPR:current.initialPR??null,initialHead:current.initialHead??null,
-    baselineProjects:current.baselineProjects??[]});
-  markInterrupted();
+  const facts=scored;
   const metrics=mergeUsage(parts);
   const plugin_bootstrap=parts.some(p=>p.plugin_bootstrap?.status==='failed')?{status:'failed',evidence:'one-or-more-invocations-failed'}:
     parts.length>0&&parts.every(p=>p.plugin_bootstrap?.status==='loaded')?{status:'loaded',evidence:v.agent==='claude'?'all-claude-plugin-dir-loads':'all-codex-plugin-hook-bypass-loads'}:
     parts.length>0&&parts.every(p=>p.plugin_bootstrap?.status==='verified')?{status:'verified',evidence:'all-codex-plugin-list-loads'}:
     parts.some(p=>p.plugin_bootstrap)?{status:'unknown',evidence:'native-plugin-loading-unobserved'}:null;
-  const profile_cleanup=parts.some(p=>p.cleanup_error)?'failed':'ok';
-  const outcome=classifyOutcome({delivery:result,invocations:parts,plugin_bootstrap,profile_cleanup});
+  const profile_cleanup=profileError?'failed':'ok';
+  const outcome=classifyOutcome({facts,invocations:parts,plugin_bootstrap,profile_cleanup});
   const row={
-    suite:'workflow',scenario:x.id,agent:v.agent,agent_version:version,requested_model:v.model,
+    schema:'workflow-v2',suite:'workflow',scenario:x.id,agent:v.agent,agent_version:version,requested_model:v.model,
     model:metrics.model,requested_effort:v.effort??null,arm:x.arm,variant:x.arm,repeat:x.repeat,
     eval_fingerprint:evalFingerprint,mode:auth.mode,owner:auth.owner,source_sha:opts.sourceShas[x.arm]??null,
     ticketflow_sha:x.arm==='ticketflow'?opts.sourceShas.ticketflow:null,plugin_sha:['superpowers','ponytail'].includes(x.arm)?opts.sourceShas[x.arm]:null,
     evaluation_mode:'non-adversarial',profile_isolation:mode,
     sandbox_mode:v.agent==='codex'?'danger-full-access':'not-applicable',
     profile_cleanup,outcome:outcome.status,invalid_reasons:outcome.invalid_reasons,
-    attempt:cell.attempt??1,retry_of:cell.retry_of??null,
-    check:{pass:outcome.status==='success',why:outcome.status==='invalid'?
-      'invalid benchmark attempt: '+outcome.invalid_reasons.join(', '):
-      result.error??result.hidden_why??''},
-    delivery:result,invocations:parts,interrupted,agent_exit:parts.at(-1).exit,result_row_id:rowId,
+    attempt:cell.attempt??1,retry_of:cell.retry_of??null,base_sha:current.baseSha,
+    sessions,interventions,facts,evidence_dir:relative(ROOT,evidenceDir).startsWith('..')?evidenceDir:relative(ROOT,evidenceDir),
+    invocations:parts.map(({stdout,...rest})=>rest),agent_exit:parts.at(-1)?.exit??null,result_row_id:rowId,
     source_provenance:opts.sourceMeta[x.arm]??null,transcript_archives:parts.map(p=>p.archive).filter(Boolean),
     plugin_bootstrap,
     ...metrics,workdir:work,repo,date:new Date().toISOString(),descendants:'unknown'
   };
   appendFileSync(out,JSON.stringify(row)+'\n',{mode:0o600});
   current.phase='completed';safeOut(statePath,state);
-  if(parts.some(p=>p.cleanup_error)) throw Error('benchmark plugin cleanup failed; stop and inspect original profile');
+  if(profileError) throw Error('benchmark plugin cleanup failed; stop and inspect original profile');
   return row;
 }
 async function cleanupOnly(opts) {
@@ -561,6 +569,8 @@ async function cleanupOnly(opts) {
   const count=await cleanupState({state,statePath:opts.statePath,auth,signalState:opts.signalState});
   console.log(JSON.stringify({mode,lifecycle:'cleanup-only',owner,resources_cleaned:count,state:opts.statePath},null,2));
 }
+const summary=row=>({landing:row.facts.landing.mode,requirements:Object.fromEntries(['landed','pending','missing'].map(k=>[k,row.facts.checks.filter(c=>c.kind==='req'&&c.status===k).length])),
+  defects:row.facts.defects.map(d=>d.id+':'+d.class),interventions:row.interventions});
 async function main() {
   const opts=parse();
   const signals=signalState({onSignal:signal=>console.error('run-workflow: received '+signal+'; stopping the active session and preserving state')}).install();
@@ -601,7 +611,7 @@ async function main() {
       owner,scenarios:selected,arms,repeats,total_cells:plan.length,scheduled_cells:scheduledKeys.size,new_cells:newCells,
       completed:completed.size,pending:pending.length,deferred,
       invalid_to_retry:pending.filter(x=>outcomeOf(latestRows.get(x.key)??{})==='invalid').length,
-      maximum_paid_invocations:pending.reduce((n,p)=>n+(p.id==='W5'?2:1),0),
+      maximum_paid_invocations:pending.reduce((n,p)=>n+ceilingFor(p.id),0),
       sourceShas,projects:'independent disposable Project per session',output:out},null,2));
     if(!v.execute){for(const p of pending)console.log('PLAN '+p.key);return}
     if(!v['allow-github-writes'])throw Error('--allow-github-writes required: creates private repos, real issues, Projects v2, PRs and Actions runs');
@@ -611,15 +621,15 @@ async function main() {
     if(pending.some(x=>(latestRows.get(x.key)?.invalid_reasons??[]).includes('plugin_cleanup_failed'))&&
         !v['acknowledge-plugin-cleanup'])
       throw Error('Previous plugin cleanup failed. Inspect and remove benchmark-owned leftovers first, then explicitly pass --acknowledge-plugin-cleanup to retry invalid cells.');
-    const invocationCeiling=pending.reduce((n,p)=>n+(p.id==='W5'?2:1),0);
-    if(invocationCeiling>max)throw Error(invocationCeiling+' possible paid invocations exceeds --max-sessions '+max+' (W5 can require two invocations)');
+    const invocationCeiling=pending.reduce((n,p)=>n+ceilingFor(p.id),0);
+    if(invocationCeiling>max)throw Error(invocationCeiling+' possible paid invocations exceeds --max-sessions '+max+' (each session may take up to '+CONTINUATIONS+' continuation replies)');
     const runAuth=auth??authenticatedRun('organization',v.org);
     const version=cliVersion(v.agent);
     if(v.agent==='claude'&&arms.some(arm=>arm==='superpowers'||arm==='ponytail'))requireClaudePluginDir();
     if(v.agent==='codex'&&arms.includes('ponytail'))requireCodexPonytailHooks();
     if(targetMode==='organization')validateOrg(owner,{env:runAuth.setupEnv});
     if(rows.some(r=>r.agent_version!==version||r.eval_fingerprint!==evalFingerprint))throw Error('CLI or evaluator version changed; cannot resume');
-    if(v.agent==='codex')approveDangerFullAccess({alreadyApproved:v['allow-danger-full-access'],count:pending.reduce((n,p)=>n+(p.id==='W5'?2:1),0)});
+    if(v.agent==='codex')approveDangerFullAccess({alreadyApproved:v['allow-danger-full-access'],count:pending.reduce((n,p)=>n+ceilingFor(p.id),0)});
     const profileMode=selectProfileMode(v.agent,arms,{count:invocationCeiling});
     if(rows.some(r=>r.profile_isolation!==profileMode))throw Error('resume cannot mix isolated and unisolated profiles');
     const runState=state??{runId:Date.now().toString(36),projectTitle:null,projectNumber:null,cells:{}};
@@ -633,7 +643,7 @@ async function main() {
       for(const [i,cell] of pending.entries()){
         console.log('SESSION '+(i+1)+'/'+pending.length+' '+cell.key);
         const row=await runCell(cell,opts,runState,profileMode,version,evalFingerprint);
-        console.log('RESULT '+cell.key+' '+row.outcome.toUpperCase()+' '+JSON.stringify(row.outcome==='invalid'?row.invalid_reasons:row.delivery.steps));
+        console.log('RESULT '+cell.key+' '+row.outcome.toUpperCase()+' '+JSON.stringify(row.outcome==='invalid'?row.invalid_reasons:summary(row)));
       }
     } catch(e) { failure=e; }
     if(lifecycle==='run-with-auto-cleanup'&&runState) {
@@ -643,6 +653,14 @@ async function main() {
       } catch(e) {
         if(failure)console.error('automatic cleanup also failed: '+e.message);else failure=e;
       }
+    }
+    // Optional: judge the saved evidence once the cells (and any cleanup) are done. The bundles are local, so the repositories are not needed.
+    if(!failure&&v['judge-model']){
+      const args=[join(HERE,'judge-workflow.mjs'),out,'--execute','--model',v['judge-model'],...(v['judge-agent']?['--agent',v['judge-agent']]:[]),
+        ...(v['allow-danger-full-access']?['--allow-danger-full-access']:[])];
+      console.log('JUDGE '+(v['judge-agent']??'opposite family of '+v.agent)+' '+v['judge-model']);
+      const r=spawnSync(process.execPath,args,{stdio:'inherit',env:process.env});
+      if(r.error||r.status!==0)failure=Error('judge exited '+String(r.error?.message??r.status??r.signal)+'; rows and evidence are kept, rerun judge-workflow.mjs on '+out);
     }
     if(failure)throw failure;
   } finally { signals.dispose(); }

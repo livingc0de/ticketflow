@@ -1,64 +1,35 @@
 # Benchmarks (maintainers only)
 
-**Full GitHub pipeline comparisons (W1–W7):** see [WORKFLOW.md](WORKFLOW.md). They use a separate opt-in runner and do not modify the L1–L15 local suite.
+The benchmark is the workflow comparison **W1-W7**: four native approaches (bare agent, Superpowers, Ponytail, TicketFlow) given the
+same fixtures and human-style prompts on real GitHub repositories, measured on outcome and approach by the same neutral rules for
+every arm. Start at [WORKFLOW.md](WORKFLOW.md) for the scenarios, what is measured, setup and the commands.
 
+This directory is deliberately **outside `core/` and `practices/`**. TicketFlow's installer copies only those two roots; it never
+installs benchmark scripts, scenarios, data or documentation into a customer's repository. No paid agent runs occur in CI.
 
-This directory is deliberately **outside `core/` and `practices/`**. TicketFlow's installer copies only those two roots; it never installs benchmark scripts, scenarios, data or documentation into a customer's repository. No paid agent runs occur in CI. See [historical eval and GitHub sandbox procedures](SCENARIOS.md) for E3–E9.
-
-## What is measured
-
-- Fifteen small, repeatable scenarios: L1–L4 migrated intact; L5–L11 and L15 cover input boundaries, idempotency, configuration, escaping, pagination, tenant isolation and cent allocation; L12–L14 assess review findings without editing.
-- Hidden checkers are outside each disposable task repository. Behavioral checks exercise multiple edge cases and the fixture's own tests; review checks require a located, relevant finding and a clean working tree. These are deliberately limited proxies, **not** complete security or production engineering evaluations.
-- For each run: correctness (pass/fail, including failed runs), added/removed lines, touched files, dependencies, elapsed time, tokens, reported cost, model, requested effort and CLI version. Cost per successful task includes all known failed-run cost. Unknown costs stay unknown.
-- Optional real-GitHub review and merge-gate tests are documented separately in SCENARIOS.md; they are not equivalent to model performance benchmarks.
+Comparability rules: pin the exact model, effort, CLI version and every source checkout; use a fresh repository per cell; repeat
+each cell at least three times before reading a difference; report every row, including failures, never the best. A row is
+comparable only when everything but the thing under test is fixed and recorded (the runner records the evaluator fingerprint,
+source revisions, model and plugin evidence in each row).
 
 ## Tool and artifact naming
 
-- `run-local.mjs` runs the L1–L15 local matrix; `agent-eval.mjs` runs one local cell.
-- `run-workflow.mjs` runs the W1–W7 GitHub workflow matrix.
-- `run.mjs` launches a configured local and/or workflow suite in sequence; it defaults to both suites, or accepts `--suite local|workflow`.
-- `report-local.mjs` publishes local results; `report-workflow.mjs` publishes workflow results. Both use dated Markdown names of the form `YYYY-MM-DD-<suite>-<label>.md`.
-- `report.mjs` generates both reports, or one selected report, from a configured plan; it also defaults to both suites, or accepts `--suite local|workflow`.
-- Raw session ledgers are dated `*.jsonl` files chosen with `--out`; they remain ignored. Workflow runs also retain the matching `<file>.state.json` resume sidecar. Transcript archives remain under `benchmarks/results/transcripts/` and are ignored.
+- `run-workflow.mjs` runs the W1-W7 matrix; `report-workflow.mjs` turns the rows into a dated Markdown report; `judge-workflow.mjs`
+  adds the audited status probe and judge scores from the saved evidence.
+- Reports use dated names of the form `YYYY-MM-DD-workflow-<label>.md`.
+- Raw session ledgers are dated `*.jsonl` files chosen with `--out`; they remain ignored. Each run also keeps the matching
+  `<file>.state.json` resume sidecar. Transcript archives and evidence bundles stay under `benchmarks/results/transcripts/` and are ignored.
 
-## Quick smoke / pilot: no paid work by default
+## Competitor checkouts, profiles and authentication
 
-Prepare a clean, pinned older TicketFlow checkout outside this repo:
-
-    git worktree add ../ticketflow-before <older-tag-or-commit>
-
-Inspect the planned sessions (no agents are launched):
-
-    node benchmarks/run-local.mjs --agent claude --model "$CLAUDE_MODEL" --arms before,after --scenarios L1,L2 --repeats 1 --before-source ../ticketflow-before --out benchmarks/results/2026-10-30-local-pilot.jsonl
-
-Run the pilot intentionally (4 paid sessions):
-
-    node benchmarks/run-local.mjs --agent claude --model "$CLAUDE_MODEL" --effort high --arms before,after --scenarios L1,L2 --repeats 1 --before-source ../ticketflow-before --out benchmarks/results/2026-10-30-local-pilot.jsonl --max-sessions 4 --execute
-
-To run one Claude and one Codex matrix in parallel, use separate output files. The cap applies to the combined number of paid sessions, while each agent's sessions remain sequential within its own output:
-
-    node benchmarks/run-local.mjs --parallel --claude-model "$CLAUDE_MODEL" --codex-model "$CODEX_MODEL" --effort high --arms after --scenarios L1 --repeats 1 --claude-out benchmarks/results/2026-10-30-local-claude-pilot.jsonl --codex-out benchmarks/results/2026-10-30-local-codex-pilot.jsonl --max-sessions 2 --allow-danger-full-access --execute
-
-The parallel runner preflights both CLIs and authentication before launching either paid matrix, shares one evaluator fingerprint between the two files, and prefixes their live output. Resume with `--resume` and both output paths; it reruns only missing or fingerprint-mismatched cells.
-
-`--effort` is optional and applies the same level to both agents in parallel mode. Supported levels are `low`, `medium`, `high`, `xhigh` and `max`; Claude receives `--effort LEVEL`, while Codex receives `--config model_reasoning_effort=LEVEL`. If it is omitted, the harness passes no effort setting and each CLI keeps its own model default. The selected value is recorded as `requested_effort` and is part of resume identity and report grouping. For the planned comparison, use model IDs such as `claude-sonnet-5-5` and `gpt-5.6-luna` with `--effort high`.
-
-Run a full before/after comparison by omitting `--scenarios` (all 15 scenarios), selecting `--repeats 3` and setting `--max-sessions 90`. Add `--resume` to continue an interrupted matrix without repeating recorded sessions. Paid resume refuses a changed or missing CLI version; use a fresh output file after upgrading an agent CLI. `--resume` keys include scenario, arm, repetition, model, source commit and the content fingerprint of the evaluator; interrupted sessions with no row must be rerun.
-
-## Five-arm comparison with Ponytail and Superpowers
-
-Both competitors can be evaluated against **native Claude Code plugin checkouts**, not a copied or paraphrased subset of their instructions:
+Superpowers and Ponytail are evaluated against **native Claude Code plugin checkouts**, not a copied or paraphrased subset of their instructions:
 
     git clone https://github.com/obra/superpowers.git ../superpowers
     git clone https://github.com/DietrichGebert/ponytail.git ../ponytail
     git -C ../superpowers checkout <pin-a-reviewed-commit>
     git -C ../ponytail checkout <pin-a-reviewed-commit>
 
-After verifying the plugin manifests and that Claude Code supports `--plugin-dir`, inspect this command first **without** `--execute`:
-
-    node benchmarks/run-local.mjs --agent claude --model "$CLAUDE_MODEL" --arms before,after,bare,superpowers,ponytail --before-source ../ticketflow-before --superpowers-source ../superpowers --ponytail-source ../ponytail --repeats 3 --out benchmarks/results/2026-10-30-local-full.jsonl --max-sessions 225
-
-Adding `--execute` runs the planned 225 paid sessions. Claude loads each pinned Superpowers or Ponytail checkout through its native `--plugin-dir` path automatically. Run the two-arm pilot and inspect actual outputs before doing that. Real costs depend on the chosen model and tasks and cannot be predicted here.
+After verifying the plugin manifests and that Claude Code supports `--plugin-dir`, inspect the planned sessions first, without `--execute` (see [WORKFLOW.md](WORKFLOW.md) for the full command).
 
 For the GitHub workflow runner, every non-bare source must be reproducible. TicketFlow
 must come from the canonical `https://github.com/livingc0de/ticketflow` remote and be
@@ -87,7 +58,7 @@ Recorded results include `profile_isolation: isolated|unisolated` and `sandbox_m
 session is launched with `--plugin-dir`; Codex rows are `verified` from the native
 `codex plugin list --json` enabled-plugin result. This proves the plugin was made
 available to the session, not that the model invoked a particular skill or hook.
-Failed or legacy unknown rows are not publishable. Each session is archived under
+Failed or legacy unknown rows are not publishable. Each invocation is archived under
 `benchmarks/results/transcripts/<session-id>/` with only `agent.out`, `answer.txt`
 and allowlisted `metadata.json`; profiles, auth files, environment variables and
 temporary workspaces are never copied. Rows link to the archive with
@@ -98,41 +69,23 @@ Check that no user-level instruction files or other plugins leak into the bare a
 Native Superpowers may require interactive design approval; a non-interactive harness
 can expose that limitation, not silently bypass it.
 
-## Publish existing rows (free)
-
-    node benchmarks/report-local.mjs benchmarks/results/2026-10-30-local-full.jsonl --publish --label pilot
-
-To generate both suite reports from one plan, use arrays of ordinary reporter arguments:
-
-    {
-      "local": ["benchmarks/results/2026-10-30-local-full.jsonl", "--publish", "--label", "pilot"],
-      "workflow": ["benchmarks/results/2026-10-30-workflow-full.jsonl", "--publish", "--label", "pilot"]
-    }
-
-    node benchmarks/report.mjs --config my-report-plan.json
-
-The reporters write dated, sanitized Markdown reports under [`benchmarks/results/`](results/). Local reports include revisions, models, methodology, per-arm and per-scenario pass rates, descriptive Wilson 95% ranges, timing, change size, costs and limitations. The local publisher refuses incomplete or unpinned publications. Workflow reports instead separate candidate correctness, merged delivery and full-pipeline outcomes, show invalid attempts and their reasons, and summarize workflow evidence, coordination, timing and costs; they are an audit view and do not enforce the local publisher's metadata gate. Inspect workflow provenance, invalid cells and plugin cleanup before treating a workflow report as a controlled comparison. Neither reporter publishes raw session rows, answers, transcripts or local paths. See the [results index](results/README.md). Repeated paired task cells are not independent trials, so these summaries are **not statistical evidence of superiority**. All results must be traceable to actual sessions.
-
 ## Safety and operational limits
 
-- The harness runs each task in a temporary Git repository. It is **not a security sandbox**: tools can execute Node/npm scripts, competitor plugins can execute hooks, and an agent may discover evaluator files through the unrestricted Node/npm allowlist. Results are explicitly non-adversarial. Use a disposable VM with no GitHub, cloud, production, or personal credentials.
+- Claude Code loads `CLAUDE.md`, `AGENTS.md` and settings files from every parent directory of its working directory, so a stray one above the work area would reach every arm. The runner refuses to start when it finds one; point `BENCHMARK_WORK_ROOT` at a directory whose parents have none (for example `/var/tmp/benchmark`; not under a home directory that has `.claude/CLAUDE.md`).
+- Claude sessions run with `--permission-mode bypassPermissions` (Codex with `danger-full-access`), so no arm is slowed or skewed by permission prompts and `permission_denials` stays 0 unless the tool itself blocks something. The harness runs each task in a temporary Git repository. It is **not a security sandbox**: tools can execute Node/npm scripts, competitor plugins can execute hooks, and an agent may discover evaluator files through the unrestricted Node/npm allowlist. Results are explicitly non-adversarial. Use a disposable VM with no GitHub, cloud, production, or personal credentials.
 - No runs are created by `npm test`, by CI, by inspecting the runner, or by running the report. Paid runs require `--execute`, an explicit pinned model, an output file, and a session cap.
 - `benchmarks/results/*.jsonl` and `*.csv` are ignored locally to avoid accidentally committing session identifiers and paths. Add sanitized evidence intentionally with `git add -f` when publishing.
-- `--source` checkouts should be clean and pinned. A different revision or CLI model invalidates a paired comparison. The workflow runner escalates a timed-out process group from SIGTERM to SIGKILL after a bounded grace period. The harness records unknown descendant-agent token attribution and cannot establish manual-intervention cost from a headless session.
-- The original evaluator and all L1–L4 fixtures now live here; the maintainer upstream-change watcher in `skills/upstream/upstream-review.mjs` stays outside this module because it isn't a benchmark.
+- Source checkouts must be clean and pinned. A different revision or CLI model invalidates a paired comparison. The runner escalates a timed-out process group from SIGTERM to SIGKILL after a bounded grace period. The harness records unknown descendant-agent token attribution and cannot establish manual-intervention cost from a headless session.
+- The maintainer upstream-change watcher in `skills/upstream/upstream-review.mjs` stays outside this module because it isn't a benchmark.
 
 ## Commands
 
 | File | Responsibility |
 | --- | --- |
-| `agent-eval.mjs` | One real agent run with hidden check and JSON row; paid only when explicitly invoked |
-| `run-local.mjs` | Balanced L1–L15 multi-arm, multi-repeat comparison; dry-run by default |
-| `run-workflow.mjs` | Paid opt-in W1–W7 GitHub workflow comparison; dry-run by default |
-| `run.mjs` | Configured local/workflow suite launcher; dry-run unless `--execute` is passed |
-| `report-local.mjs` | Deterministic Markdown/CSV reporting for local rows; no agents |
-| `report-workflow.mjs` | Deterministic full-pipeline Markdown reporting for workflow rows; no agents |
-| `report.mjs` | Configured local/workflow report launcher |
-| `scenarios/` | Task repositories, prompts and private-to-the-agent hidden check manifests |
-| `checks/` | Shared deterministic hidden checkers |
-| `tests/` | Fake-CLI runner tests, checker calibration and reporting tests |
-| `SCENARIOS.md` | Existing benchmark history and GitHub E3–E9 sandbox protocols |
+| `run-workflow.mjs` | Paid opt-in W1-W7 GitHub workflow comparison; dry-run by default |
+| `report-workflow.mjs` | Deterministic Markdown reporting for workflow rows; no agents |
+| `judge-workflow.mjs` | Status probe and judge over saved evidence; dry-run unless `--execute` |
+| `workflow/` | Scenarios and fixtures, reference solutions (tests only), sandbox setup, evaluator, outcome rules, profiles |
+| `lib/` | Shared helpers: source integrity, profile authentication, process control, transcripts, report output |
+| `tests/` | Fake-CLI runner tests, scenario matrix, judge and reporting tests |
+| `SCENARIOS.md` | GitHub E3-E9 sandbox protocols for the merge gate |

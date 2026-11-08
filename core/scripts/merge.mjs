@@ -58,10 +58,11 @@ function selfCheck(pull, head, own, reviews, me) {
     const sha7 = head.slice(0, 7)
     if (!cfg.review.self_check) return 'self-check is off in this repo (review.self_check): run pr-reviewer on the head'
     if (!completedReview(own)) return `no submitted self-check of ${sha7}: post one (gh pr review ${pr} --repo ${cfg.repo} --comment --body-file -) that starts "Self-check head: ${sha7}", then Acceptance criteria:, Invariant sweep: and Not checked:, and use --self-checked; or ${NEXT('the last reviewed head')}`
-    // this account's latest marked pr-reviewer review of another commit: after a "changes needed" a self-check is not enough, and a ready one is the base of a fix delta
+    // this account's latest review of another commit that is marked or a native changes request (whatever its text): after a changes request or a
+    // "changes needed" a self-check is not enough, and only a ready, marked one is the base of a fix delta
     const prior = reviews.filter((x) => x.user?.login === me && TRUSTED.has(x.author_association) &&
-        x.commit_id !== head && x.state !== 'PENDING' && x.state !== 'DISMISSED' && marker(x)).at(-1)
-    if (prior && !(marker(prior).ready && completedReview(prior) && typeof prior.commit_id === 'string' && prior.commit_id.startsWith(marker(prior).sha))) return `the last earlier pr-reviewer review was not a ready review of its own head: ${NEXT(prior.commit_id?.slice(0, 7) ?? 'the last reviewed head')}`
+        x.commit_id !== head && x.state !== 'PENDING' && x.state !== 'DISMISSED' && (marker(x) || x.state === 'CHANGES_REQUESTED')).at(-1)
+    if (prior && !(marker(prior)?.ready && completedReview(prior) && typeof prior.commit_id === 'string' && prior.commit_id.startsWith(marker(prior).sha))) return `the last earlier pr-reviewer review was not a ready review of its own head: ${NEXT(prior.commit_id?.slice(0, 7) ?? 'the last reviewed head')}`
     const found = laneOfPull(cfg, pull, pr)
     if (found.ticket === null) return `no "Ticket #N" in the PR title or body: a self-check is for ticket work only (add it, or ${NEXT('the last reviewed head')})`
     if (found.lane === 'self-check') return { lane: 'small diff' }

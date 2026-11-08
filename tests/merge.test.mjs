@@ -425,6 +425,19 @@ test('S7: an earlier native changes request cannot be bypassed by a later self-c
     refused(selfChecked({ reviews: [other('boss', { id: 70, state: 'CHANGES_REQUESTED', body: NEEDED }), review({ body: SELF })] }), /boss/)
 })
 
+test('S7b: a native changes request without the marker (one posted before this release, say) still blocks a later self-check', () => {
+    const native = review({ id: 70, commit_id: ANCESTOR, state: 'CHANGES_REQUESTED', body: 'Please fix the race condition' })
+    refused(selfChecked({ reviews: [native, review({ body: SELF })] }), /last earlier pr-reviewer review was not a ready review of its own head/)
+    refused(selfChecked({ files: BIG, reviews: [native, review({ body: SELF })], extra: delta([f('src/a.js')]) }), /not a ready review of its own head/)
+    // a ready marked review after it replaces it; one before it does not
+    const ready = review({ id: 71, commit_id: OLD, body: marked(OLD.slice(0, 7)) })
+    assert.equal(selfChecked({ reviews: [native, ready, review({ body: SELF })] }).status, 0)
+    refused(selfChecked({ reviews: [ready, review({ ...native, id: 72 }), review({ body: SELF })] }), /not a ready review of its own head/)
+    // a dismissed one is gone, and another account's does not count against this account's base
+    assert.equal(selfChecked({ reviews: [{ ...native, state: 'DISMISSED' }, review({ body: SELF })] }).status, 0)
+    assert.equal(selfChecked({ reviews: [{ ...native, user: { login: 'someone-else' } }, review({ body: SELF })] }).status, 0)
+})
+
 test('S8: the fix-delta base is checked like a review of record: state, the commit its header names, an unreadable delta, a floor path in a rename, 300 files, a review of the head itself', () => {
     const go = (prior, deltaFixture, over = {}) => selfChecked({ files: BIG, reviews: [prior, review({ body: SELF })], extra: deltaFixture, ...over })
     refused(go({ ...PRIOR, state: 'CHANGES_REQUESTED' }, delta([f('src/a.js')])), /not a ready review of its own head/)

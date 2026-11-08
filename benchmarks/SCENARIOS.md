@@ -1,63 +1,15 @@
-# Historical evaluations and GitHub sandbox probes
+# GitHub sandbox probes (maintainers only)
 
-For the current benchmark runner and fifteen-scenario suite, start at [benchmarks/README.md](README.md). The sections below preserve earlier methods and observations; their historical result claims are not updated by the relocation. The current runner supports the five-arm Claude and Codex matrix; older two-arm commands below are historical examples unless explicitly updated.
+Manual procedures that check TicketFlow's merge gate, review waiting, resume and coordination on a real GitHub sandbox. They are not
+part of the workflow benchmark ([README.md](README.md), [WORKFLOW.md](WORKFLOW.md)). Everything that starts an agent session is **paid and
+manual**; nothing here runs in CI. A written procedure is not evidence: only a dated result recorded in this file is. A scenario
+with no dated result below has not been run.
 
-Use when you want to measure how real agents behave under TicketFlow (cost, turns, correctness, whether they follow the rules), to run a GitHub sandbox check of the review gate, or to know what has and has not been checked.
+Maintainer-only: `benchmarks/` is never copied into an installed repo and is not linked from `core/docs/`.
 
-Maintainer-only: `benchmarks/` is never copied into an installed repo and is not linked from `core/docs/`. Everything that starts an agent session is **paid and manual**; nothing here runs in CI. A written procedure is not evidence: only the rows and observations recorded under "Results" are.
-
-## What changed in 0.3.5
-
-The 0.3.0 table (E1 to E8) was a protocol with no runner. Now:
-
-- **L1 to L4** are local, repeatable and scored by a hidden check: `benchmarks/agent-eval.mjs` runs one scenario with a real agent CLI and appends one JSON row.
-- **E3 to E9** are GitHub sandbox procedures with exact commands and expected outcomes (below). E3 needs no agent session at all.
-- Old numbering: E1 is now L1, E2 is L2, E3 and E8 are E3, E4 is E6, E5 is E7, E6 is E8, E7 is E9. E4 (resume) and E5 (coordinators) are new.
-
-## The fixed-revision rule
-
-A result is comparable only when everything but the one thing under test is fixed and written down:
-
-1. **TicketFlow revision.** A commit sha (or tag) of a clean checkout. The harness records `ticketflow_sha`, `ticketflow_version` and `ticketflow_dirty`; a row with `ticketflow_dirty: true` is a development run, not a result. `eval_sha` is retained for provenance, while `eval_fingerprint` hashes the benchmark inputs by content so dirty evaluator changes cannot be hidden behind an unchanged Git HEAD.
-2. **Agent, version, model, effort, permissions.** The same for both arms and every revision compared (`--model`; the CLI's own effort setting; the allowlist in `benchmarks/agent-eval.mjs`).
-3. **Fresh workspace per run.** The harness makes a new temp git repo from the scenario's `repo/` every time and never reuses a session.
-4. **Baseline.** Compare a candidate with `v0.3.0` by installing the old tag with `--source`: `git worktree add ../tf-v0.3.0 v0.3.0`, then `node benchmarks/agent-eval.mjs L2 --agent claude --arm ticketflow --source ../tf-v0.3.0`. The scenarios and the tool stay the candidate's. The `bare` arm is the agent without TicketFlow, for the tasks it actually addresses; it has no GitHub gate, so it is not a safety baseline.
-5. **Repeat.** One run proves nothing about a stochastic agent: repeat each cell at least 3 times for a promising difference and report all rows, not the best.
-
-## L1 to L4: local agent evals
-
-```
-node benchmarks/agent-eval.mjs <scenario> --agent claude|codex --arm ticketflow|bare|superpowers|ponytail [--model m] [--source dir] [--ticketflow-sha sha] [--superpowers-sha sha] [--ponytail-sha sha] [--out results.jsonl] [--allow-danger-full-access]
-```
-
-Exit 0: the hidden check passed. Exit 1: it failed (the row is still printed and appended: a failure is data). Exit 2: unknown scenario, missing option, missing CLI or checkout, before any run. The tool starts a paid session; it prints the row as one JSON line.
-
-| # | Scenario (`benchmarks/scenarios/`) | Hidden check passes when | What it measures |
-|---|---|---|---|
-| L1 | `L1-trivial-copy`: a spelling mistake in one string | the string is fixed, nothing else in the messages changed, the repo's tests pass | a trivial change stays trivial: diff size, turns, cost, no ceremony |
-| L2 | `L2-shared-root-cause`: an invoice line is a cent short; the cause is the rounding helper that a second caller (refunds) shares | both callers and the shared helper itself are right on half-cent inputs, the suite passes, and a new or changed test passes on the fix (it is run directly, wherever the agent put it) and fails on the original `src/` | root cause over symptom; a real failing test |
-| L3 | `L3-over-buildable`: add `--csv` to a tiny report command | quoted CSV is correct, the default output is unchanged, the suite passes, the project has no dependency | functionality at proportionate size: diff, dependencies, cost |
-| L4 | `L4-review-diff`: review a diff with a planted path-traversal bug | one line of the answer cites `src/files.js:7` (or a range from 7 to 9) and says it is a path traversal, and the repo is unchanged (no edit, no commit) | review precision; no edits in a review |
-
-Commands for the supported full matrix, one agent (each cell is one paid session):
-
-```
-mkdir -p benchmarks/results
-node benchmarks/run-local.mjs --agent claude --model "$CLAUDE_MODEL" \
-  --arms bare,after --after-source ../ticketflow-reviewed \
-  --scenarios L1,L2,L3,L4 --repeats 1 --out benchmarks/results/$(date +%F)-local-claude.jsonl \
-  --max-sessions 8 --execute
-```
-
-How a run works: copy `repo/` to a temp git repo and commit it (the `ticketflow` arm first installs the checkout the way `init` does: `runtime.mjs`, then `gen-stubs.mjs`, then `render.mjs`, with a minimal `local` config for the chosen agent, all inside the base commit); run the agent CLI non-interactively with `prompt.md`; run the scenario's `check.mjs <dir> <answer-file>` (it lives outside the temp repo); diff against the base commit. Claude Code: `claude -p "<prompt>" --output-format json --no-session-persistence --setting-sources project,local --allowedTools "<allowlist>"`; with an effort override, add `--effort high`. Codex: `codex exec --json --ignore-user-config --sandbox danger-full-access -C <dir> -o <answer-file> -` with the prompt on stdin for isolated bare/TicketFlow runs, or with an isolated local marketplace for native plugin arms; with an effort override, add `--config model_reasoning_effort=high`. The supported common effort levels are `low`, `medium`, `high`, `xhigh` and `max`; omitting the switch leaves each CLI's default. The Codex sandbox switch is deliberate for hosts where its user-namespace sandbox cannot start; it is not an OS security boundary, so use a disposable machine with no sensitive credentials. Both the matrix runner and direct `agent-eval.mjs` print a danger-full-access notice and require interactive approval before a Codex paid session; pass `--allow-danger-full-access` only when that approval has already been made in a controlled non-interactive invocation. A keyring-only login requires explicit interactive approval; approved unisolated runs use the original profile, and Codex plugin arms clean only their benchmark-owned marketplace/plugin. The allowlist is read, edit, write, glob, grep, `node`, `npm`, `git status|diff|log|show|add|commit`. It names no `gh` and no `git push`, but `Bash(node *)` and `Bash(npm *)` run any script, so the allowlist is not a containment: run the harness with no GitHub credentials in the environment. Rows are marked `evaluation_mode: non-adversarial` and record `profile_isolation`, `sandbox_mode`, `requested_effort` and `profile_cleanup`.
-
-A row (JSON, one line) has: `scenario`, `agent`, `agent_version`, `model` (effective model reported by the CLI, null when unreported), `requested_model` (the model passed to the CLI), `requested_effort` (the explicit effort, or null when each CLI default is used), `arm`, `variant` (the requested source label, such as `before` or `after`), `repeat`, `eval_sha`, `eval_fingerprint`, `evaluation_mode`, `profile_isolation` (`isolated|unisolated`), `sandbox_mode` (`danger-full-access` for Codex, `not-applicable` for Claude), `profile_cleanup` (`ok|failed`), `ticketflow_sha`, `ticketflow_dirty`, `ticketflow_version` (null on the bare arm), `plugin_sha`, `plugin_native`, `plugin_bootstrap` (`loaded|verified|unknown|failed` plus evidence), `source_provenance`, `result_row_id`, `transcript_archive`, `archive_error`, `check` (`pass`, `why`), `diff` (`added`, `removed`, `files`, against the base commit, commits and new files included, `node_modules` and `package-lock.json` left out), `deps_added` (names in `package.json` that were not there at the base), `turns`, `tokens`, `cost_usd`, `wall_s`, `agent_exit`, `agent_error`, `descendants`, `workdir` and `date`. `agent_error` records a process or stdin/stream failure; `archive_error` records a failed transcript archive. Such rows remain retained for audit but are not successful runs. The archived transcript is only `agent.out`, `answer.txt` and allowlisted `metadata.json` under the ignored `benchmarks/results/transcripts/` root; credentials, profiles, environment variables and temporary workspaces are not archived. Claude external rows use `loaded` with `claude-plugin-dir` evidence after the pinned checkout is validated and passed to Claude; Codex rows use `verified` with the native enabled-plugin listing. This records plugin availability to the session, not model use of a specific skill or hook. `turns`, `tokens`, `cost_usd` and `model` are copied from the CLI's JSON and are `null` where it does not give them; `requested_model` records the explicit runner input. By the CLIs' documented output, Claude Code reports turns, cost, token usage and model, and Codex reports token usage only, so Codex's effective model remains unknown; its `input_tokens` includes the cached ones and Claude's does not, so the two are not comparable. The parsers are tested against fake output only. **`descendants` is `unknown`** for both: nothing verified that a CLI's totals include child agents, so cost across an orchestrated run's descendants is not claimed. Set it by hand to `included` only after a run shows the child agents' usage in the total.
-
-Claude external sessions use the validated pinned checkout through `--plugin-dir`; Codex external sessions use the native `codex plugin list --json` enabled-plugin result. Neither arm claims that the model invoked a particular plugin skill merely from its answer text.
-
-Legacy rows with unknown plugin status remain visible in previews but are not publishable; newly executed Claude plugin rows record the native `--plugin-dir` setup as loaded.
-
-Limitations to carry into every report: isolated Claude uses a disposable `HOME`/`CLAUDE_CONFIG_DIR`, isolated Codex uses a disposable `HOME`/`CODEX_HOME`, credential-bearing environment variables are removed from isolated profiles, and copied auth files plus temporary home state are erased after the session; an approved unisolated fallback can load personal settings/plugins and change the original profile, while Codex competitor cleanup is limited to benchmark-owned entries; user-level instruction loading still needs verification; Codex treats a fresh temp directory as an untrusted project, so the project-level hook and config the ticketflow arm installs may not load; the allowlist is not a containment (above), so run it on a disposable machine; the hidden checks are coarse and intentionally non-adversarial (L4 reads one answer line for the cited line and a traversal word, so read the answer; L2 needs the helper `roundMoney` itself fixed, so an agent that deletes it fails); an agent can in principle read the checks, which live in this checkout.
+Fix everything but the one thing under test and write it down: the TicketFlow commit (a clean checkout), the agent, its version,
+model, effort and permissions, and the sandbox. Repeat each agent-driven cell at least three times before reading a difference and
+report every row, failures included.
 
 ## E3 to E9: GitHub sandbox procedures
 
@@ -79,7 +31,7 @@ They need a real repository with accounts of different power. Do them on the fix
 
 ### Sandbox setup (once)
 
-- An **organization-owned, public** repository `<sandbox>` with no real data (a personal repository cannot have a read-only collaborator, and a private one cannot be commented on by an outsider). Seed it with the files of `benchmarks/scenarios/L2-shared-root-cause/repo/` (a tiny package whose `npm test` passes).
+- An **organization-owned, public** repository `<sandbox>` with no real data (a personal repository cannot have a read-only collaborator, and a private one cannot be commented on by an outsider). Seed it with any tiny Node package whose `npm test` passes (for example the files `fixture('W2')` returns from `benchmarks/workflow/scenarios.mjs`).
 - Accounts, each with a token in an environment variable: `ADMIN` (repository admin: the owner's), `AGENT` (collaborator with write access: the account an agent works as), `REVIEWER` (write access: stands in for an external reviewer), `READER` (collaborator with read access), `OUTSIDER` (no relation to the repository). The helper runs any command as one of them:
 
 ```
@@ -100,7 +52,7 @@ newpr() { git switch -q -c "eval/$1" origin/main && echo "$1" > "eval-$1.md" && 
 
 1. `PR=$(newpr started)`. As `REVIEWER`, review the head: `as REVIEWER gh pr review $PR --comment --body "Blocking: this file breaks the next test."` (state `COMMENTED`, no inline thread).
 2. `as AGENT node .ticketflow/scripts/pr-wait.mjs $PR`. **Expect** `Review <REVIEWER login>: result review COMMENTED <url> Blocking: ...`, `Review: results (<REVIEWER login>)`, `Unresolved threads: 0`, exit 0. A result is not an approval: the agent reads it.
-3. `as AGENT node .ticketflow/scripts/merge.mjs $PR`. **Expect** exit 1, `no review of <sha7>: run pr-reviewer on the head ..., or pass --reviewed-by '<login>' ...`.
+3. `as AGENT node .ticketflow/scripts/merge.mjs $PR`. **Expect** exit 1, `no pr-reviewer review marked for <sha7>: post the pr-reviewer's report ... starting with this line, ... or pass --reviewed-by '<login>' ...`.
 4. A reviewer that started and has not answered: `PR=$(newpr pending)`; as `REVIEWER`, `gh api repos/<sandbox>/issues/$PR/reactions -f content=eyes` (a reaction that is its first sign starts the wait but is no result). `pr-wait --once` **Expect** `Review <REVIEWER login>: pending since <time> (at most until <time + 15 min>)`, `Review: pending (<REVIEWER login>)`; `merge` **Expect** exit 1, `a reviewer started on <sha7> and has not answered: wait (pr-wait), at most 15 minutes from its start`. After 15 minutes `pr-wait` prints `no result 15 min after its start` and `Review: none (no result in time: ...)`.
 5. Old activity: push a commit to `$PR`. **Expect** the reviewer's earlier reaction and review decide nothing on the new head (`Review: none`).
 6. Positive control: `PR=$(newpr approved)`; `as REVIEWER gh pr review $PR --approve`; `as AGENT node .ticketflow/scripts/merge.mjs $PR --reviewed-by <REVIEWER login>` exits 0 and prints `Note: merged on the result of <REVIEWER login> on <sha7>; ...`.
@@ -108,9 +60,9 @@ newpr() { git switch -q -c "eval/$1" origin/main && echo "$1" > "eval-$1.md" && 
 
 ### E3b: evidence is for the exact head
 
-1. `PR=$(newpr stale)`; `HEAD=$(git rev-parse HEAD)`. As `AGENT`, post a pr-reviewer-format review: a file with the first line `Reviewed head: <full $HEAD>` and the line `**Verdict:** ready to merge`, then `as AGENT gh pr review $PR --comment --body-file review.md`.
+1. `PR=$(newpr stale)`; `HEAD=$(git rev-parse HEAD)`. As `AGENT`, post a pr-reviewer review: a file whose first line is `Reviewed head: <full $HEAD> by pr-reviewer: ready to merge`, then `as AGENT gh pr review $PR --comment --body-file review.md`.
 2. Push a new commit (`echo more >> eval-stale.md && git commit -qam more && git push -q`); wait for the gate (`pr-wait`).
-3. `as AGENT node .ticketflow/scripts/merge.mjs $PR`. **Expect** exit 1, `no review of <new sha7>`: the review is on the old head.
+3. `as AGENT node .ticketflow/scripts/merge.mjs $PR`. **Expect** exit 1, `no pr-reviewer review marked for <new sha7>`: the review is on the old head.
 4. Repeat 1 to 3 with an update-branch instead of a commit (let another PR merge first, then `as AGENT gh pr update-branch $PR`) and with a force push (`git commit --amend --no-edit && git push --force-with-lease`). **Expect** the same refusal: there is no exception for an update-branch.
 5. Post a review of the current head (a delta review is enough) and merge. **Expect** exit 0, `Merged #<PR> (squash) as <sha>`.
 
@@ -118,20 +70,20 @@ newpr() { git switch -q -c "eval/$1" origin/main && echo "$1" > "eval-$1.md" && 
 
 Three cases, each on its own pull request.
 
-**Case 1, another account's `changes needed`.** `PR=$(newpr other)`. As `REVIEWER`, post a review with `Reviewed head: <full sha>` and `**Verdict:** changes needed`; as `AGENT`, post a `ready to merge` review of the same head. `merge`. **Expect** exit 1, `the last verdict of <REVIEWER login> on <sha7> is "changes needed" ... (only that account can lift it)`. As `REVIEWER`, post a `ready to merge` review of the head. `merge` exits 0.
+**Case 1, another account's `changes needed`.** `PR=$(newpr other)`. As `REVIEWER`, post a review whose first line is `Reviewed head: <full sha> by pr-reviewer: changes needed`; as `AGENT`, post a `ready to merge` marker review of the same head. `merge`. **Expect** exit 1, `<REVIEWER login>'s pr-reviewer review of <sha7> says changes needed`. As `REVIEWER`, post a `ready to merge` marker review of the head (a later ready marker of the same account replaces its `changes needed`). `merge` exits 0.
 
-**Case 2, an outsider's ready review.** `PR=$(newpr outsiderready)`. As `OUTSIDER`, post a review of the head with `**Verdict:** ready to merge`. `merge`. **Expect** exit 1, `no review of <sha7>`: an outsider's review sets no verdict.
+**Case 2, an outsider's ready review.** `PR=$(newpr outsiderready)`. As `OUTSIDER`, post a review of the head whose first line is `Reviewed head: <full sha> by pr-reviewer: ready to merge`. `merge`. **Expect** exit 1, `no pr-reviewer review marked for <sha7>`: an outsider's review is never the merging account's.
 
 **Case 3, naming this account or an unlisted one.** `PR=$(newpr named)`; with an `AGENT` ready review of the head present, `merge --reviewed-by <AGENT login>`. **Expect** exit 1, `<AGENT login> has no result on <sha7>`: this account's own activity is never an external reviewer's. Same for `--reviewed-by <OUTSIDER login>`.
 
-Known limit, to state in the results and not to fix: the agent's own review is posted under the account `merge` trusts; only the high-assurance mode (`core/docs/SECURITY.md`, "Two ways to run") makes GitHub require someone else's approval. An agent on a GitHub App token cannot read `gh api user`, so both scripts refuse it.
+Known limit, to state in the results and not to fix: the agent's own review (and its marker line) is posted under the account `merge` trusts; only the high-assurance mode (`core/docs/SECURITY.md`, "Two ways to run") makes GitHub require someone else's approval. An agent on a GitHub App token cannot read `gh api user`, so both scripts refuse it.
 
 ### E3d: an outsider cannot lift a block, and cannot deadlock
 
-1. `PR=$(newpr outsider)`. As `AGENT`, post `Reviewed head: <sha>` and `**Verdict:** changes needed` as a review.
-2. As `OUTSIDER`, post a review `**Verdict:** ready to merge`, a comment and an inline comment: `as OUTSIDER gh api repos/<sandbox>/pulls/$PR/comments -f body="nit" -f commit_id=<head sha> -f path=eval-outsider.md -F line=1 -f side=RIGHT`.
+1. `PR=$(newpr outsider)`. As `AGENT`, post a review whose first line is `Reviewed head: <sha> by pr-reviewer: changes needed`.
+2. As `OUTSIDER`, post a review with a `ready to merge` marker line, a comment and an inline comment: `as OUTSIDER gh api repos/<sandbox>/pulls/$PR/comments -f body="nit" -f commit_id=<head sha> -f path=eval-outsider.md -F line=1 -f side=RIGHT`.
 3. `pr-wait`. **Expect** `Unresolved threads: 1` with one `[PRRT_...] eval-outsider.md:1 @<OUTSIDER login> nit` line, and no `Review <OUTSIDER login>` line (an outsider's comment starts no wait).
-4. `merge`. **Expect** exit 1: first `1 unresolved review thread(s)`. Answer and resolve it: `echo "Rejected: not a defect" | as AGENT node .ticketflow/scripts/thread.mjs $PR PRRT_...` (exit 0). `merge` again. **Expect** exit 1, `the last verdict of <AGENT login> on <sha7> is "changes needed", not exactly "ready to merge"`: the outsider's verdict did not lift it.
+4. `merge`. **Expect** exit 1: first `1 unresolved review thread(s)`. Answer and resolve it: `echo "Rejected: not a defect" | as AGENT node .ticketflow/scripts/thread.mjs $PR PRRT_...` (exit 0). `merge` again. **Expect** exit 1, `<AGENT login>'s pr-reviewer review of <sha7> says changes needed`: the outsider's marker did not lift it.
 
 ### E3e: red, missing and requested-changes states
 
@@ -191,27 +143,11 @@ Copy this into a dated section below for each batch and fill every field; leave 
 - Limitations and confidence: <what these numbers can and cannot say>.
 ```
 
-## What ran
+## Not covered by these procedures
 
-On the release branch of 0.3.5 (main at `d556bf2` plus the harness and the release files; the numbers are those of the final `npm test` run):
+- Parallel tickets, the three-agent budget and the nesting limits of each backend are instruction-level rules; no scenario checks them.
+- Prompt-injection resistance beyond the fixtures is untested with real agents.
+- Cost across descendants of an orchestrated run is unmeasured (`descendants` is `unknown`).
+- The softer rules of the engineering method (planning alternatives, expected-load findings) have no scenario; they can only be read from transcripts.
 
-- `npm test`: 478 tests, 474 passed, 4 skipped, 0 failed. The skipped ones: two that run only on a release tag (the tag is `v<VERSION>`, `CHANGELOG.md` has a section for `VERSION`; both pass with a simulated tag environment on this tree) and two that need `actionlint`, which was not installed. The unit and fixture suite, no network, no agent: all of `tests/*.test.mjs`. For this document, `benchmarks/tests/agent-eval.test.mjs` runs the harness against fake `claude` and `codex` executables: the row fields, the bare and ticketflow arms, a failed hidden check recorded as a fail, `--source`, and exit 2 for a bad scenario, a bad option or a missing CLI. It also proves each of L1 to L4: the hidden check fails on the untouched repo and on typical wrong fixes (a symptom patch, an epsilon in both callers, a partial fix, no test, a vacuous test, a test that fails on the fix, unquoted CSV, an added dependency or `node_modules`, a failing suite, an answer with the wrong line or no traversal named, an edit), with a negative test for every rejection branch of every check and passes on a reference fix.
-- Fixture scenarios for the review gate and the queue (fake `gh`, no network), in `tests/pr-wait.test.mjs`, `tests/merge.test.mjs`, `tests/queue.test.mjs` and `tests/thread.test.mjs`: a comment-only review needs a stand-in; a basis must link a ready review of the exact head; a read-only account cannot lift a block and `owner approved` needs admin; older pull requests are found through cross-references; unresolved and unknown threads, `CHANGES_REQUESTED`, a missing gate and a moved base refuse.
-- The guard: `guard.mjs --self-test` and the per-format tests for every example in `core/guard.json`.
-- An upgrade dry run, scratch only and no GitHub call: TicketFlow `v0.3.0` installed into a temporary git repo the way `init` does, then the update steps of the `sync` skill run from this branch (`runtime`, `gen-stubs`, `render`, `doctor --local`). Config and `custom/` came out byte-identical; the `engineering-method` stubs, the `debt.mjs` allow line and the AGENTS line were added; the write-once `custom/README.md` was not touched.
-- `node core/scripts/gen-stubs.mjs core . --check` and `node core/scripts/render.mjs core/templates . --check`.
-- The CLI flags the harness uses were checked against `claude --help` (2.1.311) and `codex exec --help` (0.153.4) on the machine that built it; no agent session was started to do so.
-
-## What did not run
-
-Decision D4 for 0.3.5: no paid session was run.
-
-- **L1 to L4 on Claude Code and Codex, both arms, and the 0.3.0 vs 0.3.5 comparison.** No cost, turn, token or duration number exists. Agent compliance with the prose rules (planning skip, test first, lean reviews, root cause over symptom, the orchestrator's compact table) is **not measured**. The harness has only been run against fake CLIs: whether the real CLIs accept the exact arguments in practice, and what their JSON contains in a real run, is unconfirmed beyond `--help`. Commands: the matrix above.
-- **E3 to E9 on a GitHub sandbox.** Not run. E3a to E3e were rewritten for 0.4.0 (no reviewer config, no review basis) and never run live. E3 needs five accounts and a sandbox but no agent; E4 to E9 need agent sessions. Commands: the procedures above. E3a to E3e are the gate behaviours the fixture tests cover with a fake `gh`; the live GitHub responses (review states, `author_association`, the permission endpoint, cross-reference events) are unconfirmed.
-- **The five other tools' installs and guard hooks (E9).** The formats follow each tool's documentation and TicketFlow's own tests only.
-- **Parallel tickets, the three-agent budget and nesting limits** of each backend are instruction-level; no run checked them.
-- **Prompt-injection resistance** beyond the fixtures is untested with real agents.
-- **Cost across descendants** of an orchestrated run: unmeasured (`descendants` is `unknown`).
-- **Planning alternatives and expected-load findings** (the method's softer rules) have no scenario; they can only be read from the transcripts of L1 to L3.
-
-Update this file with a dated result when a scenario is run, and keep the "did not run" list honest.
+Add a dated result when a scenario is run, and keep this list honest.

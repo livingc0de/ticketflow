@@ -1,1 +1,0 @@
-{"name":"benchmark-fixture","private":true,"type":"module","scripts":{"test":"node --test spec/*.test.js"}}

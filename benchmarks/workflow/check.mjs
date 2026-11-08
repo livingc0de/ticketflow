@@ -1,73 +1,44 @@
 /**
  * Independent workflow evaluator. The agent never receives these hidden checks.
- * Treat review/plan evidence as observable proxies, never a guarantee of review quality.
+ * `scoreCell(opts)` turns the final GitHub + git state of one cell into the neutral Facts record (see its comment);
+ * `writeEvidence` writes the bundle the judge reads. Facts are observations by timestamp and content, never by author,
+ * artifact name or count. Everything that cannot be measured reliably lands in `errors` (the cell is invalid).
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { scenarios } from './scenarios.mjs';
+import { dirname, join } from 'node:path';
 
 export const command=(bin,args,options={})=>{
   const env=options.env??{...process.env,...(process.env.WORKFLOW_BENCH_SETUP_TOKEN?{
     GH_TOKEN:process.env.WORKFLOW_BENCH_SETUP_TOKEN,GITHUB_TOKEN:process.env.WORKFLOW_BENCH_SETUP_TOKEN}:{})};
-  const out=spawnSync(bin,args,{encoding:'utf8',timeout:options.timeout??120000,maxBuffer:16*1024*1024,cwd:options.cwd,env});
+  const out=spawnSync(bin,args,{encoding:'utf8',timeout:options.timeout??120000,maxBuffer:64*1024*1024,cwd:options.cwd,env});
   if(out.error||out.status!==0)throw Error(bin+' '+args.slice(0,4).join(' ')+' failed: '+
     String(out.stderr||out.error?.message||out.status).slice(0,500));
-  return out.stdout.trim();
+  return options.raw?out.stdout:out.stdout.trim();
 };
 const api=(path,env)=>JSON.parse(command('gh',['api',path],{env}));
 const ghjson=(args,env)=>JSON.parse(command('gh',args,{env}));
-const all=(repo,endpoint,env)=>{ // All pages or fail, rather than silently scoring partial evidence.
-  const separator=endpoint.includes('?')?'&':'?';
-  const data=ghjson(['api','--paginate','--slurp','repos/'+repo+'/'+endpoint+separator+'per_page=100'],env);
-  if(!Array.isArray(data)||!data.every(Array.isArray))throw Error('GitHub pagination response invalid for '+endpoint);
-  return data.flat();
+/** Every page of an array endpoint or a throw, never a silently partial listing. `request(path,env)` is injectable. */
+const all=(request,env,repo,endpoint)=>{
+  const sep=endpoint.includes('?')?'&':'?',rows=[];
+  for(let n=1;n<=60;n++){
+    const part=request('repos/'+repo+'/'+endpoint+sep+'per_page=100&page='+n,env);
+    if(!Array.isArray(part))throw Error('GitHub listing '+endpoint+' is malformed');
+    rows.push(...part);
+    if(part.length<100)return rows;
+  }
+  throw Error('GitHub listing '+endpoint+' is incomplete');
 };
-export const pulls=(repo,env)=>ghjson(['pr','list','-R',repo,'--state','all',
-  '--json','number,headRefOid,mergedAt,body,headRefName,createdAt','--limit','100'],env);
-export const checkpoint=(repo)=>pulls(repo).some(p=>!p.mergedAt);
-/** A W5 checkpoint must contain product changes pushed remotely, not just a named branch.
- * This is a trigger, not proof that the subsequent agent reused the work. */
-export function meaningfulCheckpoint({branches=[],prs=[],compares={}}={}) {
-  if(prs.some(p=>p.mergedAt))return false;
-  return branches.some(b=>b.name!=='main' && compares[b.name]?.ahead_by>0 &&
-    compares[b.name]?.files?.some(f=>/^(?:src|test)\//.test(f.filename)));
-}
-const textLinks=(n,body)=>new RegExp('(?:#|issues/)'+n+'(?!\\d)').test(body);
-const isMerged=(p)=>Boolean(p.mergedAt);
-const relevant=(name)=>/(?:^|\/)(?:plans?|design|decisions|docs\/architecture)\/.*\.md$/i.test(name);
 export const projectSnapshot=(repo,n,env)=>{
   try {
     const data=ghjson(['issue','view',String(n),'-R',repo,'--json','projectItems'],env);
     return {readable:true,items:data.projectItems??[]};
   } catch {return {readable:false,items:[]};}
 };
-const issueSnapshot=(repo,seed,env)=>{
-  const issues=all(repo,'issues?state=all',env).filter(i=>!i.pull_request);
-  const records=issues.map(issue=>{
-    const comments=all(repo,'issues/'+issue.number+'/comments',env);
-    const timeline=all(repo,'issues/'+issue.number+'/events',env);
-    const project=projectSnapshot(repo,issue.number,env);
-    return {number:issue.number,title:issue.title,body:issue.body??'',state:issue.state,created_at:issue.created_at,
-      seeded:seed.includes(issue.number),comments:comments.length,
-      comments_after_creation:comments.filter(c=>c.created_at>issue.created_at).length,
-      milestone:issue.milestone?.title??null,labels:(issue.labels??[]).map(x=>x.name),
-      closed_at:issue.closed_at??null,
-      events:timeline.map(e=>e.event),project};
-  });
-  return records;
-};
-const dependencyRefs=(text)=>[...String(text??'').matchAll(/\b(?:depends\s+on|blocked\s+by|blocks)\s*:?[ \t]*(?:#|issues\/)(\d+)\b/gi)].map(m=>Number(m[1]));
-const actionable=(issue)=>{
-  const title=String(issue.title??'').trim(),body=String(issue.body??'').trim();
-  return title.length>=8&&body.length>=20&&title!==body&&
-    !/^(?:task|issue|todo|work item|fix)\s*#?\d*$/i.test(title)&&
-    /\b(?:add|build|create|design|document|fix|handle|implement|improve|migrate|remove|refactor|support|test|update|verify)\w*\b/i.test(title+' '+body);
-};
 const actionsFailures=new Set(['failure','timed_out','cancelled','action_required']);
 // GitHub sets started_at even on a job it refused (= created_at, runner_id 0, no runner_name, no steps): only a runner or a step proves it ran.
-const ranOnRunner=(job)=>Boolean(job?.runner_id>0||job?.runner_name||job?.steps?.length);
+export const ranOnRunner=(job)=>Boolean(job?.runner_id>0||job?.runner_name||job?.steps?.length);
 const workflowRunMatches=(run,pr)=>run?.head_sha===pr.headRefOid||
   (run?.event==='pull_request'&&Array.isArray(run.pull_requests)&&run.pull_requests.some(x=>Number(x.number)===Number(pr.number)&&x.head?.sha===pr.headRefOid));
 const workflowRuns=(repo,pr,env,request)=>{
@@ -130,292 +101,449 @@ export function checkRuns(repo,pr,env,request=api){
       (unfinished.length?' (checks unfinished at merge: '+unfinished.map(c=>c.name).join(',')+')':''):
       'required neutral GitHub Actions test missing'};
 }
-/** Observable local-fallback evidence for an open or merged PR. This never turns an unmerged PR into delivery success. */
-export function fallbackEvidence(repo,pr,env,request=api){
-  if(!pr?.number||typeof pr.headRefOid!=='string')return {allowed:false,attempted:false,posted:false,success:false,state:null,reason:'no PR head'};
-  const status=request('repos/'+repo+'/commits/'+pr.headRefOid+'/status?per_page=100',env);
-  if(!status||status.sha!==pr.headRefOid||!Array.isArray(status.statuses))throw Error('commit status response is malformed');
-  const gate=status.statuses.find(x=>x?.context==='CI / Gate');
-  const comments=request===api?all(repo,'issues/'+pr.number+'/comments',env):request('repos/'+repo+'/issues/'+pr.number+'/comments?per_page=100',env);
-  if(!Array.isArray(comments))throw Error('pull request comment response is malformed');
-  const localComments=comments.filter(x=>/^### CI \/ Gate:\s+(?:Passed|Failed)\b/m.test(String(x?.body??'')));
-  const runs=workflowRuns(repo,pr,env,request);
-  let allowed=false,executedFailure=false;
-  for(const run of runs){
-    if(!workflowRunMatches(run,pr)||!Number.isSafeInteger(run.id)||run.id<1)throw Error('GitHub Actions workflow run response is malformed');
-    const jobs=page(request('repos/'+repo+'/actions/runs/'+run.id+'/jobs?filter=all&per_page=100',env),'jobs','jobs for workflow run '+run.id);
-    for(const job of jobs)if(typeof job?.head_sha!=='string'||(job.head_sha!==pr.headRefOid&&job.head_sha!==run.head_sha))
-      throw Error('GitHub Actions job response is malformed');
-    if(actionsFailures.has(run.conclusion)){if(jobs.some(job=>ranOnRunner(job))){if(!pr.mergedAt||completeBefore(run.updated_at,Date.parse(pr.mergedAt)))executedFailure=true;}else allowed=true;}
-  }
-  // A failure that executed on a runner before the merge is a real CI failure; a separate runnerless refusal cannot excuse it.
-  allowed=allowed&&!executedFailure;
-  const localStatus=/^Local (?:run|check) on /i.test(String(gate?.description??''));
-  const attempted=localStatus||localComments.length>0;
-  // For a merged PR the local gate only counts when it was posted before the merge.
-  const inTime=!pr.mergedAt||completeBefore(gate?.updated_at??gate?.created_at,Date.parse(pr.mergedAt));
-  return {allowed,attempted,posted:localStatus,success:Boolean(localStatus&&gate.state==='success'&&inTime),state:gate?.state??null,
-    description:gate?.description??null,local_comments:localComments.length};
-}
-function reviewEvidence(repo,pr,{seededPR=null}={},env){
-  const reviews=all(repo,'pulls/'+pr.number+'/reviews',env);
-  const comments=all(repo,'issues/'+pr.number+'/comments',env);
-  const lineComments=all(repo,'pulls/'+pr.number+'/comments',env);
-  const mergedAt=Date.parse(pr.mergedAt??''),head=pr.headRefOid;
-  const headCommit=api('repos/'+repo+'/commits/'+head,env);
-  const headAt=Date.parse(headCommit.commit?.committer?.date??'');
-  const afterHead=(ts)=>Number.isFinite(headAt)&&Number.isFinite(mergedAt)&&
-    Date.parse(ts)>=headAt&&Date.parse(ts)<=mergedAt;
-  const actualReview=reviews.filter(r=>r.commit_id===head&&afterHead(r.submitted_at)&&
-    ['COMMENTED','APPROVED','CHANGES_REQUESTED'].includes(r.state)&&String(r.body??'').trim().length>=25);
-  const journal=comments.filter(c=>afterHead(c.created_at)&&
-    String(c.body??'').length>=100&&/\b(review|findings|verified changes|code quality)\b/i.test(c.body??''));
-  const commentsOnHead=lineComments.filter(c=>c.commit_id===head&&afterHead(c.created_at)&&String(c.body??'').trim().length>=25);
-  const lastReviews=new Map();
-  for(const r of reviews)if(afterHead(r.submitted_at))lastReviews.set(r.user?.login??r.id,r);
-  const outstanding=[...lastReviews.values()].some(r=>r.state==='CHANGES_REQUESTED'&&r.commit_id===head);
-  return {observed:actualReview.length>0||journal.length>0||commentsOnHead.length>0,
-    unresolved:outstanding,formal_reviews:actualReview.length,review_notes:journal.length,
-    line_comments:commentsOnHead.length,preseeded_review_only:seededPR===pr.number&&!actualReview.length&&!journal.length&&!commentsOnHead.length};
-}
-function hiddenCorrectness(dir,hidden){
-  const path=join(dir,'.hidden-workflow-eval.mjs');
-  const code=["import assert from 'node:assert/strict';",
-    "import {join} from 'node:path';",
-    "import {pathToFileURL} from 'node:url';",
-    "const dir=process.cwd();",
-    "const mod=await import(pathToFileURL(join(dir,"+JSON.stringify(hidden.module)+")).href);",
-    hidden.code].join('\n');
-  writeFileSync(path,code);
-  const r=spawnSync(process.execPath,[path],{cwd:dir,encoding:'utf8',timeout:60000,
-    env:{PATH:process.env.PATH,HOME:process.env.HOME}});
-  if(r.error&&r.error.code!=='ETIMEDOUT')throw Error('hidden checker could not be launched: '+r.error.message);
-  return {pass:r.status===0,reason:r.error?.code==='ETIMEDOUT'?'hidden product check timed out':(r.stderr??'').slice(0,500)};
-}
-function localTests(dir){
-  const r=spawnSync('npm',['test'],{cwd:dir,encoding:'utf8',timeout:120000,
-    env:{PATH:process.env.PATH,HOME:process.env.HOME}});
-  if(r.error&&r.error.code!=='ETIMEDOUT')throw Error('repository tests could not be launched: '+r.error.message);
-  return {pass:r.status===0,reason:r.error?.code==='ETIMEDOUT'?'repository tests timed out':(r.stderr??'').slice(0,500)};
-}
-function worktrees(dir){
-  try{
-    const text=command('git',['-C',dir,'worktree','list','--porcelain']);
-    const rows=[];let row=null;
-    for(const line of text.split(/\r?\n/)){
-      if(line.startsWith('worktree ')){if(row)rows.push(row);row={path:line.slice('worktree '.length),head:null};}
-      else if(row&&line.startsWith('HEAD '))row.head=line.slice('HEAD '.length).trim();
-    }
-    if(row)rows.push(row);
-    return rows;
-  }catch{return []}
-}
-const prTime=(pr,index)=>{const time=Date.parse(pr.createdAt??pr.mergedAt??'');return Number.isFinite(time)?time:index;};
-/** TicketFlow may leave the primary clone on its base branch and do the work in a Git worktree. Null when none holds a PR head. */
-export function findCandidateCheckout(dir,prs=[]){
-  if(!dir||!existsSync(dir))return null;
-  const order=new Map();
-  for(const [index,pr] of prs.entries()){
-    if(typeof pr?.headRefOid!=='string')continue;
-    order.set(pr.headRefOid,Math.max(order.get(pr.headRefOid)??-Infinity,prTime(pr,index)));
-  }
-  const matches=worktrees(dir).filter(row=>row.head&&order.has(row.head));
-  matches.sort((a,b)=>(order.get(b.head)??-Infinity)-(order.get(a.head)??-Infinity));
-  return matches[0]?.path??null;
-}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Checks: one node process per check, 10 s timeout (a timeout is a fail), stripped environment.
+const PRELUDE=`import assert from 'node:assert/strict';
+import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
+const dir = process.cwd();
+const load = (p) => import(pathToFileURL(join(dir, p)).href);
+`;
 /**
- * The exact newest PR head in a temporary detached worktree, for a delivery whose agent worktree is gone (merged with
- * --delete-branch). Throws when the head cannot be fetched or does not match: that is infrastructure, not an agent failure.
- * `remove()` never throws. Null when there is no PR.
+ * Run one check against the checkout in `dir`: one node process, the check source outside the checkout, stripped environment,
+ * 10 s timeout (a timeout is a fail). The body is an ES module with `assert`, `join`, `pathToFileURL`, `dir` and `load(relPath)` in scope.
+ * Returns {pass, reason}. A check that cannot be launched throws (infrastructure, not an agent failure).
  */
-export function checkoutPrHead(dir,prs=[],env){
-  const pr=prs.map((p,i)=>({p,time:prTime(p,i)})).filter(x=>typeof x.p?.headRefOid==='string')
-    .sort((a,b)=>b.time-a.time)[0]?.p;
-  if(!pr)return null;
-  const sha=pr.headRefOid,git=(...args)=>command('git',['-C',dir,...args],{env});
-  try{git('fetch','--quiet','origin',sha);}catch{git('fetch','--quiet','origin','refs/pull/'+pr.number+'/head');}
-  if(git('rev-parse','--verify',sha+'^{commit}')!==sha)throw Error('fetched pull request head does not match '+sha);
-  const parent=mkdtempSync(join(tmpdir(),'workflow-pr-head-')),path=join(parent,'head');
-  const remove=()=>{try{git('worktree','remove','--force',path);}catch{}rmSync(parent,{recursive:true,force:true});};
-  try{git('worktree','add','--detach',path,sha);}catch(e){remove();throw e;}
+export function runCheck(dir, check, {timeoutMs = 10000} = {}) {
+  const work = mkdtempSync(join(tmpdir(), 'workflow-check-'));
+  try {
+    const file = join(work, 'check.mjs');
+    writeFileSync(file, PRELUDE + check.code + '\nprocess.exit(0);\n');
+    const r = spawnSync(process.execPath, [file], {cwd: dir, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 1 << 20,
+      env: {PATH: process.env.PATH ?? '', NODE_ENV: 'test'}});
+    if (r.error && r.error.code !== 'ETIMEDOUT') throw Error('check ' + check.id + ' could not be launched: ' + r.error.message);
+    if (r.error) return {pass: false, reason: 'timed out after ' + timeoutMs + ' ms'};
+    return {pass: r.status === 0, reason: r.status === 0 ? '' : String(r.stderr || r.stdout || 'exit ' + r.status).slice(0, 500)};
+  } finally {
+    rmSync(work, {recursive: true, force: true});
+  }
+}
+const passes=r=>typeof r==='boolean'?r:r?.pass===true;
+export const runChecks=(dir,checks,run=runCheck)=>new Map(checks.map(c=>[c.id,passes(run(dir,c))]));
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Git helpers. All evaluation happens in one throwaway full clone, so the agent's checkout is only ever read.
+const git=(cwd,args,o={})=>command('git',['-C',cwd,...args],o);
+const gitRead=(cwd,args,o={})=>command('git',['--no-optional-locks','-C',cwd,...args],o);  // read-only probes while an agent runs
+const lines=text=>String(text).split('\n').filter(Boolean);
+const ms=t=>{const n=Date.parse(t??'');return Number.isFinite(n)?n:NaN;};
+const iso=t=>new Date(t).toISOString();
+/** Full clone of the remote that also holds every refs/pull/N/head (a PR head survives a deleted branch). `remove()` never throws. */
+export function evalClone(remote,{env}={}){
+  const parent=mkdtempSync(join(tmpdir(),'workflow-eval-')),dir=join(parent,'clone');
+  const remove=()=>rmSync(parent,{recursive:true,force:true});
+  try {
+    const genv={...(env??process.env),GIT_TERMINAL_PROMPT:'0'};
+    command('git',['clone','--quiet',remote,dir],{env:genv});
+    git(dir,['fetch','--quiet','origin','+refs/pull/*/head:refs/pull/*/head'],{env:genv});
+  } catch(e) {remove();throw e;}
+  return {dir,remove};
+}
+/** `sha` in a detached temporary worktree of the clone. `remove()` never throws. */
+export function checkoutSha(dir,sha){
+  const parent=mkdtempSync(join(tmpdir(),'workflow-sha-')),path=join(parent,'tree');
+  const remove=()=>{try{git(dir,['worktree','remove','--force',path]);}catch{}rmSync(parent,{recursive:true,force:true});};
+  try{git(dir,['worktree','add','--quiet','--detach',path,sha]);}catch(e){remove();throw e;}
   return {path,remove};
 }
-/**
- * Generic factual score from captured evidence. Code success and process quality stay separate.
- * No framework-specific status, label, artifact path, agent count or command is required.
- */
-export function evaluateEvidence({id,seededIssues=[],issues=[],prs=[],checks=[],reviews=[],plans=[],interrupted=false,
-  initialPR=null,initialHead=null,baselineProjects=[],candidate=null,hidden=false,repoTests=false,resumed=false,fallback=[]}){
-  if(!scenarios[id])throw Error('unknown workflow scenario '+id);
-  const merged=prs.filter(isMerged);
-  const linked=issues.filter(i=>merged.some(p=>textLinks(i.number,p.body??'')));
-  const created=issues.filter(i=>!seededIssues.includes(i.number));
-  const seeded=issues.filter(i=>seededIssues.includes(i.number));
-  const closed=issues.filter(i=>i.state==='closed');
-  // Owner handoff is a completed delivery milestone, but not a closed issue. Any board column that names review or completion counts
-  // (GitHub's own Done, another setup's "Ready for review"), so no arm's status vocabulary is required.
-  const handedOff=i=>i.state==='closed'||(i.project?.items??[]).some(item=>/\b(review|done|complete[d]?)\b/i.test(item.status?.name??item.status??''));
-  const closedTracked=linked.filter(i=>i.state==='closed');
-  const deliveredTracked=linked.filter(handedOff);
-  const reviewRelevant=merged.map(p=>reviews.find(r=>r.number===p.number)).filter(Boolean);
-  const reviewObserved=merged.length>0&&reviewRelevant.length===merged.length&&reviewRelevant.every(r=>r.observed&&!r.unresolved);
-  const required=seededIssues.every(n=>deliveredTracked.some(i=>i.number===n));
-  const optionalNewIssuesLinked=created.filter(i=>linked.some(l=>l.number===i.number));
-  const meaningfulNew=optionalNewIssuesLinked.filter(handedOff);
-  const startingProject=new Map(baselineProjects.map(x=>[x.number,JSON.stringify(x.project?.items??[])]));
-  const projectProgress=issues.filter(i=>{
-    if(!i.project?.readable)return false;
-    if(!startingProject.has(i.number))return (i.project.items??[]).length>0;
-    return JSON.stringify(i.project.items??[])!==startingProject.get(i.number);
-  }).length;
-  const planning={count:plans.length,issue_comments:issues.reduce((n,i)=>n+i.comments,0),
-    issue_activity:issues.filter(i=>i.comments>0||i.events?.some(e=>e==='labeled'||e==='assigned'||e==='milestoned')).length,
-    project_observed:issues.filter(i=>i.project?.readable).length,
-    project_linked:issues.filter(i=>i.project?.items?.length>0).length,
-    project_changed_from_pre_agent_baseline:projectProgress,
-    project_statuses:issues.flatMap(i=>(i.project?.items??[]).map(p=>p.status?.name??p.status??'unknown'))};
-  const limits={W1:1,W2:1,W3:3,W4:1,W5:1,W6:8,W7:4};
-  const duplicate=prs.length>limits[id]||(id==='W4'&&(prs.length!==1||prs[0]?.number!==initialPR));
-  const w4Fixed=id!=='W4'||Boolean(initialPR&&merged.some(p=>p.number===initialPR&&p.headRefOid!==initialHead));
-  const createdNumbers=new Set(created.map(i=>i.number));
-  const contentKeys=created.map(i=>`${String(i.title??'').trim().toLowerCase()}\0${String(i.body??'').trim().toLowerCase()}`);
-  const duplicateCreatedContent=new Set(contentKeys).size!==contentKeys.length;
-  const actionableIssues=created.filter(actionable);
-  const dependencyEdges=[],invalidDependencies=[];
-  for(const issue of created){
-    for(const target of dependencyRefs(`${issue.title??''}\n${issue.body??''}`)){
-      if(target===issue.number||!createdNumbers.has(target))invalidDependencies.push({from:issue.number,to:target});
-      else dependencyEdges.push({from:issue.number,to:target});
+const withTree=(dir,sha,fn)=>{const t=checkoutSha(dir,sha);try{return fn(t.path);}finally{t.remove();}};
+/** Worktrees (primary first) of an agent checkout; only paths that still exist. */
+function worktrees(dir){
+  try {
+    const paths=lines(git(dir,['worktree','list','--porcelain'])).filter(l=>l.startsWith('worktree ')).map(l=>l.slice(9));
+    return paths.filter(existsSync);
+  } catch {return existsSync(dir)?[dir]:[];}
+}
+const noise=f=>/(^|\/)node_modules\//.test(f);
+/** The agent's files (tracked, untracked non-ignored, committed or not) as one commit on top of `base` inside the eval clone. */
+function snapshot(clone,path,base,n){
+  const files=git(path,['ls-files','-co','--exclude-standard','-z'],{raw:true}).split('\u0000').filter(f=>f&&!noise(f));
+  return withTree(clone,base,tree=>{
+    git(tree,['rm','-rfq','--ignore-unmatch','.']);
+    for(const f of files){
+      const from=join(path,f);
+      if(!existsSync(from)||!lstatSync(from).isFile())continue;
+      mkdirSync(dirname(join(tree,f)),{recursive:true});copyFileSync(from,join(tree,f));
+    }
+    git(tree,['add','-A']);
+    git(tree,['-c','user.name=eval','-c','user.email=eval@example.invalid','commit','-q','--allow-empty','-m','snapshot']);
+    const sha=git(tree,['rev-parse','HEAD']);
+    git(clone,['update-ref','refs/snapshots/'+n,sha]);
+    return sha;
+  });
+}
+/** Has the agent's checkout (or any of its worktrees) product changes versus `base`, committed or not? Used as the W5 interrupt trigger.
+ * Dot-paths and Markdown do not count. -> {progressed,commits,dirty,files} */
+export function localProgress(dir,base){
+  const files=new Set();let commits=0,dirty=false;
+  for(const path of worktrees(dir)){
+    commits+=Number(git(path,['rev-list','--count',base+'..HEAD']));
+    for(const f of lines(git(path,['diff','--name-only',base,'HEAD'])))files.add(f);
+    const status=lines(gitRead(path,['status','--porcelain','-uall'],{raw:true}));
+    dirty=dirty||status.length>0;
+    for(const l of status)files.add(l.slice(3).replace(/^.* -> /,''));
+  }
+  const product=[...files].filter(f=>!f.startsWith('.')&&!/\.md$/i.test(f)&&!noise(f)&&!/(^|\/)\./.test(f));
+  return {progressed:product.length>0,commits,dirty,files:product};
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Transcripts: Claude stream-json and Codex JSONL, condensed to the calls the judge and the facts need.
+const clip=(s,n)=>{s=String(s??'');return s.length>n?s.slice(0,n)+'...':s;};
+const flat=c=>typeof c==='string'?c:Array.isArray(c)?c.map(x=>x?.text??'').join(' '):JSON.stringify(c??'');
+/** stdout of one agent invocation -> {calls:[{i,tool,cmd,error,file}],subagents:[{i,type,description}],permission_denials:[]|null}.
+ * Null when no line is a recognisable event (unparsable). permission_denials is null where the format does not report them. */
+export function condense(text){
+  const calls=[],subagents=[],byId=new Map();let denials=null,events=0;
+  const add=(tool,cmd,file,id)=>{
+    const call={i:calls.length,tool,cmd:cmd==null?null:clip(cmd,500),error:null,file:file??null};
+    calls.push(call);if(id)byId.set(id,call);return call;
+  };
+  for(const line of String(text??'').split('\n')){
+    let ev;try{ev=JSON.parse(line);}catch{continue;}
+    if(!ev||typeof ev.type!=='string')continue;
+    events++;
+    if(ev.type==='assistant'&&Array.isArray(ev.message?.content)){
+      for(const b of ev.message.content)if(b?.type==='tool_use'){
+        const input=b.input??{};
+        const call=add(b.name,input.command??input.pattern??input.skill??null,input.file_path??input.path??null,b.id);
+        if(b.name==='Task'||b.name==='Agent')subagents.push({i:call.i,type:input.subagent_type??null,description:clip(input.description??input.prompt??'',200)});
+      }
+    } else if(ev.type==='user'&&Array.isArray(ev.message?.content)){
+      for(const b of ev.message.content)if(b?.type==='tool_result'&&b.is_error&&byId.has(b.tool_use_id))
+        byId.get(b.tool_use_id).error=clip(flat(b.content),200)||'error';
+    } else if(ev.type==='result'&&Array.isArray(ev.permission_denials)){
+      denials=[...(denials??[]),...ev.permission_denials.map(d=>({tool:d?.tool_name??null,command:clip(d?.tool_input?.command??'',200)||null}))];
+    } else if(ev.type==='result')denials??=[];
+    else if(ev.type==='item.completed'&&ev.item){
+      const it=ev.item;
+      if(it.type==='command_execution')add('Bash',it.command,null).error=it.exit_code&&it.exit_code!==0?'exit '+it.exit_code:null;
+      else if(it.type==='file_change')for(const c of it.changes??[])add('Edit',null,c?.path);
+      else if(it.type==='mcp_tool_call')add((it.server??'mcp')+'.'+(it.tool??''),null,null).error=it.error?clip(flat(it.error?.message??it.error),200):null;
+      else if(it.type==='web_search')add('WebSearch',it.query,null);
+      else if(/spawn|collab|subagent/i.test(it.type??''))subagents.push({i:calls.length,type:it.type,description:clip(it.prompt??it.tool??'',200)});
     }
   }
-  const dependencyGraph=new Map(created.map(i=>[i.number,[]]));
-  for(const edge of dependencyEdges)dependencyGraph.get(edge.from).push(edge.to);
-  const visiting=new Set(),visited=new Set();
-  const hasCycle=(node)=>{
-    if(visiting.has(node))return true;
-    if(visited.has(node))return false;
-    visiting.add(node);
-    if(dependencyGraph.get(node).some(hasCycle))return true;
-    visiting.delete(node);visited.add(node);return false;
-  };
-  const dependencyCycle=[...dependencyGraph.keys()].some(hasCycle);
-  // GitHub issues are one possible workflow representation, not a requirement
-  // for the competing arms. Keep this evidence for comparison without making
-  // a native workflow fail merely because it used plans, PRs or commits instead.
-  const issueBreakdown=id!=='W6'||(
-    created.length>=2&&created.length<=12&&meaningfulNew.length>=2&&
-    actionableIssues.length===created.length&&!duplicateCreatedContent&&
-    !invalidDependencies.length&&!dependencyCycle&&dependencyEdges.length>=1&&
-    created.every(i=>linked.some(l=>l.number===i.number))
-  );
-  const issueTracking=seededIssues.length?required:
-    id==='W1'?meaningfulNew.length>=1:
-    id==='W6'?issueBreakdown:false;
-  // Issue/project evidence is reported as a workflow comparison metric. It is
-  // deliberately not a delivery gate: each arm may use its own process.
-  const tracking=issueTracking &&
-    (id!=='W7'||seededIssues.length===4) && (id!=='W3'||seededIssues.length===3);
-  const safeCI=merged.length>0&&merged.every(p=>checks.find(c=>c.number===p.number)?.pass===true);
-  const safeFallback=merged.length>0&&merged.every(p=>fallback.some(f=>f.number===p.number&&
-    f.allowed===true&&f.attempted===true&&f.posted===true&&f.success===true));
-  // Coordination is observed independently from code correctness and pipeline gates.
-  // A single well-integrated PR is valid; PR count alone never earns orchestration points.
-  const seededClosed=seeded.filter(i=>i.closed_at&&Number.isFinite(Date.parse(i.closed_at)));
-  // Dependency delivery is observed at merge, not at an issue-close click that may never happen.
-  const mergedAtForIssue=i=>{
-    const times=merged.filter(pr=>textLinks(i.number,pr.body??'')).map(pr=>Date.parse(pr.mergedAt)).filter(Number.isFinite);
-    return times.length?Math.min(...times):NaN;
-  };
-  const dependencies=id==='W3'&&seededIssues.length===3 ? [
-    {from:seededIssues[2],to:seededIssues[0]},
-    {from:seededIssues[2],to:seededIssues[1]},
-  ] : [];
-  const seededByNumber=new Map(seeded.map(i=>[i.number,i]));
-  const ordering=dependencies.map(({from,to})=>{
-    const dependent=seededByNumber.get(from),prerequisite=seededByNumber.get(to);
-    const a=dependent?mergedAtForIssue(dependent):NaN,b=prerequisite?mergedAtForIssue(prerequisite):NaN;
-    return {from,to,observed:Number.isFinite(a)&&Number.isFinite(b),
-      violation:Number.isFinite(a)&&Number.isFinite(b)&&a<b};
-  });
-  const coordination={seeded_closed_with_timestamps:seededClosed.length,
-    dependency_order:ordering,dependency_order_violations:ordering.filter(x=>x.violation).length,
-    linked_seeded_per_merged_pr:merged.map(p=>({
-      pr:p.number,count:seededIssues.filter(n=>textLinks(n,p.body??'')).length
-    })),
-    merged_pr_count:merged.length};
-  const candidateEvidence=candidate??{available:true,source:'legacy-default',correctness:Boolean(hidden),repository_tests:Boolean(repoTests)};
-  const candidateAvailable=candidate===null?true:candidateEvidence.available===true;
-  const candidateCorrectness=candidateAvailable&&candidateEvidence.correctness===true;
-  const candidateRepositoryTests=candidateAvailable&&candidateEvidence.repository_tests===true;
-  const functional=candidateAvailable?candidateCorrectness&&candidateRepositoryTests:null;
-  const steps={candidate_available:candidateAvailable,candidate_correctness:candidateAvailable?candidateCorrectness:null,
-    candidate_repository_tests:candidateAvailable?candidateRepositoryTests:null,
-    correctness:candidateAvailable?candidateCorrectness:null,repository_tests:candidateAvailable?candidateRepositoryTests:null,
-    merged:merged.length>0,latest_head_ci:safeCI,review_evidence:reviewObserved,
-    issue_tracking:tracking,pr_deduplication:!duplicate,failed_pr_corrected:w4Fixed,
-    interruption_recovery:id!=='W5'||(interrupted&&resumed)};
-  // A refused Actions run is an expected path for TicketFlow: local verification
-  // posts the same gate status and the PR may merge without runner execution.
-  // Keep native CI evidence separate, but treat a verified local fallback as
-  // equivalent gate evidence for merged delivery.
-  const delivery=steps.merged&&(steps.latest_head_ci||safeFallback)&&steps.pr_deduplication&&steps.failed_pr_corrected;
-  const pipeline=functional===true&&delivery&&steps.review_evidence&&steps.interruption_recovery;
-  const candidateResult={available:candidateAvailable,source:candidateEvidence.source??null,
-    correctness:candidateAvailable?candidateCorrectness:null,repository_tests:candidateAvailable?candidateRepositoryTests:null,
-    functional,hidden_reason:candidateEvidence.hidden_reason??null,repository_tests_reason:candidateEvidence.repository_tests_reason??null};
-  const mergedDelivery={pass:delivery,merged:steps.merged,latest_head_ci:safeCI,local_fallback:safeFallback,
-    pr_deduplication:steps.pr_deduplication,failed_pr_corrected:steps.failed_pr_corrected};
-  const process={seeded_issues:seeded.length,agent_created_issues:created.length,
-    created_linked:optionalNewIssuesLinked.length,issue_total:issues.length,
-    issues_linked:linked.length,issues_closed:closed.length,issues_closed_and_linked:closedTracked.length,issues_handed_off_or_closed:deliveredTracked.length,
-    issue_coverage:seededIssues.length?seededIssues.filter(n=>deliveredTracked.some(i=>i.number===n)).length/seededIssues.length:null,
-     issue_closed_coverage:seededIssues.length?seededIssues.filter(n=>closedTracked.some(i=>i.number===n)).length/seededIssues.length:null,
-    planning,review:reviewRelevant,pr_count:prs.length,merged_pr_count:merged.length,
-    plan_artifacts:plans,tracking,issue_tracking:issueTracking,
-    issue_breakdown:id==='W6'?issueBreakdown:null,
-    review_observed:reviewObserved,coordination,
-    actionable_created_issues:actionableIssues.length,duplicate_created_issue_content:duplicateCreatedContent,
-    dependency_edges:dependencyEdges,invalid_dependency_references:invalidDependencies,dependency_cycle:dependencyCycle};
-  return {pass:pipeline,functionality:functional,candidate:candidateResult,merged_delivery:mergedDelivery,delivery,pipeline,steps,process};
+  return events?{calls,subagents,permission_denials:denials}:null;
 }
-export function scoreDelivery({repo,id,issues:seededIssues,interrupted=false,resumed=false,initialPR=null,initialHead=null,baselineProjects=[],candidateDir=null,env}){
-  const sc=scenarios[id];
-  let prs=[],issueRows=[],hidden={pass:false,reason:'unverified'},
-    suite={pass:false,reason:'unverified'},fallback=[],error=null;
-  const recordError=e=>{error=(error?error+'; ':'')+e.message};
-  // A broken evaluator, failed API call or unavailable clone invalidates the
-  // measurement. It must never be converted into an apparent agent failure.
-  try{prs=pulls(repo,env)}catch(e){recordError(e)}
-  // The agent's worktree when one holds a PR head; else the exact newest PR head (the agent may have merged and deleted its
-  // worktree); else, with no PR, the agent's own checkout, whose untouched product fails correctness as a real agent failure.
-  let candidateCheckout=null,candidateAvailable=false,source='agent-worktree',prHead=null;
-  try {
-    if(!candidateDir||!existsSync(candidateDir))throw Error('agent candidate checkout is unavailable');
-    candidateCheckout=findCandidateCheckout(candidateDir,prs);
-    if(!candidateCheckout&&(prHead=checkoutPrHead(candidateDir,prs,env))){candidateCheckout=prHead.path;source='pr-head';}
-    if(!candidateCheckout){candidateCheckout=candidateDir;source='agent-checkout';}
-    candidateAvailable=existsSync(candidateCheckout);
-    hidden=hiddenCorrectness(candidateCheckout,sc.hidden);
-    suite=localTests(candidateCheckout);
-  }catch(e){recordError(e)}
-  finally{prHead?.remove();}
-  try{issueRows=issueSnapshot(repo,seededIssues,env)}catch(e){recordError(e)}
-  const merged=prs.filter(isMerged),checks=[],reviews=[],plans=[];
-  for(const p of prs){
-    try{fallback.push({number:p.number,...fallbackEvidence(repo,p,env)})}catch(e){recordError(e)}
+const TEST_CMD=/\b(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b|\bnode\s+(?:\S+\s+)*--test\b|\b(?:vitest|jest|mocha|pytest)\b|\b(?:cargo|go)\s+test\b|local-verify/;
+const PUSH_CMD=/\bgit\s+(?:-\S+\s+(?:\S+\s+)?)*push\b/;
+const EDIT_TOOL=/^(?:Edit|Write|MultiEdit|NotebookEdit)$/;
+const EDIT_CMD=/\bsed\s+(?:-\S+\s+)*-i|\btee\b|\bpatch\b|\bgit\s+(?:-\S+\s+(?:\S+\s+)?)*(?:apply|am|merge|rebase|cherry-pick|revert|pull)\b|\bgit\s+reset\s+--hard/;
+/** Heuristic: did a successful test run follow the last edit and come before the last `git push`? 'unknown' when the transcript shows no push. */
+export function localVerification(calls){
+  let push=-1;calls.forEach((c,i)=>{if(PUSH_CMD.test(c.cmd??''))push=i;});
+  if(push<0)return 'unknown';
+  let edit=-1;calls.slice(0,push).forEach((c,i)=>{if(EDIT_TOOL.test(c.tool??'')||EDIT_CMD.test(c.cmd??''))edit=i;});
+  const ok=(c)=>!c.error&&TEST_CMD.test(c.cmd??'');
+  const inPush=ok(calls[push])&&calls[push].cmd.search(TEST_CMD)<calls[push].cmd.search(PUSH_CMD);
+  return inPush||calls.slice(edit+1,push).some(ok);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+const globRe=g=>new RegExp('^'+(g.endsWith('/')?g+'**':g).replace(/[.+^${}()|[\]\\]/g,'\\$&').replace(/\*\*\//g,'\u0000').replace(/\*\*/g,'\u0001')
+  .replace(/\*/g,'[^/]*').replace(/\?/g,'[^/]').replace(/\u0000/g,'(?:.*/)?').replace(/\u0001/g,'.*')+'$');
+const isTestFile=f=>/(^|\/)(?:tests?|__tests__)\//.test(f)||/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(f);
+const numberOf=url=>Number(String(url??'').match(/\/(\d+)$/)?.[1]);
+const DEP_KEYS=['dependencies','devDependencies','optionalDependencies','peerDependencies'];
+const depNames=text=>{try{const p=JSON.parse(text);return DEP_KEYS.flatMap(k=>Object.keys(p?.[k]??{}));}catch{return [];}};
+const show=(dir,sha,file)=>{try{return git(dir,['show',sha+':'+file],{raw:true});}catch{return '';}};
+
+/**
+ * scoreCell(opts) -> Facts (see the plan's Facts contract). Never throws on runtime/evidence problems: they go to facts.errors
+ * (cell invalid, fail closed). Throws only on a malformed `opts`.
+ *
+ * opts:
+ *   repo         'owner/name' (GitHub API paths)
+ *   remote       clone URL or path (default https://github.com/<repo>.git)
+ *   env          environment for gh/git (the setup-token env); default process.env
+ *   request      (path, env) => parsed JSON, for every GitHub API call (default `gh api`); injectable for tests
+ *   runCheck     (dir, check) => boolean | {pass}; default is this module's runCheck; throws when a check cannot be launched
+ *   scenario     {checks:[{id,kind:'req'|'reg'|'defect',text,source,file?,code,supersededBy?}], scope:[globs]}
+ *   base         base commit sha (default branch tip at seed time, after any tool install)
+ *   startSha     sha of the scenario's starting state when it is not the default branch (e.g. the seeded PR head); default base.
+ *                Defect and regression checks are judged on what was delivered (landed, else best pending, else this start state)
+ *   branch       default branch name (default 'main')
+ *   seeded       {issues:[numbers], pr:number|null, commentId:number|null}: seeded items, excluded from process facts by ID
+ *   sessions     [{start,end,...}] ISO times; anything created/pushed before sessions[0].start is not agent activity
+ *   checkout     the agent's checkout dir (its worktrees and uncommitted files are scored as pending work) or null
+ *   installSha   optional commit whose files (a tool install) are excluded from diffs and code facts
+ *   transcripts  [agent stdout text] per invocation, or null (transcript facts become null)
+ *   answers      [final answer text] per session (evidence only)
+ *   timelineCap  max first-parent commits scored for the timeline (default 40, newest kept)
+ *   evidenceDir  when set, the evidence bundle is also written there (see writeEvidence)
+ */
+export function scoreCell(opts){
+  const {facts,evidence}=evaluate(opts);
+  if(opts.evidenceDir){
+    try{writeEvidence(opts.evidenceDir,evidence);}catch(e){facts.errors.push('evidence: '+e.message);}
   }
-  for(const p of merged){
+  return facts;
+}
+/** Writes facts.json, diff.patch, dossier.md, transcript.json, answers.txt, checks.json into `dir`. */
+export function writeEvidence(dir,{facts,diff='',dossier='',transcript=null,answers=[],checks=[]}){
+  mkdirSync(dir,{recursive:true});
+  const put=(name,text)=>writeFileSync(join(dir,name),text,{mode:0o600});
+  put('facts.json',JSON.stringify(facts,null,2)+'\n');
+  put('diff.patch',diff);
+  put('dossier.md',dossier);
+  put('transcript.json',JSON.stringify(transcript??{calls:[],subagents:[],permission_denials:[],unparsable:true},null,1)+'\n');
+  put('answers.txt',answers.map((a,i)=>'--- session '+(i+1)+' ---\n'+String(a??'').trim()+'\n').join('\n'));
+  put('checks.json',JSON.stringify(checks.map(({id,kind,text,source,file,late})=>({id,kind,text,source,file:file??null,...(late?{late:true}:{})})),null,2)+'\n');
+}
+
+function evaluate(o){
+  const {repo,scenario,base,startSha=null,sessions,seeded={},checkout=null,installSha=null,transcripts=null,answers=[],branch='main',timelineCap=40}=o;
+  if(!repo||!Array.isArray(scenario?.checks)||!/^[0-9a-f]{40}$/.test(base??'')||!Number.isFinite(ms(sessions?.[0]?.start)))
+    throw Error('scoreCell needs repo, scenario.checks, a 40-hex base and sessions[0].start');
+  const unknownKind=scenario.checks.find(c=>!['req','reg','defect'].includes(c.kind));
+  if(unknownKind)throw Error('check '+unknownKind.id+' has an unknown kind');
+  const env=o.env,request=o.request??api,run=o.runCheck??runCheck,remote=o.remote??'https://github.com/'+repo+'.git';
+  const start=ms(sessions[0].start),seededIssues=seeded.issues??[],errors=[];
+  const checks=scenario.checks.filter(c=>!c.supersededBy);
+  const step=(name,fn,fallback)=>{
+    try{return fn();}catch(e){errors.push(name+': '+String(e.message).slice(0,300));return typeof fallback==='function'?fallback():fallback;}
+  };
+  const facts={base_sha:base,landed_sha:null,checks:[],defects:[],
+    landing:{mode:'none',timing:'unknown',force_pushes:'unknown',commits:[],open_prs:[],ahead_branches:[],local_only:false},
+    process:{durable_record:{issues:0,issue_comments:0,pr_bodies:0,docs_changed:[],commit_bodies:0},review_observed:false,
+      review_before_landing:false,unsafe_landing:false,unsafe_reasons:[]},
+    code:{deps_added:[],files_outside_scope:[],lines_added:0,lines_removed:0,own_tests_fail_on_base:null},
+    timeline:[],transcript:{tool_calls:null,subagents:null,permission_denials:null,local_verification_before_push:null},errors};
+  const evidence={facts,diff:'',dossier:'',transcript:null,answers,checks};
+  const done=()=>({facts,evidence});
+
+  // transcript facts (independent of GitHub and git)
+  const parsed=transcripts?transcripts.map(condense):null;
+  if(parsed&&parsed.every(Boolean)){
+    const calls=parsed.flatMap(p=>p.calls).map((c,i)=>({...c,i}));
+    const denials=parsed.map(p=>p.permission_denials).filter(Boolean);
+    evidence.transcript={calls,subagents:parsed.flatMap(p=>p.subagents),permission_denials:denials.flat()};
+    facts.transcript={tool_calls:calls.length,subagents:evidence.transcript.subagents.length,
+      permission_denials:denials.length?denials.reduce((n,d)=>n+d.length,0):null,local_verification_before_push:localVerification(calls)};
+  }
+
+  // GitHub listings, every one complete or an error
+  const list=(name,endpoint,valid)=>step(name,()=>{
+    const rows=all(request,env,repo,endpoint);
+    if(!rows.every(valid))throw Error('GitHub listing '+endpoint+' has malformed entries');
+    return rows;
+  },[]);
+  const issues=list('issues','issues?state=all',i=>Number.isSafeInteger(i?.number)&&typeof i.created_at==='string').filter(i=>!i.pull_request);
+  const prs=list('pulls','pulls?state=all',p=>Number.isSafeInteger(p?.number)&&typeof p.head?.sha==='string'&&typeof p.created_at==='string');
+  const comments=list('comments','issues/comments',c=>Number.isSafeInteger(c?.id)&&typeof c.created_at==='string');
+  const lineComments=list('review comments','pulls/comments',c=>Number.isSafeInteger(c?.id)&&typeof c.created_at==='string');
+  const reviews=new Map(prs.map(p=>[p.number,step('reviews #'+p.number,()=>all(request,env,repo,'pulls/'+p.number+'/reviews'),[])]));
+  const mine=t=>t>=start;
+  const seedComment=c=>c.id===seeded.commentId;
+
+  let clone;
+  try{clone=evalClone(remote,{env});}catch(e){errors.push('clone: '+String(e.message).slice(0,300));return done();}
+  try{
+    const g=(args,x)=>git(clone.dir,args,x);
+    const tip=step('base/tip',()=>{g(['rev-parse','--verify',base+'^{commit}']);return g(['rev-parse','--verify','origin/'+branch+'^{commit}']);},null);
+    if(!tip)return done();
+    const installFiles=new Set(installSha?step('install commit',()=>lines(g(['diff-tree','--no-commit-id','--name-only','-r','--root',installSha])),[]):[]);
+    const exclude=[...installFiles].map(f=>':(exclude,literal)'+f);
+    const changed=(sha,from=base)=>lines(g(['diff','--name-status','--no-renames',from,sha])).map(l=>({status:l[0],file:l.slice(2)}))
+      .filter(c=>!installFiles.has(c.file));
+    const resultsAt=(()=>{ // check results per commit, computed once
+      const cache=new Map();
+      return sha=>{if(!cache.has(sha))cache.set(sha,withTree(clone.dir,sha,p=>runChecks(p,checks,run)));return cache.get(sha);};
+    })();
+
+    // --- landing: first-parent history of the default branch since base
+    const commits=step('history',()=>lines(g(['rev-list','--first-parent','--reverse',base+'..origin/'+branch])),[]);
+    const index=new Map(commits.map((s,i)=>[s,i]));
+    let activity=null; // a failed or malformed activity listing only makes timing unknown, it never invalidates
     try{
-      checks.push({number:p.number,...checkRuns(repo,p,env)});
-      reviews.push({number:p.number,...reviewEvidence(repo,p,{seededPR:initialPR},env)});
-      const files=all(repo,'pulls/'+p.number+'/files',env);
-      plans.push(...files.map(f=>f.filename).filter(relevant));
-    }catch(e){recordError(e)}
-  }
-  const result=evaluateEvidence({id,seededIssues,issues:issueRows,prs,checks,reviews,plans,fallback,
-    interrupted,resumed,initialPR,initialHead,baselineProjects,
-    candidate:{available:candidateAvailable,source,correctness:hidden.pass,repository_tests:suite.pass,
-      hidden_reason:hidden.reason,repository_tests_reason:suite.reason}});
-  return {...result,merged_prs:merged.map(p=>p.number),ci:checks,fallback,hidden_reason:hidden.reason,
-    repo_test_reason:suite.reason,error};
+      const rows=all(request,env,repo,'activity?ref='+encodeURIComponent('refs/heads/'+branch));
+      if(rows.every(a=>typeof a?.after==='string'&&Number.isFinite(ms(a.timestamp))))activity=rows;
+    }catch{}
+    const events=(activity??[]).filter(a=>index.has(a.after)).sort((a,b)=>ms(a.timestamp)-ms(b.timestamp));
+    const treeEq=(a,b)=>{try{return g(['rev-parse',a+'^{tree}'])===g(['rev-parse',b+'^{tree}']);}catch{return false;}};
+    const localState=facts.transcript.local_verification_before_push;
+    const local=localState===true?'yes':localState===false?'no':'unknown';
+    const headTime=pr=>{try{return ms(g(['log','-1','--format=%cI',pr.head.sha]));}catch{return ms(pr.created_at);}};
+    const reviewTimes=pr=>[
+      ...(reviews.get(pr.number)??[]).filter(r=>r.state!=='PENDING'&&(String(r.body??'').trim()||/APPROVED|CHANGES_REQUESTED|DISMISSED/.test(r.state))).map(r=>ms(r.submitted_at)),
+      ...lineComments.filter(c=>numberOf(c.pull_request_url)===pr.number&&!seedComment(c)).map(c=>ms(c.created_at)),
+      // a conversation comment of some substance; whether it is a real review is for the judge to decide
+      ...comments.filter(c=>numberOf(c.issue_url)===pr.number&&!seedComment(c)&&String(c.body??'').trim().length>=40).map(c=>ms(c.created_at)),
+    ].filter(mine);
+    const remoteVerified=(sha,pr,when)=>{
+      if(!Number.isFinite(when))return false;
+      const at=iso(when);
+      return [sha,pr?.head.sha].filter((s,i,a)=>s&&a.indexOf(s)===i&&treeEq(s,sha)).some(s=>{
+        if(checkRuns(repo,{number:pr?.number,headRefOid:s,headRefName:s===pr?.head.sha?pr.head.ref:undefined,mergedAt:at},env,request).pass)return true;
+        const status=request('repos/'+repo+'/commits/'+s+'/status?per_page=100',env);
+        if(!status||status.sha!==s||!Array.isArray(status.statuses))throw Error('commit status response is malformed');
+        return status.statuses.some(x=>x?.state==='success'&&ms(x.updated_at??x.created_at)<=when);
+      });
+    };
+    const landing=commits.map(sha=>{
+      const prList=step('pulls of '+sha.slice(0,7),()=>all(request,env,repo,'commits/'+sha+'/pulls'),[]);
+      const pr=prList.find(p=>p.merged_at&&p.base?.ref===branch)??null;
+      const event=events.find(a=>index.get(a.after)>=index.get(sha));
+      const when=event?ms(event.timestamp):pr?ms(pr.merged_at):NaN;
+      const verifiedRemote=step('verification of '+sha.slice(0,7),()=>remoteVerified(sha,pr,when),false);
+      return {sha,via:pr?'pr':'direct',pr:pr?pr.number:null,time:Number.isFinite(when)?iso(when):null,
+        verified:{remote:verifiedRemote,local},pr_obj:pr,when};
+    });
+    const landedPrs=landing.filter(l=>l.pr_obj);
+    facts.landed_sha=commits.length?tip:null;
+    facts.landing.commits=landing.map(({pr_obj,when,...c})=>c);
+    facts.landing.mode=!landing.length?'none':landing.every(l=>l.via==='pr')?'pr':landing.every(l=>l.via==='direct')?'direct':'mixed';
+    facts.landing.timing=activity&&landing.every(l=>l.time)?'known':'unknown';
+    facts.landing.force_pushes=activity?activity.filter(a=>a.activity_type==='force_push'&&mine(ms(a.timestamp))).length:'unknown';
+    const mergedHeads=new Set(prs.filter(p=>p.merged_at).map(p=>p.head.sha));
+    facts.landing.open_prs=prs.filter(p=>p.state==='open').map(p=>p.number);
+    const remoteRefs=step('branches',()=>lines(g(['for-each-ref','--format=%(refname)','refs/remotes/origin'])).map(r=>r.slice('refs/remotes/origin/'.length))
+      .filter(r=>r!=='HEAD'&&r!==branch),[]);
+    const ahead=remoteRefs.filter(r=>Number(g(['rev-list','--count','origin/'+branch+'..origin/'+r]))>0&&!mergedHeads.has(g(['rev-parse','origin/'+r])));
+    facts.landing.ahead_branches=ahead;
+
+    // --- review and process facts
+    const prRecords=prs.map(p=>({pr:p,times:reviewTimes(p)}));
+    facts.process.review_observed=prRecords.some(r=>r.times.length>0);
+    facts.process.review_before_landing=!landing.length?false:!facts.process.review_observed?false:
+      landing.some(l=>!Number.isFinite(l.when))?'unknown':
+      landing.every(l=>l.pr_obj&&reviewTimes(l.pr_obj).some(t=>t>=headTime(l.pr_obj)&&t<=l.when));
+    const durable=facts.process.durable_record;
+    durable.issues=issues.filter(i=>!seededIssues.includes(i.number)&&mine(ms(i.created_at))).length;
+    durable.issue_comments=comments.filter(c=>!seedComment(c)&&mine(ms(c.created_at))).length;
+    durable.pr_bodies=prs.filter(p=>p.number!==seeded.pr&&mine(ms(p.created_at))&&String(p.body??'').trim()).length;
+    durable.commit_bodies=step('commit messages',()=>g(['log','--all','--not',base,'--no-merges','--format=%cI%x1f%B%x1e'],{raw:true}).split('\x1e')
+      .map(r=>r.trim()).filter(Boolean).filter(r=>{
+        const [time,message]=r.split('\x1f');
+        return mine(ms(time))&&message.split('\n').slice(1).join('\n').trim();
+      }).length,0);
+
+    // --- pending work: open PR heads, branches ahead of the default branch, the agent's checkout/worktrees
+    const sources=[];
+    for(const p of prs.filter(p=>p.state==='open'))sources.push({kind:'pr',sha:p.head.sha});
+    for(const r of ahead)sources.push({kind:'branch',sha:g(['rev-parse','origin/'+r])});
+    if(checkout){
+      if(!existsSync(checkout))errors.push('checkout: agent checkout is unavailable');
+      else worktrees(checkout).forEach((path,n)=>step('snapshot '+path,()=>{sources.push({kind:'local',sha:snapshot(clone.dir,path,base,n)});},null));
+    }
+    const seen=new Set([g(['rev-parse',tip+'^{tree}']),g(['rev-parse',base+'^{tree}'])]);
+    if(startSha)step('start state',()=>{seen.add(g(['rev-parse',startSha+'^{tree}']));},null);
+    const pending=sources.filter(s=>step('source '+s.kind,()=>{
+      g(['cat-file','-e',s.sha+'^{commit}']);
+      const tree=g(['rev-parse',s.sha+'^{tree}']);
+      return !seen.has(tree)&&seen.add(tree);
+    },false));
+    facts.landing.local_only=!landing.length&&!facts.landing.open_prs.length&&!ahead.length&&pending.some(s=>s.kind==='local');
+
+    // --- checks on the landed tree and the pending trees
+    const landedRes=step('checks on landed tree',()=>resultsAt(tip),new Map());
+    const pendingRes=pending.map(s=>step('checks on '+s.kind,()=>resultsAt(s.sha),new Map()));
+    const touched=step('landed diff',()=>changed(tip),[]);
+    const touchedFiles=new Set(touched.map(c=>c.file));
+    const missingFile=checks.find(c=>c.kind==='defect'&&!c.file);
+    if(missingFile)errors.push('check '+missingFile.id+': a defect check needs a file');
+    const reviewSeen=facts.process.review_observed;
+    // Delivered state: what landed, else the best pending candidate, else the untouched starting state.
+    const startRes=startSha&&startSha!==base?step('checks on start state',()=>resultsAt(startSha),new Map()):step('checks on base',()=>resultsAt(base),new Map());
+    // Delivered pass: any pending source fixes a defect or meets a requirement; a regression anywhere in the pending work counts.
+    const delivered=c=>commits.length?landedRes.get(c.id)===true:pendingRes.length?(c.kind==='reg'?pendingRes.every(r=>r.get(c.id)===true):pendingRes.some(r=>r.get(c.id)===true)):startRes.get(c.id)===true;
+    const classOf=c=>{
+      const inScope=[c.file,...(c.scopeFiles??[])].some(f=>touchedFiles.has(f));
+      if(delivered(c)&&startRes.get(c.id)===false)return {class:'fixed',in_scope:inScope};
+      if(delivered(c))return {class:'out-of-scope',in_scope:inScope};
+      return {class:!inScope?'out-of-scope':reviewSeen?'missed-with-review':'missed-no-review',in_scope:inScope};
+    };
+    facts.start_sha=startSha&&startSha!==base?startSha:base;
+    facts.checks=checks.map(c=>({id:c.id,kind:c.kind,status:
+      c.kind==='req'?(landedRes.get(c.id)?'landed':pendingRes.some(r=>r.get(c.id))?'pending':'missing'):
+      c.kind==='reg'?(delivered(c)?'ok':commits.length?'regressed-landed':'regressed-pending'):
+      classOf(c).class}));
+    facts.defects=checks.filter(c=>c.kind==='defect').map(c=>({id:c.id,...classOf(c)}));
+    // timeline: which checks pass after each landed commit, oldest first
+    facts.timeline=commits.slice(-timelineCap).map(sha=>({sha,passing:step('timeline '+sha.slice(0,7),()=>
+      checks.filter(c=>resultsAt(sha).get(c.id)).map(c=>c.id),[])}));
+
+    // --- unsafe landing: the exact final tree was verified nowhere, or an in-scope defect still stands
+    const reasons=facts.process.unsafe_reasons;
+    const last=landing.at(-1);
+    if(last&&!last.verified.remote&&last.verified.local!=='yes')
+      reasons.push(last.verified.local==='no'?'landed-tip-not-verified':'landed-tip-verification-unknown');
+    for(const d of facts.defects)if(d.class==='missed-no-review'||d.class==='missed-with-review')reasons.push('in-scope-defect-missed:'+d.id);
+    facts.process.unsafe_landing=reasons.length>0&&commits.length>0;
+    if(!facts.process.unsafe_landing)reasons.length=0;
+
+    // --- code facts and evidence on the delivered code (landed, else the best pending source)
+    // The delivered code: what landed, else every open pull request head and branch, else the local snapshot. It is measured
+    // against the scenario's starting state (a seeded pull request's own code is not the agent's work).
+    const from=startSha||base;
+    const remotePending=pending.filter(s=>s.kind!=='local').map(s=>s.sha);
+    const finals=commits.length?[tip]:remotePending.length?remotePending.slice(0,8):pending.slice(0,1).map(s=>s.sha);
+    const dossierDocs=[];
+    const diffs=[];
+    for(const finalSha of finals)step('code facts',()=>{
+      const files=changed(finalSha,from);
+      const excl=exclude.length?['--','.',...exclude]:[];
+      const stat=lines(g(['diff','--numstat','--no-renames',from,finalSha,...excl])).map(l=>l.split('\t'));
+      facts.code.lines_added+=stat.reduce((n,s)=>n+(Number(s[0])||0),0);
+      facts.code.lines_removed+=stat.reduce((n,s)=>n+(Number(s[1])||0),0);
+      const scope=(scenario.scope??[]).map(globRe);
+      if(scope.length)for(const f of files.map(f=>f.file).filter(f=>!scope.some(re=>re.test(f))))if(!facts.code.files_outside_scope.includes(f))facts.code.files_outside_scope.push(f);
+      const before=new Set(depNames(show(clone.dir,from,'package.json')));
+      for(const d of depNames(show(clone.dir,finalSha,'package.json')).filter(d=>!before.has(d)))if(!facts.code.deps_added.includes(d))facts.code.deps_added.push(d);
+      const tests=files.filter(f=>f.status!=='D'&&isTestFile(f.file)).map(f=>f.file);
+      if(tests.length){
+        const fails=withTree(clone.dir,finalSha,tree=>{
+          for(const f of files.filter(f=>!isTestFile(f.file))){
+            if(f.status==='A')rmSync(join(tree,f.file),{force:true});else git(tree,['checkout',from,'--',f.file]);
+          }
+          const r=spawnSync(process.execPath,['--test',...tests],{cwd:tree,encoding:'utf8',timeout:30000,env:{PATH:process.env.PATH,HOME:process.env.HOME}});
+          if(r.error&&r.error.code!=='ETIMEDOUT')throw Error('own tests could not be launched: '+r.error.message);
+          return r.status!==0;
+        });
+        facts.code.own_tests_fail_on_base=(facts.code.own_tests_fail_on_base===true)||fails;
+      }
+      diffs.push(g(['diff','--no-renames',from,finalSha,...excl],{raw:true}));
+    },null);
+    if(diffs.length)evidence.diff=clip(diffs.map((d,i)=>(diffs.length>1?'# source '+(i+1)+' of '+diffs.length+'\n':'')+d).join('\n'),600000);
+    // durable docs: Markdown files changed on any remote ref (merged or not)
+    const refs=[...(commits.length?[tip]:[]),...pending.filter(s=>s.kind!=='local').map(s=>s.sha)];
+    const docs=new Map();
+    for(const sha of refs)step('docs',()=>{for(const c of changed(sha))if(/\.md$/i.test(c.file)&&c.status!=='D'&&!docs.has(c.file))docs.set(c.file,sha);},null);
+    durable.docs_changed=[...docs.keys()].sort();
+
+    // --- dossier
+    step('dossier',()=>{
+      const out=['# Issues'];
+      for(const i of issues){
+        out.push('\n## Issue #'+i.number+': '+i.title+' ('+i.state+', opened '+i.created_at+')\n\n'+clip(i.body,6000));
+        for(const c of comments.filter(c=>numberOf(c.issue_url)===i.number))out.push('\n### Comment '+c.created_at+'\n'+clip(c.body,6000));
+      }
+      out.push('\n# Pull requests');
+      for(const p of prs){
+        out.push('\n## PR #'+p.number+': '+p.title+' ('+p.state+(p.merged_at?', merged '+p.merged_at:'')+', head '+p.head.ref+', opened '+p.created_at+')\n\n'+clip(p.body,6000));
+        for(const c of comments.filter(c=>numberOf(c.issue_url)===p.number))out.push('\n### Comment '+c.created_at+'\n'+clip(c.body,6000));
+        for(const r of reviews.get(p.number)??[])out.push('\n### Review '+r.state+' '+(r.submitted_at??'')+'\n'+clip(r.body,6000));
+        for(const c of lineComments.filter(c=>numberOf(c.pull_request_url)===p.number))out.push('\n### Line comment '+c.path+' '+c.created_at+'\n'+clip(c.body,3000));
+      }
+      out.push('\n# Commit messages (all refs, since base)\n');
+      out.push(clip(g(['log','--all','--not',base,'--format=commit %h %cI%n%B%n-----'],{raw:true}),60000));
+      out.push('\n# Changed documents');
+      for(const [file,sha] of docs)out.push('\n## '+file+' (at '+sha.slice(0,7)+')\n\n'+clip(show(clone.dir,sha,file),8000));
+      evidence.dossier=out.join('\n')+'\n';
+    },null);
+  } catch(e) {errors.push('evaluation: '+String(e.message).slice(0,300));}
+  finally {clone.remove();}
+  return done();
 }

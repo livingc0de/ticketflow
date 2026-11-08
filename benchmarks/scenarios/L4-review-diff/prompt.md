@@ -1,1 +1,0 @@
-Review the change in `review.diff` (it is already applied to the working tree). Report each bug you find as `path:line`, the line being its line in the current file, with one sentence on why it is a bug. Do not modify any file.
