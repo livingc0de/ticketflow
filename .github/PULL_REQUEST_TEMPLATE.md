@@ -21,7 +21,7 @@ Deferred checks: <!-- none, or the issue/row that lists them -->
 
 Docs: <!-- updated, or not affected -->
 
-<!-- Fill these once, when the PR is created: no step edits the body later. At most 5 lines per section. No secrets or personal data in code, logs or screenshots. A partial or deferred part has its own issue, linked in Review Notes. -->
+<!-- Fill these once, when the PR is created: no step edits the body later. Keep each section to a few lines. No secrets or personal data in code, logs or screenshots. A partial or deferred part has its own issue, linked in Review Notes. -->
 <!-- ticketflow:end head -->
 
 <!-- ticketflow:begin tail -->
