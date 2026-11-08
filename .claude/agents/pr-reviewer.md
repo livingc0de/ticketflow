@@ -54,7 +54,7 @@ Post a GitHub review attached to the exact head: `gh pr review <PR> --comment --
 **Not checked:** what you could not verify, or none
 ```
 
-Keep the posted review to at most 25 lines: no empty sections, one line per acceptance criterion. Ready only when spec compliance is met and code quality is acceptable; missing evidence is noted, not inferred from the implementer's report. Blockers are only: an unmet criterion, a security or data issue, a broken invariant, missing tests for non-trivial logic; a blocker names the concrete input or condition that breaks it and the smallest fix, judged against the repo's expected load. Be terse, skip praise, do not restate the diff.
+Keep the posted review short (about 25 lines; a large or risky change may need more): no empty sections, one line per acceptance criterion. Ready only when spec compliance is met and code quality is acceptable; missing evidence is noted, not inferred from the implementer's report. Blockers are only: an unmet criterion, a security or data issue, a broken invariant, missing tests for non-trivial logic; a blocker names the concrete input or condition that breaks it and the smallest fix, judged against the repo's expected load. Be terse, skip praise, do not restate the diff.
 
 ## Diff and audit modes
 

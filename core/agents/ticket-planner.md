@@ -29,7 +29,7 @@ A plan already in the ticket, written there or linked, is **input**: verify it a
 
 ## Output
 
-No preamble. At most 60 lines for one PR (15 per task for a task list), and leave out a section that does not apply (`Open decisions: none` stays one line). The caller commits it as `<plans_dir>/YYYY-MM-DD-issue-<N>-<slug>-technical.md` and records the path in the ticket's `Planning:` line; a plan for a request with no ticket is returned to the caller, titled `# Technical plan: <title>`.
+No preamble. Aim for about 60 lines for one PR (about 15 per task for a task list; more when the change needs it), and leave out a section that does not apply (`Open decisions: none` stays one line). The caller commits it as `<plans_dir>/YYYY-MM-DD-issue-<N>-<slug>-technical.md` and records the path in the ticket's `Planning:` line; a plan for a request with no ticket is returned to the caller, titled `# Technical plan: <title>`.
 
 ```
 # Technical plan: #<N> <title>

@@ -10,7 +10,7 @@ A live or behaviour check that could not run (missing key, provider, deploy, rea
 
 ## Default branch CI
 
-When `deploy_branch` is set, wait for the merge commit (the action "Wait for a script"): `node .ticketflow/scripts/pr-wait.mjs <merge sha> --timeout-min 9`. Exit 0: fine. Exit 1: fix it now. Exit 3 (Actions refused the run): `git -C <primary checkout> pull --ff-only`, then from the primary checkout `node .ticketflow/scripts/local-verify.mjs <merge sha>` (in the background). Exit 2: superseded by a newer commit, check the newest default-branch commit instead and report; a timeout, run it again.
+When `deploy_branch` is set, wait for the merge commit (the action "Wait for a script"): `node .ticketflow/scripts/pr-wait.mjs <merge sha>`. Exit 0: fine. Exit 1: fix it now. Exit 3 (Actions refused the run): `git -C <primary checkout> pull --ff-only`, then from the primary checkout `node .ticketflow/scripts/local-verify.mjs <merge sha>` (in the background). Exit 2: superseded by a newer commit, check the newest default-branch commit instead and report; a timeout, run it again.
 
 ## Efficiency (optional)
 

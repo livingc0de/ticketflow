@@ -8,7 +8,7 @@ In this repository the runtime lives in `core/`: read every `.ticketflow/<path>`
 
 # Create a ticket
 
-`.ticketflow/custom/create-ticket.md` adds to and overrides this file: read it if it exists. Read `.ticketflow/config.json` once. Dispatching and asking the user follow your agent's map in `.ticketflow/agents-map/`. Descriptions stay short and stable (a body at most 40 lines), no emojis; Markdown goes through a heredoc; nothing ever uses a closing keyword.
+`.ticketflow/custom/create-ticket.md` adds to and overrides this file: read it if it exists. Read `.ticketflow/config.json` once. Dispatching and asking the user follow your agent's map in `.ticketflow/agents-map/`. Descriptions stay short and stable (a body of about 40 lines), no emojis; Markdown goes through a heredoc; nothing ever uses a closing keyword.
 
 **A vague request** (an idea, not yet a ticket): understand it as `.ticketflow/skills/engineering-method/SKILL.md` section 1 says (read the code first, one question at a time, 2-3 approaches when a choice is open), until the scope and the acceptance criteria are clear. Then write the ticket, or a tracker with children (step 2), with every decision in Decisions and the acceptance criteria. There is no design document or approval step.
 

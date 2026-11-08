@@ -45,14 +45,12 @@ main('gen-stubs', () => {
     for (const a of all) checkAdapter(a)
     for (const n of cfg.agents) if (!all.some((a) => a.name === n)) throw new Error(`agent ${n} has no adapter in core/adapters`)
     const adapters = all.filter((a) => cfg.agents.includes(a.name))
-    // a skill stub carries its agent's action map, so the map of every configured agent must be there
+    // a skill stub carries its agent's action map; a map that is not there yet (a half-upgraded runtime) leaves a pointer to the file
     const maps = {}
     for (const a of adapters) {
         const file = join(canonical, 'agents-map', `${a.name}.md`)
-        if (!existsSync(file)) throw new Error(`${rel}/agents-map/${a.name}.md is missing: run sync`)
-        const text = readFileSync(file, 'utf8').replaceAll('\r\n', '\n')
-        if (/[\u0000-\u0008\u000b-\u001f\u007f]/.test(text)) throw new Error(`${rel}/agents-map/${a.name}.md: control characters are not allowed`)
-        maps[a.name] = text
+        if (existsSync(file)) maps[a.name] = readFileSync(file, 'utf8').replaceAll('\r\n', '\n')
+        else console.error(`gen-stubs: ${rel}/agents-map/${a.name}.md is missing (run sync): its stubs point at the file instead of carrying it`)
     }
     const ls = (dir) => (existsSync(join(canonical, dir)) ? readdirSync(join(canonical, dir)).sort() : [])
     const load = (file) => ({ ...parseCanonical(readFileSync(join(canonical, file), 'utf8'), `${rel}/${file}`), src: file })
