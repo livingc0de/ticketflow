@@ -50,7 +50,7 @@ export const FAIL = { __fail: true }
  *    A write to `.../statuses/...` with no fixture is accepted; any other write without a fixture fails the test run.
  *  - `graphql <OperationName>`: a GraphQL call; the name is read from the query in stdin. The value is the `data` payload,
  *    or a whole `{ errors: [...] }` response (which makes gh exit 1, like the real one).
- *  - `pr merge`, `pr update-branch`: accepted unless the fixture fails.
+ *  - `pr merge`, `pr update-branch`, `pr ready`: accepted unless the fixture fails.
  *  - `statuses write` (a status write) and `pr comment`: accepted unless the fixture fails.
  * `gh --version` prints `map['--version']` (default `gh version 2.60.0 (2026-01-01)`).
  * Values: JSON; `{ __raw: '...' }` (printed verbatim, for `gh api -i`); `seq(a, b)` (served in turn, the last one repeats); `{ __pages: [p1, p2] }` (for `--paginate --slurp`);
@@ -108,7 +108,7 @@ else if (args[0] === 'api') {
     const n = readdirSync(state).filter((f) => f.startsWith('comment-')).length + 1
     writeFileSync(state + '/comment-' + n, stdin)
     console.log('https://github.com/o/r/pull/' + args[2] + '#issuecomment-' + n)
-} else if (args[0] === 'pr' && (args[1] === 'update-branch' || args[1] === 'merge')) {
+} else if (args[0] === 'pr' && (args[1] === 'update-branch' || args[1] === 'merge' || args[1] === 'ready')) {
     serve('pr ' + args[1])
 } else die('unexpected call: ' + args.join(' '))
 `

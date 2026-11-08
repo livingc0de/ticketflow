@@ -802,3 +802,28 @@ test('the shared cache keeps starts on the machine clock: a run whose offset dif
     assert.match(wait({ ...fix, ...header(-60) }, ['7', '--once'], {}, { dir }).stdout, /^Review: pending \(rb\[bot\]\)$/m)
     assert.match(wait(fix, ['7', '--once'], {}, { dir }).stdout, /^Review: pending \(rb\[bot\]\)$/m, 'the earlier run with another offset did not shorten the window')
 })
+
+// ---- a ready PR whose route is local but whose head has no local gate yet
+const localRoutePull = pull({ title: 'Ticket #7', changed_files: 1, head: { sha: HEAD, ref: 'feature', repo: { full_name: 'o/r' } }, base: { ref: 'main', repo: { full_name: 'o/r' } } }).pulls[7]
+const localRoute = { pulls: { 7: localRoutePull }, 'pulls/7/files': [{ filename: 'src/a.js', additions: 1, deletions: 0 }], 'issues/7': { labels: [{ name: 'Tier: Normal' }] } }
+
+test('a ready local-route PR with no local gate says so at once, instead of waiting for a run that cannot start', () => {
+    for (const mode of ['local', 'tiered']) {
+        const r = wait(localRoute, ['7', '--timeout-min', '1'], { verify: { mode } }, { sleep: true })
+        assert.equal(r.status, 2, `${mode}: ${r.stdout}${r.stderr}`)
+        assert.match(r.stdout, /Local gate: none on aaaaaaa: run local-verify\.mjs 7 from the primary checkout \(it marks the PR ready\)/)
+    }
+})
+
+test('an Actions failure on a ready local-route PR stays red and names the way out', () => {
+    const r = wait({ ...localRoute, ...runs(run(5, 'completed', 'failure')), ...job(5, { runner_id: 1, steps: [{}], created_at: ago(1) }) }, ['7', '--once'], { verify: { mode: 'tiered' } })
+    assert.equal(r.status, 1, r.stdout + r.stderr)
+    assert.match(r.stdout, /Local gate: none on aaaaaaa.*gh pr ready 7 --undo.*local-verify\.mjs 7/)
+})
+
+test('the note is not printed with --ci-only, with a posted gate, or on a CI route', () => {
+    assert.doesNotMatch(wait(localRoute, ['7', '--once', '--ci-only'], { verify: { mode: 'local' } }).stdout, /Local gate/)
+    assert.doesNotMatch(wait({ ...localRoute, ...status('success', 'Local run on host1 (x86_64, Node 24.0.0)') }, ['7', '--once'], { verify: { mode: 'local' } }).stdout, /Local gate/)
+    assert.doesNotMatch(wait({ ...localRoute, 'issues/7': { labels: [{ name: 'Tier: High' }] } }, ['7', '--once'], { verify: { mode: 'tiered' } }).stdout, /Local gate/)
+    assert.doesNotMatch(wait(localRoute, ['7', '--once'], {}).stdout, /Local gate/)   // verify.mode ci
+})

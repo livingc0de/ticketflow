@@ -414,6 +414,16 @@ for (;;) {
     const S = fresh()
     let kind = 'pending'
     try { kind = pollCi(S) } catch { S.why = 'a read failed' }
+    // A ready PR on the local route has no passing Actions run without its local gate: say so now, not after a 45-minute wait or a red nobody can replace.
+    if (!ciOnly && S.pull && !S.gate && ['local', 'tiered'].includes(cfg.verify.mode) && (kind === 'pending' || kind === 'red')) {
+        try {
+            if (routeOfPull(cfg, S.pull, target).route === 'local') {
+                const sha7 = S.head.slice(0, 7)
+                if (kind === 'pending') { S.notes.push(`Local gate: none on ${sha7}: run local-verify.mjs ${target} from the primary checkout (it marks the PR ready)`); kind = 'draft' }
+                else S.notes.push(`Local gate: none on ${sha7} and Actions failed this head: gh pr ready ${target} --undo, push a new head, then local-verify.mjs ${target}`)
+            }
+        } catch { /* the CI result stands as read */ }
+    }
     if (!ciOnly && (once || ['green', 'red', 'pending'].includes(kind)) && S.head) {
         try { pollReviewers(S) } catch { S.reviewers = 'unknown' }
         pollThreads(S)

@@ -141,7 +141,7 @@ function main() {
     let sha = target
     const readHead = () => {
         const p = ghApi(`repos/${cfg.repo}/pulls/${target}`)
-        return { sha: p.head.sha, same: p.head.repo?.full_name === p.base.repo.full_name, base: p.base.ref }
+        return { sha: p.head.sha, same: p.head.repo?.full_name === p.base.repo.full_name, base: p.base.ref, draft: p.draft === true }
     }
     if (isPr) {
         let pr
@@ -185,8 +185,8 @@ function main() {
     // 7. Recheck right before posting: the head is unchanged and the guard still says so.
     const where = log && ` (log: ${log})`
     if (allowed() !== method) stop(1, `the verification route or fallback eligibility changed; nothing posted${where}`)
+    let now = null
     if (isPr) {   // after the guard, so the guard cannot have judged a newer head than the one confirmed here
-        let now
         try { now = readHead() } catch { stop(1, `cannot re-read the head; nothing posted${where}`) }
         if (now.sha !== sha || !now.same || now.base !== base) stop(1, `the head or its base changed; nothing posted${where}`)
     }
@@ -204,6 +204,12 @@ function main() {
     if (post.status !== 0) stop(1, `cannot post the status${isPr ? ' (the comment was posted)' : ''}${where}`)
     console.log(`${cfg.gate.context}=${state} posted on ${sha.slice(0, 7)}${log && ` (log: ${log})`}`)
     if (state !== 'success') return 1
+
+    // The gate is posted first, so the run that "ready for review" starts finds it; a ready PR with no gate fails its Actions check for good.
+    if (isPr && method === 'routine' && now?.draft) {
+        const ready = run('gh', ['pr', 'ready', target, '-R', cfg.repo])
+        console.log(ready.status === 0 ? `marked #${target} ready` : `not marked ready: gh pr ready ${target} -R ${cfg.repo}`)
+    }
 
     // 9. A passing default-branch commit moves the deploy branch: a plain push, never forced.
     const deploy = cfg.deploy_branch

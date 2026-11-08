@@ -636,3 +636,37 @@ test('tiered High uses the documented local fallback when Actions refused before
     assert.equal(h.runlog().filter((x) => x.startsWith('fake-verify ')).length, 1)
     assert.deepEqual(h.file('prwait.log'), ['7 --once --ci-only', '7 --once --ci-only'])
 })
+
+// ---- ready only after the gate: local-verify marks a draft routine-local PR ready once it has posted the green status
+const draftFixtures = (draft) => (o) => { const f = tieredFixtures(o); f['repos/o/r/pulls/7'] = { ...f['repos/o/r/pulls/7'], draft }; return f }
+const readyCalls = (h) => h.gh.calls().filter((c) => c.join(' ') === 'pr ready 7 -R o/r')
+const order = (h) => h.gh.calls().map((c) => (c[0] === 'api' && /\/statuses\//.test(c[1]) ? 'status' : c.slice(0, 2).join(' '))).filter((x) => x === 'status' || x === 'pr ready')
+
+test('a green routine-local run marks the draft PR ready, and only after the status is posted', () => {
+    const h = tieredCase({ fixtures: draftFixtures(true) })
+    const r = h.run()
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(h.statuses()[0].state, 'success')
+    assert.equal(readyCalls(h).length, 1)
+    assert.deepEqual(order(h), ['status', 'pr ready'])
+    assert.match(r.stdout, /marked #7 ready/)
+})
+
+test('no ready call for a PR that is already ready, a failed run, or the refused-Actions fallback', () => {
+    const notDraft = tieredCase({ fixtures: draftFixtures(false) })
+    assert.equal(notDraft.run().status, 0); assert.equal(readyCalls(notDraft).length, 0)
+    const failed = tieredCase({ fixtures: draftFixtures(true) })
+    failed.set('rc-fake-verify', 1)
+    assert.equal(failed.run().status, 1); assert.equal(failed.statuses()[0].state, 'failure'); assert.equal(readyCalls(failed).length, 0)
+    const fallback = setup({ fixtures: draftFixtures(true), prWait: '3' })   // verify.mode ci: only the Actions-refused fallback may run
+    const fr = fallback.run()
+    assert.equal(fr.status, 0, fr.stderr); assert.equal(fallback.statuses()[0].state, 'success'); assert.equal(readyCalls(fallback).length, 0)
+})
+
+test('a failed ready call leaves the posted gate in place, exits 0 and says how to do it by hand', () => {
+    const h = tieredCase({ fixtures: (o) => ({ ...draftFixtures(true)(o), 'pr ready': FAIL }) })
+    const r = h.run()
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(h.statuses()[0].state, 'success')
+    assert.match(r.stdout, /not marked ready: gh pr ready 7 -R o\/r/)
+})
