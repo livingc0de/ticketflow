@@ -45,6 +45,15 @@ main('gen-stubs', () => {
     for (const a of all) checkAdapter(a)
     for (const n of cfg.agents) if (!all.some((a) => a.name === n)) throw new Error(`agent ${n} has no adapter in core/adapters`)
     const adapters = all.filter((a) => cfg.agents.includes(a.name))
+    // a skill stub carries its agent's action map, so the map of every configured agent must be there
+    const maps = {}
+    for (const a of adapters) {
+        const file = join(canonical, 'agents-map', `${a.name}.md`)
+        if (!existsSync(file)) throw new Error(`${rel}/agents-map/${a.name}.md is missing: run sync`)
+        const text = readFileSync(file, 'utf8').replaceAll('\r\n', '\n')
+        if (/[\u0000-\u0008\u000b-\u001f\u007f]/.test(text)) throw new Error(`${rel}/agents-map/${a.name}.md: control characters are not allowed`)
+        maps[a.name] = text
+    }
     const ls = (dir) => (existsSync(join(canonical, dir)) ? readdirSync(join(canonical, dir)).sort() : [])
     const load = (file) => ({ ...parseCanonical(readFileSync(join(canonical, file), 'utf8'), `${rel}/${file}`), src: file })
     const skills = ls('skills').filter((n) => existsSync(join(canonical, 'skills', n, 'SKILL.md'))).map((n) => load(`skills/${n}/SKILL.md`))
@@ -60,7 +69,7 @@ main('gen-stubs', () => {
         if (link(`docs/agents/${f}`) || !lstatSync(join(guidesDir, f)).isFile()) throw new Error(`docs/agents/${f} must be a regular file, and docs/agents a real directory`)
         return parseGuide(readFileSync(join(guidesDir, f), 'utf8'), `docs/agents/${f}`)
     })
-    const expected = renderStubs({ skills, roles, adapters, cfg, runtimeRel: rel, version, guides, plugins: rel === '.ticketflow' ? [] : all.filter((a) => a.plugin) })   // the ticketflow repo ships every manifest
+    const expected = renderStubs({ skills, roles, adapters, cfg, runtimeRel: rel, version, guides, maps, plugins: rel === '.ticketflow' ? [] : all.filter((a) => a.plugin) })   // the ticketflow repo ships every manifest
 
     // the files that could be ours: everything at an adapter's stub paths, plus the expected paths themselves
     const disk = new Map()

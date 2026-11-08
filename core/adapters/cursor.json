@@ -1,6 +1,6 @@
 {
-  "skill": { "target": ".agents/skills/{name}/SKILL.md", "format": "md", "body": "pointer" },
-  "role": { "target": ".cursor/agents/{name}.md", "format": "md", "body": "pointer", "fields": { "name": "name", "description": "description", "model": "model" } },
+  "skill": { "target": ".agents/skills/{name}/SKILL.md", "format": "md" },
+  "role": { "target": ".cursor/agents/{name}.md", "format": "md", "fields": { "name": "name", "description": "description", "model": "model" } },
   "plugin": {
     "manifest": {
       "path": ".cursor-plugin/plugin.json",

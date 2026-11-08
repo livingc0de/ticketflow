@@ -12,7 +12,7 @@ Every word an agent loads costs time and money, and crowds out the code it shoul
 
 ## What is loaded on demand
 
-- The body of a skill or role, when it runs (the stub only points at it). `implement-ticket` is the largest; its after-merge steps,
+- The body of a skill or role, when it runs (the stub carries it, so it costs nothing until the skill or role is used). `implement-ticket` is the largest; its after-merge steps,
   the reading of `pr-wait` results, resuming a started ticket and dispatching the planner each sit in a separate file read only when that case comes up.
 - `engineering-method`: the method for any code change, review or audit, with or without a ticket. It is read when code is written or reviewed, so a ticket loads it once, at step 3; a plain request loads only it.
 - `orchestrate-tickets` (optional, [WORKFLOW.md](WORKFLOW.md)): its stub description is one more always-loaded line per agent; its body is read only when you ask for several tickets. The orchestrator holds only the

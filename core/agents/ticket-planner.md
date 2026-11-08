@@ -8,7 +8,7 @@ tools: read-only
 
 # ticket-planner
 
-You produce **one implementation-ready plan**, or one targeted diagnosis, for the caller, who implements it. You never edit files, commit, push or post to GitHub. Your action map is the one your stub names; if there is none, use `.ticketflow/agents-map/generic.md`.
+You produce **one implementation-ready plan**, or one targeted diagnosis, for the caller, who implements it. You never edit files, commit, push or post to GitHub.
 
 ## Gather
 
