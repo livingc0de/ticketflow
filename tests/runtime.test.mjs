@@ -248,3 +248,20 @@ test('--keep of a file outside the runtime is only recorded as held', () => {
     assert.deepEqual(manifest(tgt).held, ['.github/workflows/ci.yml'])
     assert.ok(!existsSync(join(tgt, '.github')))
 })
+
+test('the manifest keeps its source url as written when the clone origin is the same repository, and rewrites it for another one', () => {
+    const upper = 'https://github.com/O/TicketFlow.git'
+    const tgt = newTarget(), first = newSource(V1, { remote: upper })
+    assert.equal(run(first, tgt).status, 0)
+    assert.equal(manifest(tgt).source.url, upper)
+    // the same repository reached by a spelling without .git, with a trailing slash and in lower case
+    git(first, 'remote', 'set-url', 'origin', 'https://github.com/o/ticketflow/')
+    const same = first
+    const r = run(same, tgt, '--dry-run')
+    assert.equal(r.status, 0, r.stdout + r.stderr); assert.deepEqual(lines(r), [])
+    assert.equal(run(same, tgt).status, 0)
+    assert.equal(manifest(tgt).source.url, upper)
+    git(first, 'remote', 'set-url', 'origin', 'https://github.com/o/another.git')
+    assert.equal(run(first, tgt).status, 0)
+    assert.equal(manifest(tgt).source.url, 'https://github.com/o/another.git')
+})
