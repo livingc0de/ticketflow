@@ -4,7 +4,6 @@
 
 ### Highlights
 
-- **A `pr-reviewer` review carries a marker that `merge` checks.** Its first line is `Reviewed head: <sha> by pr-reviewer: ready to merge` (or `changes needed`); the rest is free text. The plain lane needs the merging account's marked review of the head, a trusted account's marked review that names another commit or says `changes needed` blocks every lane, and a fix delta is built only on a ready, marked review of an earlier head. A relay is the role's report posted word for word, and `merge` prints the exact line when it is missing. The marker is a format and traceability check, not independence: the same account can write it.
 - **Stubs are the whole skill or role.** `gen-stubs` writes the canonical body into each stub, and a skill that names the action map also carries the map of its agent, so invoking a skill or dispatching a role costs no read of its own file (4 to 6 round trips per ticket). `gen-stubs` with no directories checks the repo it runs in, from any of its directories and worktrees; `doctor` uses that form.
 - **Ready only after the local gate.** `local-verify` marks a draft pull request ready after it posts the green gate, and `pr-wait` tells a lead when a ready local-route pull request has no local gate yet.
 - **Fewer calls and tokens per ticket.** The first call of a ticket is batched; `post-merge.md` is read only when it applies; the self-check recipe and the handoff steps are in `implement-ticket`; `pr-wait` runs in the foreground (`--timeout-min 9`) instead of in the background plus a read-back; briefs carry facts instead of documents; the plan, review, ticket, claim, PR and summary texts have length caps; the always-loaded `AGENTS.md` block and the Claude action map are shorter; the byte budgets are pinned in `tests/canonical.test.mjs`.
@@ -14,9 +13,7 @@
 ### What You Need To Do When Upgrading From 0.6.6
 
 - Run `sync`. It rewrites every generated stub (a large generated diff is expected) and the `AGENTS.md` block.
-- Open pull requests whose review was posted under 0.6.x need that review posted again with the marker line before `merge` accepts it.
 - A High-tier ticket no longer gets a strong reviewer by tier alone: add your money and auth paths to `review.always_review` to keep them on the strong class.
-- Remove any review format your `custom/*.md` files restate; the first line above is the only one `merge` reads.
 
 ## 0.6.6
 

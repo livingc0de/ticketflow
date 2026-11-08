@@ -66,13 +66,13 @@ reason for rejecting it). `pr-wait` flattens all GitHub text to one line, so it 
 
 `merge` checks, on the exact PR head: a green verification gate, an up-to-date base, no unresolved review threads, no pending external reviewer or native GitHub `CHANGES_REQUESTED` state, and review evidence:
 
-- **Internal review:** a submitted GitHub review by the merging account, attached to the exact head, whose first line is the marker `Reviewed head: <sha> by pr-reviewer: ready to merge` (sha: 7 to 40 hex, a prefix of the head). The `pr-reviewer` role posts it, or a lead relays the role's report word for word; the rest of the body is free text and never parsed. A trusted account's marked review on the head that names another commit or says `changes needed` blocks every lane, and a later `ready to merge` marker on the same head replaces it.
+- **Internal review:** a submitted GitHub review by the merging account, attached to the exact head with nonempty content. The suggested format can vary; no `Verdict:` sentence or `Reviewed head:` text is parsed.
 - **External review:** `--reviewed-by '<login>'` names an independent reviewer whose result `pr-wait` observed on this head. An unedited first comment during the waiting window also requires `--review-result-url '<link>'` so the agent explicitly confirms which result it read.
 - **Self-check:** `--self-checked` names the account's review of the exact head, with freeform content, and works only where the diff qualifies under `risk.mjs`.
 
 **Agent responsibility:** read the complete review, fix or explicitly reject each finding, and do not merge while blockers remain. GitHub's structured `CHANGES_REQUESTED` state is a hard block; a review posted with `COMMENTED` is evidence of a review, **not proof of approval**. The merge script cannot reliably infer semantic approval from prose, and does not try. Repository-required approvals remain enforceable through GitHub's branch protection.
 
-Only the first line of a review (the marker) is parsed; the layout below is helpful for readability and is **not a parsing contract** beyond that. `merge` reads no repository permission: GitHub's own branch rules decide who may merge.
+The review layout below is helpful for readability but is **not a parsing contract**. `merge` reads no repository permission: GitHub's own branch rules decide who may merge.
 
 ## The self-check lane
 
@@ -90,7 +90,7 @@ highest tier is Critical, a ticket has the `Security` label, a path always needs
   (a renamed file counts as test or docs only when both of its names are);
 - the file list is incomplete or a code file has no readable line count (binary, empty or mode-only changes; in the fix delta this holds for every file). Known limit: a binary that was renamed and changed can report no line count and look like a pure rename.
 
-**Fix delta.** If the only reasons to require a review are size-related, a small fix delta since a previously submitted non-blocking internal review can be self-checked. GitHub's commit ID establishes which head a review sits on; the marker must agree with it. The base is the account's latest marked review of an earlier head, which must be ready, completed and name its own commit; a review without the marker is no base. A native `CHANGES_REQUESTED` or a `changes needed` marker on the earlier review cannot be answered by a self-check: a new review is required.
+**Fix delta.** If the only reasons to require a review are size-related, a small fix delta since a previously submitted non-blocking internal review can be self-checked. GitHub's commit ID, not a `Reviewed head:` line, establishes which head was reviewed. A native `CHANGES_REQUESTED` on the earlier review cannot be answered by a self-check. A new independent review is required instead. Existing optional `Self-check head:` markers are still recognized to avoid mistaking earlier self-checks for independent reviews.
 
 The self-check is a submitted GitHub review on the exact head, usually posted in this suggested format:
 
@@ -103,7 +103,7 @@ Not checked: what could not be verified, if anything
 
 No exact wording is required. The agent passes `merge --self-checked` as its explicit attestation, and TicketFlow independently verifies the diff's low-risk criteria. The script cannot determine how carefully the review was performed; meaningful review and judgment remain the agent's responsibility.
 
-A High tier requires an earlier review before a small fix delta can be self-checked. Critical tier always requires a review. These floors are still enforced; the body of a review after its marker line is free text.
+A High tier requires an earlier review before a small fix delta can be self-checked. Critical tier always requires a review. These floors are still enforced, but changing a review's natural-language formatting cannot make it ineligible.
 
 ## When merge says no
 
@@ -120,13 +120,11 @@ Every refusal names its reason and the next step.
 | `<login> requested changes` | GitHub's native review state is `CHANGES_REQUESTED` on this head | Address the findings; ask that reviewer to re-review, or the owner may dismiss the request |
 | `self-check is off in this repo` / `no submitted self-check` | Self-checks are disabled, or the account has no submitted nonempty review of this head | Run `pr-reviewer`, or submit a self-check review with evidence |
 | `this PR needs a review, not a self-check (<reasons>)` / `too big for a self-check` / `fix delta ... lines` | `risk.mjs` found a rule that forces a review, or the fix delta is too big | Run `pr-reviewer` on the head (a delta review since the last one is enough) |
-| `no pr-reviewer review marked for <sha7>` | The merging account has no review on the exact head whose first line is the marker | Post the `pr-reviewer` report (or its own review) with the printed first line, or name a reviewer or use `--self-checked` |
-| `<login>'s pr-reviewer review on <sha7> names <other>` | A trusted account's marked review sits on this head but names another commit | Get a review of the head (a delta review since the named commit is enough) |
-| `<login>'s pr-reviewer review of <sha7> says changes needed` | A trusted account's latest marked review on this head says `changes needed` | Fix and push, then get a delta review; a later `ready to merge` marker on the same head also replaces it |
+| `no submitted review of <sha7>` | No qualifying submitted review is attached to the exact PR head | Submit or name a current-head review, using any wording |
 | `<base> moved (behind by n)` | The default branch has new commits (checked early and again right before the merge) | `gh pr update-branch <PR>`, wait for the new gate, review the new head, merge again |
 | `CI / Gate is ... on <sha7>` | The gate is not green on this exact commit | Wait for it or fix what failed ([CI-GATE.md](CI-GATE.md)) |
 
-An agent never lifts any of these on its own, and the script has no flag to skip a check. A `pr-reviewer` review is re-reviewed by posting a new marked review of the new head. GitHub's native changes requests can be dismissed by the owner, or the owner may merge by hand.
+An agent never lifts any of these on its own, and the script has no flag to skip a check. Internal `pr-reviewer` comments communicate findings to the agent and can be re-reviewed without rigid verdict text. GitHub's native changes requests can be dismissed by the owner, or the owner may merge by hand.
 
 ## What is enforced
 
@@ -135,11 +133,11 @@ An agent never lifts any of these on its own, and the script has no flag to skip
 | The gate status is `success` on the exact head, the branch is up to date | enforced by `merge` (and the ruleset) | |
 | No unresolved review thread, from any author; `unknown` refuses | enforced by `merge`, from `pr-wait` | Ceiling: 100 threads |
 | No external reviewer pending or asking for changes on the head; a named reviewer's answer is not an unconfirmed first comment | enforced by `merge`, from `pr-wait` | Reviewers are found from their activity (any app, any wording); whether a comment is a review is the agent's reading |
-| A review of the head: the own marked `pr-reviewer` review, or a named external result | enforced by `merge` | The marker's sha must be a prefix of the head and its verdict ready; native changes requests and `changes needed` markers block; the agent judges the findings |
+| A review of the head: the own submitted GitHub review, or a named external result | enforced by `merge` | Native GitHub changes requests block; the agent judges freeform comment findings |
 | The 15-minute wait for a started reviewer is measured on GitHub's clock | enforced by `pr-wait` with a limit | The clock is read once from the `Date` header of a GitHub call (when it cannot be read, or reads later than the machine clock, the machine clock), so a machine clock that runs ahead of GitHub's does not shorten the window. A reviewer timestamp still ahead of that clock counts from the moment `pr-wait` first sees it (it prints a `Clock:` note); with `--more`, what a reviewer posted or edited after the run started is then a change against the first look. If GitHub's own object timestamps disagree with its `Date` header in the other direction (they read older), the window ends early and nothing in the clocks shows it |
 | A reviewer ran, was independent of the author, and an external result says what the agent says it does | **not verifiable** | The review is posted with the agent's own credentials in standard mode, and a result is read by the agent: `merge` proves where and when it was posted. High-assurance mode: [SECURITY.md](SECURITY.md#two-ways-to-run) |
 | A self-check is only used on a small, low-risk diff | enforced by `merge`, from the diff | Floor from facts only: size, untested code, paths, labels. It cannot judge design or the care of the self-check, and it reads the tier only from the `Tier: High` / `Tier: Critical` labels |
-| A marked review means the code is safe to merge, or that the role wrote it | **not verifiable** | The marker is a format and traceability check: the same account can write it. The agent must understand the findings; GitHub reviews and branch rules enforce only the structured facts |
+| A freeform review means the code is safe to merge | **not verifiable** | The agent must understand the findings; GitHub reviews and branch rules enforce only the structured facts |
 | Findings are fixed and answered with a reason | convention | Only the threads are gated; a finding left in a review body is not. A finding rejected without a fix, about security, data or correctness, gets a `pr-reviewer` pass on the head |
 | The owner is asked before an inline (non-independent) review is the only one | convention | The skill and the action map say so |
 

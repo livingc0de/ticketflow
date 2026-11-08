@@ -186,8 +186,8 @@ missing a real reviewer would be worse than waiting briefly for a noisy one.
 
 Merges happen only through the `merge` script. A standard branch ruleset requires `CI / Gate` and an up-to-date
 branch. The script adds what a ruleset cannot see: no unresolved review thread from anyone, no reviewer left waiting or on "changes
-requested", every trusted account's last marked `pr-reviewer` review of this commit "ready to merge", and a review of this exact commit (the agent's own
-marked `pr-reviewer` review, the external reviewer's result it names, or, for a small low-risk diff, its own self-check). When it refuses, it always prints the next step, and there is always a legitimate way through
+requested", and a review of this exact commit (the agent's own
+`pr-reviewer` review in any wording, the external reviewer's result it names, or, for a small low-risk diff, its own self-check). When it refuses, it always prints the next step, and there is always a legitimate way through
 ([the ways past a refusal](core/docs/REVIEWERS.md#when-merge-says-no)). Your merge methods and branch settings stay yours: the setup shows them and offers squash-only (one commit per ticket) and
 tidy-branch settings, which you can take or leave. You, as an admin, can still override it through a pull request when you choose to; agents never do that on their own.
 [More in SECURITY.md](core/docs/SECURITY.md)

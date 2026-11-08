@@ -10,12 +10,10 @@
  * one `Unresolved threads:` line, `0` (threads of any author; `unknown` refuses), and exactly one `Review:` line that is `none` or
  * `results (..)`: never `pending` (an external reviewer started on the head and has not answered, at most 15 minutes from its start)
  * and never `changes requested`.
- * Reviews are GitHub review objects attached to the exact head. A pr-reviewer review (posted by the role or relayed word for word) starts
- * with the line `Reviewed head: <sha> by pr-reviewer: ready to merge|changes needed`: the plain lane needs one of the merging account's on
- * the head, and a trusted account's marked review that names another commit or says `changes needed` blocks every lane. The rest of a
- * review is free text, never parsed. A native CHANGES_REQUESTED state blocks. Agents read the findings and resolve them before merging.
+ * Reviews are GitHub review objects attached to the exact head, not parsed natural-language verdicts.
+ * A native CHANGES_REQUESTED state blocks. Agents inspect review content and resolve findings before using the merge command.
  * `--reviewed-by` identifies a named external result; `--self-checked` allows a self-check only under the risk policy.
- * A ready, marked pr-reviewer review of a previous head can support a small fix delta.
+ * A review of a previous head can support a small fix delta, provided it was submitted and not a changes request.
  * Merge reads no repository permission: GitHub's own rules (a ruleset, branch protection, required reviews) are what enforce who may merge.
  * The merge passes `--match-head-commit`, so a push after the checks fails the merge; the base is read again right before it, so a base
  * that moved after the slow reads is refused.
@@ -42,14 +40,13 @@ const base = cfg.default_branch
 
 const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])   // the pre-filter for a review of record: on a public repo anyone can comment
 const who = (login) => login || 'an unknown account'
+const SELF_HEAD = /^Self-check head: ([0-9a-f]{7,40})\b/ // old self-check marker, recognized only to exclude these from prior independent reviews
 const completedReview = (r) => r && (r.state === 'APPROVED' || (r.state === 'COMMENTED' && Boolean(String(r.body ?? '').trim())))
-const MARK = /^Reviewed head: ([0-9a-f]{7,40}) by pr-reviewer: (ready to merge|changes needed)$/
-/** The pr-reviewer marker on the first line of a review body: { sha, ready }, or null (any other text is free text). */
-const marker = (r) => { const m = MARK.exec(String(r?.body ?? '').trimStart().split(/\r?\n/, 1)[0].trimEnd()); return m ? { sha: m[1], ready: m[2] === 'ready to merge' } : null }
 
 const stop = (message) => { console.error(`merge: not merged: ${message}`); return 1 }
 
 const NEXT = (sha7) => `run pr-reviewer on the head (a delta review since ${sha7} is enough)`
+const readyReview = (r) => Boolean(completedReview(r) && typeof r.commit_id === 'string')
 
 /**
  * The review of record for --self-checked. Returns a refusal string or { lane }. `own` is the merging account's latest submitted review on the head.
@@ -57,12 +54,11 @@ const NEXT = (sha7) => `run pr-reviewer on the head (a delta review since ${sha7
 function selfCheck(pull, head, own, reviews, me) {
     const sha7 = head.slice(0, 7)
     if (!cfg.review.self_check) return 'self-check is off in this repo (review.self_check): run pr-reviewer on the head'
-    if (!completedReview(own)) return `no submitted self-check of ${sha7}: post one (gh pr review ${pr} --repo ${cfg.repo} --comment --body-file -) that starts "Self-check head: ${sha7}", then Acceptance criteria:, Invariant sweep: and Not checked:, and use --self-checked; or ${NEXT('the last reviewed head')}`
-    // this account's latest review of another commit that is marked or a native changes request (whatever its text): after a changes request or a
-    // "changes needed" a self-check is not enough, and only a ready, marked one is the base of a fix delta
+    if (!completedReview(own)) return `no submitted self-check of ${sha7}: review this head with a non-empty comment, then use --self-checked; or ${NEXT('the last reviewed head')}`
+    // this account's latest pr-reviewer review: after a "changes needed" a self-check is not enough, and a ready one is the base of a fix delta
     const prior = reviews.filter((x) => x.user?.login === me && TRUSTED.has(x.author_association) &&
-        x.commit_id !== head && x.state !== 'PENDING' && x.state !== 'DISMISSED' && (marker(x) || x.state === 'CHANGES_REQUESTED')).at(-1)
-    if (prior && !(marker(prior)?.ready && completedReview(prior) && typeof prior.commit_id === 'string' && prior.commit_id.startsWith(marker(prior).sha))) return `the last earlier pr-reviewer review was not a ready review of its own head: ${NEXT(prior.commit_id?.slice(0, 7) ?? 'the last reviewed head')}`
+        x.commit_id !== head && x.state !== 'PENDING' && x.state !== 'DISMISSED' && !SELF_HEAD.test(x.body ?? '')).at(-1)
+    if (prior && !readyReview(prior)) return `the last earlier review was not a completed non-blocking review: ${NEXT(prior.commit_id?.slice(0, 7) ?? 'the last reviewed head')}`
     const found = laneOfPull(cfg, pull, pr)
     if (found.ticket === null) return `no "Ticket #N" in the PR title or body: a self-check is for ticket work only (add it, or ${NEXT('the last reviewed head')})`
     if (found.lane === 'self-check') return { lane: 'small diff' }
@@ -132,15 +128,6 @@ function merge() {
     for (const [login, x] of last) {
         if (x.state === 'CHANGES_REQUESTED') return stop(`${who(login)} requested changes on ${sha7}: address the findings; that reviewer can re-review or the owner can dismiss the request`)
     }
-    // a trusted account's latest marked pr-reviewer review on the head must name the head and be ready, whichever lane follows
-    const marked = new Map()
-    for (const x of reviews) {
-        if (x.commit_id === head && x.user?.login && TRUSTED.has(x.author_association) && x.state !== 'PENDING' && x.state !== 'DISMISSED' && marker(x)) marked.set(x.user.login, { ...marker(x), x })
-    }
-    for (const [login, m] of marked) {
-        if (!head.startsWith(m.sha)) return stop(`${who(login)}'s pr-reviewer review on ${sha7} names ${m.sha.slice(0, 7)}: ${NEXT(m.sha.slice(0, 7))}`)
-        if (!m.ready) return stop(`${who(login)}'s pr-reviewer review of ${sha7} says changes needed: fix, push, then ${NEXT(sha7)}`)
-    }
     const named = values['reviewed-by']
     let lane = null   // the self-check lane that was used, for the final note
     if (values['self-checked']) {
@@ -157,7 +144,8 @@ function merge() {
         if (url && url !== observedUrl) return stop(`${named}'s review-result-url is not the observed result on ${sha7}: re-read the current result\n${summary}`)
         if (line.startsWith('result first comment ') && !url) return stop(`${named}'s first comment on ${sha7} could still be a status note: read its full content and, only if it is a complete review, use --review-result-url '<exact result link>'; otherwise wait with pr-wait --more '${named}' (at most 15 minutes from its start)\n${summary}`)
     } else {
-        if (!marked.has(me)) return stop(`no pr-reviewer review marked for ${sha7}: post the pr-reviewer's report (or its own review) word for word, starting with this line,\n  Reviewed head: ${head} by pr-reviewer: ready to merge\nthrough gh pr review ${pr} --repo ${cfg.repo} --comment --body-file - ; or pass --reviewed-by '<login>' for the external result you acted on, or --self-checked where the diff qualifies`)
+        const own = last.get(me)
+        if (!completedReview(own)) return stop(`no submitted review of ${sha7} with content: review this head (any wording is fine), or pass --reviewed-by '<login>' for the external result you acted on`)
     }
 
     // The merge method is the repo's choice: the first that its settings and every pull_request rule on the base (org rulesets too) allow.

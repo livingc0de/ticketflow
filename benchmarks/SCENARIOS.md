@@ -52,7 +52,7 @@ newpr() { git switch -q -c "eval/$1" origin/main && echo "$1" > "eval-$1.md" && 
 
 1. `PR=$(newpr started)`. As `REVIEWER`, review the head: `as REVIEWER gh pr review $PR --comment --body "Blocking: this file breaks the next test."` (state `COMMENTED`, no inline thread).
 2. `as AGENT node .ticketflow/scripts/pr-wait.mjs $PR`. **Expect** `Review <REVIEWER login>: result review COMMENTED <url> Blocking: ...`, `Review: results (<REVIEWER login>)`, `Unresolved threads: 0`, exit 0. A result is not an approval: the agent reads it.
-3. `as AGENT node .ticketflow/scripts/merge.mjs $PR`. **Expect** exit 1, `no pr-reviewer review marked for <sha7>: post the pr-reviewer's report ... starting with this line, ... or pass --reviewed-by '<login>' ...`.
+3. `as AGENT node .ticketflow/scripts/merge.mjs $PR`. **Expect** exit 1, `no submitted review of <sha7> with content: review this head (any wording is fine), or pass --reviewed-by '<login>' ...`.
 4. A reviewer that started and has not answered: `PR=$(newpr pending)`; as `REVIEWER`, `gh api repos/<sandbox>/issues/$PR/reactions -f content=eyes` (a reaction that is its first sign starts the wait but is no result). `pr-wait --once` **Expect** `Review <REVIEWER login>: pending since <time> (at most until <time + 15 min>)`, `Review: pending (<REVIEWER login>)`; `merge` **Expect** exit 1, `a reviewer started on <sha7> and has not answered: wait (pr-wait), at most 15 minutes from its start`. After 15 minutes `pr-wait` prints `no result 15 min after its start` and `Review: none (no result in time: ...)`.
 5. Old activity: push a commit to `$PR`. **Expect** the reviewer's earlier reaction and review decide nothing on the new head (`Review: none`).
 6. Positive control: `PR=$(newpr approved)`; `as REVIEWER gh pr review $PR --approve`; `as AGENT node .ticketflow/scripts/merge.mjs $PR --reviewed-by <REVIEWER login>` exits 0 and prints `Note: merged on the result of <REVIEWER login> on <sha7>; ...`.
@@ -60,30 +60,28 @@ newpr() { git switch -q -c "eval/$1" origin/main && echo "$1" > "eval-$1.md" && 
 
 ### E3b: evidence is for the exact head
 
-1. `PR=$(newpr stale)`; `HEAD=$(git rev-parse HEAD)`. As `AGENT`, post a pr-reviewer review: a file whose first line is `Reviewed head: <full $HEAD> by pr-reviewer: ready to merge`, then `as AGENT gh pr review $PR --comment --body-file review.md`.
+1. `PR=$(newpr stale)`. As `AGENT`, post a review of the head with any non-empty text: `echo "reviewed" | as AGENT gh pr review $PR --comment --body-file -`.
 2. Push a new commit (`echo more >> eval-stale.md && git commit -qam more && git push -q`); wait for the gate (`pr-wait`).
-3. `as AGENT node .ticketflow/scripts/merge.mjs $PR`. **Expect** exit 1, `no pr-reviewer review marked for <new sha7>`: the review is on the old head.
+3. `as AGENT node .ticketflow/scripts/merge.mjs $PR`. **Expect** exit 1, `no submitted review of <new sha7> with content`: the review is on the old head.
 4. Repeat 1 to 3 with an update-branch instead of a commit (let another PR merge first, then `as AGENT gh pr update-branch $PR`) and with a force push (`git commit --amend --no-edit && git push --force-with-lease`). **Expect** the same refusal: there is no exception for an update-branch.
 5. Post a review of the current head (a delta review is enough) and merge. **Expect** exit 0, `Merged #<PR> (squash) as <sha>`.
 
-### E3c: a verdict belongs to its account; an outsider sets none
+### E3c: only the merging account's own review counts; an outsider sets none
 
-Three cases, each on its own pull request.
+Two cases, each on its own pull request.
 
-**Case 1, another account's `changes needed`.** `PR=$(newpr other)`. As `REVIEWER`, post a review whose first line is `Reviewed head: <full sha> by pr-reviewer: changes needed`; as `AGENT`, post a `ready to merge` marker review of the same head. `merge`. **Expect** exit 1, `<REVIEWER login>'s pr-reviewer review of <sha7> says changes needed`. As `REVIEWER`, post a `ready to merge` marker review of the head (a later ready marker of the same account replaces its `changes needed`). `merge` exits 0.
+**Case 1, an outsider's review.** `PR=$(newpr outsiderready)`. As `OUTSIDER`, post a review of the head with any non-empty text. `merge`. **Expect** exit 1, `no submitted review of <sha7> with content`: an outsider's review is never the merging account's.
 
-**Case 2, an outsider's ready review.** `PR=$(newpr outsiderready)`. As `OUTSIDER`, post a review of the head whose first line is `Reviewed head: <full sha> by pr-reviewer: ready to merge`. `merge`. **Expect** exit 1, `no pr-reviewer review marked for <sha7>`: an outsider's review is never the merging account's.
+**Case 2, naming this account or an unlisted one.** `PR=$(newpr named)`; with an `AGENT` ready review of the head present, `merge --reviewed-by <AGENT login>`. **Expect** exit 1, `<AGENT login> has no result on <sha7>`: this account's own activity is never an external reviewer's. Same for `--reviewed-by <OUTSIDER login>`.
 
-**Case 3, naming this account or an unlisted one.** `PR=$(newpr named)`; with an `AGENT` ready review of the head present, `merge --reviewed-by <AGENT login>`. **Expect** exit 1, `<AGENT login> has no result on <sha7>`: this account's own activity is never an external reviewer's. Same for `--reviewed-by <OUTSIDER login>`.
-
-Known limit, to state in the results and not to fix: the agent's own review (and its marker line) is posted under the account `merge` trusts; only the high-assurance mode (`core/docs/SECURITY.md`, "Two ways to run") makes GitHub require someone else's approval. An agent on a GitHub App token cannot read `gh api user`, so both scripts refuse it.
+Known limit, to state in the results and not to fix: the agent's own review is posted under the account `merge` trusts; only the high-assurance mode (`core/docs/SECURITY.md`, "Two ways to run") makes GitHub require someone else's approval. An agent on a GitHub App token cannot read `gh api user`, so both scripts refuse it.
 
 ### E3d: an outsider cannot lift a block, and cannot deadlock
 
-1. `PR=$(newpr outsider)`. As `AGENT`, post a review whose first line is `Reviewed head: <sha> by pr-reviewer: changes needed`.
-2. As `OUTSIDER`, post a review with a `ready to merge` marker line, a comment and an inline comment: `as OUTSIDER gh api repos/<sandbox>/pulls/$PR/comments -f body="nit" -f commit_id=<head sha> -f path=eval-outsider.md -F line=1 -f side=RIGHT`.
+1. `PR=$(newpr outsider)`. As `REVIEWER`, `gh pr review $PR --request-changes --body "no"`.
+2. As `OUTSIDER`, post an approving review, a comment and an inline comment: `as OUTSIDER gh api repos/<sandbox>/pulls/$PR/comments -f body="nit" -f commit_id=<head sha> -f path=eval-outsider.md -F line=1 -f side=RIGHT`.
 3. `pr-wait`. **Expect** `Unresolved threads: 1` with one `[PRRT_...] eval-outsider.md:1 @<OUTSIDER login> nit` line, and no `Review <OUTSIDER login>` line (an outsider's comment starts no wait).
-4. `merge`. **Expect** exit 1: first `1 unresolved review thread(s)`. Answer and resolve it: `echo "Rejected: not a defect" | as AGENT node .ticketflow/scripts/thread.mjs $PR PRRT_...` (exit 0). `merge` again. **Expect** exit 1, `<AGENT login>'s pr-reviewer review of <sha7> says changes needed`: the outsider's marker did not lift it.
+4. `merge`. **Expect** exit 1: first `1 unresolved review thread(s)`. Answer and resolve it: `echo "Rejected: not a defect" | as AGENT node .ticketflow/scripts/thread.mjs $PR PRRT_...` (exit 0). `merge` again. **Expect** exit 1, `<REVIEWER login> requested changes on <sha7>`: the outsider's review did not lift it.
 
 ### E3e: red, missing and requested-changes states
 

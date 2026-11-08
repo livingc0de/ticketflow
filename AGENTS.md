@@ -7,7 +7,7 @@
 - Read issues with `node core/scripts/issue.mjs <N>`, never `gh issue view`. The Project is Projects v2 only, through `project.mjs`.
 - Plan in proportion to the tier (the strong planner only when needed; its plans are committed under `docs/plans`). Never claim a check that did not run.
 - Any code change, review or audit, with or without a ticket, follows the `engineering-method` skill.
-- `merge` checks only the first line of a `pr-reviewer` review (`Reviewed head: <sha> by pr-reviewer: ready to merge`); read the rest for its meaning and address blockers. An unblocked gate is not permission to ignore semantic defects.
+- Review the *meaning* of findings and address blockers; the suggested review format is not a required string. An unblocked gate is not permission to ignore semantic defects.
 - Verification follows `verify.mode`: in `ci` or `tiered`, focused checks while building, never the full `verify.command` in the working tree. `tiered`: `verify-route` on the draft PR, then the one selected local or Actions gate. `local`: the full command once through `local-verify` in a clean worktree. `local-verify` marks the draft ready when it passes; fork PRs use Actions.
 - Write `Ticket #N` in PRs and commits, never a closing keyword (Closes, Fixes, Resolves).
 - **Merge only with `node core/scripts/merge.mjs <PR>`**.
@@ -42,7 +42,6 @@
 - A new script or branch of logic comes with a test; `npm test` passes.
 - A skill description is a "Use when..." trigger, never a workflow summary.
 - Security, validation and data-loss protection are never cut.
-- A `pr-reviewer` review body starts with the line `Reviewed head: <sha> by pr-reviewer: ready to merge|changes needed`, as `core/scripts/merge.mjs` requires; the rest is free text.
 
 ## Maintainer tasks
 - Reviewing new Superpowers and Ponytail releases: `skills/upstream/SKILL.md` (a maintainer-only skill and tool, not part of the customer runtime).

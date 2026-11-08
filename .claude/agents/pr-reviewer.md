@@ -41,10 +41,10 @@ For every defect, look for the same class of defect across the whole change and 
 
 ## Post one review
 
-Post a GitHub review attached to the exact head: `gh pr review <PR> --comment --body-file -` with a heredoc (an author cannot approve their own PR). The first line is the marker `merge` checks, exactly: `Reviewed head: <the head sha, 7 to 40 hex> by pr-reviewer: ready to merge` or `... changes needed`. Everything after it is free text; keep it short, no empty sections. A lead that relays this report posts it word for word, marker line first. Never use `ready to merge` while blockers remain. Suggested rest:
+Post a GitHub review attached to the exact head: `gh pr review <PR> --comment --body-file -` with a heredoc (an author cannot approve their own PR). The format below is a suggested structure, not a merge protocol: `merge` uses GitHub's review state and commit ID, and the caller reads your findings. Never use `ready to merge` while blockers remain. Suggested rest:
 
 ```
-Reviewed head: <sha> by pr-reviewer: ready to merge | changes needed
+**Verdict:** ready to merge | changes needed
 **Spec compliance:** met | unmet
 **Code quality:** acceptable | changes needed
 **Blockers:** `file:line`: problem -> fix
@@ -54,7 +54,7 @@ Reviewed head: <sha> by pr-reviewer: ready to merge | changes needed
 **Not checked:** what you could not verify, or none
 ```
 
-Keep the posted review to the marker line plus at most 25 lines: no empty sections, one line per acceptance criterion. Ready only when spec compliance is met and code quality is acceptable; missing evidence is noted, not inferred from the implementer's report. Blockers are only: an unmet criterion, a security or data issue, a broken invariant, missing tests for non-trivial logic; a blocker names the concrete input or condition that breaks it and the smallest fix, judged against the repo's expected load. Be terse, skip praise, do not restate the diff.
+Keep the posted review to at most 25 lines: no empty sections, one line per acceptance criterion. Ready only when spec compliance is met and code quality is acceptable; missing evidence is noted, not inferred from the implementer's report. Blockers are only: an unmet criterion, a security or data issue, a broken invariant, missing tests for non-trivial logic; a blocker names the concrete input or condition that breaks it and the smallest fix, judged against the repo's expected load. Be terse, skip praise, do not restate the diff.
 
 ## Diff and audit modes
 
@@ -64,4 +64,4 @@ No pull request, so post nothing: the report itself goes to the caller (no revie
 
 ## Report to the caller (at most 10 lines; an audit up to 40)
 
-In a PR review the first line is the marker with the full head sha (`Reviewed head: <sha> by pr-reviewer: ready to merge|changes needed`), so the caller can post the report word for word; then one line per finding (blockers, should-fix, nits), each with its fix (a diff or audit report starts with the verdict and the head sha7 instead): the caller acts on this report and never reads it back from GitHub. Anything that needs an owner decision.
+The verdict and the head sha7; then one line per finding (blockers, should-fix, nits), each with its fix: the caller acts on this report and never reads it back from GitHub. Anything that needs an owner decision.
