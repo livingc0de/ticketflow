@@ -15,11 +15,11 @@ Read its `Review:` and `Unresolved threads:` lines.
 
 ## Exit 1 (CI red)
 
-Fix and push once, then wait again (never review a red head). With a behind-the-base hint: `gh pr update-branch <PR>` first, then `git pull` in the worktree. A `Local gate:` note on a red head: `gh pr ready <PR> --undo`, push a new head, then `local-verify.mjs <PR>`.
+Fix and push once, then wait again (never review a red head). With a behind-the-base hint: `gh pr update-branch <PR>` first, then `git pull` in the worktree. A `Local gate:` note on a red head (or one that says Actions will fail this head, which also exits 2): `gh pr ready <PR> --undo`, push a new head, then `local-verify.mjs <PR>` (in the background, as in step 4).
 
 ## Exit 2
 
-A `Local gate: none` or `Draft:` note: run `verify-route <PR>` (`tiered`), then `local-verify <PR>` from the primary checkout (in the background) when the route is local (it marks the PR ready), or `gh pr ready <PR>` for a CI route. Otherwise a timeout: wait again, and report after two.
+A `Local gate: none` note that does not mention Actions failing, or a `Draft:` note: run `verify-route <PR>` (`tiered`), then `local-verify <PR>` from the primary checkout (in the background) when the route is local (it marks the PR ready), or `gh pr ready <PR>` for a CI route. Otherwise a timeout: wait again, and report after two.
 
 ## Exit 3 (Actions refused the run)
 
