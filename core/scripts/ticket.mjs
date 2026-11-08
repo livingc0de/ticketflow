@@ -43,9 +43,13 @@ main('ticket', () => {
             status('In Progress')
         } else status('In Review')
         // shortcut: check-then-post is not atomic; two concurrent runs of one account can both post. Callers run one session per ticket.
-        const mine = api(`${R}/issues/${issue}/comments`, { paginate: true }).some((c) => c.user?.login === me && String(c.body ?? '').startsWith(marker))
-        if (mine) console.log(`${cmd}: already ${cmd === 'claim' ? 'claimed' : 'handed off'}, comment kept`)
-        else {
+        const mine = api(`${R}/issues/${issue}/comments`, { paginate: true }).find((c) => c.user?.login === me && String(c.body ?? '').startsWith(marker))
+        if (mine) {
+            const said = (t) => String(t).replace(/\r\n/g, '\n').trim()
+            const kept = said(mine.body) === said(`${marker}\n${body}`)
+            console.log(`${cmd}: already ${cmd === 'claim' ? 'claimed' : 'handed off'}` + (kept ? `, comment kept${mine.html_url ? `: ${mine.html_url}` : ''}`
+                : `${mine.html_url ? ` (${mine.html_url})` : ''}; the text on stdin differs and was NOT posted (one per ${cmd === 'claim' ? 'ticket' : 'PR'}: edit that comment by hand if it must change)`))
+        } else {
             api(`${R}/issues/${issue}/comments`, { method: 'POST', body: { body: `${marker}\n${body}` } })
             done.push(`${cmd === 'claim' ? 'claim' : 'summary'} comment`)
         }
