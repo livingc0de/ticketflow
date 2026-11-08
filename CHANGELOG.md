@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.6
+
+### Highlights
+
+- **`Depends on` reads only its own part.** The dependencies of a ticket stop at `·`, `Blocks` and `Related` on the same line, and `Depends on: none` is final: the bullet lines that follow no longer count. `Depends on: #87 · Blocks: #184 · Related: #90` waits only for #87, so `queue` no longer holds a ticket back for a ticket it merely blocks or relates to.
+- **The CI gate doc matches the workflow.** `.ticketflow/docs/CI-GATE.md` now says the workflow's status step is skipped on the local route (`route=local`), where `local-verify` posts the gate.
+
+### What You Need To Do When Upgrading From 0.6.5
+
+Nothing. Run `sync` to pick up the corrected doc and `queue` behavior.
+
 ## 0.6.5
 
 ### Highlights

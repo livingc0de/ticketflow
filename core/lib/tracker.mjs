@@ -37,8 +37,8 @@ export function projectStatuses(gql, ids, project) {
 }
 
 /**
- * The dependencies of a ticket: the refs in the sentence that starts with "Depends on" (up to a `.` or `;`), or, when that sentence has
- * none ("Depends on:"), in the list items (bulleted or numbered) right after it. An issue or pull request URL counts as a ref. A number is an issue of `repo`; `owner/repo#N` of another repository is kept
+ * The dependencies of a ticket: the refs in the sentence that starts with "Depends on" (up to a `.`, `;`, `·`, `Blocks` or `Related`), or, when that sentence
+ * has none ("Depends on:"; never after an explicit "none"), in the list items (bulleted or numbered) right after it. An issue or pull request URL counts as a ref. A number is an issue of `repo`; `owner/repo#N` of another repository is kept
  * as a string (queue treats it as not done: fail closed). "Part of #T" and "Blocks #M" are not dependencies.
  */
 export function dependsOn(body, repo) {
@@ -54,9 +54,9 @@ export function dependsOn(body, repo) {
     lines.forEach((line, i) => {
         const at = line.search(/depends on/i)
         if (at < 0) return
-        const rest = line.slice(at + 10), end = rest.search(/\.(\s|$)|;/)
-        const found = refs(end < 0 ? rest : rest.slice(0, end))
-        if (!found.length) {
+        const rest = line.slice(at + 10), end = rest.search(/\.(\s|$)|;|·|\bblocks?\b|\brelated\b/i)
+        const part = end < 0 ? rest : rest.slice(0, end), found = refs(part)
+        if (!found.length && !/^\s*:?\s*none\b/i.test(part)) {
             for (let j = i + 1; j < lines.length && found.length < 50; j++) {
                 if (/^\s*$/.test(lines[j])) continue
                 if (!/^\s*(?:[-*+]|\d+[.)])\s/.test(lines[j])) break
