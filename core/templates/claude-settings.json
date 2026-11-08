@@ -14,6 +14,7 @@
       "Bash(node {{runtime}}/scripts/thread.mjs *)",
       "Bash(node {{runtime}}/scripts/debt.mjs *)",
       "Bash(node {{runtime}}/scripts/ticket.mjs *)",
+      "Bash(node {{runtime}}/scripts/workspace.mjs *)",
       "Bash(node {{runtime}}/scripts/gen-stubs.mjs *)",
       "Bash(node {{runtime}}/scripts/doctor.mjs *)"
     ]

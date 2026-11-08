@@ -61,6 +61,7 @@ In pull request mode (not `--ci-only`, not a sha) it also prints `Unresolved thr
 <first line>` for the unresolved review threads **of any author**. `unknown` means the read failed or there are more than 100. The separate `Observed reviewer wait_ms:` line is measured time spent in this invocation observing pending reviewers, not the full external review duration or CI time.
 Answer and resolve each with `node .ticketflow/scripts/thread.mjs <PR> <thread-id>` (the reply on stdin: the fix commit, or the
 reason for rejecting it). `pr-wait` flattens all GitHub text to one line, so it cannot forge a summary line.
+A finished wait in pull request mode (exit 0, not `--ci-only`) ends with the lines `risk.mjs` prints (`Lane:`, `Reason:`, `pr-reviewer class:`), read at that moment, so the lead needs no separate `risk.mjs` call; a failed read prints `Lane: review (risk could not be read: run risk.mjs)`. They are information: `merge` reads the diff again itself.
 
 ## What merge needs
 
@@ -78,7 +79,7 @@ The review layout below is helpful for readability but is **not a parsing contra
 
 A small, low-risk change does not need a second pair of eyes; it needs proof that it is small and low-risk, and `merge` computes that
 from the diff, not from the agent's word. `node core/scripts/risk.mjs <PR>` prints `Lane: self-check` or `Lane: review`, with a `Reason:` line
-per rule that forces a review, then `Reviewer: strong (<why>)` or `Reviewer: standard`: the class a `pr-reviewer` pass on this diff runs at. Strong when the
+per rule that forces a review, then `pr-reviewer class: strong (<why>)` or `pr-reviewer class: standard`: the class a `pr-reviewer` pass on this diff runs at. Strong when the
 highest tier is Critical, a ticket has the `Security` label, a path always needs a review, the file list is incomplete or has an unknown size, or the diff has more than four times
 `review.self_check_max_lines` changed code lines; standard otherwise. A High tier alone stays standard; add money and auth paths to `review.always_review` to keep them strong. `merge --self-checked` runs the same function (`core/lib/risk.mjs`). The lane is `review` when:
 

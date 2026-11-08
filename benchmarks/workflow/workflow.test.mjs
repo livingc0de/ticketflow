@@ -122,12 +122,11 @@ test('TicketFlow config supplied to the fixture is valid without requiring compe
   assert.doesNotThrow(()=>validate(cfg('bench/repo','bench',3,'claude')));
   assert.doesNotThrow(()=>validate(cfg('bench/repo','bench',3,'codex')));
 });
-test('the fixture config maps the model classes a default install maps, for Claude and Codex',()=>{
+test('the fixture config maps the model classes to real models: the template aliases for Claude, full ids for Codex',()=>{
   const template=JSON.parse(readFileSync(new URL('../../core/templates/config.json',import.meta.url),'utf8')).models;
-  for(const agent of ['claude','codex']){
-    assert.deepEqual(MODELS[agent],template[agent],agent+' differs from core/templates/config.json');
-    assert.deepEqual(cfg('bench/repo','bench',3,agent).models,{[agent]:template[agent]});
-  }
+  assert.deepEqual(MODELS.claude,template.claude,'claude differs from core/templates/config.json');
+  for(const c of ['strong','standard','light']) assert.match(MODELS.codex[c],/^gpt-5\.6-[a-z]+$/,'codex '+c+' is a full id of the 5.6 generation');
+  for(const agent of ['claude','codex']) assert.deepEqual(cfg('bench/repo','bench',3,agent).models,{[agent]:MODELS[agent]});
 });
 
 /* ---- sandbox seeding against a fake gh and a local origin (no network) ---- */

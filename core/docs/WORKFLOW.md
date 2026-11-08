@@ -157,7 +157,7 @@ it lands (a review, a comment or its edit); the agent reads and fixes what it fi
 When a review is needed and no external reviewer started by the time CI settles, or none gave a usable result, the built-in `pr-reviewer` role reviews the
 head and reports its findings straight to the agent; its posted review is what `merge` reads. A `critical` pull request gets
 `pr-reviewer` (strong, `xhigh`) after an external result as well; a `high` one only where that result does not cover the risky part. Its effort follows the tier (`normal` and `high` `high`, `critical` `xhigh`) and its class
-the `Reviewer:` line of `risk.mjs` (strong for a Critical tier, a Security label, an always-review path, an unknown size or a very large diff; standard otherwise); the lead may raise it, never lower it. It never approves or edits. A red CI is fixed first, with no review of a red head. Diff and audit mode review without a
+the `pr-reviewer class:` line of `risk.mjs` (strong for a Critical tier, a Security label, an always-review path, an unknown size or a very large diff; standard otherwise); the lead may raise it, never lower it. It never approves or edits. A red CI is fixed first, with no review of a red head. Diff and audit mode review without a
 pull request (above) and post nothing. What is and is not proven: [REVIEWERS.md](REVIEWERS.md).
 
 Wait once (`pr-wait`, in the foreground), batch every finding into one push, and fix or reject each with a reason; reply to and resolve

@@ -29,7 +29,7 @@ does not turn into guessing an API. Each fixture from W2 on carries one or two l
 prompt, ticket or brief mentions and that the repository's own tests do not catch.
 
 All arms see identical fixtures, hidden checks and caps. Only the TicketFlow arm installs its Project workflow and moves the
-seeded tickets to Ready, because installing the tool is part of adopting it, with the model classes a default install maps (`core/templates/config.json`, pinned by a test for Claude and Codex), so its planner and reviewer run on the models a real repository gets. Seeded items (tickets, the W4 pull request and
+seeded tickets to Ready, because installing the tool is part of adopting it, with real model classes (Claude: the template aliases `opus`, `sonnet`, `haiku`; Codex: the full ids `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, pinned in `sandbox.mjs`), so its planner and reviewer run on real models and never inherit the session model. Seeded items (tickets, the W4 pull request and
 its comment) are recorded by ID when the harness creates them and excluded from the measurements by ID; agent activity is
 detected by timestamp, never by author or a visible marker.
 

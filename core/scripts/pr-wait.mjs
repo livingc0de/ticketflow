@@ -39,6 +39,7 @@
  * in local mode, (sha) superseded, or, at once, the account running this cannot be read (`gh api user`, e.g. an app token;
  * `--ci-only` skips that read); 3 = Actions refused the run, so `local-verify` may take over ("Fallback: allowed" in the summary),
  * never for a pull request that changes `.github/workflows/` (exit 1, or 2 while the run is only queued).
+ * An exit 0 in pull request mode (not `--ci-only`) ends with the `risk.mjs` lines (`Lane:`, `Reason:`, `pr-reviewer class:`).
  * Usage and config errors exit 2 before any call.
  */
 
@@ -49,6 +50,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { configPath, loadConfig } from '../lib/config.mjs'
 import { gql } from '../lib/gh.mjs'
+import { laneLines, laneOfPull } from '../lib/risk.mjs'
 import { routeOfPull, validGateSource } from '../lib/verification.mjs'
 import { nextSleepSec } from '../lib/wait.mjs'
 
@@ -443,7 +445,12 @@ for (;;) {
     const timedOut = !settled && !once && Date.now() >= deadline
     if (settled || once || timedOut) {
         print(S, timedOut)
-        process.exit(kind === 'green' && !once && !reviewed ? 2 : CODE[kind])
+        const code = kind === 'green' && !once && !reviewed ? 2 : CODE[kind]
+        // a finished wait is followed by the review lane: the caller needs no separate risk.mjs call (a failed read says so and counts as `review`)
+        if (code === 0 && !ciOnly && !sha && S.pull) {
+            try { for (const l of laneLines(laneOfPull(cfg, S.pull, target))) console.log(l) } catch { console.log('Lane: review (risk could not be read: run risk.mjs)') }
+        }
+        process.exit(code)
     }
     spawnSync('sleep', [String(nextSleepSec(deadline, Date.now(), Number(POLL_SEC)))])
 }

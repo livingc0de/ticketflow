@@ -38,10 +38,11 @@ export function validateOrg(org,{env=setupEnv()}={}) {
   if(response.login.toLowerCase()!==org) throw Error('organization '+org+' not found');
   return org;
 }
-// The model classes a default install maps (core/templates/config.json), so a benchmark run dispatches planner and reviewer on the same models a real repo does.
+// The model classes a real repo maps, so a benchmark run dispatches planner and reviewer on real models instead of inheriting the session model.
+// Claude takes the template's aliases. Codex needs full model ids (the template's family hints are resolved by the agent), here the 5.6 generation.
 export const MODELS={
   claude:{strong:'opus',standard:'sonnet',light:'haiku'},
-  codex:{strong:'astra',standard:'sol',light:'luna'}
+  codex:{strong:'gpt-5.6-sol',standard:'gpt-5.6-terra',light:'gpt-5.6-luna'}
 };
 export const cfg=(repo,owner,number,agent='claude',title='Workflow benchmark')=>({
   schema_version:2,repo,default_branch:'main',verify:{mode:'ci',command:'npm test'},
