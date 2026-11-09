@@ -45,13 +45,6 @@ main('gen-stubs', () => {
     for (const a of all) checkAdapter(a)
     for (const n of cfg.agents) if (!all.some((a) => a.name === n)) throw new Error(`agent ${n} has no adapter in core/adapters`)
     const adapters = all.filter((a) => cfg.agents.includes(a.name))
-    // a skill stub carries its agent's action map; a map that is not there yet (a half-upgraded runtime) leaves a pointer to the file
-    const maps = {}
-    for (const a of adapters) {
-        const file = join(canonical, 'agents-map', `${a.name}.md`)
-        if (existsSync(file)) maps[a.name] = readFileSync(file, 'utf8').replaceAll('\r\n', '\n')
-        else console.error(`gen-stubs: ${rel}/agents-map/${a.name}.md is missing (run sync): its stubs point at the file instead of carrying it`)
-    }
     const ls = (dir) => (existsSync(join(canonical, dir)) ? readdirSync(join(canonical, dir)).sort() : [])
     const load = (file) => ({ ...parseCanonical(readFileSync(join(canonical, file), 'utf8'), `${rel}/${file}`), src: file })
     const skills = ls('skills').filter((n) => existsSync(join(canonical, 'skills', n, 'SKILL.md'))).map((n) => load(`skills/${n}/SKILL.md`))
@@ -67,7 +60,7 @@ main('gen-stubs', () => {
         if (link(`docs/agents/${f}`) || !lstatSync(join(guidesDir, f)).isFile()) throw new Error(`docs/agents/${f} must be a regular file, and docs/agents a real directory`)
         return parseGuide(readFileSync(join(guidesDir, f), 'utf8'), `docs/agents/${f}`)
     })
-    const expected = renderStubs({ skills, roles, adapters, cfg, runtimeRel: rel, version, guides, maps, plugins: rel === '.ticketflow' ? [] : all.filter((a) => a.plugin) })   // the ticketflow repo ships every manifest
+    const expected = renderStubs({ skills, roles, adapters, cfg, runtimeRel: rel, version, guides, plugins: rel === '.ticketflow' ? [] : all.filter((a) => a.plugin) })   // the ticketflow repo ships every manifest
 
     // the files that could be ours: everything at an adapter's stub paths, plus the expected paths themselves
     const disk = new Map()

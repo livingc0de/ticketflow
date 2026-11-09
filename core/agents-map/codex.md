@@ -16,7 +16,7 @@ provider-specific value, and do not invent a version when the tool cannot resolv
 | Run in the background and wait once (a long verification) | Run it in the foreground: the ticketflow scripts are bounded by their own timeouts |
 | Ask the user | Ask one targeted question in the reply and wait |
 | Track tasks | `update_plan` |
-| Load a skill | The stub is the whole skill; use it as loaded |
+| Load a skill | Open the skill's `SKILL.md` named by the stub and follow it |
 | Switch model or effort | You cannot change your own: say what the user should set, or hand the hard part to a dispatched agent |
 
 ## Rules

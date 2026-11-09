@@ -13,7 +13,7 @@ Treat versionless values such as `astra`, `sol` and `luna` as model-family hints
 | Run in the background and wait once (a long verification) | Run it in the foreground; on a timeout run the stateless script again |
 | Ask the user | Ask one targeted question in the reply and wait. The cloud agent: ask in the pull request, then stop |
 | Track tasks | The `todo` tool, one item per plan task |
-| Load a skill | The stub is the whole skill; use it as loaded |
+| Load a skill | Skills in `.agents/skills/` load automatically; otherwise open the skill's `SKILL.md` named by the stub |
 | Switch model or effort | You cannot change your own: say what the user should pick in the model picker, or hand the hard part to an agent with its own `model` and `reasoning-effort` |
 
 ## Rules

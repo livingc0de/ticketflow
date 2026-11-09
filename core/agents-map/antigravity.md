@@ -13,7 +13,7 @@ Treat versionless values as model-family or tier hints. Before passing a configu
 | Run in the background and wait once (a long verification) | Subagents are asynchronous: start it, then wait for its result message. Do not poll |
 | Ask the user | Ask one targeted question in the reply and wait |
 | Track tasks | A checklist in your reply, updated as you go |
-| Load a skill | The stub is the whole skill; use it as loaded |
+| Load a skill | Antigravity lists the skills in `.agents/skills/`; read the skill's `SKILL.md` named by the stub and follow it |
 | Switch model or effort | You cannot change your own: say what the user should pick in the model menu, or hand the hard part to a subagent |
 
 ## Rules

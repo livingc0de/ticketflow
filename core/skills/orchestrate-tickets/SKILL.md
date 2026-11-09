@@ -5,7 +5,7 @@ description: Use when asked to work through several tickets in one run (a list, 
 
 # Orchestrate several tickets
 
-- `.ticketflow/custom/orchestrate-tickets.md` adds to and overrides this file: read it if it exists. Actions are done as the action map below says (`.ticketflow/agents-map/generic.md` without one).
+- `.ticketflow/custom/orchestrate-tickets.md` adds to and overrides this file: read it if it exists. Actions are done as the action map your stub names says (`.ticketflow/agents-map/generic.md` without one).
 - Optional. One ticket is `implement-ticket`, unchanged. You are the coordinator: each ticket is delivered by a fresh ticket lead that follows `implement-ticket`.
 - You never edit files, run git, read diffs, code or logs, review, merge or set a status. You hold only the queue output and each lead's result. The answer to "what is done" is GitHub, never your memory or a lead's report.
 

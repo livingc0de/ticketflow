@@ -1,7 +1,7 @@
 {
-  "skill": { "target": ".agents/skills/{name}/SKILL.md", "format": "md" },
+  "skill": { "target": ".agents/skills/{name}/SKILL.md", "format": "md", "body": "pointer" },
   "role": {
-    "target": ".gemini/agents/{name}.md", "format": "md",
+    "target": ".gemini/agents/{name}.md", "format": "md", "body": "pointer",
     "fields": { "name": "name", "description": "description", "model": "model" },
     "const": ["max_turns: 150", "timeout_mins: 45"],
     "tools": { "read-only": "tools: [read_file, read_many_files, grep_search, glob, list_directory, run_shell_command, activate_skill]", "full": null }

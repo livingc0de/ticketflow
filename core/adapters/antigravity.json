@@ -1,5 +1,5 @@
 {
-  "skill": { "target": ".agents/skills/{name}/SKILL.md", "format": "md" },
+  "skill": { "target": ".agents/skills/{name}/SKILL.md", "format": "md", "body": "pointer" },
   "plugin": {
     "manifest": {
       "path": ".antigravity-plugin/plugin.json",

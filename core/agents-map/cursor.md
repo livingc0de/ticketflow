@@ -13,7 +13,7 @@ Treat versionless values such as `grok`, `composer` and `gemini-flash` as model-
 | Run in the background and wait once (a long verification) | Run it in the foreground; on a timeout run it again (the ticketflow scripts are stateless and bounded) |
 | Ask the user | The ask-questions tool, one targeted question, then wait |
 | Track tasks | The to-do checklist, one item per plan task |
-| Load a skill | The stub is the whole skill; use it as loaded |
+| Load a skill | Skills load automatically or with `/<name>`; otherwise open the skill's `SKILL.md` named by the stub |
 | Switch model or effort | You cannot change your own: say what the user should pick in the model menu, or hand the hard part to a subagent with its own model |
 
 ## Rules
