@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * One blocking wait for a pull request (or a default-branch commit): returns when the merge gate is final and every external reviewer
- * that started has answered, asked for changes or run out of time, then prints one summary. Run it in the background instead of polling in turns.
+ * that started has answered, asked for changes or run out of time, then prints one summary. Run it in the foreground (the timeout flag comes from your action map) instead of polling in turns.
  *
  * Usage: pr-wait.mjs <pr | 40-hex sha> [--once] [--ci-only] [--timeout-min N] [--more <login>]... [--config f]
  *   --once         one poll; the exit code comes from CI only (reviewer lines are still printed unless --ci-only)
@@ -36,10 +36,10 @@
  *
  * Exit: 0 = CI green and no started reviewer pending (results, changes requested, late or none); 1 = CI red (after the started
  * reviewers answered or ran out of time), or the PR conflicts with / is behind the default branch; 2 = timed out, still pending, a draft
- * in local mode, (sha) superseded, or, at once, the account running this cannot be read (`gh api user`, e.g. an app token;
+ * in local mode, a ready local-route PR with no local gate (a `Local gate:` note), (sha) superseded, or, at once, the account running this cannot be read (`gh api user`, e.g. an app token;
  * `--ci-only` skips that read); 3 = Actions refused the run, so `local-verify` may take over ("Fallback: allowed" in the summary),
  * never for a pull request that changes `.github/workflows/` (exit 1, or 2 while the run is only queued).
- * An exit 0 in pull request mode (not `--ci-only`) ends with the `risk.mjs` lines (`Lane:`, `Reason:`, `pr-reviewer class:`).
+ * An exit 0 in pull request mode (not `--ci-only`) ends with the `risk.mjs` lines (`Lane:`, `Reason:`, `pr-reviewer class:`), except with --once (merge's own check).
  * Usage and config errors exit 2 before any call.
  */
 
@@ -141,7 +141,12 @@ function pollCi(S) {
         S.pull = pull
         S.draft = pull.draft === true
         S.author = pull.user?.login
-        if (!ciOnly && ['local', 'tiered'].includes(cfg.verify.mode) && S.draft) { S.notes.push(`Draft: CI skips drafts; gh pr ready ${target}`); return 'draft' }
+        if (!ciOnly && ['local', 'tiered'].includes(cfg.verify.mode) && S.draft) {
+            let local = false
+            try { local = routeOfPull(cfg, pull, target).route === 'local' } catch { /* an unreadable route: the CI note */ }
+            S.notes.push(local ? `Draft: run local-verify.mjs ${target} from the primary checkout (it marks the PR ready)` : `Draft: CI skips drafts; gh pr ready ${target}`)
+            return 'draft'
+        }
         if (pull.mergeable === false) { S.notes.push(`PR #${target} conflicts with ${base}: merge ${base} into the branch`); return 'conflict' }
     }
     S.gate = api(`${R}/commits/${S.head}/status?per_page=100`).statuses.find((s) => s.context === cfg.gate.context) ?? null
@@ -447,7 +452,7 @@ for (;;) {
         print(S, timedOut)
         const code = kind === 'green' && !once && !reviewed ? 2 : CODE[kind]
         // a finished wait is followed by the review lane: the caller needs no separate risk.mjs call (a failed read says so and counts as `review`)
-        if (code === 0 && !ciOnly && !sha && S.pull) {
+        if (code === 0 && !ciOnly && !once && !sha && S.pull) {
             try { for (const l of laneLines(laneOfPull(cfg, S.pull, target))) console.log(l) } catch { console.log('Lane: review (risk could not be read: run risk.mjs)') }
         }
         process.exit(code)

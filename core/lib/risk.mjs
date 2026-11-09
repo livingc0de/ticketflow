@@ -60,7 +60,7 @@ export function minimumLane(files, labels, cfg) {
 export const ticketsOf = (pull) => [...new Set([...`${pull.title ?? ''}\n${pull.body ?? ''}`.matchAll(/\bTicket #(\d+)\b/g)].map((m) => m[1]))]
 
 /** The printed form of laneOfPull: `Lane:`, one `Reason:` per rule, then `pr-reviewer class:`. Shared by risk.mjs and pr-wait.mjs. */
-export const laneLines = ({ lane, reasons, reviewer }) => [`Lane: ${lane}`, ...reasons.map((r) => `Reason: ${r}`),
+export const laneLines = ({ lane, reasons, reviewer }) => [`Lane: ${lane}`, ...reasons.map((r) => `Reason: ${String(r).replace(/[\p{Cc}\u2028\u2029]+/gu, ' ')}`),
     reviewer.cls === 'strong' ? `pr-reviewer class: strong (${reviewer.why.join('; ')})` : 'pr-reviewer class: standard']
 
 /**

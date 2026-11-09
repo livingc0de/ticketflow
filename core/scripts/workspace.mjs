@@ -32,7 +32,8 @@ main('workspace', () => {
     if (fetched.status !== 0) return fail(`git fetch origin failed: ${fetched.stderr.trim()}`)
     if (git(primary, 'check-ignore', '-q', path).status !== 0) {
         const exclude = resolve(primary, git(primary, 'rev-parse', '--git-path', 'info/exclude').stdout.trim())
-        const rel = path.startsWith(`${primary}/`) ? `${path.slice(primary.length + 1).split('/')[0]}/` : null   // only a directory inside the checkout can be ignored
+        const dir = resolve(primary, cfg.worktrees_dir)
+        const rel = dir.startsWith(`${primary}/`) ? `${dir.slice(primary.length + 1)}/` : null   // only a directory inside the checkout can be ignored
         if (rel && !(existsSync(exclude) && readFileSync(exclude, 'utf8').split('\n').includes(rel))) appendFileSync(exclude, `${rel}\n`)
     }
     const added = git(primary, 'worktree', 'add', '--no-track', path, '-b', branch, `origin/${cfg.default_branch}`)

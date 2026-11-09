@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tempDir, writeConfig } from './helpers.mjs'
 
@@ -62,4 +62,23 @@ test('a failing install keeps the worktree and names it; an unusable branch name
     assert.match(bad.stderr, /install failed.*\.worktrees/)
     assert.ok(existsSync(join(r.primary, '.worktrees', 'feat/issue-7-x')))
     for (const name of ['../x', '-b', 'a b', '']) assert.equal(run(r, [name]).status, 2, name)
+})
+
+test('a nested worktrees_dir is ignored as itself, not as its first path component', () => {
+    const r = repo({ worktrees_dir: 'tmp/wt' })
+    writeFileSync(join(r.primary, 'tmp-keep.txt'), 'x')
+    mkdirSync(join(r.primary, 'tmp'), { recursive: true }); writeFileSync(join(r.primary, 'tmp', 'tracked.txt'), 'x')
+    const out = run(r, ['feat/issue-8-y'])
+    assert.equal(out.status, 0, out.stdout + out.stderr)
+    const status = git(r.primary, 'status', '--porcelain').stdout
+    assert.doesNotMatch(status, /tmp\/wt/); assert.match(status, /tmp\/tracked\.txt|\?\? tmp\//)   // the rest of tmp/ is still visible
+})
+
+test('a failed fetch stops before any worktree is added', () => {
+    const r = repo()
+    git(r.primary, 'remote', 'set-url', 'origin', join(r.root, 'missing.git'))
+    const out = run(r, ['feat/issue-9-z'])
+    assert.equal(out.status, 1, out.stdout + out.stderr)
+    assert.match(out.stderr + out.stdout, /git fetch origin failed/)
+    assert.equal(existsSync(join(r.primary, '.worktrees', 'feat/issue-9-z')), false)
 })
