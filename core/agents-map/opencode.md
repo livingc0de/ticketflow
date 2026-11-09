@@ -10,7 +10,7 @@ Treat versionless `provider/model` values as model-family hints. Before passing 
 | Dispatch a helper of a class | Agent `general` for work, `explore` for broad read-only search; the model comes from the agent, or the parent can name it |
 | Dispatch a fresh ticket lead | V2 `subagent` with agent `general`, V1 `task`; brief it fully, it has no context |
 | Wait for a script | The `bash` or `shell` tool in the foreground with a long `timeout` (the default is 2 minutes) and `--timeout-min 9`; on exit 2 with a timeout run it again |
-| Run in the background and wait once | V2: `shell` with `background: true`, then wait for the result. V1: the `bash` tool with a long `timeout` (the default is 2 minutes) |
+| Run in the background and wait once (a long verification) | V2: `shell` with `background: true`, then wait for the result. V1: the `bash` tool with a long `timeout` (the default is 2 minutes) |
 | Ask the user | The `question` tool, one targeted question, then wait |
 | Track tasks | V1 `todowrite`; V2 a checklist in your reply |
 | Load a skill | The `skill` tool with the skill's name (skills are in `.agents/skills/`) |

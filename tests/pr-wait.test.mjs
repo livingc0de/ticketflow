@@ -826,17 +826,20 @@ test('the note is not printed with --ci-only, with a posted gate, or on a CI rou
     assert.doesNotMatch(wait(localRoute, ['7', '--once'], {}).stdout, /Local gate/)   // verify.mode ci
 })
 
-test('a finished wait (exit 0) ends with the lane lines risk.mjs would print, so no separate risk call is needed', () => {
+test('a finished wait (exit 0) ends with the lane and reviewer class risk.mjs would print, so no separate risk call is needed', () => {
     const ticket = { ...pull({ title: 'Ticket #7', changed_files: 2 }), 'pulls/7/files': [{ filename: 'src/a.js', additions: 3, deletions: 0 }, { filename: 'tests/a.test.mjs', additions: 9, deletions: 0 }], 'issues/7': { labels: [] } }
     const small = wait({ ...green, ...ticket })
     assert.equal(small.status, 0, small.stdout + small.stderr)
     assert.match(small.stdout, /^Lane: self-check$/m)
+    assert.match(small.stdout, /^pr-reviewer class: standard$/m)
     const critical = wait({ ...green, ...ticket, 'issues/7': { labels: [{ name: 'Tier: Critical' }] } })
     assert.match(critical.stdout, /^Lane: review$/m)
     assert.match(critical.stdout, /^Reason: .*Critical/m)
-    // no ticket, an incomplete file list: a review lane, never a crash
+    assert.match(critical.stdout, /^pr-reviewer class: strong \(/m)
+    // no ticket, an incomplete file list: a review at the strong class, never a crash
     const none = wait({ ...green, ...pull({ changed_files: 3 }) })
     assert.match(none.stdout, /^Lane: review$/m)
+    assert.match(none.stdout, /^pr-reviewer class: strong \(.*incomplete/m)
     // not printed when the wait did not finish green or for --ci-only
     assert.doesNotMatch(wait({ ...status('failure', 'x'), ...ticket }).stdout, /^Lane:/m)
     assert.doesNotMatch(wait({ ...green, ...ticket }, ['7', '--once', '--ci-only']).stdout, /^Lane:/m)

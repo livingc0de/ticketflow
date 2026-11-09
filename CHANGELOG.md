@@ -6,13 +6,15 @@
 
 - **`gen-stubs` with no directories checks the repo it runs in,** from any of its directories and worktrees; `doctor` uses that form.
 - **Ready only after the local gate.** `local-verify` marks a draft pull request ready after it posts the green gate, and `pr-wait` tells a lead when a ready local-route pull request has no local gate yet.
-- **Fewer calls per ticket, same rules.** `workspace.mjs <branch>` opens the ticket's worktree in one call (fetch, an ignore entry for the worktrees directory, `git worktree add --no-track` from `origin/<default_branch>`, `verify.install`) and refuses a branch or directory that already exists. `pr-wait` runs in the foreground with the timeout flag the agent's action map gives (new "Wait for a script" row), and a finished wait (exit 0, pull request mode) ends with the `Lane:` and `Reason:` lines of `risk`, so the lead needs no separate `risk` call.
-- **Smaller fixes.** `runtime` keeps the manifest `source.url` as written when the clone's origin is the same repository. A repeated `ticket claim` or `handoff` says when its text differs from the existing comment and was not posted, and names that comment. The docs describe the review gate as the code does: the merging account's own `pr-reviewer` review counts in any wording.
-- **A neutral workflow benchmark.** `benchmarks/` has the W1 to W7 scenarios (a bare arm, a TicketFlow arm and a Ponytail arm per scenario), the sandbox and the report, with the real Claude (`opus`, `sonnet`, `haiku`) and Codex (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`) model ids committed.
+- **Fewer calls and tokens per ticket.** The first call of a ticket is batched; `post-merge.md` is read only when it applies; the self-check recipe and the handoff steps are in `implement-ticket`; `pr-wait` runs in the foreground, with the timeout flag the agent's action map gives, instead of in the background plus a read-back; briefs carry facts instead of documents; the plan, review, ticket, claim, PR and summary texts carry a rough length guide; the always-loaded `AGENTS.md` block and the Claude action map are shorter; the byte budgets are pinned in `tests/canonical.test.mjs`.
+- **Two calls fewer around a ticket.** `workspace.mjs <branch>` opens the ticket's worktree in one call (fetch, an ignore entry for the worktrees directory, `git worktree add --no-track` from `origin/<default_branch>`, `verify.install`) and refuses a branch or directory that already exists. A finished `pr-wait` (exit 0, pull request mode) ends with the `risk` lines (`Lane:`, `Reason:`, `pr-reviewer class:`), so the lead needs no separate `risk` call.
+- **The reviewer class follows the diff.** `risk` prints `pr-reviewer class: strong (<why>)` for a Critical tier, a `Security` label, an always-review path, an unknown size or more than four times `review.self_check_max_lines` changed code lines, and `pr-reviewer class: standard` otherwise; `implement-ticket` and `orchestrate-tickets` dispatch at that class. A linked plan means no planner dispatch, and `create-ticket` states a `Planning:` route that matches the Tier label.
+- **Smaller fixes.** `runtime` keeps the manifest `source.url` as written when the clone's origin is the same repository. A repeated `ticket claim` or `handoff` says when its text differs from the existing comment and was not posted, and names that comment.
 
 ### What You Need To Do When Upgrading From 0.6.6
 
-Run `sync` to pick up the new scripts and the `Wait for a script` rows of the action maps.
+- Run `sync`. It rewrites every generated stub (a large generated diff is expected) and the `AGENTS.md` block.
+- A High-tier ticket no longer gets a strong reviewer by tier alone: add your money and auth paths to `review.always_review` to keep them on the strong class.
 
 ## 0.6.6
 
