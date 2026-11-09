@@ -5,20 +5,21 @@ description: Use when writing, fixing, debugging, refactoring or reviewing code 
 
 # Engineering method
 
-- `.ticketflow/custom/engineering-method.md` adds to and overrides this file: read it if it exists (inside a ticket only when the step 1 call listed it). Dispatching a role and asking the user are done as your agent's own map in `.ticketflow/agents-map/` says (`implement-ticket` loads it; `generic.md` for any other agent).
+- Read `.ticketflow/custom/engineering-method.md` first if it exists: it adds to and overrides this file. Actions (dispatch a role, ask the user) are done as the action map your stub names says; without one, use `.ticketflow/agents-map/generic.md`.
 - A request to ship a change (fix a bug, build, refactor) is ticket work: find or create its ticket (`create-ticket` searches first), then `implement-ticket`, which reads, plans and reports; apply the planner triggers of section 1 and sections 2 to 5 here. Without a ticket (the user says so, or nothing ships: an investigation, a diff review, an audit, a local experiment) all sections apply, and there is no branch, commit, PR or merge unless the user asks. No other plugin's planning, approval, branching, review or merge process runs on top of it; a technique may be borrowed if it adds no approval step and no second plan.
 - Ask the user only about material decisions (product, data shape, security, money); take the default for the rest and say which.
 
 ## 1. Understand and plan
 
-- Read the code and docs the request touches first; never ask what they already answer.
-- A clear request: just do it. A vague or risky one: play it back in two sentences, then ask the one question that changes the most and say why. Offer 2-3 approaches with a recommendation only when a real choice is open. "Go" or "your call" proceeds on the stated defaults.
-- **Plan in proportion.** Dispatch the `ticket-planner` role with a plain brief of facts (the request, what you read and verified, decisions made; no ticket needed) when any planner trigger holds, judged from the code you read: (1) the work is `high` or `critical` (access, money, data migrations, concurrency, legal, production config, three or more subsystems); (2) a real design choice is open (two or more defensible approaches with different consequences); (3) the change is cross-cutting: a second subsystem, or about 6 or more files; (4) a bug whose root cause is unclear after one reproduction and one trace; (5) two failed attempts at the same failure; (6) the user asks. Its Open decisions go to the user. Without a trigger, write a 3-8 line inline plan (files, approach, tests, risks) and build it; if the diff outgrows it, dispatch the planner for the rest. The length of the request does not decide. When torn on a `normal` change, plan inline and escalate if the diff outgrows it.
+- Read the code and docs the request touches first, and never ask what they already answer.
+- A clear request: just do it. A vague or risky one: play it back in two sentences, then ask the one question that changes the most and say why. Offer 2-3 approaches with a recommendation only when a real choice is open. "Go" or "your call" proceeds on the defaults you stated.
+- **Plan in proportion.** Dispatch the `ticket-planner` role with a plain brief (the request, what you read, decisions made; no ticket is needed) when any planner trigger holds, judged from the code you read: (1) the work is `high` or `critical` (access, money, data migrations, concurrency, legal, production config, three or more subsystems); (2) a real design choice is still open (two or more defensible approaches with different consequences); (3) the change is cross-cutting: a second subsystem, or about 6 or more files; (4) a bug whose root cause is unclear after one reproduction and one trace; (5) two failed attempts at the same failure; (6) the user asks. Its Open decisions go to the user. Without a trigger, write a 3-8 line inline plan (files, approach, tests, risks) and build it; if the diff outgrows it, dispatch the planner for the rest. The length of the request does not decide. When torn on a `normal` change, plan inline and escalate if the diff outgrows it.
 - Record decisions where they last: the ticket's Decisions and acceptance criteria, else the final report.
 
 ## 2. The smallest complete change
 
 Stop at the first rung that holds: it does not need to exist (a speculative need is skipped, in one line) -> the codebase already has it (reuse) -> the standard library -> a native platform feature -> an installed dependency -> one line -> only then the least new code. Judge the cost of owning the change (code, options, dependencies, config, docs to maintain), not lines alone.
+
 - Complete means callers, tests, config and validation are covered. Moved code keeps its checks. Never cut security, validation, data-loss protection, accessibility or a needed test to be smaller.
 - At equal size take the option that is right on the edge cases.
 - A deliberate limit gets a comment `shortcut: <limit>, <when to revisit>`, never over a security, data-loss or required-behaviour gap.
@@ -30,11 +31,16 @@ Stop at the first rung that holds: it does not need to exist (a speculative need
 - Tests assert behaviour, not wiring; a trust boundary gets a negative case.
 - Two failed attempts at the same failure: dispatch the `ticket-planner` role for a diagnosis (the failing output, not a transcript). A third: question the design, not the patch.
 
-Work in one context. Delegate only when it pays, never a deterministic command, a lookup or one small task:
-- Broad read-only search: a light helper.
-- A hard, isolated piece (a lock order, a money state machine, a migration): a strong helper with a compact brief; do not edit its files meanwhile.
-- Independent failures (different files, no shared state): one helper each; inside a ticket one at a time (a lead has one specialist slot), several at once only on a plain request and within any limit the user set.
-- A plan task marked `review: task` (only `high` and `critical` plans mark any): the `pr-reviewer` role in diff mode on that task's commits; fix its blockers before the next task.
+Work in one context. Delegate only when it pays:
+
+| Need | Action |
+|---|---|
+| Broad read-only search | dispatch a light helper |
+| A hard, isolated piece (a lock order, a money state machine, a migration) | dispatch a strong helper with a compact brief; do not edit its files meanwhile |
+| Independent failures (different files, no shared state) | one helper each; inside a ticket one at a time (a lead has one specialist slot), several at once only on a plain request and within any limit the user set |
+| A plan task marked `review: task` (only `high` and `critical` plans mark any) | dispatch the `pr-reviewer` role in diff mode on that task's commits; fix its blockers before the next task |
+
+Never delegate a deterministic command, a lookup, or one small task.
 
 ## 4. Verify
 
@@ -52,5 +58,5 @@ Work in one context. Delegate only when it pays, never a deterministic command, 
 ## 6. Report
 
 - What changed, the evidence, "Not checked", the shortcuts added with their triggers. Short; no tour of the diff.
-- Without a ticket, finishing is the report. Commit, push or open a PR only when asked; a PR opened that way is reviewed and merged as `implement-ticket` steps 5 and 6 say, minus the ticket references (a request to merge is not a review, and neither is a diff or audit report). The rules of AGENTS.md (no admin bypass) stand.
+- Without a ticket, finishing is the report. Commit, push or open a PR only when asked. A PR opened that way is reviewed and merged as `implement-ticket` steps 5 and 6 say, minus the ticket references; a request to merge is not a review, and neither is a diff or audit report. The rules of AGENTS.md (no admin bypass) stand.
 - "Why did this run go wrong, or cost so much?": read the ticket's Run line, the PR timeline and commits, and whatever usage or transcript record your tool keeps (TicketFlow has no counter; if the tool keeps none, say so rather than guess). Cite what was repeated, ignored or skipped, with evidence. Change nothing.

@@ -8,7 +8,7 @@ The canonical skills and roles name actions. Without sub-agents, do them like th
 | Dispatch a helper | Do the work yourself, one piece at a time |
 | Dispatch a fresh ticket lead | Not possible: run one ticket yourself, then stop and say so |
 | Wait for a script | Run it in the foreground (`--timeout-min 9`); the ticketflow scripts are bounded by their own timeouts |
-| Run in the background and wait once (a long verification) | Run it in the foreground: the ticketflow scripts are bounded by their own timeouts |
+| Run in the background and wait once | Run it in the foreground: the ticketflow scripts are bounded by their own timeouts |
 | Ask the user | Ask one targeted question and wait for the answer |
 | Track tasks | A checklist in your reply, updated as you go |
 | Load a skill | Open `.ticketflow/skills/<name>/SKILL.md` and follow it |

@@ -39,7 +39,7 @@
  * in local mode, (sha) superseded, or, at once, the account running this cannot be read (`gh api user`, e.g. an app token;
  * `--ci-only` skips that read); 3 = Actions refused the run, so `local-verify` may take over ("Fallback: allowed" in the summary),
  * never for a pull request that changes `.github/workflows/` (exit 1, or 2 while the run is only queued).
- * An exit 0 in pull request mode (not `--ci-only`) ends with the `risk.mjs` lines (`Lane:`, `Reason:`, `pr-reviewer class:`).
+ * An exit 0 in pull request mode (not `--ci-only`) ends with the `risk.mjs` lines (`Lane:`, `Reason:`).
  * Usage and config errors exit 2 before any call.
  */
 

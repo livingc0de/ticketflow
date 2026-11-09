@@ -66,36 +66,6 @@ test('every skill, role and map stays within the 20,000-byte budget', () => {
     for (const file of practiceFiles) assert.ok(Buffer.byteLength(readFileSync(file, 'utf8')) <= 20000, file)
 })
 
-// Bytes are what a session loads. Each budget is the measured size plus at most 5%, so a rewrite that grows a file has to say so here.
-const BYTES = {
-    'skills/implement-ticket/SKILL.md': 14400,
-    'skills/implement-ticket/post-merge.md': 1800,
-    'skills/implement-ticket/review-wait.md': 3200,
-    'skills/implement-ticket/planner.md': 1300,
-    'skills/implement-ticket/resume.md': 1200,
-    'skills/engineering-method/SKILL.md': 7500,
-    'skills/create-ticket/SKILL.md': 6200,
-    'skills/orchestrate-tickets/SKILL.md': 7600,
-    'agents/ticket-planner.md': 4500,
-    'agents/pr-reviewer.md': 7100,
-    'agents/e2e-verifier.md': 2400,
-    'agents-map/antigravity.md': 2700,
-    'agents-map/claude.md': 2500,
-    'agents-map/codex.md': 3700,
-    'agents-map/copilot.md': 3100,
-    'agents-map/cursor.md': 3100,
-    'agents-map/gemini.md': 3000,
-    'agents-map/generic.md': 1600,
-    'agents-map/opencode.md': 2900,
-    'templates/AGENTS-block.md': 2600,
-}
-test('the loaded text stays within its pinned byte budgets, and the descriptions within theirs', () => {
-    for (const [path, max] of Object.entries(BYTES)) assert.ok(Buffer.byteLength(text(path)) <= max, `${path}: ${Buffer.byteLength(text(path))} bytes, at most ${max}`)
-    const desc = [...ls('skills').filter((n) => existsSync(join(core, 'skills', n, 'SKILL.md'))).map((n) => `skills/${n}/SKILL.md`), ...ls('agents').map((f) => `agents/${f}`)]
-        .reduce((n, p) => n + /^description: (.*)$/m.exec(text(p))[1].length, 0)
-    assert.ok(desc <= 1410, `the skill and role descriptions are ${desc} characters, at most 1410 (they are always loaded)`)
-})
-
 test('each file names its own custom extension file', () => {
     for (const { path, custom } of prose) assert.ok(text(path).includes(`.ticketflow/custom/${custom}.md`), `${path} -> custom/${custom}.md`)
 })

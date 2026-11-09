@@ -10,7 +10,7 @@ Treat versionless values such as `astra`, `sol` and `luna` as model-family hints
 | Dispatch a helper of a class | `runSubagent` or `task` with a task brief; the model is the agent's `model`, or the session's |
 | Dispatch a fresh ticket lead | VS Code `runSubagent`, Copilot CLI `task`; brief it fully. The cloud agent: not possible (see Rules) |
 | Wait for a script | Run it in the foreground with `--timeout-min 9`; on a timeout run the stateless script again |
-| Run in the background and wait once (a long verification) | Run it in the foreground; on a timeout run the stateless script again |
+| Run in the background and wait once | Run it in the foreground; on a timeout run the stateless script again |
 | Ask the user | Ask one targeted question in the reply and wait. The cloud agent: ask in the pull request, then stop |
 | Track tasks | The `todo` tool, one item per plan task |
 | Load a skill | Skills in `.agents/skills/` load automatically; otherwise open the skill's `SKILL.md` named by the stub |

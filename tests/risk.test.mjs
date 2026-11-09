@@ -66,13 +66,13 @@ function cli(pulls, { files = [f('src/a.js'), f('tests/a.test.mjs')], body = 'Ti
 
 test('risk.mjs prints the lane and a Reason line each; exit 2 on a read error or bad usage', () => {
     const ok = cli()
-    assert.equal(ok.status, 0, ok.stderr); assert.equal(ok.stdout, 'Lane: self-check\npr-reviewer class: standard\n')
+    assert.equal(ok.status, 0, ok.stderr); assert.equal(ok.stdout, 'Lane: self-check\n')
     const sec = cli(undefined, { labels: ['Security'], files: [f('package.json'), f('tests/a.test.mjs')] })
-    assert.equal(sec.stdout, 'Lane: review\nReason: label Security\nReason: path package.json always needs a review\npr-reviewer class: strong (label Security; path package.json)\n')
+    assert.equal(sec.stdout, 'Lane: review\nReason: label Security\nReason: path package.json always needs a review\n')
     assert.match(cli(undefined, { body: 'no ticket here' }).stdout, /^Lane: review\nReason: no "Ticket #N" in the PR title or body/)
     assert.match(cli({ body: 'Ticket #7', changed_files: 5 }).stdout, /the file list is incomplete/)
     const two = cli(undefined, { body: 'Ticket #7 and Ticket #8', extra: { 'repos/o/r/issues/8': { labels: [{ name: 'Needs: Decision' }] } } })
-    assert.equal(two.stdout, 'Lane: review\nReason: label Needs: Decision\npr-reviewer class: standard\n')
+    assert.equal(two.stdout, 'Lane: review\nReason: label Needs: Decision\n')
     assert.match(cli(undefined, { extra: { 'repos/o/r/issues/7': { labels: [], pull_request: {} } } }).stdout, /Reason: #7 is a pull request, not a ticket/)
     const bad = cli({ __status: 404, __stderr: 'nope' })
     assert.equal(bad.status, 2); assert.equal(bad.stdout, '')
@@ -118,22 +118,8 @@ test('this repo\'s own config puts its whole runtime (core/) behind a review, de
     assert.equal(minimumLane([f('README.md', 3), f('tests/a.test.mjs')], [], own).lane, 'self-check')
 })
 
-test('the suggested reviewer class follows the diff: strong for critical, security, an always-review path, unknown size or a very large diff; standard otherwise', () => {
-    const cls = (files, labels = [], over = {}) => lane(files, labels, over).reviewer
-    assert.deepEqual(cls([f('src/a.js', 5), f('tests/a.test.mjs', 20)]), { cls: 'standard', why: [] })
-    // a High-tier money change of 145 code lines needs a review but not a strong reviewer: the case the benchmark's W6 ran on Opus
-    const high = lane([f('src/a.js', 100), f('src/b.js', 45), f('tests/a.test.mjs', 50)], ['Tier: High'])
-    assert.equal(high.lane, 'review'); assert.deepEqual(high.reviewer, { cls: 'standard', why: [] })
-    assert.deepEqual(cls([f('src/a.js')], ['Tier: Critical']), { cls: 'strong', why: ['Tier: Critical'] })
-    assert.deepEqual(cls([f('src/a.js')], ['Security']), { cls: 'strong', why: ['label Security'] })
-    assert.deepEqual(cls([f('package.json')]), { cls: 'strong', why: ['path package.json'] })
-    assert.equal(cls([f('src/a.js', 480)]).cls, 'standard')
-    assert.deepEqual(cls([f('src/a.js', 481)]), { cls: 'strong', why: ['481 changed code lines (over 480)'] })   // 4 x the self-check limit of 120
-    assert.equal(cls([f('src/a.js', 100)], [], { review: { self_check_max_lines: 20 } }).cls, 'strong')                // the limit is the config's
-    assert.equal(cls([{ filename: '', additions: 1, deletions: 0 }]).cls, 'strong')                                    // an unreadable file list
-    assert.equal(cls([f('assets/new.bin', 0)]).cls, 'strong')                                                          // a change with no readable size
-    assert.equal(cls([f('docs/a.md', 900)], [], { docs_only: { docs: ['\\.md$'] } }).cls, 'standard')           // docs the repo lists are not code
-    // an incomplete file list is read from the pull request, so it is only seen through laneOfPull / risk.mjs
-    const partial = cli({ body: 'Ticket #7', changed_files: 5 })
-    assert.match(partial.stdout, /^pr-reviewer class: strong \(the file list is incomplete\)$/m)
+test('laneLines prints the lane and one Reason line per rule', async () => {
+    const { laneLines } = await import('../core/lib/risk.mjs')
+    assert.deepEqual(laneLines({ lane: 'self-check', reasons: [] }), ['Lane: self-check'])
+    assert.deepEqual(laneLines({ lane: 'review', reasons: ['label Security', 'path a'] }), ['Lane: review', 'Reason: label Security', 'Reason: path a'])
 })
