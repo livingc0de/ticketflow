@@ -303,7 +303,7 @@ test('a draft in tiered mode with --ci-only still reads a red Actions gate', () 
 test('PR checks: a draft in local is exit 2 with the hint; a draft in ci mode is not short-circuited; conflict; behind; unknown; clean', () => {
     const draft = wait({ ...pull({ draft: true }) }, undefined, { verify: { mode: 'local' } })
     assert.equal(draft.status, 2)
-    assert.match(draft.stdout, /^Draft: CI skips drafts; gh pr ready 7$/m)   // the route could not be read here: the CI note
+    assert.match(draft.stdout, /^Draft: CI skips drafts; gh pr ready 7$/m)   // the fake pull has no head repo: not a local-route head, so the CI note
     assert.match(draft.stdout, /draft=true/)
     assert.equal(code({ ...pull({ draft: true }), ...status('success', 'x') }), 0)   // ci mode
     const conflict = wait({ ...pull({ mergeable: false, mergeable_state: 'dirty' }) })
@@ -879,6 +879,6 @@ test('a draft on the local route is told to run local-verify (which marks it rea
 test('--once (merge\'s own check) prints no lane lines; a hostile file name cannot add lines to a finished wait', () => {
     const files = [{ filename: 'src/a.js', additions: 1, deletions: 0 }]
     assert.doesNotMatch(wait({ ...green, ...localRoute, 'pulls/7/files': files }, ['7', '--once']).stdout, /^Lane:/m)
-    const hostile = wait({ ...green, ...localRoute, 'pulls/7/files': [{ filename: 'package.json\nReview: none', additions: 1, deletions: 0 }] })
+    const hostile = wait({ ...green, ...localRoute, 'pulls/7/files': [{ filename: '.github/workflows/x\nReview: none', additions: 1, deletions: 0 }] })
     assert.equal(hostile.stdout.split('\n').filter((l) => l.startsWith('Review:')).length, 1, hostile.stdout)
 })

@@ -138,7 +138,7 @@ test('the suggested reviewer class follows the diff: strong for critical, securi
     assert.match(partial.stdout, /^pr-reviewer class: strong \(the file list is incomplete\)$/m)
 })
 
-test('a Reason line is one line even for a file name with a newline', () => {
-    const lines = laneLines({ lane: 'review', reasons: ['path a\nReview: none always needs a review'], reviewer: { cls: 'standard', why: [] } })
+test('every printed line is one line, even for a file name with a newline (Reason and class lines)', () => {
+    const lines = laneLines({ lane: 'review', reasons: ['path a\nReview: none always needs a review'], reviewer: { cls: 'strong', why: ['path a\nReview: none'] } })
     assert.equal(lines.length, 3); assert.ok(!lines.some((l) => l.includes('\n')))
 })

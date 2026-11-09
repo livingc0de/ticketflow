@@ -14,7 +14,7 @@
 
 ### What You Need To Do When Upgrading From 0.6.6
 
-- Run `sync`. It rewrites every generated stub (a large generated diff is expected) and the `AGENTS.md` block.
+- Run `sync`. It updates the `AGENTS.md` block, adds the `workspace.mjs` allow rule to `.claude/settings.json` and copies the new scripts and action-map rows; no stub changes.
 - A High-tier ticket no longer gets a strong reviewer by tier alone: add your money and auth paths to `review.always_review` to keep them on the strong class.
 
 ## 0.6.6

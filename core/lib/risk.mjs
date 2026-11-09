@@ -60,8 +60,9 @@ export function minimumLane(files, labels, cfg) {
 export const ticketsOf = (pull) => [...new Set([...`${pull.title ?? ''}\n${pull.body ?? ''}`.matchAll(/\bTicket #(\d+)\b/g)].map((m) => m[1]))]
 
 /** The printed form of laneOfPull: `Lane:`, one `Reason:` per rule, then `pr-reviewer class:`. Shared by risk.mjs and pr-wait.mjs. */
-export const laneLines = ({ lane, reasons, reviewer }) => [`Lane: ${lane}`, ...reasons.map((r) => `Reason: ${String(r).replace(/[\p{Cc}\u2028\u2029]+/gu, ' ')}`),
+export const laneLines = ({ lane, reasons, reviewer }) => [`Lane: ${lane}`, ...reasons.map((r) => `Reason: ${r}`),
     reviewer.cls === 'strong' ? `pr-reviewer class: strong (${reviewer.why.join('; ')})` : 'pr-reviewer class: standard']
+    .map((l) => l.replace(/[\p{Cc}\u2028\u2029]+/gu, ' '))   // a file name with a newline stays one line
 
 /**
  * Reads the files and the labels of every named ticket of a PR (throws GhError) and returns its minimum lane, plus the first ticket number.
