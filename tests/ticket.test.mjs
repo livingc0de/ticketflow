@@ -46,7 +46,7 @@ test('a repeated claim keeps the existing comment and posts no second one; anoth
     const mine = { user: { login: 'me' }, body: '<!-- ticketflow:claim -->\nold' }
     const again = run(['claim', '7'], { comments: [mine] })
     assert.equal(again.status, 0, again.stderr)
-    assert.match(again.stdout, /claim: already claimed, comment kept/)
+    assert.match(again.stdout, /claim: already claimed.*NOT posted/)
     assert.deepEqual(again.posts.map((p) => p.path), [`${R}/issues/7/assignees`])
     // the real paginated shape: the marker is on the second page
     const paged = run(['claim', '7'], { extra: { [`${R}/issues/7/comments`]: { __pages: [[{ user: { login: 'x' }, body: 'hi' }], [mine]] } } })
@@ -63,7 +63,7 @@ test('handoff sets In Review and posts the marked summary once', () => {
     assert.equal(r.stdout.trim(), 'handoff #7: status In Review, summary comment')
     const old = { user: { login: 'me' }, body: '<!-- ticketflow:summary pr=5 -->\nold' }
     const again = run(['handoff', '7', '--pr', '5'], { comments: [old] })
-    assert.match(again.stdout, /handoff: already handed off, comment kept/)
+    assert.match(again.stdout, /handoff: already handed off.*NOT posted/)
     assert.deepEqual(again.posts, [])
     // a later change to the same ticket (another PR) gets its own summary; a claim marker is not a summary marker
     assert.equal(run(['handoff', '7', '--pr', '9'], { comments: [old] }).posts.length, 1)
@@ -88,4 +88,22 @@ test('usage, config and an empty body exit 2 before any write', () => {
     }
     const empty = run(['claim', '7'], { input: '  \n' })
     assert.equal(empty.status, 2); assert.match(empty.stderr, /body on stdin is empty/); assert.deepEqual(empty.posts, [])
+})
+
+test('a repeated call says whether the text on stdin was kept out because it differs, and names the existing comment', () => {
+    const url = 'https://github.com/o/r/issues/7#issuecomment-1'
+    const old = { user: { login: 'me' }, body: '<!-- ticketflow:summary pr=5 -->\r\nMerged #5.\r\nRun: tier normal\r\n', html_url: url }
+    const same = run(['handoff', '7', '--pr', '5'], { comments: [old], body: 'Merged #5.\nRun: tier normal' })
+    assert.equal(same.status, 0, same.stderr)
+    assert.match(same.stdout, new RegExp(`handoff: already handed off, comment kept: ${url.replace(/[.?#/]/g, '\\$&')}`))
+    assert.doesNotMatch(same.stdout, /NOT posted/); assert.deepEqual(same.posts, [])
+    const changed = run(['handoff', '7', '--pr', '5'], { comments: [old], body: 'A different summary.' })
+    assert.equal(changed.status, 0, changed.stderr)
+    assert.match(changed.stdout, /already handed off/); assert.ok(changed.stdout.includes(url))
+    assert.match(changed.stdout, /text on stdin differs and was NOT posted/); assert.deepEqual(changed.posts, [])
+    // a claim goes through the same branch
+    const claim = run(['claim', '7'], { comments: [{ user: { login: 'me' }, body: '<!-- ticketflow:claim -->\nold', html_url: url }], body: 'new text' })
+    assert.match(claim.stdout, /claim: already claimed/); assert.match(claim.stdout, /NOT posted/)
+    // another PR still gets its own summary
+    assert.equal(run(['handoff', '7', '--pr', '6'], { comments: [old], body: 'Merged #6.' }).posts.length, 1)
 })

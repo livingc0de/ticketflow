@@ -1,194 +1,202 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync,mkdirSync,writeFileSync,rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join,dirname } from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { scenarios,ids,fixture,prompt } from './scenarios.mjs';
-import { evaluateEvidence, meaningfulCheckpoint } from './check.mjs';
-import { cfg } from './sandbox.mjs';
-import { validate } from '../../core/lib/config.mjs';
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,chmodSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {scenarios,ids,fixture,prompt,fillIssue} from './scenarios.mjs';
+import {reference} from './reference.mjs';
+import {cfg,MODELS,seedIssues,seedPR,setupEnv,ancestorGuidance,newWork} from './sandbox.mjs';
+import {validate} from '../../core/lib/config.mjs';
 
-test('seven distinct delivery scenarios with intended initial states',()=>{
+const seededCtx=(id)=>({issues:scenarios[id].issues.map((_,i)=>100+i+1),pr:scenarios[id].seedPR?200:null});
+/** Process wording a person would not use when asking for work. */
+const PROCESS=/\b(review\w*|merg\w*|project\w*|board\w*|verif\w*|report\w*|plans?|branch\w*|commit\w*|ci|pull request|benchmark\w*)\b/i;
+const PROCESS_NO_PLAN=/\b(review\w*|merg\w*|project\w*|board\w*|verif\w*|report\w*|branch\w*|commit\w*|ci|pull request|benchmark\w*)\b/i;
+const LABELS=/\bW[1-7]\b|ticketflow|superpowers|ponytail|\bbare\b|workflow[- ]bench|benchmark|\barm\b/i;
+const visibleText=(id)=>{
+  const s=scenarios[id];
+  return [...s.sessions.map(x=>x.prompt),...s.issues.flatMap(i=>[i.title,i.body]),
+    ...(s.seedPR?[s.seedPR.title,s.seedPR.body,s.seedPR.comment,s.seedPR.commitMessage]:[])];
+};
+
+test('seven scenarios with the intended starting state',()=>{
   assert.deepEqual(ids,['W1','W2','W3','W4','W5','W6','W7']);
-  assert.deepEqual(ids.map(id=>scenarios[id].issues.length),[0,1,3,1,1,0,4]);
-  for(const id of ids){
-    const f=fixture(id);
-    assert.ok(f['package.json']&&f['.github/workflows/bench.yml']);
-    assert.ok(Object.keys(f).some(p=>p.startsWith('test/')));
-    const p=prompt(id,'bench/repo',[12],null,'https://github.com/orgs/bench/projects/1');
-    assert.match(p,/Use your own available development approach/);
-    assert.match(p,/No particular ticketing, status or decomposition format is required/);
-    assert.doesNotMatch(p,/use TicketFlow's/);
-    assert.ok(scenarios[id].hidden.module);
-    assert.doesNotThrow(()=>new Function('return (async()=>{'+scenarios[id].hidden.code+'})'));
+  assert.deepEqual(ids.map(id=>scenarios[id].issues.length),[0,1,3,0,1,0,7]);
+  assert.deepEqual(ids.map(id=>scenarios[id].size),['one','one','few','one','one','many','many']);
+  assert.deepEqual(ids.map(id=>scenarios[id].sessions.length),[1,1,1,1,2,1,2]);
+  assert.deepEqual(ids.filter(id=>scenarios[id].sessions.some(s=>s.interrupt)),['W5']);
+  assert.equal(scenarios.W5.sessions[0].interrupt,true);
+  assert.deepEqual(ids.filter(id=>scenarios[id].seedPR),['W4']);
+  for(const id of ids) {
+    const s=scenarios[id];
+    assert.ok(s.title&&s.timeoutMin>0&&Array.isArray(s.scope)&&s.scope.length);
+    for(const i of s.issues) assert.ok(i.title&&i.body);
+    assert.equal(s.timeoutMin,s.sessions.reduce((n,x)=>n+x.timeoutMin,0),id+' total cap is the sum of session caps');
   }
-  assert.doesNotMatch(scenarios.W1.goal,/create an issue|GitHub issue/i);
-  assert.match(scenarios.W6.goal,/explore|break the work/i);
-  assert.doesNotMatch(scenarios.W6.goal,/create .*issue|GitHub issue/i);
-  assert.match(scenarios.W7.goal,/parallel/i);
-  assert.equal(scenarios.W4.seedBrokenPR.branch,'bench/broken-webhook');
 });
-test('fixtures are self-contained and initial repository tests succeed',()=>{
-  for(const id of ids){
-    const dir=mkdtempSync(join(tmpdir(),'workflow-scenario-unit-'));
-    try {
-      for(const [path,body] of Object.entries(fixture(id))){
-        const dest=join(dir,path);mkdirSync(dirname(dest),{recursive:true});writeFileSync(dest,body);
+test('prompts, tickets and PR text read like a person wrote them and carry no process wording',()=>{
+  for(const id of ids) for(const text of visibleText(id)) {
+    assert.doesNotMatch(text,PROCESS,id+': '+text);
+    assert.doesNotMatch(text,LABELS,id+': '+text);
+  }
+  for(const id of ids) for(let i=0;i<scenarios[id].sessions.length;i++) {
+    const p=prompt(id,seededCtx(id),i);
+    assert.ok(!/[{}]/.test(p),p);
+    assert.ok(p.length<120,'prompts are short: '+p);
+  }
+});
+test('the repository itself shows no scenario id, tool name or process wording in its files',()=>{
+  for(const id of ids) for(const [path,content] of Object.entries(fixture(id,{withPR:true}))) {
+    assert.doesNotMatch(path+'\n'+content,LABELS,id+' '+path);
+    if(path==='README.md') assert.doesNotMatch(content,PROCESS_NO_PLAN,id+' '+path);
+  }
+  assert.equal(JSON.parse(fixture('W1')['package.json']).name,'service');
+  assert.doesNotMatch(fixture('W1')['.github/workflows/test.yml'],LABELS);
+});
+test('prompt() fills seeded numbers and fails loudly without them',()=>{
+  assert.equal(prompt('W2',{issues:[7]}),'Can you take a look at issue #7?');
+  assert.equal(prompt('W5',{issues:[3]},0),'Can you pick up issue #3?');
+  assert.equal(prompt('W5',{issues:[3]},1),'Continue where we left off.');
+  assert.equal(prompt('W4',{pr:9}),'PR #9 is red and has a comment on it, can you sort it out?');
+  assert.equal(prompt('W1'),'Could you add a CSV option next to the TSV export? It\'s exportReport in src/export.mjs.');
+  assert.throws(()=>prompt('W4',{}),/no seeded pull request/);
+  assert.throws(()=>prompt('W2',{}),/no seeded issue/);
+  assert.throws(()=>prompt('W2',{issues:[1]},3),/no session/);
+  assert.throws(()=>prompt('W9'),/unknown scenario/);
+  assert.match(fillIssue(scenarios.W3.issues[2].body,{issues:[11,12]}),/After #11 and #12/);
+});
+test('checks are well formed, sourced, and run through entry points that exist or are named for the agent',()=>{
+  for(const id of ids) {
+    const s=scenarios[id],files=fixture(id,{withPR:true});
+    const named=[readme(files),...visibleText(id)].join('\n');
+    const seen=new Set();
+    assert.ok(s.checks.some(c=>c.kind==='req'),id);
+    for(const c of s.checks) {
+      assert.ok(!seen.has(c.id),'duplicate check id '+c.id);seen.add(c.id);
+      assert.ok(['req','reg','defect'].includes(c.kind),c.id);
+      assert.ok(['ticket','brief','code','standard'].includes(c.source),id+'/'+c.id);
+      assert.ok(c.text&&c.code,c.id);
+      assert.ok(!c.supersededBy||s.checks.some(x=>x.id===c.supersededBy&&x.kind==='req'),c.id);
+      assert.doesNotThrow(()=>new Function('return (async()=>{'+c.code+'})'),c.id);
+      assert.ok(c.file,id+'/'+c.id+' names its entry file');
+      if(c.source==='ticket') assert.ok(s.issues.length||s.sessions.length>1,id+'/'+c.id);
+      if(c.source==='brief') assert.ok(files['README.md'],id+'/'+c.id);
+      assert.ok(files[c.file]||named.includes(c.file),id+'/'+c.id+': '+c.file+' is neither in the repository nor named for the agent');
+      for(const m of c.code.matchAll(/const \{([^}]*)\}\s*=\s*await load\('([^']+)'\)/g)) {
+        const [,names,path]=m;
+        assert.ok(files[path]||named.includes(path),id+'/'+c.id+' loads '+path);
+        for(const name of names.split(',').map(n=>n.trim())) {
+          const exported=files[path]&&new RegExp('export (?:async )?(?:function|const) '+name+'\\b').test(files[path]);
+          assert.ok(exported||new RegExp('\\b'+name+'\\b').test(named),id+'/'+c.id+': '+name+' is neither exported by the fixture nor named for the agent');
+        }
       }
-      const result=spawnSync('npm',['test'],{cwd:dir,encoding:'utf8',timeout:30000});
-      assert.equal(result.status,0,id+': '+result.stderr+'\n'+result.stdout);
-    } finally{rmSync(dir,{recursive:true,force:true});}
+    }
+    for(const c of s.checks.filter(c=>c.kind==='defect')) {
+      // latent: the defect and its fix location are never named for the agent
+      assert.ok(files[c.file]||reference(id)[c.file],id+'/'+c.id);
+    }
   }
 });
-test('TicketFlow config supplied to fixture is valid without requiring competitors to use it',()=>{
+const readme=(files)=>files['README.md']??'';
+test('planted defects are latent: not mentioned in any ticket, prompt, PR text or brief',()=>{
+  const hints={W2:/settle|settlement|vat/i,W3:/summary|orderSummary/i,W4:/reverse/i,W5:/in place|mutat|reorder|sort/i,W6:/prefix|findPlan|startsWith|basic-old/i,W7:/renderLink|tenantPage|tenant-pages|link/i};
+  for(const [id,re] of Object.entries(hints)) {
+    const text=[...visibleText(id),readme(fixture(id))].join('\n');
+    assert.doesNotMatch(text,re,id);
+  }
+});
+test('fixtures are self-contained: neutral CI file, tests present, no hidden material',()=>{
+  for(const id of ids) {
+    const f=fixture(id);
+    assert.ok(f['package.json']&&f['.github/workflows/test.yml']);
+    assert.match(f['.github/workflows/test.yml'],/tests:/);
+    assert.ok(Object.keys(f).some(p=>/^test\/.*\.test\.mjs$/.test(p)),id);
+    assert.ok(Object.keys(f).filter(p=>p.startsWith('src/')).length>=2,id+' has several modules');
+    assert.ok(!Object.keys(f).some(p=>/hidden|cases\.json|check/i.test(p)));
+  }
+  assert.ok(scenarios.W6.sessions.length===1&&(fixture('W6')['README.md'].match(/^- /gm)??[]).length>=18,'W6 brief has bullets and an API list');
+  assert.equal((fixture('W6')['README.md'].split('## Rough API')[0].match(/^- /gm)??[]).length,11);
+});
+test('TicketFlow config supplied to the fixture is valid without requiring competitors to use it',()=>{
   assert.doesNotThrow(()=>validate(cfg('bench/repo','bench',3,'claude')));
   assert.doesNotThrow(()=>validate(cfg('bench/repo','bench',3,'codex')));
 });
-const issue=(n,{seeded=false,closed=true,comments=1,title=null,body=null}={})=>({
-  number:n,seeded,state:closed?'closed':'open',comments,events:[],
-  title:title??`Implement independent workflow task ${n}`,
-  body:body??`Implement the independently actionable workflow task ${n}.${n>2?` Depends on #${n-1}.`:''}`,
+test('the fixture config maps the model classes to real models: the template aliases for Claude, full ids for Codex',()=>{
+  const template=JSON.parse(readFileSync(new URL('../../core/templates/config.json',import.meta.url),'utf8')).models;
+  assert.deepEqual(MODELS.claude,template.claude,'claude differs from core/templates/config.json');
+  for(const c of ['strong','standard','light']) assert.match(MODELS.codex[c],/^gpt-5\.6-[a-z]+$/,'codex '+c+' is a full id of the 5.6 generation');
+  for(const agent of ['claude','codex']) assert.deepEqual(cfg('bench/repo','bench',3,agent).models,{[agent]:MODELS[agent]});
 });
-const pr=(n,body,sha='aaaa')=>({number:n,body,headRefOid:sha,mergedAt:'2026-10-31T00:00:00Z'});
-const evidence=(id,{seeded=[],issues=[],prs=[],good=true,review=true,ci=true,interrupted=true,
-  initialPR=null,initialHead=null,resumed=true,candidate=null,fallback=[]}={})=>
-  evaluateEvidence({id,seededIssues:seeded,issues,prs,
-    checks:prs.map(p=>({number:p.number,pass:ci})),
-    reviews:prs.map(p=>({number:p.number,observed:review,unresolved:false})),
-    plans:[],candidate,hidden:good,repoTests:true,interrupted,resumed,initialPR,initialHead,fallback});
-test('W1 records issue tracking without requiring it from every native workflow',()=>{
-  const p=pr(20,'Closes #7');const pass=evidence('W1',{issues:[issue(7)],prs:[p]});
-  assert.equal(pass.pipeline,true);
-  const noIssue=evidence('W1',{prs:[pr(20,'Delivered change')]});
-  assert.equal(noIssue.functionality,true);
-  assert.equal(noIssue.steps.issue_tracking,false);
-  assert.equal(noIssue.pipeline,true);
+
+/* ---- sandbox seeding against a fake gh and a local origin (no network) ---- */
+function fakeGh(root) {
+  const bin=join(root,'bin');mkdirSync(bin,{recursive:true});
+  writeFileSync(join(bin,'gh'),`#!${process.execPath}
+const fs=require('fs');const a=process.argv.slice(2);
+fs.appendFileSync(process.env.FAKE_GH_LOG,JSON.stringify(a)+'\\n');
+const counter=process.env.FAKE_GH_LOG+'.n';
+const next=()=>{const n=(fs.existsSync(counter)?+fs.readFileSync(counter,'utf8'):10)+1;fs.writeFileSync(counter,String(n));return n;};
+if(a[0]==='issue'&&a[1]==='create')console.log('https://github.com/o/r/issues/'+next());
+else if(a[0]==='pr'&&a[1]==='create')console.log('https://github.com/o/r/pull/'+next());
+else if(a[0]==='api'&&/\\/comments$/.test(a[1]))console.log(JSON.stringify({id:555}));
+else if(a[0]==='api'&&a[1]==='graphql')console.log(JSON.stringify({data:{}}));
+else if(a[0]==='api')console.log(JSON.stringify({node_id:'I_x'}));
+else console.log('');
+`);
+  chmodSync(join(bin,'gh'),0o755);
+  const log=join(root,'gh.log');writeFileSync(log,'');
+  const env=setupEnv({token:'t',base:{PATH:bin+':'+process.env.PATH,HOME:root,FAKE_GH_LOG:log}});
+  return {env,calls:()=>readFileSync(log,'utf8').split('\n').filter(Boolean).map(l=>JSON.parse(l))};
+}
+test('seedIssues creates titled tickets in order, substitutes earlier numbers and returns them',()=>{
+  const root=mkdtempSync(join(tmpdir(),'workflow-sandbox-'));
+  try {
+    const {env,calls}=fakeGh(root);
+    const nums=seedIssues({repo:'o/r',id:'W3',projectId:'PVT_x',env});
+    assert.deepEqual(nums,[11,12,13]);
+    const creates=calls().filter(c=>c[0]==='issue'&&c[1]==='create');
+    assert.deepEqual(creates.map(c=>c[c.indexOf('--title')+1]),scenarios.W3.issues.map(i=>i.title));
+    assert.match(creates[2][creates[2].indexOf('--body')+1],/After #11 and #12/);
+    assert.ok(!calls().some(c=>c[0]==='issue'&&c[1]==='edit'),'no body edit step');
+    assert.deepEqual(seedIssues({repo:'o/r',id:'W1',projectId:'PVT_x',env}),[]);
+  } finally {rmSync(root,{recursive:true,force:true});}
 });
-test('W2 preserves existing issue coverage independent of workflow-specific statuses',()=>{
-  const pass=evidence('W2',{seeded:[2],issues:[issue(2,{closed:true})],prs:[pr(19,'Closes #2')]});
-  assert.equal(pass.pipeline,true);
-  const missing=evidence('W2',{seeded:[2],issues:[issue(2,{closed:false})],prs:[pr(19,'Refs #2')]});
-  assert.equal(missing.steps.issue_tracking,false);
-  assert.equal(missing.pipeline,true);
-  const handedOff=issue(2,{closed:false});
-  handedOff.project={readable:true,items:[{status:{name:'In Review'}}]};
-  const tracked=evidence('W2',{seeded:[2],issues:[handedOff],prs:[pr(19,'Refs #2')]});
-  assert.equal(tracked.steps.issue_tracking,true);
-  assert.equal(tracked.process.issues_closed_and_linked,0);
-  assert.equal(tracked.process.issues_handed_off_or_closed,1);
-  assert.equal(tracked.process.issue_coverage,1);
-  assert.equal(tracked.process.issue_closed_coverage,0);
+test('seedPR pushes the PR branch with a neutral author, opens it, comments and returns both ids',()=>{
+  const root=mkdtempSync(join(tmpdir(),'workflow-sandbox-'));
+  try {
+    const {env,calls}=fakeGh(root);
+    const origin=join(root,'origin.git'),seed=join(root,'work','seed');
+    const run=(cwd,...args)=>{const r=spawnSync('git',args,{cwd,env,encoding:'utf8'});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};
+    mkdirSync(seed,{recursive:true});
+    run(root,'init','-q','--bare',origin);
+    run(seed,'init','-q','-b','main');
+    for(const [p,c] of Object.entries(fixture('W4'))){mkdirSync(join(seed,p,'..'),{recursive:true});writeFileSync(join(seed,p),c);}
+    run(seed,'add','-A');run(seed,'-c','user.name=m','-c','user.email=m@example.invalid','commit','-qm','Initial commit');
+    run(seed,'remote','add','origin',origin);run(seed,'push','-q','origin','HEAD:main');
+    const result=seedPR({repo:'o/r',id:'W4',work:join(root,'work'),env});
+    assert.deepEqual(result,{number:11,commentId:555});
+    const sc=scenarios.W4.seedPR;
+    assert.equal(run(origin,'log','-1','--format=%s|%an','refs/heads/'+sc.branch),sc.commitMessage+'|Maintainer');
+    assert.match(run(origin,'show','refs/heads/'+sc.branch+':src/batch.mjs'),/processBatch/);
+    assert.equal(run(origin,'rev-parse','refs/heads/main'),run(seed,'rev-parse','main'));
+    const pr=calls().find(c=>c[0]==='pr'&&c[1]==='create');
+    assert.equal(pr[pr.indexOf('--title')+1],sc.title);
+    assert.equal(pr[pr.indexOf('--body')+1],sc.body);
+    assert.ok(calls().some(c=>c[0]==='api'&&/issues\/11\/comments/.test(c[1])&&c.includes('body='+sc.comment)));
+    assert.equal(seedPR({repo:'o/r',id:'W1',work:join(root,'work'),env}),null);
+  } finally {rmSync(root,{recursive:true,force:true});}
 });
-test('W3 reports dependent issue coverage without prescribing the workflow',()=>{
-  const source=[issue(1),issue(2),issue(3)];
-  assert.equal(evidence('W3',{seeded:[1,2,3],issues:source,prs:[pr(9,'Closes #1, #2 and #3')]}).pipeline,true);
-  const partial=evidence('W3',{seeded:[1,2,3],issues:source,prs:[pr(9,'Closes #1 and #2')]});
-  assert.equal(partial.steps.issue_tracking,false);
-  assert.equal(partial.pipeline,true);
-});
-test('W4 seeded PR is actually corrected and verified',()=>{
-  const source=[issue(1)];
-  const fine=evidence('W4',{seeded:[1],issues:source,prs:[pr(4,'Closes #1','new')],initialPR:4,initialHead:'old'});
-  assert.equal(fine.pipeline,true);
-  const stale=evidence('W4',{seeded:[1],issues:source,prs:[pr(4,'Closes #1','old')],initialPR:4,initialHead:'old'});
-  assert.equal(stale.steps.failed_pr_corrected,false);
-  assert.equal(stale.pipeline,false);
-});
-test('candidate correctness is independent from merged delivery',()=>{
-  const source=[issue(1)];
-  const open=evidence('W2',{seeded:[1],issues:source,prs:[{...pr(4,'Closes #1'),mergedAt:null}],candidate:{available:true,source:'agent-checkout',correctness:true,repository_tests:true}});
-  assert.equal(open.candidate.correctness,true);
-  assert.equal(open.candidate.functional,true);
-  assert.equal(open.merged_delivery.pass,false);
-  assert.equal(open.pipeline,false);
-  const broken=evidence('W2',{seeded:[1],issues:source,prs:[pr(4,'Closes #1')],candidate:{available:true,source:'agent-checkout',correctness:false,repository_tests:false}});
-  assert.equal(broken.candidate.functional,false);
-  assert.equal(broken.merged_delivery.pass,true);
-  assert.equal(broken.pipeline,false);
-});
-test('a successful local fallback satisfies merged delivery when Actions never ran',()=>{
-  const result=evidence('W1',{ci:false,prs:[pr(20,'Delivered change')],fallback:[{
-    number:20,allowed:true,attempted:true,posted:true,success:true,
-  }]});
-  assert.equal(result.steps.latest_head_ci,false);
-  assert.equal(result.merged_delivery.local_fallback,true);
-  assert.equal(result.merged_delivery.pass,true);
-  assert.equal(result.pipeline,true);
-});
-test('an unavailable candidate is reported as unknown, not as evaluator failure',()=>{
-  const result=evidence('W2',{candidate:{available:false,source:'agent-checkout'}});
-  assert.equal(result.candidate.available,false);
-  assert.equal(result.candidate.correctness,null);
-  assert.equal(result.functionality,null);
-  assert.equal(result.error,undefined);
-});
-test('W5 requires an actual recorded interruption and recovery',()=>{
-  const source={seeded:[1],issues:[issue(1)],prs:[pr(2,'Closes #1')]};
-  assert.equal(evidence('W5',{...source,interrupted:true}).pipeline,true);
-  assert.equal(evidence('W5',{...source,interrupted:false}).pipeline,false);
-  assert.equal(evidence('W5',{...source,interrupted:true,resumed:false}).pipeline,false);
-});
-test('W5 remote checkpoint requires pushed product changes and an unmerged PR state',()=>{
-  const branches=[{name:'main'},{name:'feature'}],prs=[{mergedAt:null}];
-  assert.equal(meaningfulCheckpoint({branches,prs,compares:{feature:{ahead_by:1,files:[]}}}),false);
-  assert.equal(meaningfulCheckpoint({branches,prs,compares:{feature:{ahead_by:1,files:[{filename:'docs/notes.md'}]}}}),false);
-  assert.equal(meaningfulCheckpoint({branches,prs,compares:{feature:{ahead_by:1,files:[{filename:'src/orders.mjs'}]}}}),true);
-  assert.equal(meaningfulCheckpoint({branches,prs:[{mergedAt:'2026-10-30T14:00:00Z'}],
-    compares:{feature:{ahead_by:1,files:[{filename:'src/orders.mjs'}]}}}),false);
-});
-test('W6 reports issue-based decomposition without requiring GitHub issues',()=>{
-  const tasks=[issue(2),issue(3)];
-  const pass=evidence('W6',{issues:tasks,prs:[pr(8,'Closes #2 and #3')]});
-  assert.equal(pass.pipeline,true);
-  assert.equal(pass.process.agent_created_issues,2);
-  assert.equal(pass.process.issue_breakdown,true);
-  const native=evidence('W6',{prs:[pr(8,'Delivered the complete feature')]});
-  assert.equal(native.pipeline,true);
-  assert.equal(native.steps.issue_tracking,false);
-  assert.equal(native.process.issue_breakdown,false);
-  assert.equal(evidence('W6',{issues:tasks,prs:[pr(8,'Closes #2')]}).steps.issue_tracking,false);
-  assert.equal(evidence('W6',{issues:[issue(2)],prs:[pr(8,'Closes #2')]}).steps.issue_tracking,false);
-  assert.equal(evidence('W6',{issues:[issue(2,{title:'Task #2',body:''}),issue(3)],prs:[pr(8,'Closes #2 and #3')]}).steps.issue_tracking,false);
-  assert.equal(evidence('W6',{issues:[issue(2),issue(3,{title:issue(2).title,body:issue(2).body})],prs:[pr(8,'Closes #2 and #3')]}).steps.issue_tracking,false);
-  assert.equal(evidence('W6',{issues:[issue(2,{body:'Implement the task without a dependency.'}),issue(3,{body:'Implement another task without a dependency.'})],prs:[pr(8,'Closes #2 and #3')]}).steps.issue_tracking,false);
-  assert.equal(evidence('W6',{issues:[issue(2),issue(3,{body:'Implement task 3. Depends on #99.'})],prs:[pr(8,'Closes #2 and #3')]}).steps.issue_tracking,false);
-  const cyclic=evidence('W6',{issues:[issue(2,{body:'Implement task 2. Depends on #3.'}),issue(3,{body:'Implement task 3. Depends on #2.'})],prs:[pr(8,'Closes #2 and #3')]});
-  assert.equal(cyclic.steps.issue_tracking,false);
-  assert.equal(cyclic.process.dependency_cycle,true);
-});
-test('W7 checks four seeded work items and allows multiple safely merged PRs',()=>{
-  const seed=[1,2,3,4],issues=seed.map(n=>issue(n));
-  const prs=seed.map(n=>pr(n+10,'Closes #'+n));
-  const pass=evidence('W7',{seeded:seed,issues,prs});
-  assert.equal(pass.pipeline,true);
-  assert.equal(pass.process.merged_pr_count,4);
-  const missing=evidence('W7',{seeded:seed,issues,prs:prs.slice(0,3)});
-  assert.equal(missing.steps.issue_tracking,false);
-  assert.equal(missing.pipeline,true);
-});
-test('an empty PR set cannot count as observed review',()=>{
-  const result=evidence('W2',{seeded:[1],issues:[issue(1)],prs:[]});
-  assert.equal(result.steps.review_evidence,false);
-  assert.equal(result.process.review_observed,false);
-});
-test('coordination is observed separately from delivery and allows one integrated PR',()=>{
-  const rows=[issue(1),issue(2),issue(3)].map((x,i)=>({...x,closed_at:
-    ['2026-10-30T10:00:00Z','2026-10-30T10:05:00Z','2026-10-30T09:00:00Z'][i]}));
-  const result=evidence('W3',{seeded:[1,2,3],issues:rows,prs:[pr(8,'Closes #1 #2 #3')]});
-  assert.equal(result.pipeline,true);
-  assert.equal(result.process.coordination.dependency_order_violations,0); // one integrated merge has no observable order violation
-  const outOfOrder=[pr(11,'Closes #3'),pr(12,'Closes #1'),pr(13,'Closes #2')];
-  outOfOrder[0].mergedAt='2026-10-30T09:00:00Z';
-  outOfOrder[1].mergedAt='2026-10-30T10:00:00Z';
-  outOfOrder[2].mergedAt='2026-10-30T10:05:00Z';
-  assert.equal(evidence('W3',{seeded:[1,2,3],issues:rows,prs:outOfOrder}).process.coordination.dependency_order_violations,2);
-  assert.equal(result.process.coordination.linked_seeded_per_merged_pr[0].count,3);
-});
-test('pipeline gates remain independent of hidden code correctness',()=>{
-  const c={seeded:[1],issues:[issue(1)],prs:[pr(6,'Closes #1')]};
-  assert.equal(evidence('W2',{...c,good:false}).functionality,false);
-  assert.equal(evidence('W2',{...c,ci:false}).steps.latest_head_ci,false);
-  assert.equal(evidence('W2',{...c,review:false}).steps.review_evidence,false);
-  assert.equal(evidence('W2',{...c,review:false}).functionality,true);
+
+test('instruction files above the work area are detected and refuse the work directory',()=>{
+  const top=mkdtempSync(join(tmpdir(),'guidance-')),inner=join(top,'a/b');
+  mkdirSync(inner,{recursive:true});mkdirSync(join(top,'.claude'));
+  writeFileSync(join(top,'AGENTS.md'),'rules');writeFileSync(join(top,'.claude/CLAUDE.md'),'@AGENTS.md');
+  try{
+    assert.deepEqual(ancestorGuidance(inner).filter(f=>f.startsWith(top)).sort(),[join(top,'.claude/CLAUDE.md'),join(top,'AGENTS.md')]);
+    const before=process.env.BENCHMARK_WORK_ROOT;
+    process.env.BENCHMARK_WORK_ROOT=inner;
+    try{assert.throws(()=>newWork(),/instruction or settings files above the work area/)}
+    finally{before===undefined?delete process.env.BENCHMARK_WORK_ROOT:process.env.BENCHMARK_WORK_ROOT=before}
+  }finally{rmSync(top,{recursive:true,force:true})}
 });

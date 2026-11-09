@@ -303,7 +303,7 @@ test('a draft in tiered mode with --ci-only still reads a red Actions gate', () 
 test('PR checks: a draft in local is exit 2 with the hint; a draft in ci mode is not short-circuited; conflict; behind; unknown; clean', () => {
     const draft = wait({ ...pull({ draft: true }) }, undefined, { verify: { mode: 'local' } })
     assert.equal(draft.status, 2)
-    assert.match(draft.stdout, /^Draft: CI skips drafts; gh pr ready 7$/m)
+    assert.match(draft.stdout, /^Draft: CI skips drafts; gh pr ready 7$/m)   // the fake pull has no head repo: not a local-route head, so the CI note
     assert.match(draft.stdout, /draft=true/)
     assert.equal(code({ ...pull({ draft: true }), ...status('success', 'x') }), 0)   // ci mode
     const conflict = wait({ ...pull({ mergeable: false, mergeable_state: 'dirty' }) })
@@ -801,4 +801,84 @@ test('the shared cache keeps starts on the machine clock: a run whose offset dif
     assert.match(wait(fix, ['7', '--once'], {}, { dir }).stdout, /^Review: pending \(rb\[bot\]\)$/m)
     assert.match(wait({ ...fix, ...header(-60) }, ['7', '--once'], {}, { dir }).stdout, /^Review: pending \(rb\[bot\]\)$/m)
     assert.match(wait(fix, ['7', '--once'], {}, { dir }).stdout, /^Review: pending \(rb\[bot\]\)$/m, 'the earlier run with another offset did not shorten the window')
+})
+
+// ---- a ready PR whose route is local but whose head has no local gate yet
+const localRoutePull = pull({ title: 'Ticket #7', changed_files: 1, head: { sha: HEAD, ref: 'feature', repo: { full_name: 'o/r' } }, base: { ref: 'main', repo: { full_name: 'o/r' } } }).pulls[7]
+const localRoute = { pulls: { 7: localRoutePull }, 'pulls/7/files': [{ filename: 'src/a.js', additions: 1, deletions: 0 }], 'issues/7': { labels: [{ name: 'Tier: Normal' }] } }
+
+test('a ready local-route PR with no local gate says so at once, instead of waiting for a run that cannot start', () => {
+    const r = wait(localRoute, ['7', '--timeout-min', '1'], { verify: { mode: 'local' } }, { sleep: true })   // local mode: no Actions run will ever start
+    assert.equal(r.status, 2, `${r.stdout}${r.stderr}`)
+    assert.match(r.stdout, /Local gate: none on aaaaaaa: run local-verify\.mjs 7 from the primary checkout \(it marks the PR ready\)/)
+})
+
+test('an Actions failure on a ready local-route PR stays red and names the way out', () => {
+    const r = wait({ ...localRoute, ...runs(run(5, 'completed', 'failure')), ...job(5, { runner_id: 1, steps: [{}], created_at: ago(1) }) }, ['7', '--once'], { verify: { mode: 'tiered' } })
+    assert.equal(r.status, 1, r.stdout + r.stderr)
+    assert.match(r.stdout, /Local gate: none on aaaaaaa.*gh pr ready 7 --undo.*local-verify\.mjs 7/)
+})
+
+test('the note is not printed with --ci-only, with a posted gate, or on a CI route', () => {
+    assert.doesNotMatch(wait(localRoute, ['7', '--once', '--ci-only'], { verify: { mode: 'local' } }).stdout, /Local gate/)
+    assert.doesNotMatch(wait({ ...localRoute, ...status('success', 'Local run on host1 (x86_64, Node 24.0.0)') }, ['7', '--once'], { verify: { mode: 'local' } }).stdout, /Local gate/)
+    assert.doesNotMatch(wait({ ...localRoute, 'issues/7': { labels: [{ name: 'Tier: High' }] } }, ['7', '--once'], { verify: { mode: 'tiered' } }).stdout, /Local gate/)
+    assert.doesNotMatch(wait(localRoute, ['7', '--once'], {}).stdout, /Local gate/)   // verify.mode ci
+})
+
+test('a finished wait (exit 0) ends with the lane and reviewer class risk.mjs would print, so no separate risk call is needed', () => {
+    const ticket = { ...pull({ title: 'Ticket #7', changed_files: 2 }), 'pulls/7/files': [{ filename: 'src/a.js', additions: 3, deletions: 0 }, { filename: 'tests/a.test.mjs', additions: 9, deletions: 0 }], 'issues/7': { labels: [] } }
+    const small = wait({ ...green, ...ticket })
+    assert.equal(small.status, 0, small.stdout + small.stderr)
+    assert.match(small.stdout, /^Lane: self-check$/m)
+    assert.match(small.stdout, /^pr-reviewer class: standard$/m)
+    const critical = wait({ ...green, ...ticket, 'issues/7': { labels: [{ name: 'Tier: Critical' }] } })
+    assert.match(critical.stdout, /^Lane: review$/m)
+    assert.match(critical.stdout, /^Reason: .*Critical/m)
+    assert.match(critical.stdout, /^pr-reviewer class: strong \(/m)
+    // no ticket, an incomplete file list: a review at the strong class, never a crash
+    const none = wait({ ...green, ...pull({ changed_files: 3 }) })
+    assert.match(none.stdout, /^Lane: review$/m)
+    assert.match(none.stdout, /^pr-reviewer class: strong \(.*incomplete/m)
+    // not printed when the wait did not finish green or for --ci-only
+    assert.doesNotMatch(wait({ ...status('failure', 'x'), ...ticket }).stdout, /^Lane:/m)
+    assert.doesNotMatch(wait({ ...green, ...ticket }, ['7', '--once', '--ci-only']).stdout, /^Lane:/m)
+})
+
+test('the poll sleep never runs past the deadline, so a wait sized for a tool timeout stays inside it', async () => {
+    const { nextSleepSec } = await import('../core/lib/wait.mjs')
+    assert.equal(nextSleepSec(1_000_000, 0), 60)
+    assert.equal(nextSleepSec(100_000, 70_000), 30)
+    assert.equal(nextSleepSec(100_000, 99_400), 1)
+    assert.equal(nextSleepSec(100_000, 100_000), 1)   // at the deadline: a last short sleep, the loop then times out
+    assert.equal(nextSleepSec(100_000, 120_000), 1)
+    assert.equal(nextSleepSec(1_000_000, 0, 30), 30)
+})
+
+test('the local-gate note needs a status that was read, and in tiered mode a pending run is told it will fail', () => {
+    // an unreadable status says nothing about the gate
+    const unread = wait({ ...localRoute, [`commits/${HEAD}/status`]: { __status: 500, __stderr: 'boom' } }, ['7', '--once'], { verify: { mode: 'local' } })
+    assert.doesNotMatch(unread.stdout, /Local gate/)
+    // tiered, a Validate run still queued: it will fail this head, so do not run a full local verification into it
+    const queued = wait({ ...localRoute, ...runs(run(5, 'queued')), ...job(5, { status: 'queued', created_at: ago(1) }) }, ['7', '--timeout-min', '1'], { verify: { mode: 'tiered' } }, { sleep: true })
+    assert.equal(queued.status, 2, queued.stdout)
+    assert.match(queued.stdout, /Local gate: none on aaaaaaa and Actions will fail this head: gh pr ready 7 --undo.*local-verify\.mjs 7/)
+    assert.doesNotMatch(queued.stdout, /it marks the PR ready/)
+    // local mode stays as it was: nothing runs, so local-verify is the next step
+    assert.match(wait(localRoute, ['7', '--timeout-min', '1'], { verify: { mode: 'local' } }, { sleep: true }).stdout, /run local-verify\.mjs 7 from the primary checkout \(it marks the PR ready\)/)
+})
+
+test('a draft on the local route is told to run local-verify (which marks it ready), not gh pr ready; a CI route keeps gh pr ready', () => {
+    const draftPull = { ...localRoutePull, draft: true }
+    const local = wait({ ...localRoute, pulls: { 7: draftPull } }, ['7', '--once'], { verify: { mode: 'local' } })
+    assert.match(local.stdout, /^Draft: run local-verify\.mjs 7 from the primary checkout \(it marks the PR ready\)$/m)
+    const ci = wait({ ...localRoute, pulls: { 7: draftPull }, 'issues/7': { labels: [{ name: 'Tier: High' }] } }, ['7', '--once'], { verify: { mode: 'tiered' } })
+    assert.match(ci.stdout, /^Draft: CI skips drafts; gh pr ready 7$/m)
+})
+
+test('--once (merge\'s own check) prints no lane lines; a hostile file name cannot add lines to a finished wait', () => {
+    const files = [{ filename: 'src/a.js', additions: 1, deletions: 0 }]
+    assert.doesNotMatch(wait({ ...green, ...localRoute, 'pulls/7/files': files }, ['7', '--once']).stdout, /^Lane:/m)
+    const hostile = wait({ ...green, ...localRoute, 'pulls/7/files': [{ filename: '.github/workflows/x\nReview: none', additions: 1, deletions: 0 }] })
+    assert.equal(hostile.stdout.split('\n').filter((l) => l.startsWith('Review:')).length, 1, hostile.stdout)
 })

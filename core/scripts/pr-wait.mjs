@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * One blocking wait for a pull request (or a default-branch commit): returns when the merge gate is final and every external reviewer
- * that started has answered, asked for changes or run out of time, then prints one summary. Run it in the background instead of polling in turns.
+ * that started has answered, asked for changes or run out of time, then prints one summary. Run it in the foreground (the timeout flag comes from your action map) instead of polling in turns.
  *
  * Usage: pr-wait.mjs <pr | 40-hex sha> [--once] [--ci-only] [--timeout-min N] [--more <login>]... [--config f]
  *   --once         one poll; the exit code comes from CI only (reviewer lines are still printed unless --ci-only)
@@ -36,9 +36,10 @@
  *
  * Exit: 0 = CI green and no started reviewer pending (results, changes requested, late or none); 1 = CI red (after the started
  * reviewers answered or ran out of time), or the PR conflicts with / is behind the default branch; 2 = timed out, still pending, a draft
- * in local mode, (sha) superseded, or, at once, the account running this cannot be read (`gh api user`, e.g. an app token;
+ * in local mode, a ready local-route PR with no local gate (a `Local gate:` note), (sha) superseded, or, at once, the account running this cannot be read (`gh api user`, e.g. an app token;
  * `--ci-only` skips that read); 3 = Actions refused the run, so `local-verify` may take over ("Fallback: allowed" in the summary),
  * never for a pull request that changes `.github/workflows/` (exit 1, or 2 while the run is only queued).
+ * An exit 0 in pull request mode (not `--ci-only`) ends with the `risk.mjs` lines (`Lane:`, `Reason:`, `pr-reviewer class:`), except with --once (merge's own check).
  * Usage and config errors exit 2 before any call.
  */
 
@@ -49,7 +50,9 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { configPath, loadConfig } from '../lib/config.mjs'
 import { gql } from '../lib/gh.mjs'
+import { laneLines, laneOfPull } from '../lib/risk.mjs'
 import { routeOfPull, validGateSource } from '../lib/verification.mjs'
+import { nextSleepSec } from '../lib/wait.mjs'
 
 const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
 const STUCK_MS = 20 * 60_000
@@ -90,7 +93,7 @@ function api(path, paginate = false) {
 /** Text from GitHub that is printed in the summary: control characters and line separators become one space, so it can never forge a summary line. */
 const flat = (v) => String(v ?? '').replace(/[\p{Cc}\u2028\u2029]+/gu, ' ')
 const ms = (iso) => Date.parse(iso)
-const fresh = () => ({ head: '', pull: null, draft: false, gate: null, verify: null, fallback: null, why: 'Actions has not refused the run', notes: [], reviewers: null, threads: null, author: null })
+const fresh = () => ({ head: '', pull: null, draft: false, gate: null, statusRead: false, verify: null, fallback: null, why: 'Actions has not refused the run', notes: [], reviewers: null, threads: null, author: null })
 const workflowRunMatches = (run, head, pull) => run?.head_sha === head ||
     (pull?.head?.ref && run?.event === 'pull_request' && Array.isArray(run.pull_requests) &&
         run.pull_requests.some(x => Number(x.number) === Number(target) && x.head?.sha === head))
@@ -138,10 +141,16 @@ function pollCi(S) {
         S.pull = pull
         S.draft = pull.draft === true
         S.author = pull.user?.login
-        if (!ciOnly && ['local', 'tiered'].includes(cfg.verify.mode) && S.draft) { S.notes.push(`Draft: CI skips drafts; gh pr ready ${target}`); return 'draft' }
+        if (!ciOnly && ['local', 'tiered'].includes(cfg.verify.mode) && S.draft) {
+            let local = false
+            try { local = routeOfPull(cfg, pull, target).route === 'local' } catch { /* an unreadable route: the CI note */ }
+            S.notes.push(local ? `Draft: run local-verify.mjs ${target} from the primary checkout (it marks the PR ready)` : `Draft: CI skips drafts; gh pr ready ${target}`)
+            return 'draft'
+        }
         if (pull.mergeable === false) { S.notes.push(`PR #${target} conflicts with ${base}: merge ${base} into the branch`); return 'conflict' }
     }
     S.gate = api(`${R}/commits/${S.head}/status?per_page=100`).statuses.find((s) => s.context === cfg.gate.context) ?? null
+    S.statusRead = true
     const g = S.gate
     S.why = 'the gate status is not final'
 
@@ -414,6 +423,19 @@ for (;;) {
     const S = fresh()
     let kind = 'pending'
     try { kind = pollCi(S) } catch { S.why = 'a read failed' }
+    // A ready PR on the local route has no passing Actions run without its local gate: say so now, not after a 45-minute wait or a red nobody can replace.
+    if (!ciOnly && S.pull && S.statusRead && !S.gate && ['local', 'tiered'].includes(cfg.verify.mode) && (kind === 'pending' || kind === 'red')) {
+        try {
+            if (routeOfPull(cfg, S.pull, target).route === 'local') {
+                const sha7 = S.head.slice(0, 7)
+                // tiered: Actions runs on a ready PR and fails it without a local gate, so a pending run is about to be a red nobody can replace
+                const failing = `Local gate: none on ${sha7} and Actions ${kind === 'red' ? 'failed' : 'will fail'} this head: gh pr ready ${target} --undo, push a new head, then local-verify.mjs ${target}`
+                if (kind === 'pending' && cfg.verify.mode === 'local') { S.notes.push(`Local gate: none on ${sha7}: run local-verify.mjs ${target} from the primary checkout (it marks the PR ready)`); kind = 'draft' }
+                else if (kind === 'pending') { S.notes.push(failing); kind = 'draft' }
+                else S.notes.push(failing)
+            }
+        } catch { /* the CI result stands as read */ }
+    }
     if (!ciOnly && (once || ['green', 'red', 'pending'].includes(kind)) && S.head) {
         try { pollReviewers(S) } catch { S.reviewers = 'unknown' }
         pollThreads(S)
@@ -428,7 +450,12 @@ for (;;) {
     const timedOut = !settled && !once && Date.now() >= deadline
     if (settled || once || timedOut) {
         print(S, timedOut)
-        process.exit(kind === 'green' && !once && !reviewed ? 2 : CODE[kind])
+        const code = kind === 'green' && !once && !reviewed ? 2 : CODE[kind]
+        // a finished wait is followed by the review lane: the caller needs no separate risk.mjs call (a failed read says so and counts as `review`)
+        if (code === 0 && !ciOnly && !once && !sha && S.pull) {
+            try { for (const l of laneLines(laneOfPull(cfg, S.pull, target))) console.log(l) } catch { console.log('Lane: review (risk could not be read: run risk.mjs)') }
+        }
+        process.exit(code)
     }
-    spawnSync('sleep', [POLL_SEC])
+    spawnSync('sleep', [String(nextSleepSec(deadline, Date.now(), Number(POLL_SEC)))])
 }

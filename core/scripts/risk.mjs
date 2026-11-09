@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * The minimum review lane of a pull request: `Lane: self-check` (merge may accept the agent's own self-check) or `Lane: review`, with one
- * `Reason:` line per rule that forces a review. A floor from facts, never a grade: the tier and the reviewer's strength stay the agent's call.
+ * `Reason:` line per rule that forces a review, then `pr-reviewer class: strong (<why>)` or `pr-reviewer class: standard`: the class a review of this diff should run at
+ * (strong for a Critical tier, a Security label, an always-review path, an unknown size or a very large diff). A floor from facts, never a grade; the agent may always choose strong.
  * Rules and limits: core/docs/REVIEWERS.md, thresholds: the `review` section of the config.
  *
  * Usage: risk.mjs <pr> [--config f]
@@ -10,12 +11,10 @@
 
 import { cli, main } from '../lib/cli.mjs'
 import { api, isNumber } from '../lib/gh.mjs'
-import { laneOfPull } from '../lib/risk.mjs'
+import { laneLines, laneOfPull } from '../lib/risk.mjs'
 
 const { positionals: [pr], cfg } = cli(import.meta.url, 'risk', '<pr> [--config f]', {}, (p) => p.length === 1 && isNumber(p[0]))
 
 main('risk', () => {
-    const { lane, reasons } = laneOfPull(cfg, api(`repos/${cfg.repo}/pulls/${pr}`), pr)
-    console.log(`Lane: ${lane}`)
-    for (const r of reasons) console.log(`Reason: ${r}`)
+    for (const l of laneLines(laneOfPull(cfg, api(`repos/${cfg.repo}/pulls/${pr}`), pr))) console.log(l)
 })

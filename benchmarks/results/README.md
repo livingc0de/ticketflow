@@ -1,23 +1,11 @@
 # Published benchmark results
 
-This directory is the repository-facing index for benchmark results. Each real publication is a dated, sanitized Markdown report such as `2026-10-29-agentic.md`; no simulated metrics belong here. There are no published numeric results until a maintainer runs and inspects real sessions.
+This directory is the repository-facing index for benchmark results. Each real publication is a dated, sanitized Markdown report such as `2026-11-10-workflow-pilot.md`; no simulated metrics belong here. There are no published numeric results until a maintainer runs and inspects real sessions.
 
-Generate a local report from a retained session file with:
+Generate a report from a retained session file with:
 
-    node benchmarks/report-local.mjs <recorded-runs.jsonl> --publish --label pilot
+    node benchmarks/report-workflow.mjs <recorded-workflow.jsonl> [--judge <recorded-workflow.jsonl.judge.jsonl>] --publish --label pilot
 
-Generate a workflow report with the same dated publication convention:
+The report validates the `workflow-v2` row shape, renders invalid attempts and provenance warnings for audit, and keeps the judge and status-probe columns separate from the deterministic axes, labelled as audited estimates. It does not enforce a metadata gate: inspect revisions, plugin evidence, invalid cells and cleanup state before treating a report as a controlled comparison. Reports never copy answers, transcripts, local paths or raw session rows.
 
-    node benchmarks/report-workflow.mjs <recorded-workflow.jsonl> --publish --label pilot
-
-Local publication fails closed unless evaluator and source revisions, model pins, requested effort, CLI versions, repetition cells and evaluation mode are present and comparable. Workflow reporting validates the workflow record shape and renders invalid attempts and provenance warnings for audit, but does not enforce the local publisher's metadata gate. Inspect workflow revisions, plugin evidence, invalid cells and cleanup state before treating that report as a controlled comparison. Reports never copy answers, transcripts, local paths or raw session rows.
-
-Raw JSONL sessions, workflow `.state.json` sidecars, generated CSV files and
-`transcripts/` remain ignored by default. Local JSONL rows are the resume ledger;
-workflow JSONL rows are paired with the sidecar that preserves remote resource and
-in-progress cell state. Each transcript directory contains only `agent.out`,
-`answer.txt` and allowlisted `metadata.json`; it is linked from the corresponding
-row by `result_row_id` and `transcript_archive`/`transcript_archives`. Keep these
-artifacts local, inspect them for plugin bootstrap evidence and sensitive content,
-and publish only the sanitized dated Markdown report. See [benchmark methodology](../README.md)
-for execution and safety requirements.
+Raw JSONL sessions, `.state.json` resume sidecars, judge records, generated CSV files and `transcripts/` (transcript archives and evidence bundles) remain ignored by default. Workflow rows are paired with the sidecar that preserves remote resource and in-progress cell state. Each transcript archive contains only `agent.out`, `answer.txt` and allowlisted `metadata.json`; it is linked from the row by `result_row_id` and `transcript_archive`/`transcript_archives`. Each evidence bundle holds the facts, the code-only diff, a dossier of tickets, pull requests and commit messages, the condensed transcript, the final answers and the check list, and is linked by `evidence_dir`. Keep these artifacts local, inspect them for plugin bootstrap evidence and sensitive content, and publish only the sanitized dated Markdown report. See [benchmark methodology](../README.md) for execution and safety requirements.

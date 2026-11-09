@@ -16,7 +16,7 @@ files ([CONFIG.md](CONFIG.md)). Your extensions are never touched ([EXTENDING.md
 
 `.ticketflow/manifest.json` records an install. `runtime.mjs` owns `version`, `source` (`url`, `tag`, `commit`), `files` (the sha256 of
 every copied runtime file, CRLF read as LF) and `held`; `render.mjs` owns `claude_settings` (the `allow` and `ask` entries TicketFlow
-added, so a later render can remove one it no longer wants). The file is deterministic: sorted keys and paths, no timestamps. Stubs and
+added, so a later render can remove one it no longer wants). The file is deterministic: sorted keys and paths, no timestamps. `source.url` is kept as written when the clone the runtime is copied from has the same repository as its origin (ignoring `.git`, a trailing slash and case); another repository rewrites it. Stubs and
 rendered files are not hashed: `gen-stubs --check` and `render --check` cover them. In the TicketFlow repo itself (runtime in `core/`)
 it holds only `manifest_version` and `claude_settings`.
 

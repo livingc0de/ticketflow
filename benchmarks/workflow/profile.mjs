@@ -24,7 +24,7 @@ function jsonCall(bin,args,env) {
   try {return JSON.parse(result)} catch {throw Error(bin+' did not return valid JSON for '+args.join(' '))}
 }
 function codexMarketplace(env,work,src,arm,isolated) {
-  const market='tf-workflow-'+basename(work).toLowerCase().replace(/[^a-z0-9-]/g,'');
+  const market='plugins-'+basename(work).toLowerCase().replace(/[^a-z0-9-]/g,'');
   const root=join(work,'marketplace'), target=join(root,'plugins',arm);
   mkdirSync(join(root,'.agents','plugins'),{recursive:true});
   cpSync(src,target,{recursive:true,filter:p=>!p.split(/[\\/]/).includes('.git')});
@@ -62,16 +62,18 @@ function codexMarketplace(env,work,src,arm,isolated) {
     throw e;
   }
 }
-export function makeProfile(agent,arm,work,source,mode,{githubToken=process.env.WORKFLOW_BENCH_AGENT_TOKEN}={}) {
+export function makeProfile(agent,arm,work,source,mode,{githubToken=process.env.WORKFLOW_BENCH_AGENT_TOKEN,github=true}={}) {
   const isolated=mode==='isolated', home=join(work,'home');
   if(isolated) mkdirSync(home,{recursive:true,mode:0o700});
   const env=isolated?{...clean(),HOME:home,XDG_CONFIG_HOME:join(home,'.config')}:{...clean()};
   for(const key of ['ANTHROPIC_API_KEY','CLAUDE_CODE_OAUTH_TOKEN']) if(process.env[key])env[key]=process.env[key];
   // GH_TOKEN is intentionally available to the agent for the disposable repository.
   // Use a dedicated token scoped only to benchmark repos; do not run on a production account.
-  if(!githubToken) throw Error('GitHub agent authentication required');
-  env.GH_TOKEN=githubToken;
-  env.GITHUB_TOKEN=githubToken;
+  if(github){
+    if(!githubToken) throw Error('GitHub agent authentication required');
+    env.GH_TOKEN=githubToken;
+    env.GITHUB_TOKEN=githubToken;
+  }
   if(agent==='claude') {
     if(isolated) {
       const dir=join(home,'.claude');mkdirSync(dir,{recursive:true,mode:0o700});

@@ -24,35 +24,45 @@ export const noLines = (f) => f.additions + f.deletions === 0 && f.status !== 'r
 /** The name of `f` (new or old path) that always needs a review, or undefined. Used by risk.mjs and merge.mjs alike. */
 export const alwaysReviewHit = (f, cfg) => names(f).find((n) => [...ALWAYS_REVIEW, ...cfg.review.always_review].some((re) => re.test(n)))
 
-/** files: [{ filename, previous_filename?, additions, deletions, status? }], labels: [string] -> { lane: 'self-check' | 'review', reasons: [string], size: boolean } (size: every reason is about size) */
+/**
+ * files: [{ filename, previous_filename?, additions, deletions, status? }], labels: [string] -> { lane: 'self-check' | 'review', reasons: [string], size: boolean,
+ * reviewer: { cls: 'strong' | 'standard', why: [string] } } (size: every reason is about size; reviewer: the class a review of this diff should run at)
+ */
 export function minimumLane(files, labels, cfg) {
     const r = cfg.review
-    const reasons = [], sizeReasons = []
+    const reasons = [], sizeReasons = [], strong = []
     if (!r.self_check) reasons.push('review.self_check is false')
     const tier = tierOf(labels)
-    if (tier === 'Critical') reasons.push('Tier: Critical needs a review of every head')
+    if (tier === 'Critical') { reasons.push('Tier: Critical needs a review of every head'); strong.push('Tier: Critical') }
     else if (tier === 'High') sizeReasons.push('Tier: High needs a first review')   // a ready review plus a small fix delta clears it, like size
-    for (const l of labels) if (l === 'Security' || l.startsWith('Needs:')) reasons.push(`label ${l}`)
-    if (!files.every((f) => typeof f?.filename === 'string' && f.filename.length > 0 && Number.isInteger(f.additions) && Number.isInteger(f.deletions))) reasons.push('the file list is unreadable')
+    for (const l of labels) if (l === 'Security' || l.startsWith('Needs:')) { reasons.push(`label ${l}`); if (l === 'Security') strong.push(`label ${l}`) }
+    if (!files.every((f) => typeof f?.filename === 'string' && f.filename.length > 0 && Number.isInteger(f.additions) && Number.isInteger(f.deletions))) reasons.push('the file list is unreadable'), strong.push('the file list is unreadable')
     else {
         for (const f of files) {
             const hit = alwaysReviewHit(f, cfg)
-            if (hit) reasons.push(`path ${hit} always needs a review`)
+            if (hit) { reasons.push(`path ${hit} always needs a review`); strong.push(`path ${hit}`) }
         }
         // a renamed file is test or docs only when both its names are: code renamed into tests keeps counting
         const code = files.filter((f) => names(f).some((n) => !TEST.test(n) && !docsOnly([n], cfg)))
         const lines = code.reduce((n, f) => n + f.additions + f.deletions, 0)
-        for (const f of code) if (noLines(f)) reasons.push(`${f.filename} changed without a readable line count (binary?)`)
+        for (const f of code) if (noLines(f)) { reasons.push(`${f.filename} changed without a readable line count (binary?)`); strong.push(`${f.filename} has no readable size`) }
+        // shortcut: 4 x the self-check limit is the "very large" line for a strong reviewer; give it its own review key if the Run lines show it misfires
+        if (lines > 4 * r.self_check_max_lines) strong.push(`${lines} changed code lines (over ${4 * r.self_check_max_lines})`)
         if (code.length > r.self_check_max_files) sizeReasons.push(`${code.length} code files (limit ${r.self_check_max_files})`)
         if (lines > r.self_check_max_lines) sizeReasons.push(`${lines} changed code lines (limit ${r.self_check_max_lines})`)
         if (r.self_check_untested_lines !== null && lines > r.self_check_untested_lines && !files.some((f) => names(f).every((n) => TEST.test(n)))) sizeReasons.push(`${lines} changed code lines and no test file touched (limit ${r.self_check_untested_lines})`)
     }
     const all = [...reasons, ...sizeReasons]
-    return { lane: all.length ? 'review' : 'self-check', reasons: all, size: reasons.length === 0 && sizeReasons.length > 0 }
+    return { lane: all.length ? 'review' : 'self-check', reasons: all, size: reasons.length === 0 && sizeReasons.length > 0, reviewer: { cls: strong.length ? 'strong' : 'standard', why: strong } }
 }
 
 /** Every ticket number a PR names in its title and body ("Ticket #N"), first one first. */
 export const ticketsOf = (pull) => [...new Set([...`${pull.title ?? ''}\n${pull.body ?? ''}`.matchAll(/\bTicket #(\d+)\b/g)].map((m) => m[1]))]
+
+/** The printed form of laneOfPull: `Lane:`, one `Reason:` per rule, then `pr-reviewer class:`. Shared by risk.mjs and pr-wait.mjs. */
+export const laneLines = ({ lane, reasons, reviewer }) => [`Lane: ${lane}`, ...reasons.map((r) => `Reason: ${r}`),
+    reviewer.cls === 'strong' ? `pr-reviewer class: strong (${reviewer.why.join('; ')})` : 'pr-reviewer class: standard']
+    .map((l) => l.replace(/[\p{Cc}\u2028\u2029]+/gu, ' '))   // a file name with a newline stays one line
 
 /**
  * Reads the files and the labels of every named ticket of a PR (throws GhError) and returns its minimum lane, plus the first ticket number.
@@ -65,5 +75,7 @@ export function laneOfPull(cfg, pull, pr) {
     const labels = issues.flatMap(([, i]) => i.labels.map((l) => l.name ?? l))
     const lane = minimumLane(files, labels, cfg)
     const extra = [...(tickets.length ? [] : ['no "Ticket #N" in the PR title or body']), ...issues.filter(([, i]) => i.pull_request).map(([n]) => `#${n} is a pull request, not a ticket`), ...(files.length === pull.changed_files ? [] : ['the file list is incomplete'])]
-    return { lane: extra.length ? 'review' : lane.lane, reasons: [...extra, ...lane.reasons], size: extra.length === 0 && lane.size, ticket: tickets[0] ?? null }
+    const partial = files.length !== pull.changed_files   // an incomplete list hides the size and the paths: the class goes up
+    const reviewer = { cls: partial || lane.reviewer.cls === 'strong' ? 'strong' : 'standard', why: [...lane.reviewer.why, ...(partial ? ['the file list is incomplete'] : [])] }
+    return { lane: extra.length ? 'review' : lane.lane, reasons: [...extra, ...lane.reasons], size: extra.length === 0 && lane.size, ticket: tickets[0] ?? null, reviewer }
 }

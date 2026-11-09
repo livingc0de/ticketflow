@@ -67,7 +67,7 @@ Under the hood there are three layers:
 | Check whether everything is healthy | `doctor --local` checks local tools, config, runtime, generated files, CI/gate configuration and ignore rules; full `doctor` can also inspect GitHub state. |
 | Keep GitHub organized | `project`, `labels` and `sub-issue` manage Projects v2, metadata labels and initiative children; `tracker-next` and `queue` report the next and ready work. |
 | Keep reviews and merges honest | `pr-wait`, `local-verify`, `thread`, `risk`, `merge` and `protect` cover reviewer waits, safe fallbacks, thread resolution, the minimum review lane, exact-head merges and branch rules. |
-| Keep ticket ceremony to one call | `ticket claim` and `ticket handoff` assign, set the Status and post the claim or summary comment once, however often a run is resumed. |
+| Keep ticket ceremony to one call | `ticket claim` and `ticket handoff` assign, set the Status and post the claim or summary comment once, however often a run is resumed; `workspace` fetches, ignores the worktrees directory, adds the ticket's worktree and runs the install. |
 | Customize without losing updates | `.ticketflow/custom/`, practices and domain guides are durable extension points; held files pause updates and are surfaced again until you move the edit. |
 | See where you took a deliberate shortcut | `debt.mjs` lists every `shortcut:` marker, its limit and when to revisit it. |
 
@@ -186,8 +186,8 @@ missing a real reviewer would be worse than waiting briefly for a noisy one.
 
 Merges happen only through the `merge` script. A standard branch ruleset requires `CI / Gate` and an up-to-date
 branch. The script adds what a ruleset cannot see: no unresolved review thread from anyone, no reviewer left waiting or on "changes
-requested", every trusted account's last verdict on this commit "ready to merge", and a review of this exact commit (the agent's own
-`pr-reviewer` review, the external reviewer's result it names, or, for a small low-risk diff, its own self-check). When it refuses, it always prints the next step, and there is always a legitimate way through
+requested", and a review of this exact commit (the agent's own
+`pr-reviewer` review in any wording, the external reviewer's result it names, or, for a small low-risk diff, its own self-check). When it refuses, it always prints the next step, and there is always a legitimate way through
 ([the ways past a refusal](core/docs/REVIEWERS.md#when-merge-says-no)). Your merge methods and branch settings stay yours: the setup shows them and offers squash-only (one commit per ticket) and
 tidy-branch settings, which you can take or leave. You, as an admin, can still override it through a pull request when you choose to; agents never do that on their own.
 [More in SECURITY.md](core/docs/SECURITY.md)

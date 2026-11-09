@@ -1,50 +1,109 @@
-# Full-pipeline workflow benchmark (maintainers only)
+# Workflow benchmark (maintainers only)
 
-This is a **separate, opt-in, real GitHub benchmark**, not part of the installed TicketFlow runtime.
-It compares four native approaches: bare agent, Superpowers, Ponytail and TicketFlow.
-It does **not** ask competitors to follow TicketFlow's workflow.
-All arms receive the same product objective, code fixture, available GitHub Project and
-scenario-specific starting conditions. The framework decides its own steps.
-The runner measures product correctness, review evidence, planning, issue/project evidence, coordination, CI, merge and recovery. It scores code functionality separately from end-to-end pipeline success. Workflow evidence is comparative: no arm is required to use TicketFlow's issue or Project lifecycle.
+An opt-in benchmark on real GitHub repositories. It compares four native approaches (bare agent, Superpowers, Ponytail,
+TicketFlow) on the same fixtures. No arm is asked to follow another's process: the prompt is what a person would type,
+and each arm decides how to plan, track, review and ship the work. The runner records what each one did and scores the
+outcome and the approach by the same rules for every arm.
 
-**Do not merge changes to this directory into the branch running an existing local L1–L15
-benchmark.** The local evaluator hashes all files under benchmarks/, so even changes
-in this new module change its fingerprint. Finish existing runs on their pinned checkout.
+The point is what a workflow layer adds on top of a capable implementer: many features delivered without a human steering
+each step, a durable history and reasoning that other people and agents can read, independent review and fixes, and code
+quality. It costs more tokens than implementing directly, so the set includes small tasks where direct implementation is
+the right tool and the benchmark shows where the extra process does not pay off.
 
 ## Scenarios
 
-| ID | Starting state | Task |
-| --- | --- | --- |
-| W1 | Plain request, no issue | Small CSV feature, retained as the control where TicketFlow's fixed cost is expected to hurt |
-| W2 | One Ready issue (TicketFlow arm); one ordinary issue (others) | Financial invariants across invoices, refunds, VAT, idempotent payments and reconciliation |
-| W3 | Three dependent work items | Tenant isolation across lookup, pagination, API, export and auditing, with integration risk |
-| W4 | Existing failing PR and review comment | Repair a payment webhook regression, batch replay, reversals and review findings on the same PR |
-| W5 | One issue, deliberate session interruption | Resume an event-sourced state machine and checkpoint flow from remote state without duplication |
-| W6 | Broad request, no issues | Design and decompose subscription lifecycle, entitlements, quotas, plan changes and billing events |
-| W7 | Four independent existing work items | Coordinate four security/validation/payment workstreams, each with a consumer integration boundary |
+| ID | Starting state | Prompt (verbatim style) | Size | Probes |
+| --- | --- | --- | --- | --- |
+| W1 | Small repo, no tickets | "Could you add a CSV option next to the TSV export?" | one feature | Control: direct implementation is expected to be cheapest |
+| W2 | One vague ticket about a money bug | "Can you take a look at issue #1?" | one ticket | Root cause in shared code |
+| W3 | Three open tickets with a dependency | "Please work through the open issues." | few | Reading tickets, sequencing, tenant safety |
+| W4 | A red pull request with a short review comment | "PR #N is red and has a comment on it, can you sort it out?" | one PR | Continuing existing work, honest verification |
+| W5 | One ticket; the first session is stopped once real work exists | "Can you pick up issue #1?", then in a fresh session "Continue where we left off." | one feature | Recovery from whatever the first session left behind |
+| W6 | A rough product brief (README with eleven features), no tickets | "Here's roughly what we want for subscriptions, see the README. Can you build it?" | many | Unattended multi-feature delivery, nothing dropped |
+| W7 | Seven human-written tickets; after the first session a requirement changes | "Please work through the open issues." then, in a fresh session, "One change: uppercase request IDs are fine too, just normalise them to lowercase." | many | Coordination, overlapping tickets, integrating a change |
 
-**Interpretation:** W1 is a deliberate negative control. W2-W7 are complexity and recovery probes, not guaranteed wins. All arms face identical code fixtures and hidden cases; TicketFlow pays for separate tickets and reviewers only when its own rules require them. Report per-scenario correctness, verified delivery, known token cost, wall time, review quality proxies and rework separately. Do not conclude a quality-adjusted cost advantage unless the observed results support one. The fixtures are small by design (three or four modules each), so hidden correctness is expected to saturate across arms; differences will mostly be cost, review and recovery evidence. The extra fixture requirements live in `workflow/scenarios-depth.mjs` and the reference solutions exist solely for smoke tests.
+The prompts and ticket bodies contain no process wording (tickets, pull requests, review, merging, verification,
+reports) and no repository, board or scenario identifiers. Tickets are the starting state only: whether an arm comments on,
+links or closes them is its own choice. Fixtures pin the entry points a ticket or brief refers to, so a vague request
+does not turn into guessing an API. Each fixture from W2 on carries one or two latent defects in neighbouring code that no
+prompt, ticket or brief mentions and that the repository's own tests do not catch.
 
-**GitHub Projects:** Each scenario/arm/repeat gets a new neutral Projects v2 board and
-a public repository. The harness creates *only* initial fixtures, not completed work. For W1 and W6 it creates **no issues**. Agents may use issues, plans, pull requests, Projects or another native mechanism to organize and trace the work; the evaluator records those choices rather than requiring a particular one.
-All arms can read/write their own board. Only the TicketFlow arm installs/configures
-TicketFlow's native Project workflow and moves its seeded issues to Ready.
-Other arms are **not** forced to adopt TicketFlow labels, statuses or commands. They may accomplish the same outcomes using their native planning and review processes. TicketFlow does not receive credit simply for extra tickets, skill invocations, or generated artifacts.
-For W1 and W6 the Project is empty. TicketFlow may naturally create and manage tracking issues; other arms may use their own planning and coordination mechanisms. Issue creation is evidence of a workflow choice, not a universal acceptance condition.
+All arms see identical fixtures, hidden checks and caps. Only the TicketFlow arm installs its Project workflow and moves the
+seeded tickets to Ready, because installing the tool is part of adopting it, with real model classes (Claude: the template aliases `opus`, `sonnet`, `haiku`; Codex: the full ids `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, pinned in `sandbox.mjs`), so its planner and reviewer run on real models and never inherit the session model. Seeded items (tickets, the W4 pull request and
+its comment) are recorded by ID when the harness creates them and excluded from the measurements by ID; agent activity is
+detected by timestamp, never by author or a visible marker.
 
-**Review:** The objective requires a reviewed, verified delivery but does not prescribe a
-reviewer or review command. The scoring requires observable review evidence on the final
-PR head, not merely an agent's assertion. Functional correctness is reported separately
-from pipeline success. Planning usefulness and human interventions require transcript
-audit and are not presented as deterministic facts.
+## How a cell runs
 
-**Candidate versus delivery:** Candidate correctness is measured from the frozen checkout
-used by the final agent session (the fresh resumed checkout for W5). The hidden product
-check and repository test suite run there, before considering whether GitHub merged the
-work. Merged delivery is a separate remote-evidence score covering the merged PR, latest
-head CI, correction of the seeded W4 PR and PR deduplication. Full pipeline success is
-the conjunction of candidate functionality, merged delivery, review evidence and W5
-recovery. Candidate correctness is never inferred from the default branch.
+One scenario, one arm, one repeat: a new repository in the disposable organization (or a personal account) and its own
+Project, named neutrally (no scenario or arm in the name). Each session is one prompt. If a tool stops and asks whether to
+continue, the harness may reply once or twice with the fixed text "go on with whatever is left"; every such reply is counted
+as a human intervention. Nothing else is said to the tool. All sessions of a cell share one checkout and one profile, so a
+reply continues the conversation that stopped. W5 stops its first session once real product work exists (changes to any file except Markdown and dot-paths) plus a
+10 second grace period (short, because current models finish a task like W5 within a minute), then starts a fresh conversation in the same checkout; if the first session finishes before that
+point, the interruption is recorded as not reached and the recovery session does not run. W7's second session is a fresh
+conversation that carries the changed requirement.
+
+Work may end on the default branch, on a branch or pull request, or only in the local checkout. Correctness is measured on
+whatever the arm produced: the default branch, then open pull request heads, ahead branches and the local checkout (including
+uncommitted files) as pending work. Where the work landed is recorded as an observation and is not required.
+
+## What is measured
+
+Every measurement is neutral between arms: it asks whether a property holds, never whether a specific artifact exists, and
+more artifacts never score higher once the property is delivered. The axes are reported side by side with cost; there is no
+blended score.
+
+- **Delivery (A).** Per-requirement hidden checks (landed, pending or missing), regressions on existing behaviour, defect
+  checks, and the final state of what landed. Requirements replaced by a later change are excluded.
+- **Autonomy (B).** Human interventions (continuation replies), early stops, wall time, and how the work was split or
+  parallelised (recorded, not rewarded).
+- **Code (C).** Dependencies added, files changed outside the expected scope, lines added and removed, and whether the arm's
+  own tests fail on the original code. Maintainability is read by the judge.
+- **History and reasoning (D).** A status probe, a fresh model call with no tools that sees only the saved record of the run
+  (tickets, pull requests, comments, commit messages, changed documents) and marks each requirement done, partial, not done or unknown, lists what is still open and, for W7, how the late change was
+  handled; its answers are scored against the hidden check results.
+- **Review and fix (E).** Planted defects fixed or missed, and for a miss whether a review was observed. A defect that landed
+  while an independent look was available and absent is recorded as a miss attributable to the missing or ineffective review.
+  The judge scores the substance of reviews and fix loops.
+- **Process (P).** Observed facts, each judged by its consequence and not by mere presence: whether a durable tracking record
+  exists in any form, how the work landed (directly on the default branch with no branch or pull request, branch only, merged pull
+  request, local only), whether the landed commit was verified (a green CI job or commit status on an identical tree, or, read from the transcript as a
+  heuristic, a passing local test run after the last edit and before the last push), whether a review record exists and when (a
+  formal review, a line comment or a substantial pull request comment; the judge decides its substance), and an unsafe-landing flag
+  (landed without verification, or landed with a defect a review would have caught). Landing directly on the default branch is not penalised in
+  itself, for example on the W1 control.
+- **Cost (F).** Tokens, dollars where the CLI reports them, and wall time, with the same figures beside each axis.
+
+The review-would-have-caught-it judgement is an approximation: a defect counts as in scope when the landed diff touches the
+file it lives in. The judge and the status probe are model calls, so their results are audited estimates (see Judge).
+
+## Judge
+
+`judge-workflow.mjs` reads the evidence bundle saved for each scored cell (`results/transcripts/evidence-<row>/`: facts, the
+code-only diff, a dossier of tickets, pull requests, comments and commit messages, the condensed transcript, the final answers and the
+check list) and makes two model calls per run: the probe (dossier only) and the judge (fixed rubric C1-3 code,
+D1-3 history, E1-2 review/fix, each 0-3 with quoted evidence). Tool, plugin and skill names are replaced by `[tool]`, and each file keeps its start and its end when it is long. A score whose
+quotes do not appear verbatim in what the model saw is discarded, malformed output is recorded as null with a reason (never
+imputed), and each cell is judged `--runs` times (default 2) with the disagreement reported. The default judge is the opposite
+model family to the arm's agent; a same-family judge is flagged in the output and the report. It is a dry run unless
+`--execute` is passed and appends to `<rows>.judge.jsonl`.
+
+The judge follows the runner's isolation rules. Each judge agent gets a disposable profile (a fresh `HOME`, `CLAUDE_CONFIG_DIR` or
+`CODEX_HOME`, no personal settings, plugins or hooks, no GitHub credentials) that is removed afterwards. The CLI presence and the login
+are checked before the first call, with the same fallback and explicit approval as the runner when a login cannot be used in an
+isolated profile (`ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` for Claude, `codex login` for Codex). Claude runs with no tools. Codex
+has no tool-less mode, so it runs with `--sandbox danger-full-access`, like the benchmark arms, in an empty directory, after the same
+explicit approval (`--allow-danger-full-access` for a non-interactive run): run it on a disposable machine.
+
+To judge automatically when the cells finish, pass the judge to the runner. The judge runs after any cleanup, on the saved evidence:
+
+    node benchmarks/run-workflow.mjs ... --judge-model YOUR_JUDGE_MODEL [--judge-agent claude|codex]
+
+Without `--judge-agent` the judge is the opposite model family to `--agent`, so the model id must belong to that family.
+
+    node benchmarks/judge-workflow.mjs benchmarks/results/<date>-workflow-claude.jsonl            # plan only
+    node benchmarks/judge-workflow.mjs benchmarks/results/<date>-workflow-claude.jsonl --execute --agent codex --model YOUR_CODEX_MODEL
 
 ## Setup
 
@@ -149,7 +208,7 @@ with these permissions:
   exactly those repositories during cleanup. It also covers the runner's read-only
   Actions-policy check. `Actions: Read` lets the evaluator inspect workflow runs and
   jobs. `Workflows: Read and write` is needed to push the seeded
-  `.github/workflows/bench.yml` file. Do not grant organization administration,
+  `.github/workflows/test.yml` file. Do not grant organization administration,
   member, secrets, runners, packages or billing permissions.
 - **Organization permissions:** `Projects: Read and write`.
 
@@ -272,14 +331,16 @@ rejected before the dry-run plan is printed; detached checkouts may omit the SHA
       --scenarios W1,W2,W3,W4,W5,W6,W7 --repeats 3 \
       --out benchmarks/results/<date>-workflow-claude.jsonl
 
-For the **first real pilot**, use just W1 with two arms and one repetition, review
-the created GitHub resources and transcripts, and then expand the matrix.
-Execute only after inspecting the printed plan:
+For the **first real pilot**, use W1, W5 and W6 with all four arms and one repetition, review
+the created GitHub resources, the evidence bundles and the transcripts (check `permission_denials` in
+each `transcript.json` first), and then expand the matrix. Execute only after inspecting the printed plan:
 
     node benchmarks/run-workflow.mjs --agent claude --model YOUR_MODEL \
-      --org YOUR_DISPOSABLE_ORG --arms bare,ticketflow \
+      --org YOUR_DISPOSABLE_ORG --lifecycle run-with-auto-cleanup \
+      --arms bare,ticketflow,superpowers,ponytail \
       --ticketflow-source ../ticketflow-reviewed --ticketflow-sha <ticketflow-commit> \
-      --scenarios W1 --repeats 1 --max-sessions 2 \
+      --superpowers-source ../superpowers --ponytail-source ../ponytail \
+      --scenarios W1,W5,W6 --repeats 1 --max-sessions 48 \
       --out benchmarks/results/<date>-workflow-pilot.jsonl \
       --allow-github-writes --execute
 
@@ -289,10 +350,13 @@ OS security boundary. For unportable keyring logins, the shared auth preflight
 requires explicit consent before using the user's profile, potentially loading
 personal plugins/settings. A clean isolated profile is strongly preferred.
 
-The complete **7 × 4 × 3 matrix contains 84 planned cells** (all 84 are scored only when their measurements are valid) but up to **96 paid agent invocations**, because W5 deliberately interrupts and resumes. Explicit
---max-sessions limits possible agent invocations; a cell can also trigger multiple
-GitHub Actions runs. Interrupted invocations may not report tokens or USD, so
-total cost is unknown rather than estimated.
+The complete **7 × 4 × 3 matrix contains 84 planned cells** (all 84 are scored only when their measurements are valid). Each
+cell can need several paid invocations: every session plus at most two continuation replies per session, so W1-W4 and W6 allow
+up to 3, W5 and W7 up to 6, and the dry run prints the ceiling. `--max-sessions` (default 96) limits possible invocations and
+the full matrix needs an explicit larger value. `--budget-usd N` passes a per-invocation dollar cap to Claude; Codex has only
+the wall-clock cap (W1-W4 35 minutes, W5 2x25, W6 120, W7 60+30). A cell can also trigger many GitHub Actions runs. An interrupted
+invocation reports no cost, so its transcript token usage is priced at list rates as a lower bound (15-30% under the reported cost on
+completed sessions); the row sets `cost_complete: false` and the report marks those figures `≥`.
 
 The runner stores per-cell remote repository and Project identities in a private
 '.state.json' sidecar next to the JSONL. It records a pending Project-creation
@@ -336,71 +400,26 @@ or that hooks actually fired; inspect a live pilot before claiming full activati
 ### Reports
 
     node benchmarks/report-workflow.mjs benchmarks/results/<date>-workflow-claude.jsonl \
-      --publish --label pilot
+      [--judge benchmarks/results/<date>-workflow-claude.jsonl.judge.jsonl] --publish --label pilot
 
-This writes `benchmarks/results/YYYY-MM-DD-workflow-pilot.md`. Use `--out` instead
-of `--publish` for an explicitly named scratch preview. Local reports use the same
-convention and are generated by `benchmarks/report-local.mjs` as
-`YYYY-MM-DD-local-<label>.md`.
+This writes `benchmarks/results/YYYY-MM-DD-workflow-pilot.md`. Use `--out` instead of `--publish` for an explicitly named scratch
+preview. The report has one table per axis (delivery, autonomy, code, history, review and fix, process, cost), each per arm
+and per scenario and arm, with the median cost beside it. Judge and probe columns appear only with `--judge` and are labelled
+audited estimates with the number of runs, the disagreement and the number of null scores. A cell is either **scored** or
+**invalid**:
 
-The report uses three mutually exclusive outcomes:
+- **Scored:** the evidence was collected and the measurements are trustworthy, whatever the agent achieved. A tool that
+  delivered nothing, or delivered it badly, is a scored cell with poor results, never an invalid one.
+- **Invalid:** infrastructure prevented a trustworthy measurement, for example GitHub evidence that could not be retrieved
+  completely, an unlaunchable check, failed transcript archival or failed benchmark-owned plugin cleanup. Invalid cells are
+  excluded from every axis, listed with their reasons, and never converted to agent failures.
 
-- **Success:** The agent completes the required product and universal reviewed,
-  verified delivery gates. Native workflow evidence is reported separately.
-- **Failure:** The agent exits unsuccessfully, times out, fails the hidden/product tests,
-  or does not complete the required reviewed/verified/merged delivery. Such runs count
-  against the arm in its success rate. The deliberate first W5 interruption is not
-  a failure if its fresh session successfully resumes.
-- **Invalid:** Infrastructure prevents trustworthy measurement, e.g. GitHub evidence
-  retrieval/clone failures, evaluator-launch errors, failed transcript archival, or
-  failed benchmark-owned plugin cleanup. Invalid results are **excluded** from every
-  arm and scenario success-rate denominator, never converted to agent failures.
-
-Every attempt remains in the append-only JSONL. The report scores the **latest**
-attempt per cell, displays excluded invalid cells and reasons separately, and
-discloses costs incurred by invalid attempts without attributing them to the
-framework. A cell with only invalid attempts has a success rate of `n/a`, not
-zero. Older records without explicit outcome provenance are flagged as ambiguous.
-
-`--resume` skips valid success/failure cells and plans **only invalid cells for
-fresh retries**, on new repositories and Projects. It keeps their earlier remote
-resources, rows and archives untouched. A previous plugin-cleanup failure blocks
-paid retries until the operator inspects/removes benchmark-owned leftovers and
-explicitly passes `--acknowledge-plugin-cleanup` with the usual execute/write
-approvals. Pre-agent setup or authentication failures stop without a scored row;
-they are not interpreted as competitor failures.
-Per-arm comparisons also include review evidence, issue/project tracking coverage,
-created issues, plan artifacts, elapsed time and known cost. These are reported as
-workflow evidence and are not silently converted into a requirement that every arm
-follow the TicketFlow lifecycle. Raw transcripts remain local. Do not
-interpret three repeats as statistically conclusive evidence.
-
-The local matrix runner is:
-
-    node benchmarks/run-local.mjs ...
-
-The combined suite wrapper is `benchmarks/run.mjs`. Provide a
-JSON file with 'local' and 'workflow' string-arrays of ordinary CLI arguments:
-
-Omitting `--suite` runs both configured suites; pass `--suite local` or
-`--suite workflow` to select one.
-
-    node benchmarks/run.mjs --config my-benchmark-plan.json --suite both
-    node benchmarks/run.mjs --config my-benchmark-plan.json --suite both --execute
-
-'--execute' must be passed **only** to the wrapper, never embedded in the config.
-Each child runner retains its own explicit paid-work and remote-write guards.
-
-The matching report wrapper is `benchmarks/report.mjs`. Its config uses the
-same `local` and `workflow` arrays, but each array contains the positional
-JSONL input and ordinary reporter options. Publication is therefore explicit
-per suite:
-
-    node benchmarks/report.mjs --config my-report-plan.json --suite both
-
-For example, a plan can contain `"local": ["benchmarks/results/2026-10-30-local-full.jsonl", "--publish", "--label", "pilot"]`
-and a corresponding `workflow` array. Use `report-local.mjs` or
-`report-workflow.mjs` directly when only one ledger needs publishing.
+Every attempt remains in the append-only JSONL. The report uses the **latest** attempt per cell, shows excluded invalid cells and
+the cost they incurred separately, and rejects rows that do not carry the `workflow-v2` schema. `--resume` skips scored cells and
+plans only invalid cells for fresh retries, on new repositories and Projects. A previous plugin-cleanup failure blocks paid
+retries until the operator inspects the leftovers and passes `--acknowledge-plugin-cleanup` with the usual execute and write
+approvals. Pre-agent setup or authentication failures stop without a scored row. Raw transcripts remain local, reports never
+copy answers, transcripts or local paths, and three repeats are not statistically conclusive.
 
 ## Safety, limits and cleanup
 
@@ -416,14 +435,10 @@ and a corresponding `workflow` array. Use `report-local.mjs` or
   account, or local transcript/result artifact.
 - If Github Actions/Projects permissions, plugin bootstrap or agent authentication
   fail, do not treat the resulting cell as proof of framework inferiority.
-- Native plugin *registration* is not proof that hooks/skills activated. Review
-  saved transcript archives and perform a small live pilot on both CLIs before
-  publishing comparisons. W6 records issue-based decomposition, dependency and
-  linkage evidence when an arm chooses that workflow; issue creation is optional
-  and issue count alone is insufficient.
-- The runner has not been validated by a paid, live four-arm GitHub matrix.
-  Deterministic fixture tests are not a substitute for that pilot.
-
-## Reporting
-
-Run `node benchmarks/report-workflow.mjs <date>-workflow-claude.jsonl --publish --label pilot` for separate candidate-correctness, merged-delivery and full-pipeline comparisons by arm and scenario. W1 and W6 leave planning and tracking choices open; issue creation, issue linkage, Project changes and plan artifacts are reported as workflow evidence rather than required steps. W3 and W7 report seeded work-item coverage. Their coordination section records PR-to-work-item coverage and observed dependency closure order without awarding points merely for parallelism or extra PRs. Review evidence and plan counts are proxies, not definitive proof of review quality. Parallel execution is evaluated on correctness, reliability, elapsed time and cost, not rewarded merely for spawning agents.
+- Native plugin *registration* is not proof that hooks or skills activated. Review the saved transcript archives and run a
+  small live pilot on both CLIs before publishing comparisons; the pilot's `permission_denials` show whether plugin skills ran
+  under the allowed tools.
+- The runner has not been validated by a paid, live four-arm GitHub matrix. Deterministic fixture tests are not a substitute for
+  that pilot.
+- A single GitHub login can create and review: with one account for setup and agent tokens, a seeded pull request comment shows
+  the agent's own login, and no arm can formally approve its own pull request. Both effects apply to every arm equally.

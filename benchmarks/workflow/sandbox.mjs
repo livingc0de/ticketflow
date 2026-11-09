@@ -1,9 +1,9 @@
 /** Real GitHub fixture setup. Paid runs are opt-in, repos are disposable. */
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
-import { fixture, scenarios } from './scenarios.mjs';
+import { join, dirname, resolve } from 'node:path';
+import { fixture, scenarios, fillIssue } from './scenarios.mjs';
 
 export function setupEnv({token=process.env.WORKFLOW_BENCH_SETUP_TOKEN,base=process.env}={}) {
   if(!token) throw Error('workflow setup authentication required');
@@ -27,6 +27,7 @@ export function authenticatedToken({env=loginEnv()}={}) {
   return token;
 }
 const git=(cwd,args,env)=>sh('git',args,{cwd,env});
+const SEED_AUTHOR=['-c','user.name=Maintainer','-c','user.email=maintainer@example.invalid'];
 const write=(dir,p,content)=>{
   const target=join(dir,p);mkdirSync(dirname(target),{recursive:true});writeFileSync(target,content);
 };
@@ -37,10 +38,16 @@ export function validateOrg(org,{env=setupEnv()}={}) {
   if(response.login.toLowerCase()!==org) throw Error('organization '+org+' not found');
   return org;
 }
+// The model classes a real repo maps, so a benchmark run dispatches planner and reviewer on real models instead of inheriting the session model.
+// Claude takes the template's aliases. Codex needs full model ids (the template's family hints are resolved by the agent), here the 5.6 generation.
+export const MODELS={
+  claude:{strong:'opus',standard:'sonnet',light:'haiku'},
+  codex:{strong:'gpt-5.6-sol',standard:'gpt-5.6-terra',light:'gpt-5.6-luna'}
+};
 export const cfg=(repo,owner,number,agent='claude',title='Workflow benchmark')=>({
   schema_version:2,repo,default_branch:'main',verify:{mode:'ci',command:'npm test'},
   project:{owner,number,title},agents:[agent],
-  models:{[agent]:{strong:null,standard:null,light:null}}
+  models:{[agent]:MODELS[agent]??{strong:null,standard:null,light:null}}
 });
 const gitPush=(dir,env,ref)=>{
   git(dir,['-c','credential.helper=!gh auth git-credential','push','origin',ref],env);
@@ -50,8 +57,8 @@ export function newRepository({repo,id,work,env=setupEnv()}) {
   mkdirSync(dir,{recursive:true});
   for(const [path,content] of Object.entries(fixture(id))) write(dir,path,content);
   git(dir,['init','-q','-b','main'],env);
-  git(dir,['-c','user.name=workflow-bench','-c','user.email=workflow-bench@example.invalid','add','-A'],env);
-  git(dir,['-c','user.name=workflow-bench','-c','user.email=workflow-bench@example.invalid','commit','-qm','seed fixture'],env);
+  git(dir,['add','-A'],env);
+  git(dir,[...SEED_AUTHOR,'commit','-qm','Initial commit'],env);
   gh(['repo','create',repo,'--public','--disable-wiki'],{env});
   git(dir,['remote','add','origin','https://github.com/'+repo+'.git'],env);
   gitPush(dir,env,'HEAD:main');
@@ -137,56 +144,55 @@ export function deleteRepository({repo,env=setupEnv()}) {
     throw e;
   }
 }
+/** Creates the scenario's tickets in order ({#n} in a body becomes the number of ticket n) and adds them to the board. Returns the numbers. */
 export function seedIssues({repo,id,projectId,env=setupEnv()}) {
   const issues=[];
-  for(const [index,body] of scenarios[id].issues.entries()) {
-    const url=gh(['issue','create','-R',repo,'--title',id+' benchmark: '+(index+1),'--body',body],{env});
+  for(const issue of scenarios[id].issues) {
+    const url=gh(['issue','create','-R',repo,'--title',issue.title,'--body',fillIssue(issue.body,{issues})],{env});
     const n=Number(url.match(/\/issues\/(\d+)$/)?.[1]);
     if(!n)throw Error('unexpected issue URL '+url);
     issues.push(n);
-    const issue=JSON.parse(gh(['api','repos/'+repo+'/issues/'+n],{env}));
+    const row=JSON.parse(gh(['api','repos/'+repo+'/issues/'+n],{env}));
     graphql('mutation($p:ID!,$c:ID!){addProjectV2ItemById(input:{projectId:$p,contentId:$c}){item{id}}}',
-      {p:projectId,c:issue.node_id},env);
-  }
-  if(id==='W3' && issues.length===3) {
-    const body=scenarios.W3.issues[2]+'\n\nDepends on #'+issues[0]+', #'+issues[1]+'.';
-    gh(['issue','edit',String(issues[2]),'-R',repo,'--body',body],{env});
+      {p:projectId,c:row.node_id},env);
   }
   return issues;
 }
-export function seedBrokenPull({repo,id,work,issue,env=setupEnv()}) {
-  const sc=scenarios[id];
-  if(!sc.seedBrokenPR) return null;
+/** Opens the scenario's seeded pull request, if it has one, and leaves its comment. Returns {number,commentId} or null. */
+export function seedPR({repo,id,work,env=setupEnv()}) {
+  const seed=scenarios[id].seedPR;
+  if(!seed) return null;
   const dir=join(work,'seed');
   git(dir,['fetch','origin','main'],env);
   git(dir,['checkout','main'],env);
   git(dir,['reset','--hard','origin/main'],env);
-  git(dir,['checkout','-qb',sc.seedBrokenPR.branch],env);
-  for(const [path,source] of Object.entries(sc.seedBrokenPR.changes)) write(dir,path,source);
+  git(dir,['checkout','-qb',seed.branch],env);
+  for(const [path,source] of Object.entries(seed.changes)) write(dir,path,source);
   git(dir,['add','-A'],env);
-  git(dir,['-c','user.name=workflow-bench','-c','user.email=workflow-bench@example.invalid','commit','-qm','introduce regression for review'],env);
-  gitPush(dir,env,'HEAD:'+sc.seedBrokenPR.branch);
-  const url=gh(['pr','create','-R',repo,'--head',sc.seedBrokenPR.branch,'--base','main',
-    '--title','Repair incoming webhook PR','--body','Refs #'+issue+' (benchmark fixture)'],{env});
+  git(dir,[...SEED_AUTHOR,'commit','-qm',seed.commitMessage],env);
+  gitPush(dir,env,'HEAD:'+seed.branch);
+  git(dir,['checkout','main'],env);
+  const url=gh(['pr','create','-R',repo,'--head',seed.branch,'--base','main','--title',seed.title,'--body',seed.body],{env});
   const number=Number(url.match(/\/pull\/(\d+)$/)?.[1]);
   if(!number) throw Error('unexpected PR URL '+url);
-  // A fixture comment records the supplied review finding. A seed actor cannot formally review its own PR.
-  gh(['pr','comment',String(number),'-R',repo,'--body',sc.seedBrokenPR.review],{env});
-  return number;
+  // The seed actor cannot formally review its own PR, so the finding is a plain comment; its id is recorded to tell it from agent activity.
+  const comment=JSON.parse(gh(['api','repos/'+repo+'/issues/'+number+'/comments','-f','body='+seed.comment],{env}));
+  if(!comment.id) throw Error('seed comment was not created');
+  return {number,commentId:comment.id};
 }
 export function cloneRepository(repo,root,env=setupEnv()) {
   const dir=join(root,'repo');mkdirSync(root,{recursive:true});
   gh(['repo','clone',repo,dir,'--','--depth','1'],{env});
   git(dir,['config','credential.helper','!gh auth git-credential'],env);
-  git(dir,['config','user.name','workflow-benchmark-agent'],env);
-  git(dir,['config','user.email','workflow-benchmark@example.invalid'],env);
+  git(dir,['config','user.name','Developer'],env);
+  git(dir,['config','user.email','developer@example.invalid'],env);
   return dir;
 }
 /** Probe the permission TicketFlow's local fallback needs before starting a paid agent. */
-export function probeCommitStatusWrite({repo,sha,env=setupEnv(),context='ticketflow-benchmark/preflight'}) {
+export function probeCommitStatusWrite({repo,sha,env=setupEnv(),context='preflight/status-write'}) {
   if(!/^[0-9a-f]{40}$/i.test(sha))throw Error('commit status preflight requires a full commit SHA');
-  gh(['api','repos/'+repo+'/statuses/'+sha,'-f','state=pending','-f','context='+context,
-    '-f','description=TicketFlow benchmark status-write preflight'],{env});
+  gh(['api','repos/'+repo+'/statuses/'+sha,'-f','state=success','-f','context='+context,
+    '-f','description=status write check'],{env});
   return context;
 }
 export function installTicketFlow({repo,dir,source,agent,owner,projectNumber,title,issues=[],env=setupEnv()}) {
@@ -195,11 +201,33 @@ export function installTicketFlow({repo,dir,source,agent,owner,projectNumber,tit
   sh('node',[join(dir,'.ticketflow/scripts/gen-stubs.mjs'),join(dir,'.ticketflow'),dir],{cwd:dir,env});
   sh('node',[join(dir,'.ticketflow/scripts/render.mjs'),join(dir,'.ticketflow/templates'),dir],{cwd:dir,env});
   git(dir,['add','-A'],env);
-  git(dir,['-c','user.name=workflow-bench','-c','user.email=workflow-bench@example.invalid','commit','-qm','install TicketFlow benchmark runtime'],env);
+  git(dir,['-c','user.name=Maintainer','-c','user.email=maintainer@example.invalid','commit','-qm','Add project tooling'],env);
   gitPush(dir,env,'HEAD:main');
   // Only the TicketFlow arm configures its Project lifecycle and Ready queue.
   sh(process.execPath,[join(dir,'.ticketflow/scripts/project.mjs'),'setup'],{cwd:dir,env});
   for(const issue of issues) sh(process.execPath,[join(dir,'.ticketflow/scripts/project.mjs'),'status',String(issue),'Ready'],{cwd:dir,env});
 }
 export function cleanupLocal(work) {rmSync(work,{recursive:true,force:true});}
-export function newWork(){return mkdtempSync(join(tmpdir(),'tf-workflow-'));}
+// Claude Code loads instruction and settings files from every parent directory of its working directory, so a stray
+// AGENTS.md or CLAUDE.md above the work area would reach every arm. Fail closed instead of measuring a contaminated run.
+const GUIDANCE=['CLAUDE.md','CLAUDE.local.md','AGENTS.md','GEMINI.md','.claude/CLAUDE.md','.claude/settings.json','.claude/settings.local.json','.codex/config.toml','.agents'];
+export function ancestorGuidance(dir){
+  const found=[];
+  for(let d=dirname(resolve(dir));;d=dirname(d)){
+    for(const name of GUIDANCE) if(existsSync(join(d,name))) found.push(join(d,name));
+    if(dirname(d)===d) break;
+  }
+  return found;
+}
+export function newWork(){
+  const base=process.env.BENCHMARK_WORK_ROOT||tmpdir();
+  mkdirSync(base,{recursive:true});
+  const work=mkdtempSync(join(base,'work-'));
+  const found=process.env.BENCHMARK_ALLOW_ANCESTOR_GUIDANCE==='1'?[]:ancestorGuidance(work);
+  if(found.length){
+    rmSync(work,{recursive:true,force:true});
+    throw Error('instruction or settings files above the work area would be loaded by every agent: '+found.join(', ')+
+      '. Set BENCHMARK_WORK_ROOT to a directory whose parents have none (for example /var/tmp/benchmark).');
+  }
+  return work;
+}

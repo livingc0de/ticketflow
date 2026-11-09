@@ -40,7 +40,7 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `ci.push_paths` | `null`: the CI workflow has no push run; `[]`: it runs on every push to the default branch; a list of globs: only when one of them changes. Must be `null` or `[]` while `deploy_branch` is set (the deploy signal needs every push) | `null` | `render` |
 | `review.self_check` | boolean: `false` makes every PR need a review, as before | `true` | `merge`, `risk` |
 | `review.self_check_max_files` | integer 1..50: most non-test, non-docs files a self-check may cover | `5` | `merge`, `risk` |
-| `review.self_check_max_lines` | integer 1..2000: most added plus deleted lines in those files | `120` | `merge`, `risk` |
+| `review.self_check_max_lines` | integer 1..2000: most added plus deleted lines in those files; four times it is also where `risk` suggests a strong reviewer | `120` | `merge`, `risk` |
 | `review.self_check_untested_lines` | integer 1..2000 or `null` (off): more changed code lines than this with no test file touched need a review | `20` | `merge`, `risk` |
 | `review.fix_check_max_lines` | integer 1..2000: most added plus deleted lines of the fix delta since a ready review | `30` | `merge` |
 | `review.custom_limits` | boolean: `false` means the four limits above are this release's defaults, which `sync` rewrites when a release changes them; `true` means they are yours and `sync` keeps every value. Set it to `true` when you edit one. A config without the flag is read as custom when a limit is neither the current nor the previous default (4 files, 80 lines, 10 untested lines) | `false` | `sync` |

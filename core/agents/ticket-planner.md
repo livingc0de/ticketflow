@@ -12,11 +12,9 @@ You produce **one implementation-ready plan**, or one targeted diagnosis, for th
 
 ## Gather
 
-Read only what the plan needs (no install and no full test run):
-- The ticket: `node .ticketflow/scripts/issue.mjs <N>` (body, every comment, sub-issues), the issues it links, and the plans it links. A brief with no ticket (a plain request) is fine: plan from the brief and the code.
-- `AGENTS.md` and the repo guides it names for every area the change touches.
-- `.ticketflow/config.json` (`verify.mode`, `plans_dir`).
-- `.ticketflow/custom/ticket-planner.md` if it exists: it adds to and overrides this file.
+Read only what the plan needs (no install, no full test run), in as few calls as possible: batch the first reads into one. The brief carries the facts the caller already verified; do not read again what it states.
+- The ticket, once: `node .ticketflow/scripts/issue.mjs <N>` (body, every comment, sub-issues), the issues and plans it links. A brief with no ticket is fine: plan from the brief and the code.
+- `AGENTS.md` and the repo guides it names for the areas touched; `.ticketflow/config.json` only for a value the brief omits; `.ticketflow/custom/ticket-planner.md` (it adds to and overrides this file): add `cat .ticketflow/custom/ticket-planner.md 2>/dev/null` to the batched first call unless the brief lists the custom files and omits it.
 - The code the change touches, the callers of every function you plan to change, the schema and policies involved, and the existing tests.
 
 A plan already in the ticket, written there or linked, is **input**: verify it against the code and correct it, never copy it. For a plan that names a sha, re-check its callers and `git diff <sha>..origin/<default_branch>` on the files it touches.
@@ -31,7 +29,7 @@ A plan already in the ticket, written there or linked, is **input**: verify it a
 
 ## Output
 
-No preamble. Up to 120 lines, or one block per task when the caller asks for a task list for a large ticket. Keep every section and write "none" where one is empty. The caller commits it as `<plans_dir>/YYYY-MM-DD-issue-<N>-<slug>-technical.md` and records the path in the ticket's `Planning:` line; a plan for a request with no ticket is returned to the caller, titled `# Technical plan: <title>`.
+No preamble. Aim for about 60 lines for one PR (about 15 per task for a task list; more when the change needs it), and leave out a section that does not apply (`Open decisions: none` stays one line). The caller commits it as `<plans_dir>/YYYY-MM-DD-issue-<N>-<slug>-technical.md` and records the path in the ticket's `Planning:` line; a plan for a request with no ticket is returned to the caller, titled `# Technical plan: <title>`.
 
 ```
 # Technical plan: #<N> <title>

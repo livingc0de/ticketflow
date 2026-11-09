@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.0
+
+### Highlights
+
+- **`gen-stubs` with no directories checks the repo it runs in,** from any of its directories and worktrees; `doctor` uses that form.
+- **Ready only after the local gate.** `local-verify` marks a draft pull request ready after it posts the green gate, and `pr-wait` tells a lead when a ready local-route pull request has no local gate yet.
+- **Fewer calls and tokens per ticket.** The first call of a ticket is batched; `post-merge.md` is read only when it applies; the self-check recipe and the handoff steps are in `implement-ticket`; `pr-wait` runs in the foreground, with the timeout flag the agent's action map gives, instead of in the background plus a read-back; briefs carry facts instead of documents; the plan, review, ticket, claim, PR and summary texts carry a rough length guide; the always-loaded `AGENTS.md` block and the Claude action map are shorter; the byte budgets are pinned in `tests/canonical.test.mjs`.
+- **Two calls fewer around a ticket.** `workspace.mjs <branch>` opens the ticket's worktree in one call (fetch, an ignore entry for the worktrees directory, `git worktree add --no-track` from `origin/<default_branch>`, `verify.install`) and refuses a branch or directory that already exists. A finished `pr-wait` (exit 0, pull request mode) ends with the `risk` lines (`Lane:`, `Reason:`, `pr-reviewer class:`), so the lead needs no separate `risk` call.
+- **The reviewer class follows the diff.** `risk` prints `pr-reviewer class: strong (<why>)` for a Critical tier, a `Security` label, an always-review path, an unknown size or more than four times `review.self_check_max_lines` changed code lines, and `pr-reviewer class: standard` otherwise; `implement-ticket` and `orchestrate-tickets` dispatch at that class. A linked plan means no planner dispatch, and `create-ticket` states a `Planning:` route that matches the Tier label.
+- **A build or fix request is ticket work.** The always-loaded `AGENTS.md` block says to create the ticket without asking (the workflow is the permission) and follow `implement-ticket`, unless the user says no ticket or nothing ships.
+- **Smaller fixes.** `runtime` keeps the manifest `source.url` as written when the clone's origin is the same repository. A repeated `ticket claim` or `handoff` says when its text differs from the existing comment and was not posted, and names that comment.
+
+### What You Need To Do When Upgrading From 0.6.6
+
+- Run `sync`. It updates the `AGENTS.md` block, adds the `workspace.mjs` allow rule to `.claude/settings.json` and copies the new scripts and action-map rows; no stub changes.
+- A High-tier ticket no longer gets a strong reviewer by tier alone: add your money and auth paths to `review.always_review` to keep them on the strong class.
+
 ## 0.6.6
 
 ### Highlights

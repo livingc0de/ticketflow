@@ -66,6 +66,9 @@ main('runtime', () => {
     let url
     try { url = git(src, 'remote', 'get-url', 'origin') } catch { fail('the source has no origin remote') }
     try { const u = new URL(url); u.password = ''; if (/^https?:$/.test(u.protocol)) u.username = ''; url = u.href } catch { /* an scp-style url has no credentials to strip */ }
+    // the same repository under another spelling (.git, a trailing slash, case) keeps the url the manifest already has
+    const same = (x) => x.toLowerCase().replace(/\/+$/, '').replace(/\.git$/, '')
+    if (typeof old?.source?.url === 'string' && same(old.source.url) === same(url)) url = old.source.url
     const commit = git(src, 'rev-parse', 'HEAD')
     const tags = git(src, 'tag', '--points-at', 'HEAD').split('\n').filter(Boolean)
     if (tags.length && !tags.includes(`v${version}`)) fail(`the source is at tag ${tags.join(', ')}, VERSION is ${version}: expected v${version}`)
