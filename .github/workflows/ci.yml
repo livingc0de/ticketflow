@@ -63,8 +63,11 @@ jobs:
         run: |
           [ "$(git rev-parse HEAD^2)" = "$HEAD_SHA" ]   # test merge commit: parent 1 = base, parent 2 = head
           git diff -z --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
+          git show HEAD^1:.ticketflow/config.json > "$RUNNER_TEMP/base.json"
           if [ "$(node core/lib/docs-only.mjs < "$RUNNER_TEMP/changed")" = docs=true ]; then
             printf 'skip=true\ndescription=Actions run #%s, docs only\n' "$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+          elif q=$(node core/lib/quick.mjs "$PR" --config "$RUNNER_TEMP/base.json" < "$RUNNER_TEMP/changed") && [ -n "$q" ]; then
+            printf 'quick=true\ntests=%s\ndescription=Actions quick run #%s\n' "$q" "$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
           fi
 # ticketflow:end job
 
@@ -91,13 +94,19 @@ jobs:
         run: actionlint
 
       - name: "Verify"
-        if: steps.scope.outputs.skip != 'true'
+        if: steps.scope.outputs.skip != 'true' && steps.scope.outputs.quick != 'true'
         env:
           TICKETFLOW_REQUIRE_ACTIONLINT: '1'
         run: |
           npm test
 
 # ticketflow:begin post-gate
+      - name: Quick Verify
+        if: steps.scope.outputs.quick == 'true'
+        env:
+          TICKETFLOW_TESTS: ${{ steps.scope.outputs.tests }}
+        run: node core/lib/quick.mjs --run --config "$RUNNER_TEMP/base.json"
+
       # The head commit, never the test merge commit. always(): a timeout or a cancel posts a failure too.
       - name: Post Gate Status
         if: always() && steps.scope.outputs.route != 'local'
@@ -116,5 +125,24 @@ jobs:
             sleep 5
           done
           exit 1
+
+  # A full run on the default branch (dispatched after a merged quick pull request, or the push run) that fails opens one issue naming the commit. The job has no checkout.
+  report:
+    name: Report Failed Full Run
+    needs: verify
+    if: ${{ failure() && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open Issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ inputs.sha || github.sha }}
+          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [[ $SHA =~ ^[0-9a-f]{40}$ ]] || exit 1
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "Full suite failed on ${SHA:0:7}" --body "The full verification of a merged quick pull request failed on $SHA: $URL"
 # ticketflow:end post-gate
 
