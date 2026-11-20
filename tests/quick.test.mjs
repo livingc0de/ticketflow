@@ -114,3 +114,21 @@ test('quick.mjs --run runs verify.quick_command with $TICKETFLOW_TESTS and passe
     const unset = cliRepo(['a'], {}, { verify: { quick_command: null } })
     assert.equal(unset.run(['--run']).status, 2)
 })
+
+test('the flow is resolved per named ticket and the strictest wins: a second ticket cannot pick the quick flow', () => {
+    const two = (labels7, labels8) => (path) => ({ labels: (path.endsWith('/issues/7') ? labels7 : labels8).map((name) => ({ name })) })
+    const hidden = { title: 'Ticket #7', body: '<!-- Ticket #8 -->' }
+    const adv = config({ mode: 'advanced', verify: { quick_command: 'x $TICKETFLOW_TESTS' } })
+    assert.equal(quickTests(adv, hidden, 1, ['src/cart.js'], tracked, two([], ['Flow: Quick'])), null)
+    assert.ok(quickTests(adv, hidden, 1, ['src/cart.js'], tracked, two(['Flow: Quick'], ['Flow: Quick'])))
+    assert.equal(quickTests(quickCfg(), hidden, 1, ['src/cart.js'], tracked, two([], ['Tier: Critical'])), null)
+})
+
+test('fullRunReasons: a test the pull request adds next to its own code is not coverage; an old matching test is', () => {
+    const c = quickCfg()
+    const files = [{ filename: 'src/cart.js', additions: 5, deletions: 0, status: 'modified' }, { filename: 'tests/cart.test.js', additions: 3, deletions: 0, status: 'added' }]
+    const s = selectTests(['src/cart.js', 'tests/cart.test.js'], tracked, c)
+    assert.match(fullRunReasons(files, [], c, s).join(), /code without a matching existing test: src\/cart\.js/)
+    const old = [files[0], { ...files[1], status: 'modified' }]
+    assert.deepEqual(fullRunReasons(old, [], c, s), [])
+})

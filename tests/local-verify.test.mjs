@@ -669,6 +669,14 @@ test('quick flow: an advanced mode, a Flow: Advanced label, an undeterminable se
     }
 })
 
+test('quick flow: a flow that changed while the quick run was going posts nothing (exit 1)', () => {
+    const h = quickCase({ fixtures: ({ head }) => ({ ...tieredFixtures({ head }), 'repos/o/r/issues/14': seq({ labels: [{ name: 'Tier: Normal' }] }, { labels: [{ name: 'Tier: Normal' }] }, { labels: [{ name: 'Tier: Normal' }, { name: 'Flow: Advanced' }] }) }) })
+    const r = h.run()
+    assert.equal(r.status, 1, r.stderr)
+    assert.match(r.stderr, /the flow changed while the quick run was going/)
+    noPost(h)
+})
+
 // ---- ready only after the gate: local-verify marks a draft routine-local PR ready once it has posted the green status
 const draftFixtures = (draft) => (o) => { const f = tieredFixtures(o); f['repos/o/r/pulls/7'] = { ...f['repos/o/r/pulls/7'], draft }; return f }
 const readyCalls = (h) => h.gh.calls().filter((c) => c.join(' ') === 'pr ready 7 -R o/r')

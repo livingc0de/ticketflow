@@ -15,7 +15,7 @@ on:
         required: false
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ inputs.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:

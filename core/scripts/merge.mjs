@@ -79,7 +79,8 @@ function selfCheck(pull, head, own, reviews, me) {
 }
 
 /** After a quick merge: the full suite on the default branch, only when the facts say a subset may have missed something. Never changes the exit code (the merge happened). */
-function fullRun(mergeSha, found, head) {
+function fullRun(mergeSha, found, head, pull) {
+    if (typeof mergeSha !== 'string' || mergeSha.length < 7) return console.log('Full run: not started (the merge commit is unknown): run gh workflow run ci.yml --repo ' + cfg.repo + ' --ref ' + base + ' -f sha=<merge sha>')
     const m7 = mergeSha.slice(0, 7)
     if (cfg.deploy_branch !== null || (cfg.ci.push_paths !== null && cfg.ci.push_paths.length === 0)) return console.log(`Full run: the push run of ${m7} is the full run`)
     let reasons
@@ -88,6 +89,7 @@ function fullRun(mergeSha, found, head) {
         if (tree.truncated) throw new Error('the file tree is too large to read')
         reasons = fullRunReasons(found.files, found.labels, cfg, selectTests(found.files.flatMap(names), tree.tree.filter((t) => t.type === 'blob').map((t) => t.path), cfg))
     } catch (e) { reasons = [`the reasons could not be read (${e.message})`] }
+    if (found.files.length !== pull.changed_files) reasons.push('the file list is incomplete')
     if (!reasons.length) return console.log('Full run: not needed')
     const args = ['workflow', 'run', 'ci.yml', '--repo', cfg.repo, '--ref', base, '-f', `sha=${mergeSha}`]
     const r = spawnSync('gh', args, { encoding: 'utf8' })
@@ -187,7 +189,7 @@ function merge() {
     if (after.merged === true) {
         console.log(`Merged #${pr} (${method}) as ${after.merge_commit_sha}`)
         if (lane !== null) console.log(`Merged on a self-check (${lane})`)
-        if (found) fullRun(after.merge_commit_sha, found, head)
+        if (found) fullRun(after.merge_commit_sha, found, head, pull)
         if (named !== undefined) console.log(`Note: merged on the result of ${named} on ${sha7}; merge checked where and when it was posted, the agent read what it says${values['review-result-url'] ? ` (explicit result: ${values['review-result-url']})` : ''}`)
         return 0
     }

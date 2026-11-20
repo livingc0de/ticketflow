@@ -50,7 +50,7 @@ export const FAIL = { __fail: true }
  *    A write to `.../statuses/...` with no fixture is accepted; any other write without a fixture fails the test run.
  *  - `graphql <OperationName>`: a GraphQL call; the name is read from the query in stdin. The value is the `data` payload,
  *    or a whole `{ errors: [...] }` response (which makes gh exit 1, like the real one).
- *  - `pr merge`, `pr update-branch`, `pr ready`, `workflow run`: accepted unless the fixture fails.
+ *  - `pr merge`, `pr update-branch`, `pr ready`, `workflow run`, `issue create`: accepted unless the fixture fails.
  *  - `statuses write` (a status write) and `pr comment`: accepted unless the fixture fails.
  * `gh --version` prints `map['--version']` (default `gh version 2.60.0 (2026-01-01)`).
  * Values: JSON; `{ __raw: '...' }` (printed verbatim, for `gh api -i`); `seq(a, b)` (served in turn, the last one repeats); `{ __pages: [p1, p2] }` (for `--paginate --slurp`);
@@ -112,6 +112,8 @@ else if (args[0] === 'api') {
     serve('pr ' + args[1])
 } else if (args[0] === 'workflow' && args[1] === 'run') {
     serve('workflow run')
+} else if (args[0] === 'issue' && args[1] === 'create') {
+    serve('issue create')
 } else die('unexpected call: ' + args.join(' '))
 `
     writeFileSync(join(bin, 'gh'), script)

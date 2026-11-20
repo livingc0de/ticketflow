@@ -28,10 +28,10 @@ const stem = (p) => p.split('/').at(-1).replace(/\..*$/, '').replace(/^test_/, '
 /** Config files at the repository root and `*.config.*`, `.*rc`: a change there can affect every test. shortcut: a heuristic, add your own paths to review.always_review */
 const SHARED_CONFIG = [/^[^/]+$/, /(^|\/)[^/]*\.config\.[^/]+$/, /(^|\/)\.[\w-]*rc(\.\w+)?$/]
 
-/** changed: repo paths of the pull request, tracked: every tracked path -> { ok, tests, unmatched, why } */
+/** changed: repo paths of the pull request, tracked: every tracked path -> { ok, tests, unmatched, covers: { code path: its tests }, why } */
 export function selectTests(changed, tracked, cfg) {
     const files = new Set(tracked)
-    const tests = new Set(), unmatched = []
+    const tests = new Set(), unmatched = [], covers = {}
     let why = null
     for (const p of changed) {
         if (docsOnly([p], cfg)) continue
@@ -40,12 +40,12 @@ export function selectTests(changed, tracked, cfg) {
             else if (files.has(p)) tests.add(p)
         } else {
             const hit = [...files].filter((t) => TEST_FILE.test(t) && stem(t) === stem(p))
-            if (hit.length) hit.forEach((t) => tests.add(t)); else unmatched.push(p)
+            if (hit.length) { hit.forEach((t) => tests.add(t)); covers[p] = hit } else unmatched.push(p)
         }
     }
     const list = [...tests].sort()
     why ??= !files.size ? 'no tracked files' : !list.length ? 'no test selected' : list.length > MAX_TESTS ? `more than ${MAX_TESTS} tests selected` : list.some((t) => !SAFE.test(t)) ? 'a selected path is not shell-safe' : null
-    return { ok: why === null, tests: list, unmatched, why }
+    return { ok: why === null, tests: list, unmatched, covers, why }
 }
 
 /** The selected tests when this pull request runs the quick gate, else null. `read` is the gh api reader. */
@@ -53,8 +53,8 @@ export function quickTests(cfg, pull, pr, changed, tracked, read = api) {
     if (cfg.verify.quick_command === null || cfg.mode === 'off') return null
     const tickets = ticketsOf(pull)
     if (!tickets.length) return null
-    const labels = tickets.flatMap((n) => read(`repos/${cfg.repo}/issues/${n}`).labels.map((l) => l.name ?? l))
-    if (flowOf(cfg, labels) !== 'quick') return null
+    const perTicket = tickets.map((n) => read(`repos/${cfg.repo}/issues/${n}`).labels.map((l) => l.name ?? l))
+    if (flowOf(cfg, perTicket) !== 'quick') return null
     const sel = selectTests(changed, tracked, cfg)
     return sel.ok ? sel : null
 }
@@ -80,7 +80,11 @@ export function fullRunReasons(files, labels, cfg, selection) {
     const lines = files.filter((f) => names(f).some((n) => !TEST.test(n) && !docsOnly([n], cfg))).reduce((n, f) => n + f.additions + f.deletions, 0)
     if (lines > cfg.review.self_check_max_lines) out.push(`${lines} changed code lines (limit ${cfg.review.self_check_max_lines})`)
     if (!selection.ok) out.push(`test selection undeterminable (${selection.why})`)
-    if (selection.unmatched.length) out.push(`code without a matching test: ${selection.unmatched.slice(0, 5).join(', ')}`)
+    // a test this pull request adds next to its own code is no evidence that the code was already covered
+    const added = new Set(files.filter((f) => f.status === 'added').map((f) => f.filename))
+    const stubbed = Object.entries(selection.covers ?? {}).filter(([, ts]) => ts.every((t) => added.has(t))).map(([p]) => p)
+    const uncovered = [...selection.unmatched, ...stubbed]
+    if (uncovered.length) out.push(`code without a matching existing test: ${uncovered.slice(0, 5).join(', ')}`)
     return [...new Set(out)]
 }
 

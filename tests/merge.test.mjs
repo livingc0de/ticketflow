@@ -457,7 +457,7 @@ test('a quick merge dispatches one full run on the default branch when the facts
     const lock = quickRun({ files: [...quickFiles, { filename: 'package-lock.json', additions: 3, deletions: 3, status: 'modified' }] })
     assert.match(lock.stdout, /Full run: started .*package-lock\.json always needs a review/); assert.equal(dispatches(lock).length, 1)
     const orphan = quickRun({ files: [{ filename: 'src/orphan.js', additions: 4, deletions: 0, status: 'modified' }, quickFiles[1]], tree: treeOf('src/orphan.js', 'tests/cart.test.js') })
-    assert.match(orphan.stdout, /code without a matching test: src\/orphan\.js/)
+    assert.match(orphan.stdout, /code without a matching existing test: src\/orphan\.js/)
 })
 
 test('a failed dispatch, an unreadable or truncated tree never undo the merge: exit 0 with the exact command or a full run', () => {
@@ -480,4 +480,15 @@ test('a full gate prints no full-run line and reads nothing extra', () => {
     const r = run()
     assert.equal(r.status, 0, r.stderr); assert.doesNotMatch(r.stdout, /Full run/)
     assert.ok(!r.calls.some((c) => c.some((a) => /git\/trees/.test(String(a)))))
+})
+
+test('merge: a second named ticket with Flow: Quick cannot make an advanced pull request quick; an incomplete file list starts a full run', () => {
+    const P = pull({ title: 'Ticket #14', body: '<!-- Ticket #15 -->', changed_files: 2 })
+    const faked = run({ gate: QGATE, pulls: seq(P, P, MERGED), cfgOver: { mode: 'advanced', verify: { quick_command: 'node --test $TICKETFLOW_TESTS' } },
+        extra: { [`${R}/pulls/5/files`]: quickFiles, [`${R}/issues/14`]: { labels: [] }, [`${R}/issues/15`]: { labels: [{ name: 'Flow: Quick' }] } } })
+    refused(faked, /quick subset run but the flow is advanced/)
+    const P3 = pull({ title: 'Ticket #14', changed_files: 3 })
+    const r = run({ gate: QGATE, pulls: seq(P3, P3, MERGED), cfgOver: { mode: 'quick', verify: { quick_command: 'node --test $TICKETFLOW_TESTS' } },
+        extra: { [`${R}/pulls/5/files`]: quickFiles, [`${R}/issues/14`]: { labels: [] }, [`${R}/git/trees/${HEAD}?recursive=1`]: treeOf('src/cart.js', 'tests/cart.test.js'), 'workflow run': {} } })
+    assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /Full run: started .*the file list is incomplete/)
 })

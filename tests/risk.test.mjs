@@ -145,12 +145,17 @@ test('every printed line is one line, even for a file name with a newline (Reaso
 
 test('the flow follows the mode and the ticket labels: Critical and Flow: Advanced run advanced, Flow: Quick runs quick, off is off', () => {
     const c = (m) => config({ mode: m })
-    assert.equal(flowOf(c('advanced'), []), 'advanced')
-    assert.equal(flowOf(c('quick'), []), 'quick')
-    assert.equal(flowOf(c('quick'), ['Tier: High']), 'quick')
-    assert.equal(flowOf(c('quick'), ['Tier: Critical']), 'advanced')
-    assert.equal(flowOf(c('quick'), ['Flow: Advanced']), 'advanced')
-    assert.equal(flowOf(c('advanced'), ['Flow: Quick']), 'quick')
-    assert.equal(flowOf(c('advanced'), ['Tier: Critical', 'Flow: Quick']), 'advanced')
-    assert.equal(flowOf(c('off'), ['Flow: Quick']), 'off')
+    assert.equal(flowOf(c('advanced'), [[]]), 'advanced')
+    assert.equal(flowOf(c('quick'), [[]]), 'quick')
+    assert.equal(flowOf(c('quick'), [['Tier: High']]), 'quick')
+    assert.equal(flowOf(c('quick'), [['Tier: Critical']]), 'advanced')
+    assert.equal(flowOf(c('quick'), [['Flow: Advanced']]), 'advanced')
+    assert.equal(flowOf(c('advanced'), [['Flow: Quick']]), 'quick')
+    assert.equal(flowOf(c('advanced'), [['Tier: Critical', 'Flow: Quick']]), 'advanced')
+    assert.equal(flowOf(c('off'), [['Flow: Quick']]), 'off')
+    // the strictest ticket wins: a second named ticket cannot pick the quick flow for the pull request
+    assert.equal(flowOf(c('advanced'), [[], ['Flow: Quick']]), 'advanced')
+    assert.equal(flowOf(c('advanced'), [['Flow: Quick'], ['Flow: Quick']]), 'quick')
+    assert.equal(flowOf(c('quick'), [[], ['Tier: Critical']]), 'advanced')
+    assert.equal(flowOf(c('quick'), []), 'advanced')   // no ticket
 })

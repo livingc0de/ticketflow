@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { askPatterns, claudeAsk, loadGuard } from '../core/lib/guard.mjs'
 import { validate } from '../core/lib/config.mjs'
@@ -868,4 +868,33 @@ test('quick flow in ci.yml: the scope reads the base config, selects tests, a Qu
     assert.ok(ci.includes("if: steps.scope.outputs.skip != 'true' && steps.scope.outputs.quick != 'true'"))
     assert.match(ci, /report:\n    name: Report Failed Full Run\n    needs: verify\n    if: \$\{\{ failure\(\) && github\.event_name == 'workflow_dispatch' \}\}\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    permissions:\n      issues: write/)
     assert.ok(!/report:[\s\S]*actions\/checkout/.test(ci.slice(ci.indexOf('report:'))), 'the report job has no checkout')
+})
+
+test('the rendered quick scope and report job run as written: the scope sets quick=true only on a selection, the report job needs a real sha', () => {
+    const ci = renderAll({ ...A, verify: { ...A.verify, quick_command: 'node --test $TICKETFLOW_TESTS' } }).get('.github/workflows/ci.yml')
+    const lines = ci.split('\n'), at = lines.findIndex((l) => l.includes('elif q=$(node .ticketflow/lib/quick.mjs'))
+    const elif = lines.slice(at, at + 2).join('\n')
+    const dir = tempDir('scope-')
+    const shim = `${dir}/bin`; mkdirSync(shim)
+    writeFileSync(`${shim}/node`, '#!/bin/sh\n[ "$FAKEQ" = fail ] && exit 2\n[ -n "$FAKEQ" ] && echo "$FAKEQ"\nexit 0\n'); chmodSync(`${shim}/node`, 0o755)
+    const scope = (fake) => {
+        const out = `${dir}/out-${fake || 'none'}`; writeFileSync(out, '')
+        const r = spawnSync('bash', ['-ec', `if false; then :\n${elif}\nfi`], { env: { PATH: `${shim}:${process.env.PATH}`, FAKEQ: fake, PR: '5', RUNNER_TEMP: dir, GITHUB_RUN_ID: '77', GITHUB_OUTPUT: out }, encoding: 'utf8' })
+        assert.equal(r.status, 0, r.stderr)
+        return readFileSync(out, 'utf8')
+    }
+    assert.equal(scope('fail'), ''); assert.equal(scope(''), '')
+    assert.equal(scope('tests/a.test.js tests/b.test.js'), 'quick=true\ntests=tests/a.test.js tests/b.test.js\ndescription=Actions quick run #77\n')
+    const job = ci.slice(ci.indexOf('  report:'))
+    assert.match(job, /if: \$\{\{ failure\(\) && github\.event_name != 'pull_request' \}\}/)
+    assert.match(job, /SHA: \$\{\{ inputs\.sha \|\| github\.sha \}\}/)
+    const script = /run: \|\n((?: {10}.*\n?)+)/.exec(job.slice(job.indexOf('Open Issue')))[1].replace(/^ {10}/gm, '')
+    const gh = fakeGh(dir, { 'issue create': {} })
+    const env = (SHA) => ({ ...gh.env, GH_TOKEN: 'x', GITHUB_REPOSITORY: 'o/r', SHA, URL: 'https://example.invalid/run' })
+    assert.equal(spawnSync('bash', ['-c', script], { env: env('main'), encoding: 'utf8' }).status, 1)
+    assert.deepEqual(gh.calls(), [])
+    assert.equal(spawnSync('bash', ['-c', script], { env: env('a'.repeat(40)), encoding: 'utf8' }).status, 0)
+    assert.deepEqual(gh.calls().map((c) => c.slice(0, 2)), [['issue', 'create']])
+    assert.ok(gh.calls()[0].includes(`Full suite failed on ${'a'.repeat(7)}`))
+    assert.match(ci, /group: ci-\$\{\{ github\.ref \}\}-\$\{\{ inputs\.sha \}\}/)
 })

@@ -61,9 +61,14 @@ export const ticketsOf = (pull) => [...new Set([...`${pull.title ?? ''}\n${pull.
 
 /**
  * The flow a pull request runs: `off` while the mode is off; `advanced` for a Critical ticket or a `Flow: Advanced` label; `quick` for a `Flow: Quick` label;
- * otherwise the configured mode. Scripts, CI and local-verify all read it from the config and the ticket labels, so they agree.
+ * otherwise the configured mode; `perTicket` is one label list per named ticket and the strictest ticket wins. Scripts, CI and local-verify all read it from the config and the ticket labels, so they agree.
  */
-export const flowOf = (cfg, labels) => cfg.mode === 'off' ? 'off' : tierOf(labels) === 'Critical' || labels.includes('Flow: Advanced') ? 'advanced' : labels.includes('Flow: Quick') ? 'quick' : cfg.mode
+export const flowOf = (cfg, perTicket) => {
+    if (cfg.mode === 'off') return 'off'
+    // per ticket, then the strictest: a pull request cannot pick the quick flow through one more ticket it names (a Flow: Quick label counts only where every named ticket is quick)
+    const one = (labels) => tierOf(labels) === 'Critical' || labels.includes('Flow: Advanced') ? 'advanced' : labels.includes('Flow: Quick') ? 'quick' : cfg.mode
+    return perTicket.length > 0 && perTicket.every((labels) => one(labels) === 'quick') ? 'quick' : 'advanced'
+}
 
 const FLOW_TEXT = { quick: 'quick (at most 1 fix round)', advanced: 'advanced (at most 3 review rounds)', off: 'off' }
 /** The printed form of laneOfPull: `Flow:`, `Lane:`, one `Reason:` per rule, then `pr-reviewer class:`. Shared by risk.mjs and pr-wait.mjs. */
@@ -84,6 +89,6 @@ export function laneOfPull(cfg, pull, pr) {
     const extra = [...(tickets.length ? [] : ['no "Ticket #N" in the PR title or body']), ...issues.filter(([, i]) => i.pull_request).map(([n]) => `#${n} is a pull request, not a ticket`), ...(files.length === pull.changed_files ? [] : ['the file list is incomplete'])]
     const partial = files.length !== pull.changed_files   // an incomplete list hides the size and the paths: the class goes up
     const reviewer = { cls: partial || lane.reviewer.cls === 'strong' ? 'strong' : 'standard', why: [...lane.reviewer.why, ...(partial ? ['the file list is incomplete'] : [])] }
-    const flow = tickets.length ? flowOf(cfg, labels) : cfg.mode === 'off' ? 'off' : 'advanced'   // a pull request that names no ticket runs the advanced flow
+    const flow = tickets.length ? flowOf(cfg, issues.map(([, i]) => i.labels.map((l) => l.name ?? l))) : cfg.mode === 'off' ? 'off' : 'advanced'   // a pull request that names no ticket runs the advanced flow
     return { lane: extra.length ? 'review' : lane.lane, reasons: [...extra, ...lane.reasons], size: extra.length === 0 && lane.size, ticket: tickets[0] ?? null, reviewer, flow, files, labels }
 }

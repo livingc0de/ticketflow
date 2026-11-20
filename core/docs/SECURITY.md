@@ -41,7 +41,7 @@ OpenCode, Antigravity and GitHub Copilot a guard asks you before (or blocks) the
 
 ## The quick gate and token scopes
 
-The verify job has `issues: read` (the scope step reads the named tickets' labels to know the flow). The post-merge `report` job is the only job with `issues: write`; it has no checkout and no secret, runs only for a failed `workflow_dispatch`, and refuses a commit that is not 40 hexadecimal characters. A dispatched run verifies the exact merge commit, never deploys and posts the gate for that sha. The quick subset is a policy of the base side's config and the ticket's labels: a pull request cannot widen it, and `merge` re-checks the flow.
+The verify job has `issues: read` (the scope step reads the named tickets' labels to know the flow). The post-merge `report` job is the only job with `issues: write`; it has no checkout and no secret, runs only for a failed `workflow_dispatch`, and refuses a commit that is not 40 hexadecimal characters. A dispatched run verifies the `sha` it is given (`merge` passes the merge commit), never deploys and posts the gate for that sha; starting one needs write access. The quick command and docs patterns come from the base side's config, and the flow from the named tickets' labels with the strictest ticket winning (`merge` re-checks it); the test selection follows the pull request's own tree, so a test it adds next to its own code counts as new, not as coverage, and review controls the rest.
 
 ## Mode off
 
