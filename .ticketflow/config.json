@@ -4,7 +4,8 @@
   "default_branch": "main",
   "verify": {
     "mode": "ci",
-    "command": "npm test"
+    "command": "npm test",
+    "quick_command": "node --test $TICKETFLOW_TESTS"
   },
   "project": {
     "owner": "livingc0de",
