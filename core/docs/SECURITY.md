@@ -39,6 +39,10 @@ OpenCode, Antigravity and GitHub Copilot a guard asks you before (or blocks) the
   turns the local fallback off, because a status posted by `local-verify` is not from that app). An agent on a GitHub App token
   cannot say who it runs as (`gh api user` fails): `pr-wait` and `merge` both refuse it, which is not probed here.
 
+## Mode off
+
+`mode: off` switches the agent-side speed bumps off: the guard hook passes every command, `render` writes no Claude Code or Codex ask rules (an OpenCode `ask` rule that was already rendered stays until you remove it), and the skills and roles say TicketFlow is off. The ruleset, the merge script and the gate are untouched, and every pull request takes the Actions route, so the gate still needs a full green run. A config that cannot be loaded has no mode and the guard stays strict. An agent can edit the config; the mode is a repo-wide, reviewed change like any other, and the admin-bypass rule applies in every mode.
+
 ## The bypass rule
 
 The owner may bypass; an agent never does on its own initiative. That covers `--admin`, a push to the default branch, a merge or a

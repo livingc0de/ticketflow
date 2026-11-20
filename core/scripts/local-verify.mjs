@@ -135,6 +135,7 @@ function main() {
 
     // 4. Guard.
     const method = allowed()
+    const fallbackWording = method === 'fallback' && (cfg.verify.mode === 'tiered' || cfg.mode === 'off')   // the Actions route (tiered High, or mode off) accepts only the fallback wording
     if (!method) stop(3, `neither tiered local verification nor the refused-Actions fallback is allowed; nothing posted`)
 
     // 5. The target is runnable and up to date.
@@ -171,12 +172,12 @@ function main() {
     if (!desc && isPr) {
         const d = git('diff', '-z', '--no-renames', '--name-only', origin, sha)
         if (d.status === 0 && docsOnly(d.stdout.split('\0').filter(Boolean), cfg)) {
-            desc = `${method === 'fallback' && cfg.verify.mode === 'tiered' ? 'Local fallback check' : 'Local check'} on ${host}, docs only`; how = `${desc}; agent stubs checked, no verify run`
+            desc = `${fallbackWording ? 'Local fallback check' : 'Local check'} on ${host}, docs only`; how = `${desc}; agent stubs checked, no verify run`
             ;({ state, log, stale } = checkHead(sha, true))
         }
     }
     if (!desc) {
-        desc = `${method === 'fallback' && cfg.verify.mode === 'tiered' ? 'Local fallback run' : 'Local run'} on ${host} (${machine()}, Node ${process.versions.node})`
+        desc = `${fallbackWording ? 'Local fallback run' : 'Local run'} on ${host} (${machine()}, Node ${process.versions.node})`
         how = `${desc}, verify command on the exact head, ${method === 'fallback' ? 'Actions refused the job' : 'local verification'}`
         ;({ state, log, stale } = checkHead(sha))
     }

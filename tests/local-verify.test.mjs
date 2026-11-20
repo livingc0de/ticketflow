@@ -637,6 +637,13 @@ test('tiered High uses the documented local fallback when Actions refused before
     assert.deepEqual(h.file('prwait.log'), ['7 --once --ci-only', '7 --once --ci-only'])
 })
 
+test('mode off with verify.mode local: the Actions-refused fallback posts the fallback wording the CI route accepts', () => {
+    const h = tieredCase({ prWait: '3', config: { mode: 'off', verify: { mode: 'local', install: 'fake-install', command: 'fake-verify' } } })
+    const r = h.run()
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(h.statuses()[0].description, /^Local fallback run on /)
+})
+
 // ---- ready only after the gate: local-verify marks a draft routine-local PR ready once it has posted the green status
 const draftFixtures = (draft) => (o) => { const f = tieredFixtures(o); f['repos/o/r/pulls/7'] = { ...f['repos/o/r/pulls/7'], draft }; return f }
 const readyCalls = (h) => h.gh.calls().filter((c) => c.join(' ') === 'pr ready 7 -R o/r')

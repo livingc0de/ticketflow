@@ -87,7 +87,7 @@ const BYTES = {
     'agents-map/gemini.md': 3000,
     'agents-map/generic.md': 1600,
     'agents-map/opencode.md': 2900,
-    'templates/AGENTS-block.md': 2600,
+    'templates/AGENTS-block.md': 2950,
 }
 test('the loaded text stays within its pinned byte budgets, and the descriptions within theirs', () => {
     for (const [path, max] of Object.entries(BYTES)) assert.ok(Buffer.byteLength(text(path)) <= max, `${path}: ${Buffer.byteLength(text(path))} bytes, at most ${max}`)

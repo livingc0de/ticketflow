@@ -16,6 +16,7 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `schema_version` | integer, must equal the core's (`2`) | required | `config`, `sync` |
 | `repo` | `owner/name` | required | all scripts |
 | `default_branch` | branch name | required | `inherit`, `local-verify`, `merge`, `pr-wait`, `render` |
+| `mode` | `advanced` (default), `quick` or `off`: the operating mode. A missing key is `advanced`. `off`: TicketFlow does nothing on the agent side (skills, roles, guard, scripts) and CI runs the full suite; set it with `mode.mjs set <mode>`, then merge the config pull request ([WORKFLOW.md](WORKFLOW.md#modes)) | `advanced` | `mode`, `verification`, `guard`, `render`, `gen-stubs` |
 | `verify.mode` | `tiered` (default for new repos), `ci` or `local` | required | `pr-wait`, `local-verify`, `merge`, `render`; `tiered` chooses local Low/Normal or Actions High/Critical, while `local` uses one local gate |
 | `verify.install` | string (shell) | `""` | `local-verify`, `render` |
 | `verify.command` | non-empty string (shell) | required | `local-verify`, `render` |

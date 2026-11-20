@@ -121,6 +121,7 @@ const parse = section({
     schema_version: [int(0), REQUIRED],
     repo: [repo, REQUIRED],
     default_branch: [ref, REQUIRED],
+    mode: [oneOf('advanced', 'quick', 'off'), 'advanced'],
     verify: [section({
         mode: [oneOf('ci', 'tiered', 'local'), REQUIRED],
         install: [shellText, ''],
@@ -209,6 +210,13 @@ export function configPath(fromDir) {
     }
 }
 
+/** Replaces the config file through a temp file, so a crash never leaves a half-written config. */
+export function writeConfigFile(file, raw) {
+    const tmp = `${file}.tmp`
+    writeFileSync(tmp, JSON.stringify(raw, null, 2) + '\n')
+    renameSync(tmp, file)
+}
+
 export function loadConfig(path) {
     let text
     try { text = readFileSync(path, 'utf8') } catch (e) { return fail(`cannot read config ${path}: ${e.code ?? e.message}`) }
@@ -240,9 +248,7 @@ if (isMain()) {
             validate(next)
             if (next === raw) console.log(`already at schema_version ${SCHEMA_VERSION}`)
             else if (flag) {
-                const tmp = `${file}.tmp`
-                writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n')
-                renameSync(tmp, file)
+                writeConfigFile(file, next)
                 console.log(`migrated ${file} to schema_version ${SCHEMA_VERSION}`)
             } else console.log(JSON.stringify(next, null, 2))
         }

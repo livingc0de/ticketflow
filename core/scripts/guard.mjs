@@ -41,7 +41,7 @@ try {   // `core/scripts` in ticketflow itself, `.ticketflow/scripts` in a user 
     scriptsDir = relative(top, here)
 } catch { /* keep the default */ }
 
-const decide = (input, cwd) => { const ds = configs.map((cfg) => hookDecision(input, cfg, { cwd, scriptsDir })); return ds.find((d) => d.block) ?? ds.find((d) => d.ask) ?? { block: false } }
+const decide = (input, cwd, only = configs) => { const ds = only.map((cfg) => hookDecision(input, cfg, { cwd, scriptsDir })); return ds.find((d) => d.block) ?? ds.find((d) => d.ask) ?? { block: false } }
 const emit = ({ stdout, stderr, code }) => { process.stdout.write(stdout); process.stderr.write(stderr); process.exitCode = code }
 const deny = (reason) => emit({ ...FORMATS[format].output({ block: true, reason }), code: format === 'antigravity' ? 0 : 2 })   // an error exits 2, the code every tool treats as a block; Antigravity documents only its JSON deny, which its normal denies exit 0 with
 
@@ -50,7 +50,7 @@ try {
         let bad = 0
         for (const f of loadGuard(configs[0], { scriptsDir }).forms) {
             for (const e of f.examples) {
-                const got = decide({ tool_name: 'Bash', tool_input: { command: e.cmd } }, '/').block ? 'block' : 'pass'
+                const got = decide({ tool_name: 'Bash', tool_input: { command: e.cmd } }, '/', [{ ...configs[0], mode: 'advanced' }]).block ? 'block' : 'pass'   // the examples describe the guard when on
                 if (got !== (e.codex === 'block' ? 'block' : 'pass')) { bad++; console.error(`guard: ${f.id}: "${e.cmd}" is ${got}, the example says ${e.codex}`) }
             }
         }
