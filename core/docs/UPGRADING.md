@@ -14,7 +14,7 @@ files ([CONFIG.md](CONFIG.md)). Your extensions are never touched ([EXTENDING.md
 
 ## Switching the mode
 
-`node .ticketflow/scripts/mode.mjs set <advanced|quick|off>` validates the config, writes `mode` and renders the files that depend on it (the Claude and Codex ask rules). Commit both on a branch and merge the pull request: CI and `local-verify` use the default branch's config. No sync is needed. A config without `mode` is `advanced`.
+`node .ticketflow/scripts/mode.mjs set <advanced|quick|off>` validates the config, writes `mode` and renders the files that depend on it (the Claude and Codex ask rules). Commit both on a branch and merge the pull request: The scripts and `local-verify` use the default branch's config, and the CI scope step the base side of the pull request. No sync is needed. A config without `mode` is `advanced`.
 
 ## The manifest
 

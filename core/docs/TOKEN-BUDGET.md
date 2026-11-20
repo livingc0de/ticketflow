@@ -8,7 +8,7 @@ Every word an agent loads costs time and money, and crowds out the code it shoul
   enabled practice. Keep it at about 25 lines or fewer.
 - The **name and description** of every skill and role stub. A description is a "Use when..." trigger of at most 300 characters
   (`gen-stubs` rejects a longer one), never a workflow summary.
-- With `mode: off` a session loads only the one-line check of each stub and the AGENTS block's mode line; nothing else of TicketFlow is read.
+- With `mode: off` a session still loads the AGENTS block and every stub's name and description, but reads no skill, role or script: each stub's first line says to ignore it.
 - Your own AGENTS.md, CLAUDE.md and rules: yours to keep short ([EXTENDING.md](EXTENDING.md)).
 
 ## What is loaded on demand

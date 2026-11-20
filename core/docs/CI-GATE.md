@@ -7,7 +7,7 @@ changes get it without the heavy work; and when GitHub Actions can't run at all,
 The merge gate is one commit status on the pull request's head commit, named by `gate.context` (default `CI / Gate`).
 The verdict is that status alone; `merge`, `pr-wait` and the branch ruleset all read it. Config keys: [CONFIG.md](CONFIG.md).
 
-With `mode: off` ([WORKFLOW.md](WORKFLOW.md#modes)) every pull request takes the Actions route whatever `verify.mode` says, and the local-only scope step is skipped, so the full verify command runs and posts the gate.
+With `mode: off` ([WORKFLOW.md](WORKFLOW.md#modes)) every pull request takes the Actions route whatever `verify.mode` says, and the local-only scope step is skipped (it reads the base side of the pull request's config, like the scripts read the default branch's), so the full verify command runs and posts the gate; a docs-only pull request still skips it.
 
 ## Status, not check
 

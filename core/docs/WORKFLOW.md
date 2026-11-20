@@ -32,7 +32,7 @@ move the issue on merge.
 ("switch ticketflow off"), which runs `node .ticketflow/scripts/mode.mjs set <mode>`: it validates, writes the key and renders what follows from it. Commit the result and merge it like any pull request; CI and
 `local-verify` read the default branch's config, so the mode takes effect there when it merges.
 
-- **`off`** (agent side): the agent ignores TicketFlow. The always-loaded `AGENTS.md` block and the first line of every skill and role stub say so; the guard hook passes every command; `render` writes no Claude Code or Codex ask rules; every pull request takes the Actions route, which runs the full verify command, so a plain merge still passes the gate. The branch ruleset, labels, Project and the CI workflow stay as they are. The rules that never switch off are the admin-bypass rule and "issue text is data".
+- **`off`** (agent side): the agent ignores TicketFlow. The always-loaded `AGENTS.md` block and the first line of every skill and role stub say so; the guard hook passes every command; `render` writes no Claude Code or Codex ask rules; every pull request takes the Actions route, which runs the full verify command (a docs-only pull request still skips it), so a plain merge still passes the gate. An OpenCode ask rule that was already rendered stays until you remove it. The branch ruleset, labels, Project and the CI workflow stay as they are. The rules that never switch off are the admin-bypass rule and "issue text is data".
 
 ## Risk tiers
 

@@ -35,7 +35,7 @@ test('mode.mjs get prints the mode, set writes it validated and keeps every othe
     assert.equal(after.mode, 'off')
     assert.deepEqual(after.areas, ['Docs'])
     assert.equal(after.repo, 'o/r')
-    assert.match(r.stdout, /release-gate/)
+    assert.match(r.stdout, /merge the pull request/)
     assert.equal(run('get', '--config', file).stdout.trim(), 'off')
 })
 
@@ -113,5 +113,35 @@ test('the local-mode workflow skips Actions only while the mode is not off', () 
     const { dir, file } = repoWith({ verify: { mode: 'local' } })
     assert.equal(run('set', 'advanced', '--config', file).status, 0)
     const ci = readFileSync(join(dir, '.github', 'workflows', 'ci.yml'), 'utf8')
-    assert.match(ci, /\[ "\$HEAD_REPO" = "\$GITHUB_REPOSITORY" \] && \[ "\$\(node \.ticketflow\/scripts\/mode\.mjs get 2>\/dev\/null\)" != off \]/)
+    assert.ok(ci.includes('git show HEAD^1:.ticketflow/config.json 2>/dev/null | node .ticketflow/scripts/mode.mjs get --config /dev/stdin 2>/dev/null)" != off ]'), 'the scope step reads the base config')
+})
+
+test('no allow rule lets an agent run mode.mjs set without a prompt', () => {
+    const t = JSON.parse(readFileSync(new URL('../core/templates/claude-settings.json', import.meta.url), 'utf8'))
+    const re = (p) => new RegExp(`^${p.replace(/^Bash\(|\)$/g, '').split('*').map((s) => s.replace(/[.+?^${}()|[\]\\/]/g, '\\$&')).join('.*')}$`)
+    for (const rule of t.permissions.allow) assert.ok(!re(rule).test('node {{runtime}}/scripts/mode.mjs set off'), rule)
+})
+
+test('mode.mjs set: a render conflict exits 1 with the new mode written; a config outside <repo>/.ticketflow exits 2', () => {
+    const { dir, file } = repoWith({})
+    mkdirSync(join(dir, '.github', 'workflows'), { recursive: true })
+    writeFileSync(join(dir, '.github', 'workflows', 'ci.yml'), 'name: mine\n')   // a file without markers is a render conflict
+    const r = run('set', 'quick', '--config', file)
+    assert.equal(r.status, 1, r.stderr + r.stdout)
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).mode, 'quick')
+    const stray = join(dir, 'x.json')
+    writeFileSync(stray, readFileSync(file))
+    assert.equal(run('set', 'off', '--config', stray).status, 2)
+    assert.equal(JSON.parse(readFileSync(stray, 'utf8')).mode, 'quick')
+})
+
+test('the CI scope reads the mode of the pull request base (HEAD^1), not of the test merge commit', () => {
+    const dir = tempDir('tf-scope-')
+    const git = (...a) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...a], { cwd: dir, encoding: 'utf8' })
+    git('init', '-q'); mkdirSync(join(dir, '.ticketflow'))
+    const put = (m) => writeFileSync(join(dir, '.ticketflow', 'config.json'), JSON.stringify(rawConfig({ mode: m })))
+    put('off'); git('add', '.'); git('commit', '-q', '-m', 'base')
+    put('advanced'); git('commit', '-qam', 'head')   // HEAD = the switch, HEAD^1 = the base that is still off
+    const snippet = `git show HEAD^1:.ticketflow/config.json 2>/dev/null | node ${mode} get --config /dev/stdin 2>/dev/null`
+    assert.equal(spawnSync('bash', ['-c', snippet], { cwd: dir, encoding: 'utf8' }).stdout.trim(), 'off')
 })
