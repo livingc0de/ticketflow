@@ -14,7 +14,7 @@ test('a minimal config loads, with defaults applied and deeply frozen', () => {
     const { review, ...rest } = cfg
     assert.deepEqual(
         rest,
-        { schema_version: 2, repo: 'o/r', default_branch: 'main', verify: { mode: 'ci', install: '', command: 'npm test', timeout_min: 45 },
+        { schema_version: 2, repo: 'o/r', default_branch: 'main', mode: 'advanced', verify: { mode: 'ci', install: '', command: 'npm test', timeout_min: 45 },
             gate: { context: 'CI / Gate', check: 'Verify', inherit: false, ci_files: [] }, docs_only: { docs: [], code: [] }, deploy_branch: null, project: null, agents: [], models: {}, plans_dir: 'docs/plans', worktrees_dir: '.worktrees', live_verify_skill: null, deferred_checks_issue: null, areas: [], environments: [], practices: [], ci: { push_paths: null } })
     assert.ok(Object.isFrozen(cfg) && Object.isFrozen(cfg.verify) && Object.isFrozen(cfg.gate) && Object.isFrozen(cfg.gate.ci_files))
     assert.deepEqual({ ...review, always_review: undefined }, { self_check: true, ...REVIEW_LIMITS, custom_limits: false, default_always_review: true, always_review: undefined })

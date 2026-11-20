@@ -67,8 +67,9 @@ export function parseGuide(text, path) {
     return { name, frontmatter: m[1], body: m[2].replace(/^\n+/, '').replace(/\s+$/, '') + '\n' }
 }
 
-const note = (runtimeRel) => runtimeRel === '.ticketflow' ? ''
-    : `In this repository the runtime lives in \`${runtimeRel}/\`: read every \`.ticketflow/<path>\` as \`${runtimeRel}/<path>\`, except \`.ticketflow/config.json\` and \`.ticketflow/custom/\`.\n\n`
+export const OFF = 'If `.ticketflow/config.json` has `"mode": "off"`, TicketFlow is off: ignore this file and do the task as you would without TicketFlow.\n\n'
+const note = (runtimeRel) => OFF + (runtimeRel === '.ticketflow' ? ''
+    : `In this repository the runtime lives in \`${runtimeRel}/\`: read every \`.ticketflow/<path>\` as \`${runtimeRel}/<path>\`, except \`.ticketflow/config.json\` and \`.ticketflow/custom/\`.\n\n`)
 
 const dig = (v, f) => (Array.isArray(v) ? v.map((x) => dig(x, f)) : v !== null && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, dig(x, f)])) : f(v))
 const json = (x) => JSON.stringify(x, null, 2) + '\n'

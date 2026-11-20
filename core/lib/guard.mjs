@@ -49,7 +49,7 @@ export function loadGuard(cfg, { scriptsDir = '.ticketflow/scripts', file = GUAR
 }
 
 /** The shell patterns that make the bypass forms ask (Claude Code wraps them in `Bash(...)`; OpenCode uses them as they are). */
-export const askPatterns = (cfg, opts) => loadGuard(cfg, opts).forms.flatMap((f) => f.claude_ask)
+export const askPatterns = (cfg, opts) => (cfg.mode === 'off' ? [] : loadGuard(cfg, opts).forms.flatMap((f) => f.claude_ask))   // mode off: TicketFlow asks nothing
 
 /** The Claude Code permission rules that make the bypass forms ask. */
 export const claudeAsk = (cfg, opts) => askPatterns(cfg, opts).map((p) => `Bash(${p})`)
@@ -63,7 +63,7 @@ const matchesPrefix = (tokens, pattern) => pattern.length <= tokens.length && pa
 /** The text of a Codex `.rules` file: one prompt rule per pattern. */
 export function codexRules(cfg, opts) {
     const rules = []
-    for (const f of loadGuard(cfg, opts).forms) {
+    for (const f of cfg.mode === 'off' ? [] : loadGuard(cfg, opts).forms) {
         for (const pattern of f.codex_prompt) {
             const match = f.examples.filter((e) => e.codex === 'prompt' && matchesPrefix(tokenize(e.cmd), pattern)).map((e) => e.cmd)
             const notMatch = f.examples.filter((e) => !matchesPrefix(tokenize(e.cmd), pattern)).map((e) => e.cmd)
@@ -142,7 +142,7 @@ const CHECKS = {
  * `command` may be a string or argv.
  */
 export function hookDecision(input, cfg, { cwd = process.cwd(), scriptsDir } = {}) {
-    if (input?.tool_name !== 'Bash') return { block: false }
+    if (input?.tool_name !== 'Bash' || cfg.mode === 'off') return { block: false }   // mode off: the guard passes everything (an unloadable config has no mode and stays strict)
     let command = input.tool_input?.command
     if (Array.isArray(command)) command = command.length === 3 && /(^|\/)(sh|bash|zsh)$/.test(command[0]) && /^-l?c$/.test(command[1]) ? command[2] : command.map((t) => (/^[\w@%+=:,./-]+$/.test(t) ? t : `'${String(t).replaceAll("'", "'\\''")}'`)).join(' ')
     if (typeof command !== 'string' || command.trim() === '') return { block: true, reason: 'a Bash tool call without a command cannot be checked' }

@@ -12,6 +12,10 @@ the releases; `VERSION` is the version source.
 `custom/`, which are the repo's. `gen-stubs` writes the agent stubs and `render` the managed blocks of the generated GitHub and agent
 files ([CONFIG.md](CONFIG.md)). Your extensions are never touched ([EXTENDING.md](EXTENDING.md)).
 
+## Switching the mode
+
+`node .ticketflow/scripts/mode.mjs set <advanced|quick|off>` validates the config, writes `mode` and renders the files that depend on it (the Claude and Codex ask rules). Commit both on a branch and merge the pull request: CI and `local-verify` use the default branch's config. No sync is needed. A config without `mode` is `advanced`.
+
 ## The manifest
 
 `.ticketflow/manifest.json` records an install. `runtime.mjs` owns `version`, `source` (`url`, `tag`, `commit`), `files` (the sha256 of
