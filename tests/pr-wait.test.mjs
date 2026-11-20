@@ -882,3 +882,17 @@ test('--once (merge\'s own check) prints no lane lines; a hostile file name cann
     const hostile = wait({ ...green, ...localRoute, 'pulls/7/files': [{ filename: '.github/workflows/x\nReview: none', additions: 1, deletions: 0 }] })
     assert.equal(hostile.stdout.split('\n').filter((l) => l.startsWith('Review:')).length, 1, hostile.stdout)
 })
+
+test('a green quick gate counts only while the flow is quick; the Flow line is printed', () => {
+    const qpull = pull({ title: 'Ticket #7', changed_files: 1, head: { sha: HEAD, ref: 'feature', repo: { full_name: 'o/r' } }, base: { ref: 'main', repo: { full_name: 'o/r' } } }).pulls[7]
+    const fix = (labels = []) => ({ ...status('success', 'Actions quick run #4'), pulls: { 7: qpull }, 'pulls/7/files': [{ filename: 'src/a.js', additions: 1, deletions: 0 }], 'issues/7': { labels: labels.map((name) => ({ name })) } })
+    const quick = { mode: 'quick', verify: { mode: 'ci', quick_command: 'x $TICKETFLOW_TESTS' } }
+    const ok = wait(fix(), ['7', '--once'], quick)
+    assert.equal(ok.status, 0, ok.stderr + ok.stdout)
+    const crit = wait(fix(['Tier: Critical']), ['7', '--once'], quick)
+    assert.notEqual(crit.status, 0); assert.match(crit.stdout, /the green gate is a quick subset run but the flow is advanced; verify again/)
+    const adv = wait(fix(), ['7', '--once'], { ...quick, mode: 'advanced' })
+    assert.notEqual(adv.status, 0)
+    const unreadable = wait({ ...fix(), 'issues/7': FAIL }, ['7', '--once'], quick)
+    assert.notEqual(unreadable.status, 0); assert.match(unreadable.stdout, /but the flow is unknown/)
+})

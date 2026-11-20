@@ -68,7 +68,7 @@ Under the hood there are three layers:
 | Keep GitHub organized | `project`, `labels` and `sub-issue` manage Projects v2, metadata labels and initiative children; `tracker-next` and `queue` report the next and ready work. |
 | Keep reviews and merges honest | `pr-wait`, `local-verify`, `thread`, `risk`, `merge` and `protect` cover reviewer waits, safe fallbacks, thread resolution, the minimum review lane, exact-head merges and branch rules. |
 | Keep ticket ceremony to one call | `ticket claim` and `ticket handoff` assign, set the Status and post the claim or summary comment once, however often a run is resumed; `workspace` fetches, ignores the worktrees directory, adds the ticket's worktree and runs the install. |
-| Switch it off or lighter | `mode` (`advanced`, `quick`, `off`) in the config, changed with `mode.mjs`; `off` makes the agent ignore TicketFlow ([WORKFLOW.md](core/docs/WORKFLOW.md#modes)). |
+| Switch it off or lighter | `mode` (`advanced`, `quick`, `off`) in the config, changed with `mode.mjs`: `quick` is one review, at most one fix round, a subset gate and an automatic merge; `off` makes the agent ignore TicketFlow ([WORKFLOW.md](core/docs/WORKFLOW.md#modes)). |
 | Customize without losing updates | `.ticketflow/custom/`, practices and domain guides are durable extension points; held files pause updates and are surfaced again until you move the edit. |
 | See where you took a deliberate shortcut | `debt.mjs` lists every `shortcut:` marker, its limit and when to revisit it. |
 

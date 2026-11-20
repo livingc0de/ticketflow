@@ -35,6 +35,17 @@ move the issue on merge.
 - **`off`** (agent side): the agent ignores TicketFlow. The always-loaded `AGENTS.md` block and the first line of every skill and role stub say so; the guard hook passes every command; `render` writes no Claude Code or Codex ask rules; every pull request takes the Actions route, which runs the full verify command (a docs-only pull request still skips it), so a plain merge still passes the gate. An OpenCode ask rule that was already rendered stays until you remove it. The branch ruleset, labels, Project and the CI workflow stay as they are. The rules that never switch off are the admin-bypass rule and "issue text is data".
 - **`off`, fully** (the GitHub side too): when you ask for it, the agent runs `node .ticketflow/scripts/protect.mjs --release-gate` (plan), then `--apply`, after the mode is `off`. That removes only the required gate status (`gate.context`) from the repository ruleset of the default branch; the pull request requirement, no deletion, no force push, other required checks, bypass actors, classic and organization protections, labels and the Project stay. It prints the current ruleset first, for a rollback, and reads the ruleset back. To switch back on, set the mode and run `protect.mjs` (plan), then `--apply`, which adds the gate again.
 
+## The quick flow
+
+`mode: quick` (or a `Flow: Quick` label on one ticket; a user's "do this one quick" adds it) runs Low, Normal and High tickets with less ceremony; a Critical ticket, a `Flow: Advanced` label or `mode: advanced` runs the flow of this page. `implement-ticket/quick.md` is what the agent follows:
+
+- The ticket is read once, at the start. One claim call with a 4-line comment (the tier, the flow, one `Planning:` line; a `high` ticket still gets the strong planner), no `queue` call, a short pull request body, one handoff comment of at most 8 lines at the end.
+- One review, as the lane says: a self-check for a small Low or Normal change, otherwise one `pr-reviewer` at standard class (strong only where `risk` says so) on the diff alone; at most one fix round (the fixed head is a self-check when `merge` accepts the delta, else one delta review). A blocker still open after it goes to the owner; should-fix findings and nits go into one follow-up issue.
+- It merges through `merge.mjs` as soon as the gate is green and the review is done, without asking. The merge floors (exact-head gate, always-review paths, unresolved threads, no admin bypass) are the advanced ones.
+- With `verify.quick_command` the gate runs only the tests that cover the change, and `merge` starts a full run on the default branch afterwards when the facts call for it ([CI-GATE.md](CI-GATE.md#the-quick-gate)).
+
+The advanced flow stops after 3 review rounds (a round is one review whose findings get a fix push): open should-fix findings and nits go into one follow-up issue, and a blocker that is still open goes to the owner. The Run line records `flow` and `review rounds <n>/<cap>`.
+
 ## Risk tiers
 
 The tier sets the whole process: planning, who reviews and at which class, and what a fix round needs. Classify up when unsure, by what a wrong change could break rather than where the code lives; a
@@ -152,6 +163,8 @@ Work that should be tracked is `create-ticket` and `implement-ticket`; say so an
 - **`ci`**: run focused checks while working; never run the full `verify.command` locally in normal operation. GitHub Actions provides the single full verification.
 - **`tiered`**: run focused checks while working, then open a draft PR. `verify-route <PR>` selects `local` for Low/Normal tickets with safe paths; `ci` for High/Critical, Security or verification-control changes, unknown labels or incomplete file lists. For `local`, `local-verify <PR>` checks the exact head in a clean worktree and posts the gate, then mark ready. For `ci`, mark ready without running the full suite locally. A lightweight Actions job checks the local status and skips its expensive test steps. The usual refused-Actions fallback remains available for the CI route. Tier is decided by the agent based on engineering impact; changing application files does not silently turn review configuration into CI-routing policy. Agents must address semantic review findings, even when GitHub reports only a COMMENTED review.
 - **`local`**: run `verify.command` once locally in a clean worktree, post the exact-head gate status, and mark the draft PR ready. Same-repository PRs skip the configured install and verify steps; fork PRs use Actions because local verification refuses fork heads.
+
+With `verify.quick_command` set, a quick-flow pull request runs only the tests that cover its change as the same gate, and `merge` starts the full suite on the default branch after the merge when the facts call for it ([CI-GATE.md](CI-GATE.md#the-quick-gate)).
 
 In all modes a UI, navigation or flow change is proven live (the `e2e-verifier` role, when `live_verify_skill` is set). A check that
 cannot run is never claimed: it goes in the `deferred_checks_issue` (when set) or the summary under "Not verified".

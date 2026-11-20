@@ -27,8 +27,9 @@ import { fileURLToPath } from 'node:url'
 import { cli } from '../lib/cli.mjs'
 import { configPath } from '../lib/config.mjs'
 import { GhError, api, gql, isNumber } from '../lib/gh.mjs'
-import { alwaysReviewHit, laneOfPull, noLines } from '../lib/risk.mjs'
-import { routeOfPull, validGateSource } from '../lib/verification.mjs'
+import { fullRunReasons, selectTests } from '../lib/quick.mjs'
+import { alwaysReviewHit, laneOfPull, names, noLines } from '../lib/risk.mjs'
+import { QUICK_GATE, routeOfPull, validGateSource } from '../lib/verification.mjs'
 
 const { values, positionals: [pr], cfg } = cli(import.meta.url, 'merge', '<pr> [--reviewed-by <login> [--review-result-url <url>] | --self-checked] [--config f]', { 'reviewed-by': { type: 'string' }, 'review-result-url': { type: 'string' }, 'self-checked': { type: 'boolean' } },
     (p, v) => p.length === 1 && isNumber(p[0]) && (v['reviewed-by'] === undefined || /^[\w.[\]-]+$/.test(v['reviewed-by'])) &&
@@ -77,6 +78,24 @@ function selfCheck(pull, head, own, reviews, me) {
     return { lane: `fix delta since ${since}` }
 }
 
+/** After a quick merge: the full suite on the default branch, only when the facts say a subset may have missed something. Never changes the exit code (the merge happened). */
+function fullRun(mergeSha, found, head, pull) {
+    if (typeof mergeSha !== 'string' || mergeSha.length < 7) return console.log('Full run: not started (the merge commit is unknown): run gh workflow run ci.yml --repo ' + cfg.repo + ' --ref ' + base + ' -f sha=<merge sha>')
+    const m7 = mergeSha.slice(0, 7)
+    if (cfg.deploy_branch !== null || (cfg.ci.push_paths !== null && cfg.ci.push_paths.length === 0)) return console.log(`Full run: the push run of ${m7} is the full run`)
+    let reasons
+    try {
+        const tree = api(`${R}/git/trees/${head}?recursive=1`)
+        if (tree.truncated) throw new Error('the file tree is too large to read')
+        reasons = fullRunReasons(found.files, found.labels, cfg, selectTests(found.files.flatMap(names), tree.tree.filter((t) => t.type === 'blob').map((t) => t.path), cfg))
+    } catch (e) { reasons = [`the reasons could not be read (${e.message})`] }
+    if (found.files.length !== pull.changed_files) reasons.push('the file list is incomplete')
+    if (!reasons.length) return console.log('Full run: not needed')
+    const args = ['workflow', 'run', 'ci.yml', '--repo', cfg.repo, '--ref', base, '-f', `sha=${mergeSha}`]
+    const r = spawnSync('gh', args, { encoding: 'utf8' })
+    console.log(r.status === 0 ? `Full run: started on ${m7} (${reasons.join('; ')})` : `Full run: not started (${(r.stderr || r.stdout || 'no output').trim()}): gh ${args.join(' ')}`)
+}
+
 function merge() {
     const pull = api(`${R}/pulls/${pr}`)
     if (pull.state !== 'open') return stop(`#${pr} is ${pull.state}`)
@@ -91,6 +110,11 @@ function merge() {
         const { route } = routeOfPull(cfg, pull, pr)
         if (!validGateSource(route, gate.description)) return stop(`the ${route} verification route is not covered by the gate status on ${head.slice(0, 7)}; verify again for this tier`)
     }
+
+    // A quick (subset) gate counts only while the ticket's flow is quick: a label or the mode changed since it ran means verify again.
+    const quickGate = QUICK_GATE.test(gate.description ?? '')
+    const found = quickGate ? laneOfPull(cfg, pull, pr) : null
+    if (found && found.flow !== 'quick') return stop(`the gate on ${head.slice(0, 7)} is a quick subset run but the flow is ${found.flow}: verify again (re-run CI or local-verify)`)
 
     const behind = () => api(`${R}/compare/${base}...${head}`).behind_by
     const stale = (n) => stop(`${base} moved (behind by ${n}): gh pr update-branch ${pr} --repo ${cfg.repo}, then wait for the new head`)
@@ -165,6 +189,7 @@ function merge() {
     if (after.merged === true) {
         console.log(`Merged #${pr} (${method}) as ${after.merge_commit_sha}`)
         if (lane !== null) console.log(`Merged on a self-check (${lane})`)
+        if (found) fullRun(after.merge_commit_sha, found, head, pull)
         if (named !== undefined) console.log(`Note: merged on the result of ${named} on ${sha7}; merge checked where and when it was posted, the agent read what it says${values['review-result-url'] ? ` (explicit result: ${values['review-result-url']})` : ''}`)
         return 0
     }

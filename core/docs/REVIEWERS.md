@@ -71,6 +71,8 @@ A finished wait in pull request mode (exit 0, not `--ci-only`) ends with the lin
 - **External review:** `--reviewed-by '<login>'` names an independent reviewer whose result `pr-wait` observed on this head. An unedited first comment during the waiting window also requires `--review-result-url '<link>'` so the agent explicitly confirms which result it read.
 - **Self-check:** `--self-checked` names the account's review of the exact head, with freeform content, and works only where the diff qualifies under `risk.mjs`.
 
+**Quick flow:** one review of record (a self-check where `risk` allows it, else one `pr-reviewer` on the diff) and at most one fix round; the lane floors, the always-review paths and the exact-head rules are unchanged. The advanced flow caps review rounds at 3 ([WORKFLOW.md](WORKFLOW.md#the-quick-flow)).
+
 **Agent responsibility:** read the complete review, fix or explicitly reject each finding, and do not merge while blockers remain. GitHub's structured `CHANGES_REQUESTED` state is a hard block; a review posted with `COMMENTED` is evidence of a review, **not proof of approval**. The merge script cannot reliably infer semantic approval from prose, and does not try. Repository-required approvals remain enforceable through GitHub's branch protection.
 
 The review layout below is helpful for readability but is **not a parsing contract**. `merge` reads no repository permission: GitHub's own branch rules decide who may merge.

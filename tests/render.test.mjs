@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { askPatterns, claudeAsk, loadGuard } from '../core/lib/guard.mjs'
 import { validate } from '../core/lib/config.mjs'
@@ -439,11 +439,11 @@ test('the default gate context "CI / Gate" has spaces and a slash: the rendered 
     const script = /run: \|\n((?: {10}.*\n?)+)/.exec(step)[1].replace(/^ {10}/gm, '')
     const dir = tempDir('gate-')
     const gh = fakeGh(dir, {})
-    const env = { ...gh.env, GH_TOKEN: 'x', GITHUB_REPOSITORY: 'o/r', GITHUB_RUN_ID: '77', SHA: 'abc1234', STATE: 'success', DESC: '', CONTEXT: JSON.parse(/CONTEXT: (".*")/.exec(ci)[1]), URL: 'https://example.invalid/run' }
+    const env = { ...gh.env, GH_TOKEN: 'x', GITHUB_REPOSITORY: 'o/r', GITHUB_RUN_ID: '77', SHA: 'a'.repeat(40), STATE: 'success', DESC: '', CONTEXT: JSON.parse(/CONTEXT: (".*")/.exec(ci)[1]), URL: 'https://example.invalid/run' }
     const r = spawnSync('bash', ['-c', script], { env, encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     const post = gh.calls().find((c) => c[0] === 'api')
-    assert.deepEqual(post, ['api', 'repos/o/r/statuses/abc1234', '-f', 'state=success', '-f', 'context=CI / Gate', '-f', 'description=Actions run #77', '-f', 'target_url=https://example.invalid/run'])
+    assert.deepEqual(post, ['api', `repos/o/r/statuses/${'a'.repeat(40)}`, '-f', 'state=success', '-f', 'context=CI / Gate', '-f', 'description=Actions run #77', '-f', 'target_url=https://example.invalid/run'])
     // the scope step's inherit test accepts exactly what inherit.mjs prints and nothing that merely starts like it
     const pattern = /elif d=\$\(node [^\n]*\) && (\[\[ \$d =~ [^\n]* \]\]); then/.exec(ci)[1]
     const accepts = (d) => spawnSync('bash', ['-c', `d=${JSON.stringify(d)}; ${pattern}`]).status === 0
@@ -854,4 +854,47 @@ test('overlapping explicit denies remain authoritative', () => {
   )
   assert.equal(JSON.parse(result.text).permission.bash['git push * main'], undefined)
   assert.match(result.notes[0], /kept your deny/)
+})
+
+test('quick flow in ci.yml: the scope reads the base config, selects tests, a Quick Verify step, the dispatch input, a guarded sha and a report job; without quick_command none of it', () => {
+    const off = renderAll(A).get('.github/workflows/ci.yml')
+    assert.ok(off.includes('workflow_dispatch:\n    inputs:\n      sha:'))
+    assert.ok(off.includes('ref: ${{ inputs.sha }}') && off.includes('[[ $SHA =~ ^[0-9a-f]{40}$ ]] || exit 1') && off.includes('issues: read'))
+    for (const x of ['quick.mjs', 'Quick Verify', 'base.json', 'report:', "steps.scope.outputs.quick != 'true'"]) assert.ok(!off.includes(x), `without quick_command: ${x}`)
+    const ci = renderAll({ ...A, verify: { ...A.verify, quick_command: 'node --test $TICKETFLOW_TESTS' } }).get('.github/workflows/ci.yml')
+    assert.ok(ci.includes('git show HEAD^1:.ticketflow/config.json > "$RUNNER_TEMP/base.json"'))
+    assert.match(ci, /elif q=\$\(node \.ticketflow\/lib\/quick\.mjs "\$PR" --config "\$RUNNER_TEMP\/base\.json" < "\$RUNNER_TEMP\/changed"\) && \[ -n "\$q" \]; then\n\s+printf 'quick=true\\ntests=%s\\ndescription=Actions quick run #%s\\n'/)
+    assert.ok(ci.includes("- name: Quick Verify\n        if: steps.scope.outputs.quick == 'true'") && ci.includes('quick.mjs --run --config "$RUNNER_TEMP/base.json"'))
+    assert.ok(ci.includes("if: steps.scope.outputs.skip != 'true' && steps.scope.outputs.quick != 'true'"))
+    assert.match(ci, /report:\n    name: Report Failed Full Run\n    needs: verify\n    if: \$\{\{ failure\(\) && github\.event_name != 'pull_request' \}\}\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    permissions:\n      issues: write/)
+    assert.ok(!/report:[\s\S]*actions\/checkout/.test(ci.slice(ci.indexOf('report:'))), 'the report job has no checkout')
+})
+
+test('the rendered quick scope and report job run as written: the scope sets quick=true only on a selection, the report job needs a real sha', () => {
+    const ci = renderAll({ ...A, verify: { ...A.verify, quick_command: 'node --test $TICKETFLOW_TESTS' } }).get('.github/workflows/ci.yml')
+    const lines = ci.split('\n'), at = lines.findIndex((l) => l.includes('elif q=$(node .ticketflow/lib/quick.mjs'))
+    const elif = lines.slice(at, at + 2).join('\n')
+    const dir = tempDir('scope-')
+    const shim = `${dir}/bin`; mkdirSync(shim); writeFileSync(`${dir}/changed`, '')
+    writeFileSync(`${shim}/node`, '#!/bin/sh\n[ "$FAKEQ" = fail ] && exit 2\n[ -n "$FAKEQ" ] && echo "$FAKEQ"\nexit 0\n'); chmodSync(`${shim}/node`, 0o755)
+    const scope = (fake) => {
+        const out = `${dir}/out-${fake.replace(/\W/g, '_') || 'none'}`; writeFileSync(out, '')
+        const r = spawnSync('bash', ['-ec', `if false; then :\n${elif}\nfi`], { env: { PATH: `${shim}:${process.env.PATH}`, FAKEQ: fake, PR: '5', RUNNER_TEMP: dir, GITHUB_RUN_ID: '77', GITHUB_OUTPUT: out }, encoding: 'utf8' })
+        assert.equal(r.status, 0, r.stderr)
+        return readFileSync(out, 'utf8')
+    }
+    assert.equal(scope('fail'), ''); assert.equal(scope(''), '')
+    assert.equal(scope('tests/a.test.js tests/b.test.js'), 'quick=true\ntests=tests/a.test.js tests/b.test.js\ndescription=Actions quick run #77\n')
+    const job = ci.slice(ci.indexOf('  report:'))
+    assert.match(job, /if: \$\{\{ failure\(\) && github\.event_name != 'pull_request' \}\}/)
+    assert.match(job, /SHA: \$\{\{ inputs\.sha \|\| github\.sha \}\}/)
+    const script = /run: \|\n((?: {10}.*\n?)+)/.exec(job.slice(job.indexOf('Open Issue')))[1].replace(/^ {10}/gm, '')
+    const gh = fakeGh(dir, { 'issue create': {} })
+    const env = (SHA) => ({ ...gh.env, GH_TOKEN: 'x', GITHUB_REPOSITORY: 'o/r', SHA, URL: 'https://example.invalid/run' })
+    assert.equal(spawnSync('bash', ['-c', script], { env: env('main'), encoding: 'utf8' }).status, 1)
+    assert.deepEqual(gh.calls(), [])
+    assert.equal(spawnSync('bash', ['-c', script], { env: env('a'.repeat(40)), encoding: 'utf8' }).status, 0)
+    assert.deepEqual(gh.calls().map((c) => c.slice(0, 2)), [['issue', 'create']])
+    assert.ok(gh.calls()[0].includes(`Full suite failed on ${'a'.repeat(7)}`))
+    assert.match(ci, /group: ci-\$\{\{ github\.ref \}\}-\$\{\{ inputs\.sha \}\}/)
 })

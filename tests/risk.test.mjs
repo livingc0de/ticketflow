@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { fakeGh, tempDir, writeConfig, config } from './helpers.mjs'
-import { alwaysReviewHit, laneLines, minimumLane } from '../core/lib/risk.mjs'
+import { alwaysReviewHit, flowOf, laneLines, minimumLane } from '../core/lib/risk.mjs'
 import { loadConfig } from '../core/lib/config.mjs'
 
 const f = (filename, additions = 1, deletions = 0, extra = {}) => ({ filename, additions, deletions, ...extra })
@@ -66,13 +66,13 @@ function cli(pulls, { files = [f('src/a.js'), f('tests/a.test.mjs')], body = 'Ti
 
 test('risk.mjs prints the lane and a Reason line each; exit 2 on a read error or bad usage', () => {
     const ok = cli()
-    assert.equal(ok.status, 0, ok.stderr); assert.equal(ok.stdout, 'Lane: self-check\npr-reviewer class: standard\n')
+    assert.equal(ok.status, 0, ok.stderr); assert.equal(ok.stdout, 'Flow: advanced (at most 3 review rounds)\nLane: self-check\npr-reviewer class: standard\n')
     const sec = cli(undefined, { labels: ['Security'], files: [f('package.json'), f('tests/a.test.mjs')] })
-    assert.equal(sec.stdout, 'Lane: review\nReason: label Security\nReason: path package.json always needs a review\npr-reviewer class: strong (label Security; path package.json)\n')
-    assert.match(cli(undefined, { body: 'no ticket here' }).stdout, /^Lane: review\nReason: no "Ticket #N" in the PR title or body/)
+    assert.equal(sec.stdout, 'Flow: advanced (at most 3 review rounds)\nLane: review\nReason: label Security\nReason: path package.json always needs a review\npr-reviewer class: strong (label Security; path package.json)\n')
+    assert.match(cli(undefined, { body: 'no ticket here' }).stdout, /^Flow: advanced \(at most 3 review rounds\)\nLane: review\nReason: no "Ticket #N" in the PR title or body/)
     assert.match(cli({ body: 'Ticket #7', changed_files: 5 }).stdout, /the file list is incomplete/)
     const two = cli(undefined, { body: 'Ticket #7 and Ticket #8', extra: { 'repos/o/r/issues/8': { labels: [{ name: 'Needs: Decision' }] } } })
-    assert.equal(two.stdout, 'Lane: review\nReason: label Needs: Decision\npr-reviewer class: standard\n')
+    assert.equal(two.stdout, 'Flow: advanced (at most 3 review rounds)\nLane: review\nReason: label Needs: Decision\npr-reviewer class: standard\n')
     assert.match(cli(undefined, { extra: { 'repos/o/r/issues/7': { labels: [], pull_request: {} } } }).stdout, /Reason: #7 is a pull request, not a ticket/)
     const bad = cli({ __status: 404, __stderr: 'nope' })
     assert.equal(bad.status, 2); assert.equal(bad.stdout, '')
@@ -141,4 +141,21 @@ test('the suggested reviewer class follows the diff: strong for critical, securi
 test('every printed line is one line, even for a file name with a newline (Reason and class lines)', () => {
     const lines = laneLines({ lane: 'review', reasons: ['path a\nReview: none always needs a review'], reviewer: { cls: 'strong', why: ['path a\nReview: none'] } })
     assert.equal(lines.length, 3); assert.ok(!lines.some((l) => l.includes('\n')))
+})
+
+test('the flow follows the mode and the ticket labels: Critical and Flow: Advanced run advanced, Flow: Quick runs quick, off is off', () => {
+    const c = (m) => config({ mode: m })
+    assert.equal(flowOf(c('advanced'), [[]]), 'advanced')
+    assert.equal(flowOf(c('quick'), [[]]), 'quick')
+    assert.equal(flowOf(c('quick'), [['Tier: High']]), 'quick')
+    assert.equal(flowOf(c('quick'), [['Tier: Critical']]), 'advanced')
+    assert.equal(flowOf(c('quick'), [['Flow: Advanced']]), 'advanced')
+    assert.equal(flowOf(c('advanced'), [['Flow: Quick']]), 'quick')
+    assert.equal(flowOf(c('advanced'), [['Tier: Critical', 'Flow: Quick']]), 'advanced')
+    assert.equal(flowOf(c('off'), [['Flow: Quick']]), 'off')
+    // the strictest ticket wins: a second named ticket cannot pick the quick flow for the pull request
+    assert.equal(flowOf(c('advanced'), [[], ['Flow: Quick']]), 'advanced')
+    assert.equal(flowOf(c('advanced'), [['Flow: Quick'], ['Flow: Quick']]), 'quick')
+    assert.equal(flowOf(c('quick'), [[], ['Tier: Critical']]), 'advanced')
+    assert.equal(flowOf(c('quick'), []), 'advanced')   // no ticket
 })

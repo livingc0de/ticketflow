@@ -644,6 +644,39 @@ test('mode off with verify.mode local: the Actions-refused fallback posts the fa
     assert.match(h.statuses()[0].description, /^Local fallback run on /)
 })
 
+// ---- the quick flow: the selected tests only, when the ticket's flow is quick and the selection is determinable
+const QUICK = (mode = 'quick') => ({ mode, verify: { mode: 'tiered', install: 'fake-install', command: 'fake-verify', quick_command: 'fake-verify && echo "$TICKETFLOW_TESTS" > "$HOME/tests.txt"' } })
+const quickCase = (over = {}) => tieredCase({ prFiles: { 'src/a.js': 'x', 'tests/a.test.js': 'y' }, config: QUICK(), ...over })
+const testsRan = (h) => (existsSync(join(h.home, 'tests.txt')) ? readFileSync(join(h.home, 'tests.txt'), 'utf8').trim() : null)
+
+test('quick flow: quick_command runs with the selected tests and the status says quick run', () => {
+    const h = quickCase()
+    const r = h.run()
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(h.statuses()[0].state, 'success')
+    assert.match(h.statuses()[0].description, /^Local quick run on /)
+    assert.equal(testsRan(h), 'tests/a.test.js')
+    assert.match(h.gh.comments()[0], /quick command on 1 selected test file/)
+})
+
+test('quick flow: an advanced mode, a Flow: Advanced label, an undeterminable selection or no quick_command run the full command', () => {
+    for (const h of [quickCase({ config: QUICK('advanced') }), quickCase({ fixtures: ({ head }) => ({ ...tieredFixtures({ head }), 'repos/o/r/issues/14': { labels: [{ name: 'Tier: Normal' }, { name: 'Flow: Advanced' }] } }) }),
+        quickCase({ prFiles: { 'src/b.js': 'x' } }), quickCase({ config: { ...QUICK(), verify: { mode: 'tiered', install: 'fake-install', command: 'fake-verify' } } })]) {
+        const r = h.run()
+        assert.equal(r.status, 0, r.stderr)
+        assert.match(h.statuses()[0].description, /^Local run on /)
+        assert.equal(testsRan(h), null)
+    }
+})
+
+test('quick flow: a flow that changed while the quick run was going posts nothing (exit 1)', () => {
+    const h = quickCase({ fixtures: ({ head }) => ({ ...tieredFixtures({ head }), 'repos/o/r/issues/14': seq({ labels: [{ name: 'Tier: Normal' }] }, { labels: [{ name: 'Tier: Normal' }] }, { labels: [{ name: 'Tier: Normal' }, { name: 'Flow: Advanced' }] }) }) })
+    const r = h.run()
+    assert.equal(r.status, 1, r.stderr)
+    assert.match(r.stderr, /the flow changed while the quick run was going/)
+    noPost(h)
+})
+
 // ---- ready only after the gate: local-verify marks a draft routine-local PR ready once it has posted the green status
 const draftFixtures = (draft) => (o) => { const f = tieredFixtures(o); f['repos/o/r/pulls/7'] = { ...f['repos/o/r/pulls/7'], draft }; return f }
 const readyCalls = (h) => h.gh.calls().filter((c) => c.join(' ') === 'pr ready 7 -R o/r')

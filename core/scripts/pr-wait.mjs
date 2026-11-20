@@ -51,7 +51,7 @@ import { parseArgs } from 'node:util'
 import { configPath, loadConfig } from '../lib/config.mjs'
 import { gql } from '../lib/gh.mjs'
 import { laneLines, laneOfPull } from '../lib/risk.mjs'
-import { routeOfPull, validGateSource } from '../lib/verification.mjs'
+import { QUICK_GATE, routeOfPull, validGateSource } from '../lib/verification.mjs'
 import { nextSleepSec } from '../lib/wait.mjs'
 
 const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
@@ -162,6 +162,11 @@ function pollCi(S) {
                 S.why = `the green gate source does not match the ${route} verification route; run verification for this tier`
                 routeMismatch = true
             }
+        }
+        if (!routeMismatch && pull && QUICK_GATE.test(g.description ?? '')) {   // a quick subset run counts only while the ticket's flow is quick
+            let flow = null
+            try { flow = laneOfPull(cfg, pull, target).flow } catch { /* unreadable: not quick */ }
+            if (flow !== 'quick') { S.why = `the green gate is a quick subset run but the flow is ${flow ?? 'unknown'}; verify again (re-run CI or local-verify)`; routeMismatch = true }
         }
         if (!routeMismatch) {
             S.why = 'the gate is green'

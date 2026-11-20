@@ -44,7 +44,7 @@ export const NEVER_DOCS = Object.freeze([/^\.ticketflow\//, /^\.github\/workflow
 /** Built-in floor of the self-check lane (`risk.mjs`): paths that change the gate, what an agent may run, or secrets always need a review. */
 export const ALWAYS_REVIEW = Object.freeze([/^\.github\/workflows\//, /^\.ticketflow\//, /(^|\/)\.env/, /^\.(claude|codex|cursor|gemini|opencode|agents)\//, /(^|\/)(AGENTS|CLAUDE|GEMINI)\.md$/, /^\.github\/(agents|instructions|hooks|prompts)\//, /^\.github\/copilot-instructions\.md$/, /(^|\/)\.[\w-]*-plugin\//, /(^|\/)gemini-extension\.json$/])
 /** Defaults of the effective `review.always_review`: sensible for most repos. A configured list adds to them; `review.default_always_review: false` drops them. */
-const DEFAULT_ALWAYS_REVIEW = [
+export const DEFAULT_ALWAYS_REVIEW = [
     /(^|\/)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|requirements[^/]*\.txt|pyproject\.toml|go\.(mod|sum)|Cargo\.(toml|lock)|Gemfile(\.lock)?|composer\.(json|lock))$/,   // dependencies
     /(^|\/)migrations?\//, /\.sql$/,   // schema and data
 ]
@@ -84,6 +84,8 @@ const shellText = (v, p) => {
     const s = text(v, p)
     return /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u0085\u2028\u2029]|\r(?!\n)|\$\{\{/.test(s) ? fail(`${p} must not contain control characters, a lone CR, a unicode line break or \${{`) : s
 }
+// the quick PR gate runs this on the selected tests ($TICKETFLOW_TESTS): a command that never reads them would silently run nothing
+const quickCommand = (v, p) => (str(v, p).trim() === '' ? fail(`${p} must not be blank`) : !shellText(v, p).includes('TICKETFLOW_TESTS') ? fail(`${p} must run the selected tests ($TICKETFLOW_TESTS)`) : v)
 const repo = (v, p) => (typeof v === 'string' && /^[\w.-]+\/[\w.-]+$/.test(v) && !v.split('/').some((s) => /^\.+$/.test(s)) ? v : fail(`${p} must be owner/name`))
 
 /** Parses an object against `shape` = { key: [parse, default | REQUIRED] }; an unknown key is an error. */
@@ -127,6 +129,7 @@ const parse = section({
         install: [shellText, ''],
         command: [(v, p) => (str(v, p).trim() === '' ? fail(`${p} must not be blank`) : shellText(v, p)), REQUIRED],
         timeout_min: [int(1, 360), 45],
+        quick_command: [orNull(quickCommand), null],
     }), REQUIRED],
     gate: [section({
         context: [gateName, 'CI / Gate'],

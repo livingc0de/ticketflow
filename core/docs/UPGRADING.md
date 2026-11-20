@@ -18,6 +18,10 @@ files ([CONFIG.md](CONFIG.md)). Your extensions are never touched ([EXTENDING.md
 
 Fully off is a separate step on GitHub, on your request: `protect.mjs --apply --release-gate` ([CI-GATE.md](CI-GATE.md#releasing-the-gate-ticketflow-fully-off)).
 
+## Quick verification
+
+Setting `verify.quick_command` in an existing repo: run `sync` (it re-renders the managed `ci.yml` blocks: the dispatch input, the scope step, the Quick Verify step, the report job) and add `&& steps.scope.outputs.quick != 'true'` to the `if:` of the repo-section `Verify` step; `doctor` warns while it is missing. The labels step adds `Flow: Quick` and `Flow: Advanced`.
+
 ## The manifest
 
 `.ticketflow/manifest.json` records an install. `runtime.mjs` owns `version`, `source` (`url`, `tag`, `commit`), `files` (the sha256 of

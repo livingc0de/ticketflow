@@ -12,6 +12,8 @@
   { "name": "Tier: Normal", "color": "bfdadc", "description": "Routine risk tier" },
   { "name": "Tier: High", "color": "fbca04", "description": "Independent first review required" },
   { "name": "Tier: Critical", "color": "b60205", "description": "Review every changed head" },
+  { "name": "Flow: Quick", "color": "c2e0c6", "description": "Run this ticket with the quick flow" },
+  { "name": "Flow: Advanced", "color": "bfdadc", "description": "Run this ticket with the advanced flow" },
   { "name": "Effort: XS", "color": "bfdadc", "description": "Under an hour" },
   { "name": "Effort: S", "color": "bfdadc", "description": "Up to half a day" },
   { "name": "Effort: M", "color": "bfdadc", "description": "Up to a day or two" },

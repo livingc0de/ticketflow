@@ -20,6 +20,7 @@ Regexes are JavaScript regex source strings, tested against repo-relative paths 
 | `verify.mode` | `tiered` (default for new repos), `ci` or `local` | required | `pr-wait`, `local-verify`, `merge`, `render`; `tiered` chooses local Low/Normal or Actions High/Critical, while `local` uses one local gate |
 | `verify.install` | string (shell) | `""` | `local-verify`, `render` |
 | `verify.command` | non-empty string (shell) | required | `local-verify`, `render` |
+| `verify.quick_command` | string or `null`: the command the quick flow's pull request gate runs on the selected tests, which it receives in `$TICKETFLOW_TESTS` (for example `node --test $TICKETFLOW_TESTS`); it must contain `TICKETFLOW_TESTS`. `null`: the quick flow runs the full `verify.command`. The ci.yml Verify step must skip on `steps.scope.outputs.quick != 'true'` ([CI-GATE.md](CI-GATE.md#the-quick-gate)) | `null` | `local-verify`, `quick`, `render`, `doctor` |
 | `verify.timeout_min` | integer 1..360 | `45` | `local-verify`, `render` |
 | `gate.context` | string: the commit status that is the merge gate ([CI-GATE.md](CI-GATE.md)) | `"CI / Gate"` | `inherit`, `merge`, `pr-wait`, `local-verify`, `render` |
 | `gate.check` | string: the Actions job behind the gate | `"Verify"` | `pr-wait`, `render` |

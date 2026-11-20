@@ -80,11 +80,12 @@ export function templateVars(cfg, { runtimeRel, practices = [] }) {
     const local = cfg.verify.mode === 'local'
     const tiered = cfg.verify.mode === 'tiered'
     const draft = local || tiered
+    const quick = cfg.verify.quick_command !== null
     const unfiltered = cfg.ci.push_paths !== null && cfg.ci.push_paths.length === 0 || cfg.deploy_branch !== null
     const push = cfg.ci.push_paths === null && cfg.deploy_branch === null ? ''
         : `  push:\n    branches: [${q(cfg.default_branch)}]${unfiltered ? '' : `\n    paths: [${cfg.ci.push_paths.map(q).join(', ')}]`}`
-    const step = (name, cmd) => `      - name: ${q(name)}\n        if: steps.scope.outputs.skip != 'true'\n${runBlock(cmd, 8)}`
-    const steps = [cfg.verify.install.trim() === '' ? null : step('Install Dependencies', cfg.verify.install), step('Verify', cfg.verify.command)].filter(Boolean).join('\n\n')
+    const step = (name, cmd, extra = '') => `      - name: ${q(name)}\n        if: steps.scope.outputs.skip != 'true'${extra}\n${runBlock(cmd, 8)}`
+    const steps = [cfg.verify.install.trim() === '' ? null : step('Install Dependencies', cfg.verify.install), step('Verify', cfg.verify.command, quick ? " && steps.scope.outputs.quick != 'true'" : '')].filter(Boolean).join('\n\n')
     return {
         runtime: runtimeRel,
         default_branch: cfg.default_branch,
@@ -100,10 +101,14 @@ export function templateVars(cfg, { runtimeRel, practices = [] }) {
         scope_inherit: cfg.gate.inherit && !tiered
             ? `          elif d=$(node ${runtimeRel}/lib/inherit.mjs "$PR" "$HEAD_SHA") && [[ $d =~ ^description=Inherited\\ from\\ [0-9a-f]{7}:\\  ]]; then\n            printf 'skip=true\\n%s\\n' "$d" >> "$GITHUB_OUTPUT"`
             : '',
-        tiered_issues_permission: tiered ? '      issues: read' : '',
+        // quick flow (verify.quick_command): the scope step selects tests from the pull request's BASE config, so a pull request cannot widen its own subset
+        quick_base: quick ? `          git show HEAD^1:.ticketflow/config.json > "$RUNNER_TEMP/base.json"` : '',
+        scope_quick: quick ? `          elif q=$(node ${runtimeRel}/lib/quick.mjs "$PR" --config "$RUNNER_TEMP/base.json" < "$RUNNER_TEMP/changed") && [ -n "$q" ]; then\n            printf 'quick=true\\ntests=%s\\ndescription=Actions quick run #%s\\n' "$q" "$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"` : '',
+        quick_step: quick ? `      - name: Quick Verify\n        if: steps.scope.outputs.quick == 'true'\n        env:\n          TICKETFLOW_TESTS: \${{ steps.scope.outputs.tests }}\n        run: node ${runtimeRel}/lib/quick.mjs --run --config "$RUNNER_TEMP/base.json"\n\n` : '',
+        quick_report: quick ? `\n  # A full run on the default branch (dispatched after a merged quick pull request, or the push run) that fails opens one issue naming the commit. The job has no checkout.\n  report:\n    name: Report Failed Full Run\n    needs: verify\n    if: \${{ failure() && github.event_name != 'pull_request' }}\n{{runs_on_job}}\n    timeout-minutes: 5\n    permissions:\n      issues: write\n    steps:\n      - name: Open Issue\n        env:\n          GH_TOKEN: \${{ github.token }}\n          SHA: \${{ inputs.sha || github.sha }}\n          URL: \${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }}\n        run: |\n          [[ $SHA =~ ^[0-9a-f]{40}$ ]] || exit 1\n          gh issue create --repo "$GITHUB_REPOSITORY" --title "Full suite failed on \${SHA:0:7}" --body "The full verification of a merged quick pull request failed on $SHA: $URL"\n` : '',
         local_scope: local ? `          if [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] && [ "$(git show HEAD^1:.ticketflow/config.json 2>/dev/null | node ${runtimeRel}/scripts/mode.mjs get --config /dev/stdin 2>/dev/null)" != off ]; then\n            printf 'skip=true\\nroute=local\\n' >> "$GITHUB_OUTPUT"\n            exit 0\n          fi` : '',
         tiered_scope: tiered ? `          if [ "$(node ${runtimeRel}/scripts/verify-route.mjs "$PR" 2>/dev/null)" = local ]; then\n            printf 'skip=true\\nroute=local\\n' >> "$GITHUB_OUTPUT"\n            exit 0\n          fi` : '',
-        tiered_local_gate: tiered ? `      - name: Validate Local Gate\n        if: github.event_name == 'pull_request' && steps.scope.outputs.route == 'local'\n        env:\n          GH_TOKEN: \${{ github.token }}\n          HEAD_SHA: \${{ github.event.pull_request.head.sha }}\n        run: |\n          result=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status" --jq '.statuses | map(select(.context == ${q(cfg.gate.context)})) | .[0] | [.state, .description] | @tsv') || exit 1\n          case "$result" in\n            $'success\\tLocal run on '*|$'success\\tLocal check on '*|$'success\\tInherited from '*) echo 'Local gate verified; full CI skipped' ;;\n            *) echo 'Local gate missing or not green: run local-verify on the exact head before marking the PR ready' >&2; exit 1 ;;\n          esac` : '',
+        tiered_local_gate: tiered ? `      - name: Validate Local Gate\n        if: github.event_name == 'pull_request' && steps.scope.outputs.route == 'local'\n        env:\n          GH_TOKEN: \${{ github.token }}\n          HEAD_SHA: \${{ github.event.pull_request.head.sha }}\n        run: |\n          result=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/status" --jq '.statuses | map(select(.context == ${q(cfg.gate.context)})) | .[0] | [.state, .description] | @tsv') || exit 1\n          case "$result" in\n            $'success\\tLocal run on '*|$'success\\tLocal quick run on '*|$'success\\tLocal check on '*|$'success\\tInherited from '*) echo 'Local gate verified; full CI skipped' ;;\n            *) echo 'Local gate missing or not green: run local-verify on the exact head before marking the PR ready' >&2; exit 1 ;;\n          esac` : '',
         verify_steps: steps,
         practice_agents: rules.length ? `\nEnabled practices (procedures in \`${runtimeRel}/practices/\`):\n\n${rules.join('\n')}` : '',
         practice_pr: checks.length ? `\n### Practice checks\n\n${checks.join('\n')}` : '',
@@ -372,6 +377,7 @@ export function runsOn(existing, part) {
 export function renderFile(file, tpl, existing, { cfg, vars, runtimeRel, owned = {}, alt = null }) {
     const job = file.src === 'ci.yml' ? runsOn(existing, 'job') ?? '    runs-on: ubuntu-latest' : null
     const all = file.src === 'ci.yml' ? { ...vars, runs_on_job: job, runs_on_deploy: runsOn(existing, 'deploy') ?? job } : vars   // a new deploy job runs where the job runs
+    if (file.src === 'ci.yml') all.quick_report = all.quick_report.replace('{{runs_on_job}}', job)   // the report job runs where the job runs
     const rendered = dropParts(fill(tpl, all), omittedParts(cfg))
     switch (file.kind) {
         case 'blocks': {

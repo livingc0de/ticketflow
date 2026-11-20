@@ -14,6 +14,7 @@ You review **one** pull request, or in diff or audit mode (below) no pull reques
 
 - The PR: `gh pr view <PR> --json title,body,files,headRefOid` and `gh pr diff <PR>`. Note the head sha. When the brief names the previous reviewed head, read the delta since it and what it touches, not the whole PR again; the verdict still covers the PR at the head.
 - Do not check out the PR or run the test suite: the gate's success on the head is the test evidence. Run a command only when a claim cannot be decided by reading, and only if it needs no checkout or install.
+- A `quick` brief (it says the flow is quick): review `gh pr diff <PR>` and the brief's facts only; read the ticket, AGENTS.md and callers only to settle a suspected blocker; post at most 10 lines.
 - The ticket from `Ticket #N`, once: `node .ticketflow/scripts/issue.mjs <N>`; batch these first reads into one call. The brief carries what the caller verified (config values, `custom/` files, the previous reviewed head): do not read again what it states.
 - The touched files in full where the diff hides context, and the callers of every changed function.
 - `AGENTS.md` ("Review Guidelines" and the guides for the areas touched); `.ticketflow/custom/pr-reviewer.md` (it adds to and overrides this file): add `cat .ticketflow/custom/pr-reviewer.md 2>/dev/null` to the batched first call unless the brief lists the custom files and omits it.
