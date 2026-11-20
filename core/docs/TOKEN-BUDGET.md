@@ -28,6 +28,10 @@ Every word an agent loads costs time and money, and crowds out the code it shoul
 - Model and effort sit in the generated stubs, so a role runs at its class and effort without being told.
 - Plan in proportion to the tier: the strong planner only on a trigger, otherwise a short inline plan ([WORKFLOW.md](WORKFLOW.md)).
 
+## What a quick ticket loads
+
+The quick flow adds one on-demand file, `implement-ticket/quick.md` (read at step 1 when `mode` is `quick` or the ticket has a `Flow: Quick` label; about 2.7 KB). In return the ticket is read once, there is no `queue` call, the claim and handoff comments are short, the review is one pass on the diff with at most one fix round, and `claim --label` and `verify-route --ready` replace two separate GitHub calls in every flow.
+
 ## What a ticket loads
 
 A stub's description is loaded at the start of every session; the rest of the stub and the skill only when it runs. A ticket loads

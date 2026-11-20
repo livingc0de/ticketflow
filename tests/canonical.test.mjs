@@ -68,9 +68,10 @@ test('every skill, role and map stays within the 20,000-byte budget', () => {
 
 // Bytes are what a session loads. Each budget is the measured size plus at most 5%, so a rewrite that grows a file has to say so here.
 const BYTES = {
-    'skills/implement-ticket/SKILL.md': 14400,
-    'skills/implement-ticket/post-merge.md': 1800,
-    'skills/implement-ticket/review-wait.md': 3200,
+    'skills/implement-ticket/SKILL.md': 15400,
+    'skills/implement-ticket/quick.md': 2850,
+    'skills/implement-ticket/post-merge.md': 2300,
+    'skills/implement-ticket/review-wait.md': 3500,
     'skills/implement-ticket/planner.md': 1300,
     'skills/implement-ticket/resume.md': 1200,
     'skills/engineering-method/SKILL.md': 7500,
@@ -211,4 +212,14 @@ test('every action map says how a role is dispatched at a class and effort the s
         const row = text(`agents-map/${m}`).split('\n').find((l) => l.startsWith('| Dispatch the `<role>` role'))
         assert.match(row, /class/, m)   // an override from the skill, or the statement that it does not apply / cannot be honoured
     }
+})
+
+test('the quick flow and the review cap say what the scripts and floors enforce', () => {
+    const quick = text('skills/implement-ticket/quick.md'), skill = text('skills/implement-ticket/SKILL.md')
+    for (const re of [/At most one fix round/i, /one\*\* follow-up issue/, /merge\.mjs <PR>/, /Lane: self-check/, /never for a `Tier: Critical`/, /read the ticket once/i, /at most 8 lines/i, /No `queue\.mjs` call/]) assert.match(quick, re)
+    assert.match(skill, /\*\*At most 3 review rounds\*\*/)
+    assert.match(skill, /quick\.md/)
+    assert.match(skill, /verify-route\.mjs <PR> --ready/)
+    assert.match(text('agents/pr-reviewer.md'), /A `quick` brief/)
+    assert.doesNotMatch(quick, /--admin|--auto/)
 })

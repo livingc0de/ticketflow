@@ -4,7 +4,7 @@
 
 ## Exit 0
 
-Read its `Review:` and `Unresolved threads:` lines.
+Read its `Review:`, `Unresolved threads:` and `Flow:` lines (a quick pull request has one review and one fix round, `quick.md`; an advanced one at most 3 review rounds).
 - `results (<logins>)`: read each result (the link on its `Review <login>:` line) and fix or answer every finding (step 5.5), checking specification compliance (acceptance criteria, missing or extra work) and code quality in one pass. A bot's comment is not approval.
 - A result that says more is coming, or a `first comment` that is only a status note: wait again with `--more '<login>'`.
 - A first comment that is a **complete** review can be used at once by passing its exact link as `--review-result-url` in step 6, after reading it fully and addressing its findings; never for progress, quota or failure messages.

@@ -2,7 +2,8 @@
 /**
  * The recurring ticket steps as one call each, safe to repeat.
  *
- * Usage: ticket.mjs claim <issue> [--config f]      body on stdin: assign @me, Status "In Progress" (when a project is set), then the claim comment
+ * Usage: ticket.mjs claim <issue> [--label <name>]... [--config f]      body on stdin: add the labels, assign @me, Status "In Progress" (when a project is set), then the claim comment
+ *        (--label: only `Tier: High`, `Tier: Critical`, `Flow: Quick` and `Flow: Advanced`, so the tier or flow label needs no separate call)
  *        ticket.mjs handoff <issue> --pr <pr> [--config f]   body on stdin: Status "In Review" (when a project is set), then the summary comment
  *
  * The comment starts with a hidden marker (`<!-- ticketflow:claim -->` / `<!-- ticketflow:summary pr=<pr> -->`) and is skipped when the current
@@ -18,8 +19,9 @@ import { fileURLToPath } from 'node:url'
 import { cli, main } from '../lib/cli.mjs'
 import { GhError, api, isNumber } from '../lib/gh.mjs'
 
-const { values, positionals: [cmd, issue], cfg, configFile } = cli(import.meta.url, 'ticket', 'claim <issue> | handoff <issue> --pr <pr> [--config f]  (comment body on stdin)', { pr: { type: 'string' } },
-    (p, v) => p.length === 2 && isNumber(p[1]) && (p[0] === 'claim' ? v.pr === undefined : p[0] === 'handoff' && isNumber(v.pr)))
+const LABELS = ['Tier: High', 'Tier: Critical', 'Flow: Quick', 'Flow: Advanced']
+const { values, positionals: [cmd, issue], cfg, configFile } = cli(import.meta.url, 'ticket', 'claim <issue> [--label <name>]... | handoff <issue> --pr <pr> [--config f]  (comment body on stdin)', { pr: { type: 'string' }, label: { type: 'string', multiple: true } },
+    (p, v) => p.length === 2 && isNumber(p[1]) && (p[0] === 'claim' ? v.pr === undefined && (v.label ?? []).every((l) => LABELS.includes(l)) : p[0] === 'handoff' && isNumber(v.pr) && v.label === undefined))
 const R = `repos/${cfg.repo}`
 const marker = cmd === 'claim' ? '<!-- ticketflow:claim -->' : `<!-- ticketflow:summary pr=${values.pr} -->`
 let body = ''
@@ -38,6 +40,10 @@ main('ticket', () => {
     try {
         const me = api('user').login
         if (cmd === 'claim') {
+            if (values.label?.length) {
+                api(`${R}/issues/${issue}/labels`, { method: 'POST', body: { labels: [...new Set(values.label)] } })
+                done.push(`labels ${[...new Set(values.label)].join(', ')}`)
+            }
             api(`${R}/issues/${issue}/assignees`, { method: 'POST', body: { assignees: [me] } })
             done.push(`assigned ${me}`)
             status('In Progress')

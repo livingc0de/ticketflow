@@ -6,7 +6,7 @@
 - Plan in proportion to the tier (the strong planner only when needed; its plans are committed under `{{plans_dir}}`). Never claim a check that did not run.
 - Any code change, review or audit, with or without a ticket, follows the `engineering-method` skill.
 - Review the *meaning* of findings and address blockers; the suggested review format is not a required string. An unblocked gate is not permission to ignore semantic defects.
-- Verification follows `verify.mode`: in `ci` or `tiered`, focused checks while building, never the full `verify.command` in the working tree. `tiered`: `verify-route` on the draft PR, then the one selected local or Actions gate. `local`: the full command once through `local-verify` in a clean worktree. `local-verify` marks the draft ready when it passes; fork PRs use Actions.
+- Verification follows `verify.mode`: in `ci` or `tiered`, focused checks while building, never the full `verify.command` in the working tree. `tiered`: `verify-route --ready` on the draft PR, then the one selected local or Actions gate. `local`: the full command once through `local-verify` in a clean worktree. `local-verify` marks the draft ready when it passes; fork PRs use Actions.
 - **Mode:** `mode` in `.ticketflow/config.json` (default `advanced`; `quick` is the lighter flow). `off`: ignore this block and every TicketFlow skill, role and script, except the admin-bypass and issue-text rules below. Switch only when the user asks: `node {{runtime}}/scripts/mode.mjs set <mode>`, then a PR.
 - Write `Ticket #N` in PRs and commits, never a closing keyword (Closes, Fixes, Resolves).
 - **Merge only with `node {{runtime}}/scripts/merge.mjs <PR>`**.

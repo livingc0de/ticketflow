@@ -107,3 +107,15 @@ test('a repeated call says whether the text on stdin was kept out because it dif
     // another PR still gets its own summary
     assert.equal(run(['handoff', '7', '--pr', '6'], { comments: [old], body: 'Merged #6.' }).posts.length, 1)
 })
+
+test('claim --label adds the tier or flow label first, in the same call; anything else exits 2 with zero calls', () => {
+    const r = run(['claim', '7', '--label', 'Tier: High', '--label', 'Flow: Quick', '--label', 'Tier: High'], { extra: { [`POST ${R}/issues/7/labels`]: [] } })
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(r.posts.map((p) => p.path), [`${R}/issues/7/labels`, `${R}/issues/7/assignees`, `${R}/issues/7/comments`])
+    assert.deepEqual(r.posts[0].body, { labels: ['Tier: High', 'Flow: Quick'] })
+    assert.match(r.stdout, /claim #7: labels Tier: High, Flow: Quick, assigned me/)
+    for (const args of [['claim', '7', '--label', 'Security'], ['claim', '7', '--label', 'tier: high'], ['handoff', '7', '--pr', '9', '--label', 'Tier: High']]) {
+        const bad = run(args)
+        assert.equal(bad.status, 2, args.join(' ')); assert.deepEqual(bad.posts, [])
+    }
+})
