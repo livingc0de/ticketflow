@@ -24,6 +24,7 @@ import { parseArgs } from 'node:util'
 import { configPath, loadConfig } from '../lib/config.mjs'
 import { docsOnly } from '../lib/docs-only.mjs'
 import { description as inheritedDescription, inherit } from '../lib/inherit.mjs'
+import { quickTests } from '../lib/quick.mjs'
 import { routeOfPull } from '../lib/verification.mjs'
 
 class Exit extends Error {
@@ -83,7 +84,7 @@ const allowed = () => {
 }
 
 /** Checks the agent stubs and (unless `stubsOnly`) verifies in a clean worktree of `sha`; returns { state, log, stale }. A timeout or a signal posts nothing. */
-function checkHead(sha, stubsOnly = false) {
+function checkHead(sha, stubsOnly = false, quick = null) {
     const wt = join(homedir(), '.cache', 'ticketflow-verify', cfg.repo.replace('/', '__'), sha.slice(0, 12))
     const log = `${wt}.log`
     mkdirSync(dirname(wt), { recursive: true })
@@ -107,10 +108,11 @@ function checkHead(sha, stubsOnly = false) {
         if (stubs.error || stubs.signal) stop(1, `the stub check did not finish (${stubs.error?.message ?? stubs.signal}); nothing posted (log: ${log})`)
         if (stubs.status !== 0) return { state: 'failure', log, stale: true }
         if (stubsOnly) return { state: 'success', log }
-        const { install, command, timeout_min: min } = cfg.verify
+        const { install, command, quick_command, timeout_min: min } = cfg.verify
+        const cmd = quick ? quick_command : command   // a quick run: the selected tests only, in $TICKETFLOW_TESTS
         // A clean environment with CI=true: the caller's other variables stay out of the install scripts and tests of the code under test.
-        const r = run('timeout', ['-k', '30', String(min * 60), 'bash', '-c', install ? `(${install}) && (${command})` : command], {
-            cwd: wt, env: { HOME: homedir(), PATH: process.env.PATH, CI: 'true' }, stdio: ['ignore', fd, fd],
+        const r = run('timeout', ['-k', '30', String(min * 60), 'bash', '-c', install ? `(${install}) && (${cmd})` : cmd], {
+            cwd: wt, env: { HOME: homedir(), PATH: process.env.PATH, CI: 'true', ...(quick ? { TICKETFLOW_TESTS: quick.tests.join(' ') } : {}) }, stdio: ['ignore', fd, fd],
         })
         if (r.error) stop(1, `cannot run timeout (coreutils): ${r.error.message}; nothing posted`)
         if (r.status === 124) stop(1, `timed out after ${min} min; nothing posted (log: ${log})`)
@@ -176,16 +178,28 @@ function main() {
             ;({ state, log, stale } = checkHead(sha, true))
         }
     }
+    // The quick flow: only the selected tests (verify.quick_command), when the ticket's flow is quick and the selection is determinable; any doubt is the full command.
+    const quickPlan = () => {
+        if (!isPr || cfg.verify.quick_command === null) return null
+        try {
+            const changed = git('diff', '-z', '--no-renames', '--name-only', origin, sha), tracked = git('ls-tree', '-r', '-z', '--name-only', sha)
+            if (changed.status !== 0 || tracked.status !== 0) return null
+            return quickTests(cfg, ghApi(`repos/${cfg.repo}/pulls/${target}`), target, changed.stdout.split('\0').filter(Boolean), tracked.stdout.split('\0').filter(Boolean), ghApi)
+        } catch { return null }
+    }
+    let quick = null
     if (!desc) {
-        desc = `${fallbackWording ? 'Local fallback run' : 'Local run'} on ${host} (${machine()}, Node ${process.versions.node})`
-        how = `${desc}, verify command on the exact head, ${method === 'fallback' ? 'Actions refused the job' : 'local verification'}`
-        ;({ state, log, stale } = checkHead(sha))
+        quick = quickPlan()
+        desc = `${fallbackWording ? 'Local fallback' : 'Local'} ${quick ? 'quick run' : 'run'} on ${host} (${machine()}, Node ${process.versions.node})`
+        how = `${desc}, ${quick ? `quick command on ${quick.tests.length} selected test file(s)` : "verify command"} on the exact head, ${method === 'fallback' ? 'Actions refused the job' : 'local verification'}`
+        ;({ state, log, stale } = checkHead(sha, false, quick))
     }
     if (stale) { desc = `Local check on ${host}, agent stubs out of date`; how = `${desc} (run gen-stubs), no verify run` }
 
     // 7. Recheck right before posting: the head is unchanged and the guard still says so.
     const where = log && ` (log: ${log})`
     if (allowed() !== method) stop(1, `the verification route or fallback eligibility changed; nothing posted${where}`)
+    if (quick && !stale && !quickPlan()) stop(1, `the flow changed while the quick run was going (a label, the mode or the test selection); nothing posted${where}`)
     let now = null
     if (isPr) {   // after the guard, so the guard cannot have judged a newer head than the one confirmed here
         try { now = readHead() } catch { stop(1, `cannot re-read the head; nothing posted${where}`) }

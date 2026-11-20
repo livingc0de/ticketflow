@@ -3,7 +3,7 @@
   "repo": "owner/name",
   "default_branch": "main",
   "mode": "advanced",
-  "verify": { "mode": "tiered", "install": "", "command": "npm test", "timeout_min": 45 },
+  "verify": { "mode": "tiered", "install": "", "command": "npm test", "timeout_min": 45, "quick_command": null },
   "gate": { "context": "CI / Gate", "check": "Verify", "inherit": false, "ci_files": [] },
   "docs_only": { "docs": [], "code": [] },
   "deploy_branch": null,

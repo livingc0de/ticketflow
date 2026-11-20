@@ -153,6 +153,8 @@ Work that should be tracked is `create-ticket` and `implement-ticket`; say so an
 - **`tiered`**: run focused checks while working, then open a draft PR. `verify-route <PR>` selects `local` for Low/Normal tickets with safe paths; `ci` for High/Critical, Security or verification-control changes, unknown labels or incomplete file lists. For `local`, `local-verify <PR>` checks the exact head in a clean worktree and posts the gate, then mark ready. For `ci`, mark ready without running the full suite locally. A lightweight Actions job checks the local status and skips its expensive test steps. The usual refused-Actions fallback remains available for the CI route. Tier is decided by the agent based on engineering impact; changing application files does not silently turn review configuration into CI-routing policy. Agents must address semantic review findings, even when GitHub reports only a COMMENTED review.
 - **`local`**: run `verify.command` once locally in a clean worktree, post the exact-head gate status, and mark the draft PR ready. Same-repository PRs skip the configured install and verify steps; fork PRs use Actions because local verification refuses fork heads.
 
+With `verify.quick_command` set, a quick-flow pull request runs only the tests that cover its change as the same gate, and `merge` starts the full suite on the default branch after the merge when the facts call for it ([CI-GATE.md](CI-GATE.md#the-quick-gate)).
+
 In all modes a UI, navigation or flow change is proven live (the `e2e-verifier` role, when `live_verify_skill` is set). A check that
 cannot run is never claimed: it goes in the `deferred_checks_issue` (when set) or the summary under "Not verified".
 The gate itself: [CI-GATE.md](CI-GATE.md).

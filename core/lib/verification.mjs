@@ -9,9 +9,11 @@ import { ticketsOf } from './risk.mjs'
 import { NEVER_DOCS } from './config.mjs'
 
 export const localGate = (description = '') =>
-    /^Local run on |^Local check on |^Inherited from /.test(description)
+    /^Local (?:quick )?run on |^Local check on |^Inherited from /.test(description)
 export const ciGate = (description = '') =>
-    /^Actions run #\d+\b|^Local fallback (?:run|check) on /.test(description)
+    /^Actions (?:quick )?run #\d+\b|^Local fallback (?:(?:quick )?run|check) on /.test(description)
+/** A gate that ran only the selected tests (`verify.quick_command`): valid only while the pull request's flow is quick. */
+export const QUICK_GATE = /^(?:Actions|Local(?: fallback)?) quick run\b/
 
 /** The gate description must match the selected route. A normal local run cannot authorize a High/Critical merge. */
 export function validGateSource(route, description) {

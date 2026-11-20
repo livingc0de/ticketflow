@@ -157,7 +157,8 @@ if (!values.preflight) {
         let text
         try { text = readFileSync(f, 'utf8') } catch (e) { return say('warn', 'ci-steps', `cannot read .github/workflows/ci.yml: ${e.code ?? e.message}`) }
         const n = verifyRuns(text, cfg.verify.command)
-        if (n > 1) say('warn', 'ci-steps', `verify.command appears ${n} times in ci.yml: keep one (your own steps replace the template's Install Dependencies and Verify)`)
+        if (cfg.verify.quick_command !== null && !text.includes("steps.scope.outputs.quick != 'true'")) say('warn', 'ci-steps', "verify.quick_command is set but the Verify step of ci.yml does not skip on `steps.scope.outputs.quick != 'true'`: the full verify also runs on quick pull requests (add the condition to its `if:`, see UPGRADING)")
+        else if (n > 1) say('warn', 'ci-steps', `verify.command appears ${n} times in ci.yml: keep one (your own steps replace the template's Install Dependencies and Verify)`)
         else say('ok', 'ci-steps', n ? 'verify.command appears once' : 'verify.command does not appear in ci.yml as written (a repo step runs it another way)')
     })
     need('guard', () => {

@@ -10,13 +10,13 @@ import { api } from './gh.mjs'
 
 const TIERS = ['Low', 'Normal', 'High', 'Critical']
 /** The highest `Tier:` label of the named tickets; none means Normal (the label is only needed to raise the floor). */
-const tierOf = (labels) => {
+export const tierOf = (labels) => {
     const ranks = labels.filter((l) => l.startsWith('Tier: ')).map((l) => TIERS.indexOf(l.slice(6))).filter((i) => i >= 0)
     return TIERS[ranks.length ? Math.max(...ranks) : 1]
 }
 
-const TEST = /(^|\/)(tests?|__tests__|spec)\/|[._-](test|spec)\.[^/]+$/
-const names = (f) => [f.filename, f.previous_filename].filter((n) => typeof n === 'string')
+export const TEST = /(^|\/)(tests?|__tests__|spec)\/|[._-](test|spec)\.[^/]+$/
+export const names = (f) => [f.filename, f.previous_filename].filter((n) => typeof n === 'string')
 
 /** A change with no readable line count (binary, mode-only, empty): its size is unknown, so it is never trusted. A pure rename is the exception. */
 export const noLines = (f) => f.additions + f.deletions === 0 && f.status !== 'renamed'
@@ -59,8 +59,15 @@ export function minimumLane(files, labels, cfg) {
 /** Every ticket number a PR names in its title and body ("Ticket #N"), first one first. */
 export const ticketsOf = (pull) => [...new Set([...`${pull.title ?? ''}\n${pull.body ?? ''}`.matchAll(/\bTicket #(\d+)\b/g)].map((m) => m[1]))]
 
-/** The printed form of laneOfPull: `Lane:`, one `Reason:` per rule, then `pr-reviewer class:`. Shared by risk.mjs and pr-wait.mjs. */
-export const laneLines = ({ lane, reasons, reviewer }) => [`Lane: ${lane}`, ...reasons.map((r) => `Reason: ${r}`),
+/**
+ * The flow a pull request runs: `off` while the mode is off; `advanced` for a Critical ticket or a `Flow: Advanced` label; `quick` for a `Flow: Quick` label;
+ * otherwise the configured mode. Scripts, CI and local-verify all read it from the config and the ticket labels, so they agree.
+ */
+export const flowOf = (cfg, labels) => cfg.mode === 'off' ? 'off' : tierOf(labels) === 'Critical' || labels.includes('Flow: Advanced') ? 'advanced' : labels.includes('Flow: Quick') ? 'quick' : cfg.mode
+
+const FLOW_TEXT = { quick: 'quick (at most 1 fix round)', advanced: 'advanced (at most 3 review rounds)', off: 'off' }
+/** The printed form of laneOfPull: `Flow:`, `Lane:`, one `Reason:` per rule, then `pr-reviewer class:`. Shared by risk.mjs and pr-wait.mjs. */
+export const laneLines = ({ lane, reasons, reviewer, flow }) => [...(flow ? [`Flow: ${FLOW_TEXT[flow]}`] : []), `Lane: ${lane}`, ...reasons.map((r) => `Reason: ${r}`),
     reviewer.cls === 'strong' ? `pr-reviewer class: strong (${reviewer.why.join('; ')})` : 'pr-reviewer class: standard']
     .map((l) => l.replace(/[\p{Cc}\u2028\u2029]+/gu, ' '))   // a file name with a newline stays one line
 
@@ -77,5 +84,6 @@ export function laneOfPull(cfg, pull, pr) {
     const extra = [...(tickets.length ? [] : ['no "Ticket #N" in the PR title or body']), ...issues.filter(([, i]) => i.pull_request).map(([n]) => `#${n} is a pull request, not a ticket`), ...(files.length === pull.changed_files ? [] : ['the file list is incomplete'])]
     const partial = files.length !== pull.changed_files   // an incomplete list hides the size and the paths: the class goes up
     const reviewer = { cls: partial || lane.reviewer.cls === 'strong' ? 'strong' : 'standard', why: [...lane.reviewer.why, ...(partial ? ['the file list is incomplete'] : [])] }
-    return { lane: extra.length ? 'review' : lane.lane, reasons: [...extra, ...lane.reasons], size: extra.length === 0 && lane.size, ticket: tickets[0] ?? null, reviewer }
+    const flow = tickets.length ? flowOf(cfg, labels) : cfg.mode === 'off' ? 'off' : 'advanced'   // a pull request that names no ticket runs the advanced flow
+    return { lane: extra.length ? 'review' : lane.lane, reasons: [...extra, ...lane.reasons], size: extra.length === 0 && lane.size, ticket: tickets[0] ?? null, reviewer, flow, files, labels }
 }

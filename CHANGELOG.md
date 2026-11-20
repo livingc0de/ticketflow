@@ -6,9 +6,11 @@
 
 - **Operating modes.** `mode` in `.ticketflow/config.json` is `advanced` (today's flow, the default), `quick` or `off`; `mode.mjs get|set` reads and changes it. `off` (agent side) makes the agent ignore TicketFlow: the guard hook passes everything, no Claude Code or Codex ask rules are rendered, every stub and the `AGENTS.md` block say TicketFlow is off, and every pull request takes the Actions route with the full verify command. GitHub-side settings stay.
 - **`off` fully.** `protect.mjs --release-gate` (plan, `--apply`) removes only the required gate status from the default-branch ruleset on the user's request, with a rollback copy and a read-back; the pull request, deletion and force-push rules stay. It needs `mode: off`. `doctor` reports protection drift as a warning while the mode is `off`.
+- **Quick verification.** `verify.quick_command` makes the quick flow's pull request gate run only the tests that cover the change (the same required gate, `Actions quick run` / `Local quick run`), with the full command whenever the selection cannot be determined. `merge` refuses a quick gate when the flow is not quick and, after a quick merge, starts one full run on the default branch when the facts call for it (High tier, always-review and shared paths, dependency or CI files, size, unmatched code); a red result opens an issue. New `Flow: Quick` / `Flow: Advanced` labels override the mode per ticket; a Critical ticket is always advanced; `risk` prints a `Flow:` line.
 
 ### What You Need To Do When Upgrading From 0.7.0
 
+- With `verify.quick_command`, add `&& steps.scope.outputs.quick != 'true'` to the `if:` of your ci.yml `Verify` step (`doctor` warns until you do).
 - Run `sync`. It adds the `mode` line to the `AGENTS.md` block, the off line to the stubs and the `mode.mjs` allow rule to `.claude/settings.json`. Nothing changes until you set a mode.
 
 ## 0.7.0

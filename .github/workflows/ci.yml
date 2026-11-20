@@ -9,6 +9,10 @@ on:
   pull_request:
     branches: ["main"]
   workflow_dispatch:
+    inputs:
+      sha:
+        description: Commit to verify in full (the default-branch run after a merged quick pull request); empty means the branch tip
+        required: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -28,6 +32,7 @@ jobs:
       contents: read
       pull-requests: read
       statuses: write
+      issues: read
     steps:
       # No token in .git/config: only the scope step and the last step get one, so no install script or test can post the gate itself.
       # A pull request that edits the workflow or the runtime runs its own copy of the scope step with that token: review is the control.
@@ -35,6 +40,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha }}
           fetch-depth: 2   # a pull request's test merge commit and its two parents
 
       # TicketFlow's steps run on the runner's own Node.js (18.9 or newer): the repo section sets up whatever the project uses.
@@ -97,12 +103,13 @@ jobs:
         if: always() && steps.scope.outputs.route != 'local'
         env:
           GH_TOKEN: ${{ github.token }}
-          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SHA: ${{ github.event.pull_request.head.sha || inputs.sha || github.sha }}
           STATE: ${{ job.status == 'success' && (steps.scope.outputs.skip != 'true' || steps.scope.outputs.description != '') && 'success' || 'failure' }}
           DESC: ${{ job.status == 'success' && steps.scope.outputs.description || '' }}
           CONTEXT: "CI / Gate"
           URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          [[ $SHA =~ ^[0-9a-f]{40}$ ]] || exit 1
           for _ in 1 2 3; do
             gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$STATE" -f context="$CONTEXT" \
               -f description="${DESC:-Actions run #$GITHUB_RUN_ID}" -f target_url="$URL" >/dev/null && exit 0

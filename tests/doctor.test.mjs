@@ -253,3 +253,11 @@ test('mode off: protection drift is a warning, not a failure', () => {
     on.child('protect', 1)
     assert.equal(on.run().status, 1)
 })
+
+test('verify.quick_command without the quick condition on the Verify step is a warning', () => {
+    const t = setup({ cfg: { verify: { quick_command: 'echo $TICKETFLOW_TESTS' } } })
+    t.put('.github/workflows/ci.yml', 'jobs:\n  verify:\n    steps:\n      - run: npm test\n')
+    has(t.run('--local'), /^warn ci-steps: verify\.quick_command is set but the Verify step/m)
+    t.put('.github/workflows/ci.yml', "jobs:\n  verify:\n    steps:\n      - if: steps.scope.outputs.skip != 'true' && steps.scope.outputs.quick != 'true'\n        run: npm test\n")
+    assert.doesNotMatch(t.run('--local').out, /quick_command is set/)
+})

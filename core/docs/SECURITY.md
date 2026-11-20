@@ -39,6 +39,10 @@ OpenCode, Antigravity and GitHub Copilot a guard asks you before (or blocks) the
   turns the local fallback off, because a status posted by `local-verify` is not from that app). An agent on a GitHub App token
   cannot say who it runs as (`gh api user` fails): `pr-wait` and `merge` both refuse it, which is not probed here.
 
+## The quick gate and token scopes
+
+The verify job has `issues: read` (the scope step reads the named tickets' labels to know the flow). The post-merge `report` job is the only job with `issues: write`; it has no checkout and no secret, runs only for a failed `workflow_dispatch`, and refuses a commit that is not 40 hexadecimal characters. A dispatched run verifies the exact merge commit, never deploys and posts the gate for that sha. The quick subset is a policy of the base side's config and the ticket's labels: a pull request cannot widen it, and `merge` re-checks the flow.
+
 ## Mode off
 
 `mode: off` switches the agent-side speed bumps off: the guard hook passes every command, `render` writes no Claude Code or Codex ask rules (an OpenCode `ask` rule that was already rendered stays until you remove it), and the skills and roles say TicketFlow is off. The ruleset, the merge script and the gate are untouched, and every pull request takes the Actions route, so the gate still needs a full green run. A config that cannot be loaded has no mode and the guard stays strict. An agent can edit the config; the mode is a repo-wide, reviewed change like any other, and the admin-bypass rule applies in every mode.

@@ -423,3 +423,61 @@ test('S9: the ticket labels are read from every named ticket; a named pull reque
     refused(selfChecked({ extra: { [`${R}/issues/7`]: { __status: 404, __stderr: 'gone' } } }), /cannot read/)
     refused(selfChecked({ files: [f('src/a.js'), { filename: 'tests/a.test.mjs' }] }), /file list is unreadable/)
 })
+
+// ---- the quick flow: a subset gate counts only in the quick flow, and the full suite after the merge only when the facts say so
+const QP = pull({ title: 'Ticket #14', changed_files: 2 })
+const quickFiles = [{ filename: 'src/cart.js', additions: 5, deletions: 1, status: 'modified' }, { filename: 'tests/cart.test.js', additions: 6, deletions: 0, status: 'modified' }]
+const treeOf = (...paths) => ({ truncated: false, tree: paths.map((path) => ({ path, type: 'blob' })) })
+const QGATE = { sha: HEAD, statuses: [{ context: 'CI / Gate', state: 'success', description: 'Actions quick run #9' }] }
+const quickRun = ({ labels = [], files = quickFiles, tree = treeOf('src/cart.js', 'tests/cart.test.js'), mode = 'quick', gate = QGATE, extraCfg = {}, extra = {} } = {}) => run({
+    gate, pulls: seq(QP, QP, MERGED), cfgOver: { mode, verify: { quick_command: 'node --test $TICKETFLOW_TESTS' }, ...extraCfg },
+    extra: { [`${R}/pulls/5/files`]: files, [`${R}/issues/14`]: { labels: labels.map((name) => ({ name })) }, [`${R}/git/trees/${HEAD}?recursive=1`]: tree, 'workflow run': {}, ...extra },
+})
+const dispatches = (r) => r.calls.filter((c) => c[0] === 'workflow')
+
+test('a quick gate is refused while the flow is advanced (a Critical ticket, an advanced mode or a Flow: Advanced label)', () => {
+    for (const [mode, labels] of [['advanced', []], ['quick', ['Tier: Critical']], ['quick', ['Flow: Advanced']], ['off', []]]) {
+        const r = quickRun({ mode, labels })
+        refused(r, /quick subset run but the flow is (advanced|off)/)
+    }
+})
+
+test('a quick gate on a small matched change merges and starts no full run', () => {
+    const r = quickRun()
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stdout, /^Full run: not needed$/m)
+    assert.deepEqual(dispatches(r), [])
+})
+
+test('a quick merge dispatches one full run on the default branch when the facts say so, naming the reasons', () => {
+    const r = quickRun({ labels: ['Tier: High'] })
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(dispatches(r), [['workflow', 'run', 'ci.yml', '--repo', 'o/r', '--ref', 'main', '-f', `sha=${'f'.repeat(40)}`]])
+    assert.match(r.stdout, /Full run: started on fffffff \(Tier: High\)/)
+    const lock = quickRun({ files: [...quickFiles, { filename: 'package-lock.json', additions: 3, deletions: 3, status: 'modified' }] })
+    assert.match(lock.stdout, /Full run: started .*package-lock\.json always needs a review/); assert.equal(dispatches(lock).length, 1)
+    const orphan = quickRun({ files: [{ filename: 'src/orphan.js', additions: 4, deletions: 0, status: 'modified' }, quickFiles[1]], tree: treeOf('src/orphan.js', 'tests/cart.test.js') })
+    assert.match(orphan.stdout, /code without a matching test: src\/orphan\.js/)
+})
+
+test('a failed dispatch, an unreadable or truncated tree never undo the merge: exit 0 with the exact command or a full run', () => {
+    const fail = quickRun({ labels: ['Tier: High'], extra: { 'workflow run': { __fail: true } } })
+    assert.equal(fail.status, 0); assert.match(fail.stdout, /Full run: not started \(.*\): gh workflow run ci\.yml --repo o\/r --ref main -f sha=f{40}/)
+    const truncated = quickRun({ tree: { truncated: true, tree: [] } })
+    assert.equal(truncated.status, 0); assert.match(truncated.stdout, /Full run: started .*too large to read/); assert.equal(dispatches(truncated).length, 1)
+    const unread = quickRun({ extra: { [`${R}/git/trees/${HEAD}?recursive=1`]: { __status: 500, __stderr: 'boom' } } })
+    assert.equal(unread.status, 0); assert.equal(dispatches(unread).length, 1)
+})
+
+test('with a deploy branch or a push run on every push, the push run is the full run: no dispatch', () => {
+    const r = quickRun({ labels: ['Tier: High'], extraCfg: { deploy_branch: 'deploy' } })
+    assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /Full run: the push run of fffffff is the full run/); assert.deepEqual(dispatches(r), [])
+    const push = quickRun({ labels: ['Tier: High'], extraCfg: { ci: { push_paths: [] } } })
+    assert.match(push.stdout, /the push run of/); assert.deepEqual(dispatches(push), [])
+})
+
+test('a full gate prints no full-run line and reads nothing extra', () => {
+    const r = run()
+    assert.equal(r.status, 0, r.stderr); assert.doesNotMatch(r.stdout, /Full run/)
+    assert.ok(!r.calls.some((c) => c.some((a) => /git\/trees/.test(String(a)))))
+})
