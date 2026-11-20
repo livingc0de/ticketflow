@@ -33,5 +33,6 @@ main('mode', () => {
     const here = dirname(fileURLToPath(import.meta.url))
     const r = spawnSync('node', [join(here, 'render.mjs'), join(here, '..', 'templates'), top], { stdio: 'inherit' })   // the templates sit next to the scripts, in a user repo and in ticketflow itself
     console.log('next: commit the config and the rendered files on a branch and merge the pull request; CI and local-verify use the default branch until then.')
+    if (positionals[1] === 'off') console.log('Fully off (GitHub side): on the user\'s request run `protect.mjs --apply --release-gate` after the merge. Back on: `protect.mjs` (plan), then `--apply`.')
     return r.status === 0 ? 0 : 1
 })
