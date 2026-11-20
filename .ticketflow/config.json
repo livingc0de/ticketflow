@@ -41,5 +41,6 @@
     "always_review": [
       "^core/"
     ]
-  }
+  },
+  "mode": "quick"
 }
