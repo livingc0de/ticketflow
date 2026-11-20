@@ -5,6 +5,7 @@
 ### Highlights
 
 - **Operating modes.** `mode` in `.ticketflow/config.json` is `advanced` (today's flow, the default), `quick` or `off`; `mode.mjs get|set` reads and changes it. `off` (agent side) makes the agent ignore TicketFlow: the guard hook passes everything, no Claude Code or Codex ask rules are rendered, every stub and the `AGENTS.md` block say TicketFlow is off, and every pull request takes the Actions route with the full verify command. GitHub-side settings stay.
+- **`off` fully.** `protect.mjs --release-gate` (plan, `--apply`) removes only the required gate status from the default-branch ruleset on the user's request, with a rollback copy and a read-back; the pull request, deletion and force-push rules stay. It needs `mode: off`. `doctor` reports protection drift as a warning while the mode is `off`.
 
 ### What You Need To Do When Upgrading From 0.7.0
 

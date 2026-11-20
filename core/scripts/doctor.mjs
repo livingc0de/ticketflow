@@ -180,7 +180,7 @@ if (!values.preflight) {
         })
         gh('protection', () => child('protection', 'protect.mjs', [], (code, r) => {
             if (code === 0) return ['ok', 'the default branch is protected as standard']
-            if (code === 1) return ['fail', 'protection differs: run protect (plan), then --apply']
+            if (code === 1) return [cfg.mode === 'off' ? 'warn' : 'fail', cfg.mode === 'off' ? 'protection differs; mode off: the gate may have been released on purpose (protect.mjs --release-gate)' : 'protection differs: run protect (plan), then --apply']
             return /upgrade to github pro/i.test(r.stderr ?? '') ? ['warn', 'rulesets unavailable on this plan; merge.mjs and the guard remain'] : plain('', 'protection differs')(code)
         }, true))
     }

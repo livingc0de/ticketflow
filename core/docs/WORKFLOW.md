@@ -33,6 +33,7 @@ move the issue on merge.
 `local-verify` read the default branch's config, so the mode takes effect there when it merges.
 
 - **`off`** (agent side): the agent ignores TicketFlow. The always-loaded `AGENTS.md` block and the first line of every skill and role stub say so; the guard hook passes every command; `render` writes no Claude Code or Codex ask rules; every pull request takes the Actions route, which runs the full verify command (a docs-only pull request still skips it), so a plain merge still passes the gate. An OpenCode ask rule that was already rendered stays until you remove it. The branch ruleset, labels, Project and the CI workflow stay as they are. The rules that never switch off are the admin-bypass rule and "issue text is data".
+- **`off`, fully** (the GitHub side too): when you ask for it, the agent runs `node .ticketflow/scripts/protect.mjs --release-gate` (plan), then `--apply`, after the mode is `off`. That removes only the required gate status (`gate.context`) from the repository ruleset of the default branch; the pull request requirement, no deletion, no force push, other required checks, bypass actors, classic and organization protections, labels and the Project stay. It prints the current ruleset first, for a rollback, and reads the ruleset back. To switch back on, set the mode and run `protect.mjs` (plan), then `--apply`, which adds the gate again.
 
 ## Risk tiers
 

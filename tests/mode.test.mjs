@@ -36,6 +36,7 @@ test('mode.mjs get prints the mode, set writes it validated and keeps every othe
     assert.deepEqual(after.areas, ['Docs'])
     assert.equal(after.repo, 'o/r')
     assert.match(r.stdout, /merge the pull request/)
+    assert.match(r.stdout, /release-gate/)
     assert.equal(run('get', '--config', file).stdout.trim(), 'off')
 })
 
