@@ -9,6 +9,10 @@ The verdict is that status alone; `merge`, `pr-wait` and the branch ruleset all 
 
 With `mode: off` ([WORKFLOW.md](WORKFLOW.md#modes)) every pull request takes the Actions route whatever `verify.mode` says, and the local-only scope step is skipped (it reads the base side of the pull request's config, like the scripts read the default branch's), so the full verify command runs and posts the gate; a docs-only pull request still skips it.
 
+## Releasing the gate (TicketFlow fully off)
+
+With `mode: off`, `protect.mjs --release-gate` (plan: prints the change and exits 1) and `protect.mjs --apply --release-gate` remove only `gate.context` from the required status checks of the one repository ruleset that covers the default branch; the whole rule goes when the gate was its only context. The pull request, no-deletion and no-force-push rules, other required checks and the bypass actors stay, and so do classic protection (warned about, to remove by hand) and organization rulesets. `--apply` prints the current ruleset as a rollback copy, writes it, and exits 1 unless the read-back no longer requires the gate. The flag is refused unless `mode` is `off` and cannot be combined with another `protect` flag. Without a ruleset, or when none requires the gate, it prints `nothing to release` and exits 0. Switching back on: `mode.mjs set advanced`, merge, then `protect.mjs` (plan) and `--apply`, which adds the gate to the ruleset again. `doctor` reports a protection difference as a warning while the mode is `off`.
+
 ## Status, not check
 
 - The verdict is the **status** `gate.context`. The job that runs the work is a **check** named `gate.check` (default `Verify`).

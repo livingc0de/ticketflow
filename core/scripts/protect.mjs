@@ -3,6 +3,7 @@
  * Protection of the default branch: compares the repo with the standard ruleset (plan mode) or brings it there.
  *
  * Usage: protect.mjs [--apply [--migrate-classic]] [--squash-only] [--branch-settings] [--replace-context <old>] [--config f]
+ *        protect.mjs [--apply] --release-gate [--config f]     (mode off only: the user asked to take TicketFlow's gate off GitHub)
  *        (this exact order, so one prefix rule can match `--apply`)
  *
  * Plan mode prints one line per difference (`path: current -> desired`). `--apply` first prints the current ruleset (a rollback is a
@@ -15,6 +16,10 @@
  * classic protection that still requires `<old>` is refused unless `--migrate-classic` moves it. See core/docs/CI-GATE.md.
  * Rulesets stack, so exactly one repo-level ruleset covering the default branch is updated in place; org-level rulesets are never touched.
  *
+ * `--release-gate` removes only `gate.context` from the repo ruleset's required status checks (plan mode prints the change and exits 1; `--apply` prints the current
+ * ruleset for a rollback first and reads back). The pull request, deletion and force push rules, other contexts, bypass actors, classic protection and org rulesets stay.
+ * It needs `mode: off` and cannot be combined with the other flags. Back on: the plain `protect.mjs --apply` adds the gate again.
+ *
  * Exit: 0 = in sync / applied, 1 = drift (plan), a read-back mismatch, an empty repo, an unmappable classic setting or (--apply) a
  * classic protection that still requires the replaced context,
  * 2 = usage, config, missing admin right for --apply, or an API error (GitHub's message is shown, for example the plan upgrade notice).
@@ -22,7 +27,7 @@
 
 import { cli, main } from '../lib/cli.mjs'
 import { GhError, api } from '../lib/gh.mjs'
-import { BRANCH_SETTINGS, CAN_BYPASS, classicBlockers, classicContexts, desiredRuleset, diff, relation, SQUASH_ONLY } from '../lib/protect.mjs'
+import { BRANCH_SETTINGS, CAN_BYPASS, classicBlockers, classicContexts, desiredRuleset, diff, relation, releasedRuleset, requiresGate, SQUASH_ONLY } from '../lib/protect.mjs'
 
 // The arguments before --config, which must come last: so `--config f --apply` cannot slip past the order (and the prefix rules).
 const argv = process.argv.slice(2)
@@ -30,12 +35,16 @@ const at = argv.findIndex((a) => a === '--config' || a.startsWith('--config='))
 const configLast = at < 0 || (argv[at] === '--config' ? at === argv.length - 2 : at === argv.length - 1)
 const raw = (at < 0 ? argv : argv.slice(0, at)).join(' ')
 // the one accepted spelling: each flag at most once, in this order, so `--apply` always comes first
-const ordered = (v) => configLast && v['replace-context'] !== '' && (!v['migrate-classic'] || v.apply) && raw === [v.apply && '--apply', v['migrate-classic'] && '--migrate-classic',
+const ordered = (v) => configLast && v['replace-context'] !== '' && (!v['migrate-classic'] || v.apply) && (!v['release-gate'] || !(v['migrate-classic'] || v['squash-only'] || v['branch-settings'] || v['replace-context'] !== undefined)) && raw === [v.apply && '--apply', v['release-gate'] && '--release-gate', v['migrate-classic'] && '--migrate-classic',
     v['squash-only'] && '--squash-only', v['branch-settings'] && '--branch-settings', v['replace-context'] !== undefined && `--replace-context ${v['replace-context']}`].filter(Boolean).join(' ')
-const { values, cfg } = cli(import.meta.url, 'protect', '[--apply [--migrate-classic]] [--squash-only] [--branch-settings] [--replace-context <old>] [--config f]',
-    { apply: { type: 'boolean' }, 'migrate-classic': { type: 'boolean' }, 'squash-only': { type: 'boolean' }, 'branch-settings': { type: 'boolean' }, 'replace-context': { type: 'string' } },
+const { values, cfg } = cli(import.meta.url, 'protect', '[--apply [--migrate-classic]] [--squash-only] [--branch-settings] [--replace-context <old>] [--config f] | [--apply] --release-gate [--config f]',
+    { apply: { type: 'boolean' }, 'release-gate': { type: 'boolean' }, 'migrate-classic': { type: 'boolean' }, 'squash-only': { type: 'boolean' }, 'branch-settings': { type: 'boolean' }, 'replace-context': { type: 'string' } },
     (p, v) => p.length === 0 && ordered(v))
 const drop = values['replace-context'] ?? null
+if (values['release-gate'] && cfg.mode !== 'off') {
+    console.error('protect: --release-gate is for mode off, on the user\'s request (mode.mjs set off first)')
+    process.exit(2)
+}
 if (drop === cfg.gate.context) {
     console.error(`protect: --replace-context "${drop}" is gate.context: nothing would replace it`)
     process.exit(2)
@@ -68,6 +77,7 @@ main('protect', () => {
     }
     const existing = touching[0]?.x ?? null
     const classic = notFound(() => api(`${R}/branches/${branch}/protection`))
+    if (values['release-gate']) return releaseGate(existing, classic)
     const migrate = values['migrate-classic'] === true
     const classicRequires = classic ? classicContexts(classic).some((c) => c.context === drop) : false
     if (drop && !migrate && classicRequires) {
@@ -121,3 +131,25 @@ main('protect', () => {
     }
     console.log(`${cfg.repo}: ${branch} is protected (ruleset id ${saved.id})`)
 })
+
+/** `--release-gate`: take only the gate status off the repo ruleset; everything else stays. */
+function releaseGate(existing, classic) {
+    if (classic && classicContexts(classic).some((c) => c.context === cfg.gate.context)) warn(`classic protection on ${branch} also requires "${cfg.gate.context}": left as it is (remove it there by hand)`)
+    if (!existing || !requiresGate(existing, cfg)) {
+        console.log(`nothing to release: no repo ruleset on ${branch} requires "${cfg.gate.context}"`)
+        return 0
+    }
+    const { body, lines } = releasedRuleset(existing, cfg)
+    for (const l of lines) console.log(l)
+    if (!values.apply) return 1
+    console.log(`current ruleset (rollback: PUT ${R}/rulesets/${existing.id} with this body):\n${JSON.stringify(existing, null, 2)}`)
+    const saved = api(`${R}/rulesets/${existing.id}`, { method: 'PUT', body })
+    const back = api(`${R}/rulesets/${saved.id}`)
+    const left = diff({ ruleset: back }, { ruleset: body })
+    if (requiresGate(back, cfg) || left.length) {
+        if (requiresGate(back, cfg)) console.error(`protect: read-back: the ruleset still requires "${cfg.gate.context}"`)
+        for (const l of left) console.error(`protect: read-back differs: ${l}`)
+        return 1
+    }
+    console.log(`${cfg.repo}: ${branch}: the gate "${cfg.gate.context}" is no longer required; the pull request, deletion and force push rules stay (ruleset id ${saved.id}). Back on: protect.mjs --apply`)
+}

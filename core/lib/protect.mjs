@@ -88,6 +88,35 @@ export function desiredRuleset(existing, cfg, extraContexts = [], drop = null, {
     }
 }
 
+const gateCheck = (cfg) => (c) => c.context === cfg.gate.context
+/** True when a rule of the ruleset requires the gate status. */
+export const requiresGate = (ruleset, cfg) => (ruleset?.rules ?? []).some((r) => r.type === 'required_status_checks' && (r.parameters?.required_status_checks ?? []).some(gateCheck(cfg)))
+
+/**
+ * The ruleset body that releases the gate (TicketFlow fully off): a copy of `existing` whose required status checks lose `gate.context`
+ * and nothing else. The whole rule goes when the gate was its only context (GitHub may refuse an empty one). Never adds a rule or a context;
+ * the pull request, deletion and force push rules, the other contexts and the bypass actors stay. Returns { body, lines }, `lines` the plan.
+ */
+export function releasedRuleset(existing, cfg) {
+    const lines = []
+    const rules = []
+    for (const r of existing.rules ?? []) {
+        const copy = structuredClone({ type: r.type, ...(r.parameters ? { parameters: r.parameters } : {}) })
+        if (r.type === 'required_status_checks' && requiresGate(existing, cfg)) {
+            const before = (r.parameters?.required_status_checks ?? []).map((c) => c.context)
+            copy.parameters.required_status_checks = copy.parameters.required_status_checks.filter((c) => !gateCheck(cfg)(c))
+            const after = copy.parameters.required_status_checks.map((c) => c.context)
+            lines.push(`ruleset.rules.required_status_checks.required_status_checks: ${JSON.stringify(before.sort())} -> ${after.length ? JSON.stringify(after.sort()) : '(rule removed)'}`)
+            if (!after.length) continue
+        }
+        rules.push(copy)
+    }
+    return {
+        lines,
+        body: { name: existing.name, target: 'branch', enforcement: existing.enforcement, conditions: existing.conditions, rules, bypass_actors: existing.bypass_actors },
+    }
+}
+
 /** One flat { path: value } map of the parts of a ruleset that the standard sets. */
 function flat({ settings = {}, ruleset }) {
     const out = {}

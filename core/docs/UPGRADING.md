@@ -16,6 +16,8 @@ files ([CONFIG.md](CONFIG.md)). Your extensions are never touched ([EXTENDING.md
 
 `node .ticketflow/scripts/mode.mjs set <advanced|quick|off>` validates the config, writes `mode` and renders the files that depend on it (the Claude and Codex ask rules). Commit both on a branch and merge the pull request: The scripts and `local-verify` use the default branch's config, and the CI scope step the base side of the pull request. No sync is needed. A config without `mode` is `advanced`.
 
+Fully off is a separate step on GitHub, on your request: `protect.mjs --apply --release-gate` ([CI-GATE.md](CI-GATE.md#releasing-the-gate-ticketflow-fully-off)).
+
 ## The manifest
 
 `.ticketflow/manifest.json` records an install. `runtime.mjs` owns `version`, `source` (`url`, `tag`, `commit`), `files` (the sha256 of

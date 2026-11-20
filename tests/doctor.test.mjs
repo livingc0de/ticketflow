@@ -243,3 +243,13 @@ test('ci-steps: verify.command in two steps of ci.yml warns, once is ok, no ci.y
     const u = d.run('--local')
     has(u, /^warn ci-steps: cannot read \.github\/workflows\/ci\.yml: EISDIR$/m); has(u, /^doctor: 0 failed/m)
 })
+
+test('mode off: protection drift is a warning, not a failure', () => {
+    const t = setup({ cfg: { mode: 'off' } })
+    t.child('protect', 1, { out: 'ruleset.rules.required_status_checks.required_status_checks: ["CI / Gate"] -> (rule removed)' })
+    const r = t.run()
+    assert.equal(r.status, 0, r.out); has(r, /^warn protection: protection differs; mode off: the gate may have been released on purpose/m)
+    const on = setup()
+    on.child('protect', 1)
+    assert.equal(on.run().status, 1)
+})

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { CAN_BYPASS, desiredRuleset, relation } from '../core/lib/protect.mjs'
+import { CAN_BYPASS, desiredRuleset, relation, releasedRuleset } from '../core/lib/protect.mjs'
 import { config, fakeGh, seq, tempDir, writeConfig } from './helpers.mjs'
 
 const script = new URL('../core/scripts/protect.mjs', import.meta.url).pathname
@@ -307,4 +307,69 @@ test('without admin rights the repo settings and bypass actors are unknown: said
     const r = run([], { [R]: repo({ permissions: { admin: false }, allow_squash_merge: null, allow_merge_commit: null, allow_rebase_merge: null, delete_branch_on_merge: null, allow_update_branch: null }), ...listed(old({ bypass_actors: undefined })) })
     assert.match(r.stderr, /merge methods and branch settings are not readable without admin rights/)
     assert.doesNotMatch(r.stderr, /no repository-admin bypass actor/)
+})
+
+// ---- --release-gate (TicketFlow fully off)
+const OFF = { mode: 'off' }
+const released = (rs) => ({ ...rs, rules: rs.rules.filter((r) => r.type !== 'required_status_checks') })
+const withLint = old({ rules: [{ type: 'deletion' }, { type: 'non_fast_forward' }, { type: 'pull_request', parameters: standardPr }, standardChecks('lint', 'CI / Gate')] })
+
+test('--release-gate: refused unless mode is off, combined with another flag, or misplaced: exit 2 with zero calls', () => {
+    assert.equal(run(['--release-gate'], {}).status, 2)
+    assert.deepEqual(run(['--apply', '--release-gate'], {}).calls, [])
+    for (const a of [['--release-gate', '--apply'], ['--release-gate', '--squash-only'], ['--apply', '--release-gate', '--migrate-classic'], ['--apply', '--release-gate', '--branch-settings'], ['--release-gate', '--replace-context', 'x'], ['--apply', '--squash-only', '--release-gate']]) {
+        const r = run(a, {}, OFF)
+        assert.equal(r.status, 2, a.join(' ')); assert.deepEqual(r.calls, [], a.join(' '))
+    }
+})
+
+test('--release-gate plan: shows the change, exits 1 and writes nothing; a sole gate context removes the rule', () => {
+    const plan = run(['--release-gate'], listed(withLint), OFF)
+    assert.equal(plan.status, 1, plan.stderr)
+    assert.match(plan.stdout, /required_status_checks: \["CI \/ Gate","lint"\] -> \["lint"\]/)
+    assert.deepEqual(plan.writes, [])
+    const sole = run(['--release-gate'], listed(old()), OFF)
+    assert.equal(sole.status, 1)
+    assert.match(sole.stdout, /-> \(rule removed\)/)
+    assert.deepEqual(sole.writes, [])
+})
+
+test('--release-gate --apply: rollback copy first, one PUT that keeps every other rule and the bypass actors, then the read-back', () => {
+    const before = old()
+    const r = run(['--apply', '--release-gate'], { ...listed(before), [`PUT ${R}/rulesets/11`]: { id: 11 }, [`${R}/rulesets/11`]: seq(before, released(before)) }, OFF)
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(r.sequence, ['GET repo', 'GET branches/main', 'GET rulesets?per_page=100', 'GET rulesets/11', 'GET branches/main/protection', 'PUT rulesets/11', 'GET rulesets/11'])
+    assert.ok(r.stdout.includes('current ruleset (rollback'))
+    const { body } = r.writes[0]
+    assert.deepEqual(body.rules.map((x) => x.type), ['deletion', 'non_fast_forward', 'pull_request'])
+    assert.deepEqual(body.rules.find((x) => x.type === 'pull_request').parameters, before.rules[2].parameters)
+    assert.deepEqual(body.bypass_actors, before.bypass_actors)
+    assert.equal(body.name, 'main')
+    assert.match(r.stdout, /no longer required/)
+})
+
+test('--release-gate --apply keeps the other required contexts', () => {
+    const r = run(['--apply', '--release-gate'], { ...listed(withLint), [`PUT ${R}/rulesets/11`]: { id: 11 }, [`${R}/rulesets/11`]: seq(withLint, old({ rules: [{ type: 'deletion' }, { type: 'non_fast_forward' }, { type: 'pull_request', parameters: standardPr }, standardChecks('lint')] })) }, OFF)
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(r.writes[0].body.rules.find((x) => x.type === 'required_status_checks').parameters.required_status_checks, [{ context: 'lint' }])
+})
+
+test('--release-gate: a read-back that still requires the gate exits 1; nothing to release exits 0 with no write; classic protection is only warned about', () => {
+    const before = old()
+    const stuck = run(['--apply', '--release-gate'], { ...listed(before), [`PUT ${R}/rulesets/11`]: { id: 11 }, [`${R}/rulesets/11`]: seq(before, before) }, OFF)
+    assert.equal(stuck.status, 1); assert.match(stuck.stderr, /still requires "CI \/ Gate"/)
+    const none = run(['--apply', '--release-gate'], listed(released(before)), OFF)
+    assert.equal(none.status, 0); assert.match(none.stdout, /nothing to release/); assert.deepEqual(none.writes, [])
+    assert.equal(run(['--apply', '--release-gate'], {}, OFF).status, 0)   // no ruleset at all
+    const classic = run(['--release-gate'], { ...listed(released(before)), [`${R}/branches/main/protection`]: { required_status_checks: { contexts: ['CI / Gate'], checks: [] } } }, OFF)
+    assert.equal(classic.status, 0); assert.match(classic.stderr, /classic protection on main also requires "CI \/ Gate": left as it is/); assert.deepEqual(classic.writes, [])
+})
+
+test('--release-gate: two rulesets or a broad one exit 2; after a release the plain plan adds the gate back', () => {
+    const two = run(['--release-gate'], listed(old(), old({ id: 12, name: 'b' })), OFF)
+    assert.equal(two.status, 2)
+    const back = run([], listed(released(old())))
+    assert.equal(back.status, 1); assert.match(back.stdout, /required_status_checks/)
+    const again = releasedRuleset(released(old()), config())
+    assert.deepEqual(again.lines, [])
 })
