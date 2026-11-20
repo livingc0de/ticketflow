@@ -866,7 +866,7 @@ test('quick flow in ci.yml: the scope reads the base config, selects tests, a Qu
     assert.match(ci, /elif q=\$\(node \.ticketflow\/lib\/quick\.mjs "\$PR" --config "\$RUNNER_TEMP\/base\.json" < "\$RUNNER_TEMP\/changed"\) && \[ -n "\$q" \]; then\n\s+printf 'quick=true\\ntests=%s\\ndescription=Actions quick run #%s\\n'/)
     assert.ok(ci.includes("- name: Quick Verify\n        if: steps.scope.outputs.quick == 'true'") && ci.includes('quick.mjs --run --config "$RUNNER_TEMP/base.json"'))
     assert.ok(ci.includes("if: steps.scope.outputs.skip != 'true' && steps.scope.outputs.quick != 'true'"))
-    assert.match(ci, /report:\n    name: Report Failed Full Run\n    needs: verify\n    if: \$\{\{ failure\(\) && github\.event_name == 'workflow_dispatch' \}\}\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    permissions:\n      issues: write/)
+    assert.match(ci, /report:\n    name: Report Failed Full Run\n    needs: verify\n    if: \$\{\{ failure\(\) && github\.event_name != 'pull_request' \}\}\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    permissions:\n      issues: write/)
     assert.ok(!/report:[\s\S]*actions\/checkout/.test(ci.slice(ci.indexOf('report:'))), 'the report job has no checkout')
 })
 
@@ -875,10 +875,10 @@ test('the rendered quick scope and report job run as written: the scope sets qui
     const lines = ci.split('\n'), at = lines.findIndex((l) => l.includes('elif q=$(node .ticketflow/lib/quick.mjs'))
     const elif = lines.slice(at, at + 2).join('\n')
     const dir = tempDir('scope-')
-    const shim = `${dir}/bin`; mkdirSync(shim)
+    const shim = `${dir}/bin`; mkdirSync(shim); writeFileSync(`${dir}/changed`, '')
     writeFileSync(`${shim}/node`, '#!/bin/sh\n[ "$FAKEQ" = fail ] && exit 2\n[ -n "$FAKEQ" ] && echo "$FAKEQ"\nexit 0\n'); chmodSync(`${shim}/node`, 0o755)
     const scope = (fake) => {
-        const out = `${dir}/out-${fake || 'none'}`; writeFileSync(out, '')
+        const out = `${dir}/out-${fake.replace(/\W/g, '_') || 'none'}`; writeFileSync(out, '')
         const r = spawnSync('bash', ['-ec', `if false; then :\n${elif}\nfi`], { env: { PATH: `${shim}:${process.env.PATH}`, FAKEQ: fake, PR: '5', RUNNER_TEMP: dir, GITHUB_RUN_ID: '77', GITHUB_OUTPUT: out }, encoding: 'utf8' })
         assert.equal(r.status, 0, r.stderr)
         return readFileSync(out, 'utf8')

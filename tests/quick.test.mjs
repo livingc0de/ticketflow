@@ -19,7 +19,7 @@ test('verify.quick_command must run the selected tests ($TICKETFLOW_TESTS), is o
 })
 
 test('selectTests: a changed test is selected, a code file selects the tests that share its stem, docs are skipped', () => {
-    assert.deepEqual(sel(['tests/cart.test.js']), { ok: true, tests: ['tests/cart.test.js'], unmatched: [], why: null })
+    assert.deepEqual(sel(['tests/cart.test.js']), { ok: true, tests: ['tests/cart.test.js'], unmatched: [], covers: {}, why: null })
     assert.deepEqual(sel(['src/cart.js', 'README.md']).tests, ['tests/cart.test.js'])
     assert.deepEqual(sel(['pkg/calc.go']).tests, ['pkg/calc_test.go'])
     assert.deepEqual(sel(['py/pricing.py']).tests, ['tests/test_pricing.py'])
@@ -70,7 +70,7 @@ test('fullRunReasons: one case per trigger, and a clean small tested change need
     assert.deepEqual(reasons([F('README.md')]), [])   // docs at the root are not shared config
     assert.match(reasons([F('src/cart.js', 200)]).join(), /changed code lines/)
     assert.match(reasons([F('src/cart.js')], [], { ok: false, tests: [], unmatched: [], why: 'no test selected' }).join(), /undeterminable/)
-    assert.match(reasons([F('src/orphan.js')], [], sel(['src/cart.js', 'src/orphan.js'])).join(), /without a matching test: src\/orphan\.js/)
+    assert.match(reasons([F('src/orphan.js')], [], sel(['src/cart.js', 'src/orphan.js'])).join(), /without a matching existing test: src\/orphan\.js/)
     assert.match(reasons([{ filename: 'x', additions: 'a' }])[0], /could not be read/)
     assert.match(reasons([F('src/cart.js')], [], ok, quickCfg({ gate: { ci_files: ['^build/'] } })).join(), /^$/)
     assert.match(reasons([F('build/x.js')], [], ok, quickCfg({ gate: { ci_files: ['^build/'] } })).join(), /shared or verification file build\/x\.js/)
